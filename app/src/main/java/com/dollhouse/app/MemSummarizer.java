@@ -1,0 +1,424 @@
+package com.dollhouse.app;
+
+import android.content.Context;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/**
+ * 【职责】上下文总结与压缩：把最老的一批消息交给模型压成要点，原文真删除。
+ *
+ * 【入口】ChatHistoryStore.push 末尾的 maybeAuto（自动档）；加号面板「记忆」页的「立即总结」（手动档）。
+ *
+ * 【交互】摘要写入 MemStore（键 mem_list），会话历史由 ChatPanel.history 持有；
+ *        压缩后在历史头部插入一条 role=system / kind=summary 的消息，发送时随上下文一起带上。
+ *
+ * 【扩展】想改成「只压请求不删原文」只需在 apply() 里保留原件、另存一份摘要。
+ *
+ * 【坑】① 真删除不可恢复，所以只在模型成功返回摘要后才动原文；
+ *        ② 必须有全局重入锁，否则连发两条消息会并发触发两次压缩；
+ *        ③ 头部那条 system 摘要不能被 saveHistory 的「只留最近 60 条」截掉，见 ChatHistoryStore.saveHistory。
+ */
+final class MemSummarizer {
+
+    /** 全局重入锁：同一时间只允许一次压缩。 */
+    private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
+    /** 压缩后保留的最近消息条数。 */
+    private static final int KEEP_TAIL = 8;
+    /** 单次最多压缩的消息条数（控制总结请求本身的长度）。 */
+    private static final int MAX_BATCH = 40;
+    /** 上下文占用超过该比例也触发自动总结（与条数阈值二者取一）。 */
+    private static final float CTX_TRIGGER_RATIO = 0.6f;
+    /**
+     * 【v2.9.5】看门狗超时（毫秒）：比网络层的读超时（120s）再宽一点。
+     * 【为什么需要】ColorOS 会冻结后台进程（logcat 实测 OplusHansManager freeze com.dollhouse.app），
+     *   被冻结时工作线程连同网络请求一起挂起，既不返回也不抛异常，回调永远不到；
+     *   而 RUNNING 锁与「记忆总结中」只在回调里复位 → 界面永久卡在「记忆总结中」。
+     *   到点主动兜底复位，让用户至少能再次点击，而不是被一个幽灵锁永久挡住。
+     */
+    private static final long WATCHDOG_MS = 150000L;
+    /** 本次在途请求的看门狗；新请求发起前先撤旧的，避免误复位新一轮。 */
+    private static Runnable watchdog;
+
+    /**
+     * 归档提示词。
+     * 【结构】固定四段，避免模型每次自由发挥导致要点丢失。
+     * 【合并】材料里可能带上一次的归档（见 transcript），必须并进去而不是覆盖。
+     */
+    private static final String SUMMARY_PROMPT = "你在帮一段 GalGame 对话做归档。把下面这段对话（可能包含【更早的归档】）"
+            + "合并压缩成一份要点，分段写清：①主人对鲸鱼娘的称呼与偏好；②两人之间的约定；"
+            + "③重要事件；④关系与情绪的变化。"
+            + "【合并】若材料里有【更早的归档】，必须把其中仍然有效的要点并进新摘要，不要让旧信息消失。"
+            + "用中文，不超过 300 字，不要 Markdown 标题符号，不要列条目符号，不要评论，直接输出要点正文。";
+
+    private MemSummarizer() {
+    }
+
+    /** 【v2.9.1】深拷贝一份历史作快照：之后 host.history 即使被整段替换，快照也不受影响。 */
+    private static JSONArray copyOf(JSONArray src) {
+        JSONArray out = new JSONArray();
+        if (src == null) {
+            return out;
+        }
+        for (int i = 0; i < src.length(); i++) {
+            JSONObject o = src.optJSONObject(i);
+            if (o == null) {
+                continue;
+            }
+            try {
+                out.put(new JSONObject(o.toString()));
+            } catch (Throwable unused) {
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 【v2.9.1】当前历史开头那 count 条是否仍与快照逐条相同（只比 role / content）。
+     * 【为什么不用引用比较】请求在途时用户常会再发消息，history 会被整段替换；
+     *   引用比较会把这当成「历史变了」而丢弃整次总结，表现就是「点了没反应」。
+     *   逐条比对则能识别出「前面那批没动、只是尾部多了新消息」，从而正常完成总结。
+     */
+    private static boolean prefixMatches(JSONArray cur, JSONArray snap, int count) {
+        if (cur == null || snap == null || count <= 0
+                || cur.length() < count || snap.length() < count) {
+            return false;
+        }
+        for (int i = 0; i < count; i++) {
+            JSONObject a = cur.optJSONObject(i);
+            JSONObject b = snap.optJSONObject(i);
+            if (a == null || b == null) {
+                return false;
+            }
+            if (!a.optString("role").equals(b.optString("role"))
+                    || !a.optString("content").equals(b.optString("content"))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean isRunning() {
+        return RUNNING.get();
+    }
+
+    /**
+     * 自动档：开了自动总结且当前会话条数到达阈值时，异步压缩最老的一批。
+     * 【坑】由 ChatHistoryStore.push 调用，即在主线程、且已落盘之后。
+     */
+    static void maybeAuto(ChatPanel host) {
+        if (host == null) {
+            return;
+        }
+        Context ctx = host.getContext();
+        if (!PetPrefs.memAuto(ctx)) {
+            return;
+        }
+        // 【v2.9.5】自动档同样先收回展开态：补回批是临时回看，不该被算作待压缩的正文。
+        if (host.prevCount > 0) {
+            boolean folded = ChatHistoryStore.collapsePrev(host, host.prevCount);
+            android.util.Log.i("DollhouseMemo", "[maybeAuto] 收回展开态 ok=" + folded
+                    + " prevCount=" + host.prevCount);
+            host.prevCount = 0;
+            if (folded) {
+                host.reloadHistory();
+            }
+        }
+        int len = host.history.length();
+        int count = Math.min(MAX_BATCH, len - KEEP_TAIL);
+        // 【双触发】条数到档位，或上下文占用到线，任一命中就先一步压缩。
+        // 占用触发时门槛放宽到 2 条：占用高不一定条数多（单条超长消息也算）。
+        boolean byCount = len >= PetPrefs.memThreshold(ctx);
+        boolean byRatio = host.ctxUsedChars() >= (int) (PetPrefs.ctxWindow(ctx) * CTX_TRIGGER_RATIO);
+        if (!byCount && !byRatio) {
+            return;
+        }
+        int minCount = byRatio ? 2 : 6;
+        if (count < minCount) {
+            return;
+        }
+        summarize(host, count, null);
+    }
+
+    /**
+     * 手动档：点了就总结，不设条数门槛。
+     * 【v2.9.3】改「全折」：用户点「立即总结」时，当前会话里主人发的与小肥鱼回的
+     *          **全部**内容都并进摘要（原先只折最老的一批、把最近 KEEP_TAIL 条留在聊天里）。
+     *          原文全部进 conv_prev 暂存位，仍可点顶部「更早的历史」入口回看，一条不丢。
+     * 【上限】手动档不再套 MAX_BATCH：用户要的是「都算」，就不该有静默截断。
+     */
+    static void summarizeNow(ChatPanel host, Runnable done) {
+        if (host == null) {
+            return;
+        }
+        int len = host.history.length();
+        int count = len;
+        android.util.Log.i("DollhouseMemo", "[summarizeNow] len=" + len + " count=" + count);
+        if (count < 1) {
+            android.util.Log.i("DollhouseMemo", "[summarizeNow] 中止: 历史为空");
+            // 【v2.9.1】不再静默：全工程禁用 Toast，不给反馈用户只会以为点了没反应。
+            host.flashMemo("对话太短，暂时没什么可总结的");
+            if (done != null) {
+                done.run();
+            }
+            return;
+        }
+        summarize(host, count, done);
+    }
+
+    private static void summarize(final ChatPanel host, final int count, final Runnable done) {
+        final Context ctx = host.getContext().getApplicationContext();
+        android.util.Log.i("DollhouseMemo", "[summarize] 进入 count=" + count
+                + " histLen=" + host.history.length() + " hasKey=" + PetPrefs.hasKey(ctx));
+        if (!PetPrefs.hasKey(ctx)) {
+            android.util.Log.i("DollhouseMemo", "[summarize] 中止: 未填 API Key");
+            // 【v2.9.1】原先这里静默返回，用户完全不知道是「没填 API Key」还是「功能坏了」。
+            host.flashMemo("还没填 API Key");
+            if (done != null) {
+                done.run();
+            }
+            return;
+        }
+        // 【快照】发起请求前把「这次压的是哪个会话、压的是哪份数组」定下来。
+        // 回调是异步的，期间用户完全可能切了会话或清空历史；到那时再读
+        // ChatSessions.currentId / host.history 已经不是同一份数据了。
+        final String convId = ChatSessions.currentId(ctx);
+        // 【v2.9.1】快照改成深拷贝：请求在途期间 host.history 会被整段替换
+        //（发消息 → push → saveHistory → trimForSave 重新赋值），
+        // 若快照就是那个引用，之后连对比基准都被改掉了。
+        final JSONArray snapshot = copyOf(host.history);
+        String transcript = transcript(snapshot, count);
+        android.util.Log.i("DollhouseMemo", "[summarize] snapshotLen=" + snapshot.length()
+                + " transcriptLen=" + transcript.length() + " convId=" + convId);
+        if (transcript.trim().isEmpty()) {
+            android.util.Log.i("DollhouseMemo", "[summarize] 中止: transcript 为空");
+            host.flashMemo("没有可总结的内容");
+            if (done != null) {
+                done.run();
+            }
+            return;
+        }
+        if (!RUNNING.compareAndSet(false, true)) {
+            android.util.Log.i("DollhouseMemo", "[summarize] 中止: RUNNING 锁被占用");
+            host.flashMemo("上一次总结还在进行中");
+            if (done != null) {
+                done.run();
+            }
+            return;
+        }
+        // 【v2.8】真开始跑了才亮「记忆总结中」（上面的提前退出分支都不亮，避免闪现）。
+        // 【v2.9.1·P2】这一步必须自己兜异常：它夹在 CAS 与内层 try 之间，
+        //  一旦抛（面板已 detach 等），RUNNING 会永久卡 true，
+        //  之后每次手动/自动总结都被 isRunning 静默挡掉 —— 等于总结功能永久失效。
+        try {
+            host.setMemoBusy(true);
+            android.util.Log.i("DollhouseMemo", "[summarize] 已进入总结中状态，发起请求");
+        } catch (Throwable unused) {
+            android.util.Log.i("DollhouseMemo", "[summarize] 中止: setMemoBusy 抛异常");
+            RUNNING.set(false);
+            if (done != null) {
+                done.run();
+            }
+            return;
+        }
+        JSONArray messages = new JSONArray();
+        try {
+            JSONObject sys = new JSONObject();
+            sys.put("role", "system");
+            sys.put("content", SUMMARY_PROMPT);
+            messages.put(sys);
+            JSONObject usr = new JSONObject();
+            usr.put("role", "user");
+            usr.put("content", transcript);
+            messages.put(usr);
+        } catch (Throwable unused) {
+        }
+        try {
+            // 【v2.9.6】总结的输出预算：显式给 4096，效果等同「不限制」。
+            //  【为什么不再传 -1】不下发 max_tokens 时，部分服务端/模型会走异常分支
+            //    直接吐出空 content，用户那边看到的还是老报错「模型返回了空内容」。
+            //    给一个远超 300 字中文摘要所需的显式值，既够用又不依赖服务端默认行为。
+            DeepSeekClient.chat(PetPrefs.apiKey(ctx), PetPrefs.baseUrl(ctx), PetPrefs.model(ctx), messages, 4096, new DeepSeekClient.Callback() {
+            @Override
+            public void onResult(final String str, final String str2) {
+                android.util.Log.i("DollhouseMemo", "[callback] 到达 ok=" + (str != null && !str.trim().isEmpty())
+                        + " okLen=" + (str == null ? -1 : str.length())
+                        + " err=" + (str2 == null || str2.trim().isEmpty() ? "无" : "有"));
+                try {
+                    if (str == null || str.trim().isEmpty()) {
+                        // 【v2.9.1·P0】失败必须可见：原先这里直接 return，把 str2 的错误原因
+                        //  整个丢掉（覆盖所有网络/HTTP 错误与「HTTP 200 但 content 为空」），
+                        //  而全工程禁用 Toast，用户只看到「记忆总结中」闪一下 —— 就是「点了没反应」。
+                        android.util.Log.i("DollhouseMemo", "[callback] 失败分支: 无有效内容");
+                        host.flashMemo(str2 == null || str2.trim().isEmpty()
+                                ? "总结没成功，稍后再试" : "总结没成功：" + str2);
+                        return;
+                    }
+                    // 【守卫①】换了会话就整个放弃：不能把摘要写到别的会话名下、
+                    // 更不能按旧下标去删另一个会话的历史。
+                    if (!convId.equals(ChatSessions.currentId(ctx))) {
+                        // 【v2.9.2】换会话也要说一声，否则整条链路又一次「点了没反应」。
+                        android.util.Log.i("DollhouseMemo", "[callback] 放弃: 会话已切换");
+                        host.flashMemo("已切换对话，这次总结跳过");
+                        return;
+                    }
+                    // 【守卫②·v2.9.1 修正】不再用「引用相等」判快照失效。
+                    //  请求在途期间用户很可能又发了一条消息，saveHistory → trimForSave 会把
+                    //  host.history 换成新数组（内容 = 原来那批 + 新增），引用比较必然不等，
+                    //  整次总结被静默丢弃 —— 真机上就是「点了没反应」。
+                    //  改成「前缀逐条比对」：只要当前历史开头那 count 条仍是当初那批，
+                    //  就在当前历史上做替换，期间新增的消息原样留在尾部。
+                    if (!prefixMatches(host.history, snapshot, count)) {
+                        android.util.Log.i("DollhouseMemo", "[callback] 放弃: 前缀不匹配 curLen="
+                                + host.history.length() + " snapLen=" + snapshot.length() + " count=" + count);
+                        host.flashMemo("对话已变化，这次总结跳过");
+                        return;
+                    }
+                    final String summary = str.trim();
+                    android.util.Log.i("DollhouseMemo", "[callback] 成功: summaryLen=" + summary.length()
+                            + " count=" + count + " curLen=" + host.history.length());
+                    MemStore.add(ctx, convId, summary, count);
+                    // 【v2.8】总结会整体替换 history，展开态的切点（头部摘要数 + count）随之失效：
+                    //         撤销展开态即可，补回的消息该被压缩的进摘要、剩下的仍在尾部，一条不丢。
+                    host.prevCount = 0;
+                    // 【v2.9】真删除前先把原文存进「更早历史」暂存位：
+                    //   摘要给的是要点（长期记忆），原文仍可点顶部入口回看，
+                    //   避免「聊着聊着早期原话就再也找不回来」（真机反馈）。
+                    ChatHistoryStore.pushPrevTail(ctx, convId, snapshot, count);
+                    // 真删除：摘掉被压掉的那批，头部换成一条摘要消息。
+                    JSONArray arr = new JSONArray();
+                    JSONObject head = new JSONObject();
+                    head.put("role", "system");
+                    head.put("kind", "summary");
+                    head.put("content", "【早期对话要点】" + summary);
+                    arr.put(head);
+                    // 【v2.9.1】按**当前**历史重建（而非快照）：期间新增的消息必须留下。
+                    JSONArray cur = host.history;
+                    for (int i = count; i < cur.length(); i++) {
+                        arr.put(cur.opt(i));
+                    }
+                    host.history = arr;
+                    ChatHistoryStore.saveHistory(host);
+                    // 【v2.9.4】成功路径必须可见：原先成功时聊天区只是无声地重铺，
+                    //  用户无法区分「压好了」与「什么都没发生」，正是「总结没成功」报障的来源。
+                    host.flashMemo("已把 " + count + " 条压成摘要");
+                    android.util.Log.i("DollhouseMemo", "[callback] 已落盘 newHistLen=" + host.history.length());
+                    host.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            host.reloadHistory();
+                            host.refreshCtxRing();
+                            // 【v2.8】重铺完把视图落到「ⓘ 历史对话摘要」那条分割线，让「已收起」一眼可见。
+                            host.scrollToSummary();
+                            if (done != null) {
+                                done.run();
+                            }
+                        }
+                    });
+                } catch (Throwable unused) {
+                    android.util.Log.i("DollhouseMemo", "[callback] 成功块内异常: " + unused.getClass().getSimpleName());
+                    // 【v2.9.3·P1】成功块内的落盘/构造异常也必须说一声：否则「记忆总结中」亮一下就没，
+                    //  用户看到的仍是「点了没反应」。flashHold 保证随后的 finally 不会同帧隐藏它。
+                    host.flashMemo("总结写入失败，稍后再试");
+                    if (done != null) {
+                        done.run();
+                    }
+                } finally {
+                    // 【v2.9.5】回调真正到达：撤掉看门狗，正常收尾。
+                    cancelWatchdog(host);
+                    RUNNING.set(false);
+                    // 【v2.8】无论成败都要撤掉「记忆总结中」，否则提示会永久挂在工具条上。
+                    host.setMemoBusy(false);
+                }
+            }
+        });
+        // 【v2.9.5】请求已发出，挂看门狗：进程被系统冻结导致回调永不到达时，
+        //  到点主动复位，避免「记忆总结中」永久卡在工具条上（真机报障）。
+        armWatchdog(host);
+        } catch (Throwable t) {
+            android.util.Log.i("DollhouseMemo", "[summarize] 同步异常: " + t.getClass().getSimpleName());
+            // 【坑】RUNNING 一旦置位，只有回调里的 finally 会清。若 chat() 在启动线程前
+            // 就同步抛了（参数求值、start() 失败），这个锁会永久卡住，自动总结从此静默失效。
+            // 【v2.8】同步抛异常时回调不会来，「记忆总结中」必须在这里撤掉（放在 done 之前，防回调抛异常漏撤）。
+            // 【v2.9.2·P2-3】先给可见提示再撤忙碌态：否则 chat() 在启动线程前同步抛时用户零反馈。
+            RUNNING.set(false);
+            host.flashMemo("总结启动失败，稍后再试");
+            host.setMemoBusy(false);
+            if (done != null) {
+                done.run();
+            }
+        }
+    }
+
+    /** 【v2.9.5】挂看门狗：到点仍未见回调就主动复位状态并给可见提示。 */
+    private static void armWatchdog(final ChatPanel host) {
+        cancelWatchdog(host);
+        watchdog = new Runnable() {
+            @Override
+            public void run() {
+                watchdog = null;
+                // 只有仍处于「在途」才兜底：正常回调早已把 RUNNING 清掉。
+                if (!RUNNING.compareAndSet(true, false)) {
+                    return;
+                }
+                android.util.Log.i("DollhouseMemo", "[watchdog] 超时兜底: 回调未到达，主动复位");
+                host.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        host.flashMemo("总结超时了，稍后再试");
+                        host.setMemoBusy(false);
+                    }
+                });
+            }
+        };
+        host.postDelayed(watchdog, WATCHDOG_MS);
+    }
+
+    /** 【v2.9.5】撤掉看门狗（回调到达或新一轮开始时调用）。 */
+    private static void cancelWatchdog(ChatPanel host) {
+        final Runnable w = watchdog;
+        if (w != null) {
+            watchdog = null;
+            if (host != null) {
+                host.removeCallbacks(w);
+            }
+        }
+    }
+
+    /**
+     * 把最老的前 count 条拼成一段可读的对话记录。
+     * 【坑】头部那条 kind=summary 是上一次压缩的产物，必须把它的正文带进来：
+     *      它和这段消息一起被「真删除」，跳过就等于把这批归档整段丢掉，
+     *      而新的摘要只覆盖后面那批 —— 摘要会一路变短，最后什么都没有。
+     *      其余 role=system 的消息是提示词/记忆注入，不属于对话，照旧跳过。
+     */
+    static String transcript(JSONArray history, int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count && i < history.length(); i++) {
+            JSONObject o = history.optJSONObject(i);
+            if (o == null) {
+                continue;
+            }
+            if ("summary".equals(o.optString("kind"))) {
+                sb.append("【更早的归档】");
+                sb.append(o.optString("content", ""));
+                sb.append('\n');
+                continue;
+            }
+            // 【v2.9.5·第二道防线】展开态的补回批（带 _prev 标记）不属于要总结的内容：
+            //  它们的要点早已进过摘要，重复喂给模型等于把旧内容再总结一遍。
+            //  正常情况下 summarize 之前已收回展开态，这里只兜底结构异常的场景。
+            if (ChatHistoryStore.isPrevItem(o)) {
+                continue;
+            }
+            String role = o.optString("role");
+            if ("system".equals(role)) {
+                continue;
+            }
+            sb.append("user".equals(role) ? "主人：" : "小肥鱼：");
+            sb.append(o.optString("content", ""));
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+}

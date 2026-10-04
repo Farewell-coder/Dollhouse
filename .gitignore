@@ -1,0 +1,28 @@
+# 签名凭据（含口令，绝不入库）
+keystore.properties
+
+# 构建产物
+.gradle/
+build/
+app/build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 系统
+.DS_Store
+
+# 二进制产物
+*.apk
+*.jks
+*.keystore
+
+# 本地开发临时脚本（逆向 / 编译辅助，不属工程源码）
+*.py
+/rstub/

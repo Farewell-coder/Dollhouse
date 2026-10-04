@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 全应用统一对话框主题：白底、深蓝标题、紫主色按钮，与 UiKit 一致。 -->
+    <style name="DollhouseDialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#6B4EE6</item>
+        <item name="android:textColorPrimary">#22315B</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+    </style>
+    <!-- 暗色 / 纯黑主题下的对话框：深底浅字，避免主题里弹出刺眼白框。 -->
+    <style name="DollhouseDialogDark" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#9B85F0</item>
+        <item name="android:textColorPrimary">#E8EAF2</item>
+        <item name="android:windowBackground">#1E1F26</item>
+    </style>
+</resources>
