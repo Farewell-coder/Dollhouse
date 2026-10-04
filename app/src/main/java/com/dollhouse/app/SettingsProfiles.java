@@ -86,16 +86,32 @@ public final class SettingsProfiles {
     /* ------------------------------ 收藏模型（命星） ------------------------------ */
 
     /**
-     * 收藏模型清单的存储键。全局一份，跨配置共享 —— 换个接口地址照样能看到自己标过星的那些。
+     * 旧版（全局一份）收藏键。仅作升级兜底：每套配置还没有自己的收藏时，
+     * 「当前配置」先拿它当初始值；一旦发生一次收藏/取消，内容就迁到专属键并清掉它。
      */
     public static final String KEY_STARS = "model_stars";
-
+    /** 每套配置的收藏键：model_stars|&lt;配置名&gt;。 */
+    private static String starKeyOf(String profile) {
+        return KEY_STARS + "|" + (profile == null ? "" : profile);
+    }
     /**
-     * 读收藏模型清单。损坏一律退回空表。
-     * 【用途】聊天面板圆环里「展开模型」只列这里的模型；设置页模型浮层里的每行都带一颗可点的星。
+     * 读「当前配置」的收藏模型清单。
      */
     public static JSONArray loadStars(Context ctx) {
-        String raw = readPref(ctx, KEY_STARS);
+        return loadStars(ctx, readPref(ctx, KEY_CURRENT));
+    }
+    /**
+     * 读某套配置的收藏模型清单。损坏一律退回空表。
+     * 【归属】收藏按配置存 —— 换一套配置只看得到它自己收藏的模型，
+     *   不会再出现「不是这套配置的下级却列了别人的模型」。
+     * 【升级】该配置还没有专属键、且它就是当前配置时，退回旧版全局键（老数据不丢）。
+     * 【用途】聊天面板圆环里「展开模型」只列这里的模型；设置页模型浮层里的每行都带一颗可点的星。
+     */
+    public static JSONArray loadStars(Context ctx, String profile) {
+        String raw = readPref(ctx, starKeyOf(profile));
+        if (raw.length() == 0 && profile != null && profile.equals(readPref(ctx, KEY_CURRENT))) {
+            raw = readPref(ctx, KEY_STARS);
+        }
         if (raw.length() > 0) {
             try {
                 JSONArray arr = new JSONArray(raw);
@@ -114,21 +130,32 @@ public final class SettingsProfiles {
         return new JSONArray();
     }
 
-    /** 某个模型是否已被收藏。 */
+    /** 某个模型是否已被「当前配置」收藏。 */
     public static boolean isStarred(Context ctx, String model) {
-        String m = model == null ? "" : model.trim();
-        return m.length() > 0 && containsStar(loadStars(ctx), m);
+        return isStarred(ctx, readPref(ctx, KEY_CURRENT), model);
     }
-
+    /** 某个模型是否已被指定配置收藏。 */
+    public static boolean isStarred(Context ctx, String profile, String model) {
+        String m = model == null ? "" : model.trim();
+        return m.length() > 0 && containsStar(loadStars(ctx, profile), m);
+    }
     /**
-     * 切换某个模型的收藏状态，返回切换后的结果（true = 已收藏）。
+     * 切换某个模型在「当前配置」下的收藏状态，返回切换后的结果（true = 已收藏）。
      */
     public static boolean toggleStar(Context ctx, String model) {
+        return toggleStar(ctx, readPref(ctx, KEY_CURRENT), model);
+    }
+    /**
+     * 切换某个模型在某套配置下的收藏状态，返回切换后的结果（true = 已收藏）。
+     * 【升级】首次写入时顺手清掉旧版全局键：内容已落到专属键，留着反而会在
+     *   别的配置上被兜底读出来，制造「别人的模型」的错觉。
+     */
+    public static boolean toggleStar(Context ctx, String profile, String model) {
         String m = model == null ? "" : model.trim();
         if (m.length() == 0) {
             return false;
         }
-        JSONArray arr = loadStars(ctx);
+        JSONArray arr = loadStars(ctx, profile);
         JSONArray out = new JSONArray();
         boolean removed = false;
         for (int i = 0; i < arr.length(); i++) {
@@ -142,7 +169,10 @@ public final class SettingsProfiles {
         if (!removed) {
             out.put(m);
         }
-        writePref(ctx, KEY_STARS, out.toString());
+        writePref(ctx, starKeyOf(profile), out.toString());
+        if (profile != null && profile.equals(readPref(ctx, KEY_CURRENT))) {
+            writePref(ctx, KEY_STARS, "");
+        }
         return !removed;
     }
 

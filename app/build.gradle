@@ -19,8 +19,8 @@ android {
         applicationId "com.dollhouse.app"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "0.0.1"
+        versionCode 2
+        versionName "0.0.2"
     }
 
     signingConfigs {
@@ -57,5 +57,17 @@ android {
     lint {
         abortOnError false
         checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // Shizuku 官方客户端库：api 提供 Shizuku.* 调用面，provider 提供接收 server binder 的 ContentProvider。
+    // 两者都是 aar，传递依赖里带 androidx.annotation（仅注解，非运行时必需）——
+    // 本工程 android.useAndroidX=false，故显式排除，避免 AGP 的 AndroidX 检查直接失败。
+    implementation('dev.rikka.shizuku:api:13.1.5') {
+        exclude group: 'androidx.annotation'
+    }
+    implementation('dev.rikka.shizuku:provider:13.1.5') {
+        exclude group: 'androidx.annotation'
     }
 }

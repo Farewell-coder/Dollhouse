@@ -228,7 +228,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         // 【圆角】提示条原为满宽直角背景，会把面板圆角盖成直角；改圆角色块并左右留边。
         this.hint.setBackground(UiKit.round(UiKit.HINT_BG, getContext(), 10));
         this.hint.setPadding(dp(14.0f), dp(7.0f), dp(14.0f), dp(7.0f));
-        this.hint.setVisibility(8);
+        UiKit.collapse(this.hint);
         this.hint.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 Intent intent = new Intent(ChatPanel.this.getContext(), (Class<?>) MainActivity.class);
@@ -244,6 +244,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         ScrollView scrollView = new ScrollView(getContext());
         this.scroller = scrollView;
         scrollView.setFillViewport(true);
+        scrollView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         // 【v2.8】展开「更早的历史」后，滑到看不见那批消息时自动收回（数据不丢，入口重现）。
         scrollView.setOnScrollChangeListener(new View.OnScrollChangeListener() {
             @Override
@@ -297,7 +298,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         busy.setSingleLine(true);
         busy.setEllipsize(android.text.TextUtils.TruncateAt.END);
         busy.setPadding(dp(6.0f), 0, dp(2.0f), 0);
-        busy.setVisibility(8);
+        UiKit.collapse(busy);
         toolWrap.addView(busy, new LinearLayout.LayoutParams(0, -2, 1.0f));
         LinearLayout.LayoutParams toolLp = new LinearLayout.LayoutParams(-1, -2);
         toolLp.leftMargin = dp(10.0f);
@@ -370,7 +371,15 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         if (button == null) {
             return;
         }
-        button.setText(z ? "■" : "↑");
+        button.animate().cancel();
+        button.animate().alpha(0f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_STD)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        button.setText(z ? "■" : "↑");
+                        button.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_STD).start();
+                    }
+                }).start();
     }
 
     /** 用户点「停止」：断掉在途连接，静默收尾（不报网络错误）。 */
@@ -386,10 +395,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     /** 请求在途时把发送键切成「停止」，回来再切回「发送」。 */
     public void refreshHint() {
         if (PetPrefs.hasKey(getContext())) {
-            this.hint.setVisibility(8);
+            UiKit.collapse(this.hint);
         } else {
             this.hint.setText("还没填 API key，点这里去设置 →");
-            this.hint.setVisibility(0);
+            UiKit.reveal(this.hint);
         }
     }
     // 从偏好里取出接口地址与密钥（缺任一就算没配好）。
@@ -420,6 +429,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         }
         if (this.history.length() == 0) {
             addBubble("我是小肥鱼～ 有什么想跟我说的吗？", false);
+            UiKit.staggerCapped(this.messages, 12);
             return;
         }
         // 【v2.8·P3】补回批不再按下标推导（见 mergePrev 打的 _prev 标记），这里只判「有没有摘要头」。
@@ -442,6 +452,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                 }
             }
         }
+        UiKit.staggerCapped(this.messages, 12);
     }
 
     /** 【v2.8】聊天记录顶部的「点击加载更早的历史记录」入口（补回即清空暂存，入口随之消失）。 */
@@ -463,7 +474,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                     ChatPanel.this.holdScroll = true;
                     try {
                         renderHistory();
-                        ChatPanel.this.scroller.scrollTo(0, 0);
+                        UiKit.scrollToTop(ChatPanel.this.scroller);
                     } finally {
                         ChatPanel.this.holdScroll = false;
                     }
@@ -472,7 +483,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                         public void run() {
                             // 【坑】队列里可能还排着更早 addBubble 时 post 的 fullScroll，
                             //       等它跑完再拉回补回批顶部，用户看到的才是「刚展开的那批」。
-                            ChatPanel.this.scroller.scrollTo(0, 0);
+                            UiKit.scrollToTop(ChatPanel.this.scroller);
                         }
                     });
                     refreshCtxRing();
@@ -510,7 +521,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                 t.setText("记忆总结中");
             }
             if (!keepVisible) {
-                t.setVisibility(busy ? 0 : 8);
+                UiKit.showHide(t, busy);
             }
             return;
         }
@@ -521,7 +532,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                     t.setText("记忆总结中");
                 }
                 if (!keepVisible) {
-                    t.setVisibility(busy ? 0 : 8);
+                    UiKit.showHide(t, busy);
                 }
             }
         });
@@ -640,24 +651,24 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         LinearLayout linearLayout;
         LinearLayout linearLayout2 = this.inputRow;
         if (linearLayout2 != null) {
-            linearLayout2.setVisibility(this.browsingArchives ? 8 : 0);
+            UiKit.showHide(linearLayout2, !this.browsingArchives);
         }
         // 【三件套】工具条与输入行同进同退：翻看归档时一起收起，否则点了弹不出面板。
         LinearLayout toolWrap = this.toolRow;
         if (toolWrap != null) {
-            toolWrap.setVisibility(this.browsingArchives ? 8 : 0);
+            UiKit.showHide(toolWrap, !this.browsingArchives);
             // 【v2.8】工具条被整体隐藏时子视图状态会保留，但这里显式重放一次，
             //         避免将来改动 refreshInputRow 时把「记忆总结中」弄丢。
             TextView busy = this.memoBusy;
             if (busy != null) {
                 // 【v2.9.2】重放时也要认 flash：否则切归档/回聊天会把失败提示提前抹掉。
-                busy.setVisibility((this.memoBusyOn || this.flashHold) ? 0 : 8);
+                UiKit.showHide(busy, this.memoBusyOn || this.flashHold);
             }
         }
         if (!this.browsingArchives || (linearLayout = this.attachStrip) == null) {
             refreshAttachStrip();
         } else {
-            linearLayout.setVisibility(8);
+            UiKit.collapse(linearLayout);
         }
     }
     // 套用用户选的聊天背景图与透明度。
@@ -675,6 +686,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         bitmapDrawable.setGravity(119);
         bitmapDrawable.setAlpha((PetPrefs.chatBgAlpha(getContext()) * 255) / 100);
         this.scroller.setBackground(bitmapDrawable);
+        this.scroller.setAlpha(0.6f);
+        this.scroller.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_DECEL).start();
     }
     public void openPicker() {
         if (this.browsingArchives) {
@@ -711,18 +724,18 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             return;
         }
         if (this.pendingImage == null && this.pendingText == null) {
-            linearLayout.setVisibility(8);
+            UiKit.collapse(linearLayout);
             this.attachThumb.setImageDrawable(null);
             return;
         }
-        linearLayout.setVisibility(0);
+        UiKit.reveal(linearLayout);
         if (this.pendingImage != null) {
-            this.attachThumb.setVisibility(0);
+            UiKit.reveal(this.attachThumb);
             this.attachThumb.setImageBitmap(ImageStore.loadScaled(getContext(), this.pendingImage, 160));
             this.attachLabel.setText("已选图片，会一起发给她");
             return;
         }
-        this.attachThumb.setVisibility(8);
+        UiKit.collapse(this.attachThumb);
         this.attachThumb.setImageDrawable(null);
         String str = this.pendingText;
         int max = Math.max(1, str != null ? str.length() / 1024 : 0);
@@ -837,7 +850,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         this.flashHold = true;
         android.util.Log.i("DollhouseMemo", "[flash] 显示提示 len=" + msg.length());
         t.setText(msg);
-        t.setVisibility(0);
+        UiKit.reveal(t);
         this.pendingFlash = new Runnable() {
             @Override
             public void run() {
@@ -846,7 +859,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                 // 期间若另一次总结开始了，就别把它的「记忆总结中」收掉。
                 if (!ChatPanel.this.memoBusyOn) {
                     t.setText("记忆总结中");
-                    t.setVisibility(8);
+                    UiKit.collapse(t);
                 }
             }
         };
@@ -941,7 +954,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         renderHistory();
         setWaiting(true);
         addThinking("重新想过…");
-        PetBus.say("让我再想想…", 4000L);
+        // 【v0.0.1】只有人偶专属会话才让人偶头顶说话：其他对话框的回复不再上气泡。
+        if (ChatSessions.isPet(getContext())) {
+            PetBus.say("让我再想想…", 4000L);
+        }
         askModel(ChatHistoryStore.buildRequest(this), 0, true);
     }
     public void onSend() {
@@ -979,7 +995,9 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         clearAttachment();
         addBubble(trim, true, -1, str2);
         ChatHistoryStore.push(this, "user", trim, str2);
-        PetBus.say(str2 != null ? "让我看看…" : "让我想想…", 0 != 0 ? 6000L : 2500L);
+        if (ChatSessions.isPet(getContext())) {
+            PetBus.say(str2 != null ? "让我看看…" : "让我想想…", 0 != 0 ? 6000L : 2500L);
+        }
         setWaiting(true);
         addThinking(str2 != null ? "正在看图…" : "正在思考…");
         askModel(ChatHistoryStore.buildRequest(this), 0, true);
@@ -1058,7 +1076,9 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     }
     public void runTools(final JSONArray jSONArray, final JSONArray jSONArray2, final JSONObject jSONObject, final int i) {
         setThinkingLabel("我去查一下…");
-        PetBus.say("我去查一下…", 12000L);
+        if (ChatSessions.isPet(getContext())) {
+            PetBus.say("我去查一下…", 12000L);
+        }
         new Thread(new Runnable() {            @Override
             public void run() {
                 try {
@@ -1148,7 +1168,9 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             }
             ChatHistoryStore.push(this, "assistant", trim);
             addBubble(trim, false, this.history.length() - 1);
-            PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L);
+            if (ChatSessions.isPet(getContext())) {
+                PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L);
+            }
         }
     }
 }

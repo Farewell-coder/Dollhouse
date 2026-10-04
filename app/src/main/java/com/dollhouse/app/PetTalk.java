@@ -31,7 +31,11 @@ final class PetTalk {
     static final int PHASE_EXPANDED = 3;
     /** 请求兜底超时：网络卡死时不能让人偶永远停在「思考中」。 */
     private static final long REQUEST_TIMEOUT_MS = 60000L;
+    /** 工具循环最大轮数（与全屏页 ChatPanel 的 i<3 一致），防止模型来回调用烧钱。 */
+    private static final int MAX_TOOL_ROUNDS = 3;
     private static final String LOADING_TEXT = "思考中…";
+    /** 工具执行期间的临时气泡文案（迷你框没有专门的工具提示位，借用常驻气泡）。 */
+    private static final String TOOL_TEXT = "我查一下…";
     /**
      * 气泡每页目标行数。
      * 【改粒度只改 PetBubble.PAGE_SENTENCES】这里只是引用，避免两处各写一份。
@@ -60,6 +64,21 @@ final class PetTalk {
     private final Handler ui = new Handler(Looper.getMainLooper());
     /** 与本对话共用的历史数组；懒加载自 PetPrefs 的当前会话档。 */
     private JSONArray history;
+    /**
+     * 本轮对话绑定的人偶会话 id。
+     * 【为什么记住】原先读/写在两处各自 ensurePet()，若请求在途期间用户把该人偶会话删掉，
+     *   落盘那次会拿到一个「刚补建的新 id」，把旧数组写到新会话名下（串档）。改成进轮次时
+     *   定一次 id，整轮都认它。
+     */
+    private String petConvId;
+
+    /** 本轮绑定的会话 id；没有则现取（不改变当前池）。 */
+    private String convId() {
+        if (this.petConvId == null || this.petConvId.isEmpty()) {
+            this.petConvId = ChatSessions.ensurePet(this.ctx);
+        }
+        return this.petConvId;
+    }
     private DeepSeekClient.Task task;
     private int phase = PHASE_IDLE;
     /** 本次回复的未切片全文（翻页源头）。 */
@@ -72,10 +91,31 @@ final class PetTalk {
     private boolean timedOut = false;
     /** 思考参数被服务端拒后是否已降级过（限一次，防止死循环）。 */
     private boolean thinkDegraded = false;
+    /**
+     * 【v0.0.1·Shizuku】工具循环累积的追加消息（assistant(tool_calls) + 各条 role=tool）。
+     * null 表示本轮首轮请求；每完成一轮工具执行就被整体替换。
+     */
+    private JSONArray toolFollowUp;
+    /** 本轮已用掉的工具轮数；到 MAX_TOOL_ROUNDS 后不再下发 tools，强制收敛到文本回复。 */
+    private int toolRound = 0;
+    /**
+     * 【Shizuku】轮次代号：每次 talk / cancel / 工具超时都会 +1。
+     * 后台工具线程回来时比对代号，不一致说明这轮已作废（用户取消或已判超时），直接丢弃结果。
+     */
+    private int generation = 0;
     private final Runnable timeout = new Runnable() {
         @Override
         public void run() {
+            // 工具执行阶段：task 已置空但 phase 仍是 LOADING，此时没有任何 Task 可取消，
+            //   直接判超时收尾（否则气泡会永久停在「我查一下…」）。
             if (PetTalk.this.task == null) {
+                if (PetTalk.this.phase != PHASE_LOADING) {
+                    return;
+                }
+                PetTalk.this.generation++;
+                PetTalk.this.phase = PHASE_IDLE;
+                PetTalk.this.host.onBusy(false);
+                PetTalk.this.fail("等太久了…");
                 return;
             }
             PetTalk.this.timedOut = true;
@@ -103,12 +143,20 @@ final class PetTalk {
             this.host.sayTemp("还没配置 API Key（首页 → 聊天设置）", 3600L);
             return;
         }
+        // 【池跟随】每轮开始时绑定当前人偶池会话：抽屉里选了另一条人偶会话，这一轮就写到那条上；
+        //   绑定后整轮（读 + 两次落盘）都认同一个 id。
+        this.petConvId = ChatSessions.ensurePet(this.ctx);
         reloadHistory();
-        ChatHistoryStore.push(this.ctx, this.history, "user", trim);
+        ChatHistoryStore.push(this.ctx, this.history, "user", trim, convId());
         // 新一轮对话清掉上一轮的翻页状态，避免旧游标串到新回复上。
         this.bubbleFull = null;
         this.pageIndex = 0;
         this.totalPages = 0;
+        // 【Shizuku】工具循环状态一并复位，否则上一轮的 followUp 会串进新提问。
+        this.toolFollowUp = null;
+        this.toolRound = 0;
+        // 新轮次代号：在途的旧工具线程回来时会因代号不符而作废。
+        this.generation++;
         this.phase = PHASE_LOADING;
         this.host.setBubbleLines(PetBubble.LINES_TRUNC);
         this.host.saySticky(LOADING_TEXT);
@@ -168,6 +216,11 @@ final class PetTalk {
         this.bubbleFull = null;
         this.pageIndex = 0;
         this.totalPages = 0;
+        // 【Shizuku】工具循环状态一并复位，否则上一轮的 followUp 会串进新提问。
+        this.toolFollowUp = null;
+        this.toolRound = 0;
+        // 取消即作废当前轮次：在途的工具线程回来时会被代号校验挡掉。
+        this.generation++;
     }
     /** 服务销毁：取消请求 + 摘掉所有回调，避免 Handler 泄漏。 */
     void release() {
@@ -184,7 +237,8 @@ final class PetTalk {
      *   若本类还拿着旧数组整段回写，会把那边的新消息覆盖掉（丢消息）。
      */
     private void reloadHistory() {
-        String id = ChatSessions.ensure(this.ctx);
+        // 【v0.0.1】人偶的读写固定落在专属会话，不再借当前会话的槽。
+        String id = convId();
         try {
             this.history = new JSONArray(PetPrefs.convHistory(this.ctx, id));
         } catch (Throwable unused) {
@@ -208,9 +262,27 @@ final class PetTalk {
     private void doRequest() {
         boolean[] hasImage = new boolean[1];
         JSONArray body = ChatHistoryStore.buildRequest(this.ctx, this.history, hasImage);
+        // 【Shizuku】上一轮工具执行产出的追加消息（assistant(tool_calls) + role=tool）挂回请求体，
+        //   否则服务端会因为没有与 tool 消息配对的 tool_calls 而判非法。
+        if (this.toolFollowUp != null) {
+            appendAll(body, this.toolFollowUp);
+        }
         JSONObject params = samplingParams();
         String model = hasImage[0] ? PetPrefs.visionModel(this.ctx) : PetPrefs.model(this.ctx);
+        // 【Shizuku】工具轮数未用尽才下发 tools；用尽后强制只走文本回复。
+        //   buildSchema 内部已按 Shizuku 授权状态对 shell 工具做门控：未授权就不会出现。
+        JSONArray tools = null;
+        if (this.toolRound < MAX_TOOL_ROUNDS) {
+            JSONArray schema = ChatToolRegistry.buildSchema(PetPrefs.webSearchEnabled(this.ctx),
+                    PetPrefs.memAutoSave(this.ctx));
+            if (schema != null && schema.length() > 0) {
+                tools = schema;
+            }
+        }
         this.timedOut = false;
+        // 【坑·必须】上一轮的 timeout 可能还挂在 Handler 上（工具节点重挂的那次），
+        //   不先摘掉就会同时存在两个同一 Runnable，旧的会在「上一轮 +60s」提前把新请求掐掉。
+        this.ui.removeCallbacks(this.timeout);
         this.ui.postDelayed(this.timeout, REQUEST_TIMEOUT_MS);
         final DeepSeekClient.Task mine = new DeepSeekClient.Task();
         this.task = mine;
@@ -218,7 +290,7 @@ final class PetTalk {
         //   写反了不报编译错，只会在运行时把 URL 拼成 https://<Key>/chat/completions，
         //   于是「全屏聊天正常、只有迷你框报服务器错误」。
         DeepSeekClient.chatRaw(PetPrefs.apiKey(this.ctx), PetPrefs.baseUrl(this.ctx), model,
-                body, null, params, mine, new DeepSeekClient.RawCallback() {
+                body, tools, params, mine, new DeepSeekClient.RawCallback() {
             @Override
             public void onMessage(JSONObject jSONObject, String str) {
                 // 【守卫】只认「当前在途的那一次」：release / 新请求已经换掉 task 时，
@@ -229,6 +301,22 @@ final class PetTalk {
                 PetTalk.this.onReply(jSONObject, str);
             }
         });
+    }
+
+    /** 把追加消息逐条拼到请求体尾部（messages 数组）。 */
+    private static void appendAll(JSONArray body, JSONArray extra) {
+        if (body == null || extra == null) {
+            return;
+        }
+        for (int i = 0; i < extra.length(); i++) {
+            Object item = extra.opt(i);
+            if (item != null) {
+                try {
+                    body.put(item);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
     }
     /** 采样参数：与全屏页聊天的默认档保持一致（不注入思考档位时只发温度与上限）。 */
     private JSONObject samplingParams() {
@@ -266,6 +354,23 @@ final class PetTalk {
             return;
         }
         String content = jSONObject == null ? "" : jSONObject.optString("content", "");
+        // 【Shizuku】工具调用优先：模型这一轮要调工具时，正文通常是空的，不能判成「空内容」直接报错。
+        JSONArray calls = jSONObject == null ? null : jSONObject.optJSONArray("tool_calls");
+        if (calls != null && calls.length() > 0) {
+            // 【收敛·必须】轮数用尽后不再执行工具：部分模型/网关在不下发 tools 时仍会幻觉出
+            //   tool_calls，若继续执行就形成「runTools → doRequest → tool_calls」的无限续请求，
+            //   永不停止且持续烧 token（全屏页 ChatPanel 有 i<3 守卫，这里必须对齐）。
+            if (this.toolRound >= MAX_TOOL_ROUNDS) {
+                if (content != null && !content.isEmpty()) {
+                    finish(content);
+                } else {
+                    fail("工具调用次数已达上限");
+                }
+                return;
+            }
+            runTools(jSONObject, calls);
+            return;
+        }
         if (content.isEmpty()) {
             // 【兜底】模型返回空内容时不要往历史里塞一条空 assistant。
             this.phase = PHASE_IDLE;
@@ -274,6 +379,66 @@ final class PetTalk {
             return;
         }
         finish(content);
+    }
+
+    /**
+     * 【Shizuku】执行一轮工具调用，然后把结果拼回请求体再问一次模型。
+     *
+     * 【线程】本方法由主线程回调进来；工具执行（shell / 联网）会阻塞，故整体挪到后台线程，
+     *   结果再 post 回主线程继续 onReply 那条链路之外的下一轮请求。
+     * 【结构】请求体不能只追加 role=tool：必须先把带 tool_calls 的 assistant 中间消息放回去，
+     *   否则服务端会因为「tool 消息找不到对应的 tool_calls」而判非法请求。
+     */
+    private void runTools(final JSONObject reply, final JSONArray calls) {
+        // 工具轮数 +1；用尽后 doRequest 不再下发 tools。
+        this.toolRound++;
+        this.phase = PHASE_LOADING;
+        this.host.saySticky(TOOL_TEXT);
+        // 重新计时：工具执行可能较久，但整体仍受同一个兜底超时保护（Task 已置空，不误伤）。
+        //   【必须】先摘掉旧的那次，否则同一 Runnable 会排两次，旧那次会提前掐掉后续请求。
+        this.ui.removeCallbacks(this.timeout);
+        this.ui.postDelayed(this.timeout, REQUEST_TIMEOUT_MS);
+        final PetTalk self = this;
+        // 记下本轮代号：工具线程回来后若代号已变（用户取消 / 超时判死 / 开了新一轮），结果作废。
+        final int gen = this.generation;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSONArray followUp = new JSONArray();
+                try {
+                    followUp.put(ChatToolRunner.assistantWithCalls(reply, calls));
+                } catch (Throwable ignored) {
+                }
+                JSONArray toolMsgs = ChatToolRunner.runAll(calls);
+                appendAll(followUp, toolMsgs);
+                final JSONArray result = followUp;
+                self.ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        // 期间若被 cancel / 判超时 / 换过轮次，这轮结果作废，直接丢弃。
+                        if (self.generation != gen) {
+                            return;
+                        }
+                        // 【累积·必须】只保留最新一轮会让第 3 轮看不到第 1/2 轮的工具结果，
+                        //   模型会因「结果不明」反复重调同一条（也是无限续请求的诱因）。
+                        //   这里逐条追加，多轮上下文完整；总量受 MAX_TOOL_ROUNDS 与
+                        //   ShizukuBridge.MAX_OUTPUT_CHARS 双重约束，不会无限膨胀。
+                        if (self.toolFollowUp == null) {
+                            self.toolFollowUp = new JSONArray();
+                        }
+                        appendAll(self.toolFollowUp, result);
+                        try {
+                            self.doRequest();
+                        } catch (Throwable t) {
+                            self.ui.removeCallbacks(self.timeout);
+                            self.phase = PHASE_IDLE;
+                            self.host.onBusy(false);
+                            self.fail(String.valueOf(t.getMessage()));
+                        }
+                    }
+                });
+            }
+        }, "feiyu-mini-tools").start();
     }
     /** 用户主动停：静默收尾，不要当故障报出来；兜底超时则给一句人话。 */
     private void finishStopped() {
@@ -286,6 +451,81 @@ final class PetTalk {
         } else {
             this.host.clearBubble();
         }
+    }
+    /**
+     * 【v0.0.1】自动压缩旁路：迷你框过去不触发（它没有 ChatPanel），现在走
+     *   MemSummarizer 的无 UI 通道，与全屏页共用同一份压缩逻辑，不再分叉。
+     * 【为什么不在本类直接判阈值】阈值/双触发/RUNNING 锁/守卫全在 MemSummarizer 里，
+     *   这里只提供数据面（ctx + history 活引用 + 锚定 id），否则两处各写一份必然漂移。
+     * 【主线程】与 ChatPanel 版一致：post 到 ui 线程再发起，避免在回调线程碰 prefs。
+     * 【表现面】迷你框没有提示位与「总结中」指示，flash/busy 降级为只记日志 ——
+     *   气泡此刻正被回复占用，任何提示都会把它顶掉。
+     */
+    private void maybeAutoSummarize() {
+        if (!PetPrefs.memAuto(this.ctx)) {
+            return;
+        }
+        final PetTalk self = this;
+        this.ui.post(new Runnable() {
+            @Override
+            public void run() {
+                MemSummarizer.maybeAuto(new MemSummarizer.Sink() {
+                    @Override
+                    public Context ctx() {
+                        return self.ctx;
+                    }
+                    @Override
+                    public String convId() {
+                        return self.convId();
+                    }
+                    @Override
+                    public JSONArray history() {
+                        return self.history;
+                    }
+                    @Override
+                    public void setHistory(JSONArray h) {
+                        self.history = h;
+                    }
+                    @Override
+                    public int ctxUsedChars() {
+                        return MemSummarizer.ctxUsedChars(self.ctx, self.history);
+                    }
+                    /** 迷你框无「展开态」概念：载入时已由 collapsePrevOnLoad 收口。 */
+                    @Override
+                    public boolean foldPrev() {
+                        return false;
+                    }
+                    @Override
+                    public void clearPrev() {
+                    }
+                    @Override
+                    public void flash(String msg) {
+                        android.util.Log.i("DollhouseMemo", "[mini] " + msg);
+                    }
+                    @Override
+                    public void busy(boolean busy) {
+                    }
+                    @Override
+                    public void uiRefresh(Runnable after) {
+                        if (after != null) {
+                            after.run();
+                        }
+                    }
+                    @Override
+                    public void post(Runnable r) {
+                        self.ui.post(r);
+                    }
+                    @Override
+                    public void postDelayed(Runnable r, long ms) {
+                        self.ui.postDelayed(r, ms);
+                    }
+                    @Override
+                    public void removeCallbacks(Runnable r) {
+                        self.ui.removeCallbacks(r);
+                    }
+                });
+            }
+        });
     }
     /**
      * 回复落地：剥掉首行好感度记账、写档、贴气泡。
@@ -305,14 +545,20 @@ final class PetTalk {
                 delta = 0;
             }
         }
-        String text = ChatPanel.AFFECTION_ANY.matcher(raw).replaceAll("").trim();
-        if (text.isEmpty()) {
-            text = hasDelta ? "……" : raw.trim();
+        // 【修 v0.0.1】两条路分开：
+        //   storeText = 去掉好感度记账后的原文（保留换行）→ 写历史，聊天页与下一轮上下文都是原貌；
+        //   text      = storeText 压成单行 → 只给人偶气泡用（模型自带换行会把句子拦腰断开）。
+        String storeText = ChatPanel.AFFECTION_ANY.matcher(raw).replaceAll("").trim();
+        if (storeText.isEmpty()) {
+            storeText = hasDelta ? "……" : raw.trim();
         }
+        String text = ChatHistoryStore.oneLine(storeText);
         if (hasDelta) {
             PetBus.affection(PetPrefs.addAffection(this.ctx, delta));
         }
-        ChatHistoryStore.push(this.ctx, this.history, "assistant", text);
+        ChatHistoryStore.push(this.ctx, this.history, "assistant", storeText, convId());
+        // 【v0.0.1】一轮回复落盘完毕，走无 UI 通道触发自动压缩（原先迷你框这条旁路不触发）。
+        maybeAutoSummarize();
         // 【分页 v2.7】首屏只显示第一页=前两句完整的话（按句末标点切，超三行退一句），
         //   全文留给翻页用；
         //   【坑】总页数必须由 PetView/PetBubble 按「全文」算，不能拿切片的长度算

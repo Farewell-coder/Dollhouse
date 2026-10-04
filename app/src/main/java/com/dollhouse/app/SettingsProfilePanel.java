@@ -208,7 +208,8 @@ public final class SettingsProfilePanel {
             @Override
             public void onClick(View v) {
                 boolean show = panel.getVisibility() != View.VISIBLE;
-                panel.setVisibility(show ? View.VISIBLE : View.GONE);
+                // 【丝滑】配置列表展开/收起用淡入淡出，不再硬切换。
+                UiKit.showHide(panel, show);
                 caret.setText(show ? "\u25b4" : "\u25be");
                 PetPrefs.setCardOpen(appCtx, panelKey, show);
             }

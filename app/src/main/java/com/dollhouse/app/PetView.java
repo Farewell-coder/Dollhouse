@@ -740,7 +740,13 @@ public class PetView extends View {
     protected void onSizeChanged(int i, int i2, int i3, int i4) {
         super.onSizeChanged(i, i2, i3, i4);
         if (this.bubble.hasContent()) {
-            this.bubble.onWidth(i, dp(1.0f));
+            // 【修 v0.0.1】必须走「可见区」口径重排：onWidth 用的是整窗宽，
+            //   与 draw / neededHeight 的可见宽度语义不同。气泡展开会让 lp.height 变化
+            //   而触发本回调，若按整窗宽重排，贴边时文字会被多折一行、进而与框错配
+            //   （用户报的「吸附时串字 / 有字溢出」的持续来源）。
+            int[] loc = this.locBuf;
+            getLocationOnScreen(loc);
+            this.bubble.relayout(bubbleAvailWidthFor(i, loc[0]), dp(1.0f));
         }
     }
     private static float falloff(float f, float f2, float f3, float f4, float f5, float f6) {

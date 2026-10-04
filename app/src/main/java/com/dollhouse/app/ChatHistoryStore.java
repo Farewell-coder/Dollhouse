@@ -90,7 +90,7 @@ final class ChatHistoryStore {
         }
         try {
             PetPrefs.setConvPrev(ctx, id, batch.toString());
-            PetPrefs.setConvHistory(ctx, id, history.toString());
+            PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, history).toString());
         } catch (Throwable unused) {
         }
     }
@@ -129,7 +129,7 @@ final class ChatHistoryStore {
         }
         stripPrevTags(history);
         try {
-            PetPrefs.setConvHistory(ctx, id, history.toString());
+            PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, history).toString());
         } catch (Throwable unused) {
         }
     }
@@ -270,14 +270,14 @@ final class ChatHistoryStore {
         int before = host.history.length();
         if (host.prevCount > 0) {
             android.util.Log.i("DollhouseMemo", "[save] 展开态全量落盘 len=" + before);
-            PetPrefs.setConvHistory(ctx, id, host.history.toString());
+            PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history).toString());
             return;
         }
         host.history = trimForSave(ctx, id, host.history);
         if (before != host.history.length()) {
             android.util.Log.i("DollhouseMemo", "[save] 裁剪 before=" + before + " after=" + host.history.length());
         }
-        PetPrefs.setConvHistory(ctx, id, host.history.toString());
+        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history).toString());
     }
     /**
      * 【v2.9】把 src[0, end) 里的非摘要消息**追加**进「更早历史」暂存位（不覆盖已有内容）。
@@ -349,7 +349,7 @@ final class ChatHistoryStore {
         // 【v2.8·N1】这里的 _prev 标记要跟着落盘：迷你框（PetTalk）那条旁路读的就是这份数组，
         //   它需要靠标记知道「现在处于展开态、别把补回批重新回填进暂存位」。
         //   残留风险已由 loadHistory → collapsePrevOnLoad 在载入时就地收回并消费掉标记来闭合。
-        PetPrefs.setConvHistory(ctx, id, trimForDisplay(host.history).toString());
+        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, trimForDisplay(host.history)).toString());
         return prev.length();
     }
 
@@ -418,7 +418,7 @@ final class ChatHistoryStore {
         String id = ChatSessions.currentId(ctx);
         PetPrefs.setConvPrev(ctx, id, prev.toString());
         // 【坑】同样不能走 saveHistory：那会把刚写回的暂存批又当成溢出批捞出来重填一遍。
-        PetPrefs.setConvHistory(ctx, id, host.history.toString());
+        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history).toString());
         return true;
     }
 
@@ -488,7 +488,11 @@ final class ChatHistoryStore {
     // 【共用点】存档键 = PetPrefs.convHistory(ctx, ChatSessions.currentId(ctx))，与全屏聊天页同一个键，
     //   所以迷你框发的消息，打开全屏页能看到完整记录。
     static void saveHistory(android.content.Context ctx, JSONArray history) {
-        PetPrefs.setConvHistory(ctx, ChatSessions.currentId(ctx), trimForSave(ctx, ChatSessions.currentId(ctx), history).toString());
+        saveHistory(ctx, history, ChatSessions.currentId(ctx));
+    }
+    // 【v0.0.1】显式 id 版：给人偶专属会话（PetTalk）用，不再借当前会话的槽。
+    static void saveHistory(android.content.Context ctx, JSONArray history, String id) {
+        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, trimForSave(ctx, id, history)).toString());
     }
     // 向历史数组追加一条消息。
     static void push(ChatPanel host, String str, String str2) {
@@ -523,12 +527,16 @@ final class ChatHistoryStore {
      * 【独立版】给 ChatPanel 之外的使用者（迷你聊天框）追加一条消息并落盘。
      * 【共用点】saveHistory 内部走 PetPrefs.convHistory(ctx, ChatSessions.currentId(ctx))，
      *   与全屏聊天页同一个键，所以两边的消息会汇入同一份对话。
-     * 【取舍】不调 MemSummarizer.maybeAuto —— 它需要 ChatPanel 实例（迷你框没有）。
+     * 【取舍】本方法不调 MemSummarizer.maybeAuto：人偶池的迷你框（PetTalk）在
+     *   落盘完成后自行调用无 UI 版（PetTalk.maybeAutoSummarize），避免同一次 push 触发两遍。
      */
     static void push(android.content.Context ctx, JSONArray history, String role, String content) {
+        push(ctx, history, role, content, ChatSessions.currentId(ctx));
+    }
+    // 【v0.0.1】显式 id 版：人偶专属会话走这里（读与写必须同一个 id）。
+    static void push(android.content.Context ctx, JSONArray history, String role, String content, String id) {
         put(history, role, content, null);
-        saveHistory(ctx, history);
-        String id = ChatSessions.currentId(ctx);
+        saveHistory(ctx, history, id);
         ChatSessions.touch(ctx, id);
         if ("user".equals(role)) {
             ChatSessions.autoTitleIfNeeded(ctx, id, content);
@@ -559,12 +567,59 @@ final class ChatHistoryStore {
         }
         return "";
     }
+    /**
+     * 把一段文本压成单行：用正则删掉所有回车 / 换行 / 连续空白（含全角空格、不换行空格）。
+     *
+     * 【为什么】模型回复常自带换行，气泡按字符宽排版时会被硬生生断在句中
+     *   （用户报的「不知 / 道就不知道嘛」）；写进历史时也一并压平，
+     *   模型下一轮便不再照抄自己的换行格式。
+     * 【入口】PetTalk.finish / ChatPanel.handleReply / bubbleVersion（两处 AI 回复共用）。
+     */
+    static String oneLine(String str) {
+        if (str == null) {
+            return "";
+        }
+        return str.replaceAll("[\\s\\u3000\\u00A0]+", "").trim();
+    }
     static String bubbleVersion(String str) {
         String trim = str.replace('\n', ' ').trim();
         if (trim.length() <= 28) {
             return trim;
         }
         return trim.substring(0, 28) + "…";
+    }
+    /**
+     * 【池化】按会话所属池收口落盘内容：人偶池（pet）的 assistant 回复压成单行
+     * （去回车 / 换行 / 连续空白），自聊池（self）原样保留 —— 用户定案「只有人偶的历史遵循正则，
+     * 自己聊的历史要有空格或回车，让 AI 按自己喜好回答」。
+     *
+     * 【为什么在落盘侧】收口点若放在 ChatPanel.handleReply 的 trim 上，会同时改掉聊天页的
+     *   显示与 PetBubble 的二次处理；放这里内存里的 host.history 不动（显示保持原貌），
+     *   只有写进 conv_&lt;id&gt; 的那份被压平，下一轮上下文与下次载入自然跟着一致。
+     * 【代价】每次落盘多一次浅拷贝 + 遍历（条数上限 60），可忽略。
+     */
+    static JSONArray byPool(android.content.Context ctx, String id, JSONArray history) {
+        if (history == null || !ChatSessions.POOL_PET.equals(ChatSessions.poolOf(ChatSessions.find(ctx, id)))) {
+            return history;
+        }
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < history.length(); i++) {
+            JSONObject o = history.optJSONObject(i);
+            if (o == null) {
+                out.put(history.opt(i));
+                continue;
+            }
+            try {
+                JSONObject c = new JSONObject(o.toString());
+                if ("assistant".equals(c.optString("role"))) {
+                    c.put("content", oneLine(c.optString("content")));
+                }
+                out.put(c);
+            } catch (Throwable unused) {
+                out.put(o);
+            }
+        }
+        return out;
     }
     static JSONArray buildRequest(ChatPanel host) {
         // 兼容入口：把「本次是否带图」写回 host 字段（ChatPanel 用它挑 visionModel）。

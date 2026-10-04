@@ -161,8 +161,9 @@ final class PetWindowController {
             host.petView.startAnim();
             PetBus.register(host.busListener);
             host.updateTouchable();
-            String[] strArr = PetService.LINES_TAP;
-            host.say(strArr[host.random.nextInt(strArr.length)], 2400L);
+            // 【修 v0.0.1】启动时不再自动说话：气泡只在用户点击人偶后才出现。
+            //   旧实现 addView 后立即随机说一句，此时窗口位置/尺寸尚未稳定，
+            //   展开气泡会与吸附动画抢 lp，造成串字/溢出/穿模（用户报的贴边吸附问题）。
         } catch (Throwable unused) {
             host.added = false;
             PetNotifier.stopSafely(host);
@@ -454,7 +455,7 @@ final class PetWindowController {
                 .putFloat("rest_rx", i2 / (float) i3).putFloat("rest_ry", i / (float) screenH).apply();
         ValueAnimator ofInt = ValueAnimator.ofInt(host.lp.x, round2);
         host.snapAnim = ofInt;
-        ofInt.setDuration(260L);
+        ofInt.setDuration(UiKit.D_LAYER);
         host.snapAnim.setInterpolator(new DecelerateInterpolator());
         host.snapAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {            @Override
             public void onAnimationUpdate(ValueAnimator valueAnimator) {

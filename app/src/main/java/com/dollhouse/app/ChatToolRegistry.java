@@ -23,8 +23,12 @@ final class ChatToolRegistry {
     private static final String NAME_WEB = "web_search";
     /** 记忆工具的注册名：同上，是否下发由加号面板里的「自动保存记忆」决定。 */
     private static final String NAME_REMEMBER = "remember";
+    /** 系统命令工具的注册名：不下发时也不影响「未授权→不出现」的门控语义。 */
+    private static final String NAME_SHELL = "shell";
     static {
         TOOLS.add(new SearchTool());
+        // Shizuku 系统命令工具：常驻注册，是否真正下发由 buildSchema 的授权门控决定。
+        TOOLS.add(new ShellTool());
     }
     private ChatToolRegistry() {
     }
@@ -58,8 +62,12 @@ final class ChatToolRegistry {
      * 生成请求体的 tools 数组；两个全关时返回空数组（上层按 length>0 判断，不会下发空 tools）。
      * webSearch=false 时不下发联网工具；remember=false 时不下发记忆写入工具
      * （执行入口始终保留，所以「手动整理记忆」之类不依赖它）。
+     * 【门控】shell 工具只在 Shizuku 已授权且服务运行时才下发 —— 没权限还把它摆给模型，
+     *   模型会反复调用、每次只拿到「未获得 Shizuku 授权」，白白烧上下文。
+     *   这里用静态判定（不依赖 Context），调用方无需改签名。
      */
     static JSONArray buildSchema(boolean webSearch, boolean remember) {
+        boolean shellReady = ShizukuBridge.isReady();
         JSONArray jSONArray = new JSONArray();
         try {
             for (int i = 0; i < TOOLS.size(); i++) {
@@ -68,6 +76,9 @@ final class ChatToolRegistry {
                     continue;
                 }
                 if (!remember && NAME_REMEMBER.equals(chatTool.name())) {
+                    continue;
+                }
+                if (!shellReady && NAME_SHELL.equals(chatTool.name())) {
                     continue;
                 }
                 JSONObject jSONObject = new JSONObject();

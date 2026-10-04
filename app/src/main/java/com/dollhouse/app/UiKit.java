@@ -1,6 +1,7 @@
 package com.dollhouse.app;
 
 import android.animation.Animator;
+import android.animation.ArgbEvaluator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.app.Activity;
@@ -17,10 +18,12 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.PathInterpolator;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
@@ -77,10 +80,23 @@ public final class UiKit {
     public static final String ARROW_CLOSED = "▸";
     public static final String ARROW_OPEN = "▾";
 
-    /** 动效时长：按压 100ms / 微交互 180ms / 弹层 260ms。 */
-    public static final int D_PRESS = 100;
+    /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 整页转场 300ms。 */
+    public static final int D_PRESS = 90;
     public static final int D_MICRO = 180;
     public static final int D_LAYER = 260;
+    public static final int D_PAGE = 300;
+
+    /*
+     * 全局动效曲线（Material 标准 easing）。
+     * 【为何收口】此前各处直接用 DecelerateInterpolator（纯减速）或干脆不设曲线，
+     *   起步偏“硬”。统一成标准曲线后，全 App 的位移／透明度／高度动画手感一致。
+     *   EASE_STD   = 标准（进慢出慢，用于状态切换、开关、按压回弹）
+     *   EASE_DECEL = 减速（用于入场：页面／面板从侧边或底部推进来）
+     *   EASE_ACCEL = 加速（用于出场：让“离开”比“进入”更快，符合视觉习惯）
+     */
+    public static final PathInterpolator EASE_STD = new PathInterpolator(0.2f, 0f, 0f, 1f);
+    public static final PathInterpolator EASE_DECEL = new PathInterpolator(0f, 0f, 0.2f, 1f);
+    public static final PathInterpolator EASE_ACCEL = new PathInterpolator(0.4f, 0f, 1f, 1f);
 
     private UiKit() {
     }
@@ -168,13 +184,19 @@ public final class UiKit {
             public boolean onTouch(View view, MotionEvent e) {
                 int a = e.getActionMasked();
                 if (a == MotionEvent.ACTION_DOWN) {
-                    view.animate().scaleX(0.97f).scaleY(0.97f)
+                    // 【坑】不可点的行收不到 ACTION_UP：View 不消费 DOWN，后续事件就不会再派发回来，
+                    //   缩放会一直停在 0.97 再也回不去（表现就是「点一下之后按钮一直缩着」）。
+                    //   所以不可点时不播按压动画，直接放行。
+                    if (!view.isClickable()) {
+                        return false;
+                    }
+                    view.animate().scaleX(0.96f).scaleY(0.96f)
                             .setDuration(D_PRESS)
-                            .setInterpolator(new DecelerateInterpolator()).start();
+                            .setInterpolator(EASE_STD).start();
                 } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
                     view.animate().scaleX(1f).scaleY(1f)
                             .setDuration(D_PRESS)
-                            .setInterpolator(new DecelerateInterpolator()).start();
+                            .setInterpolator(EASE_STD).start();
                 }
                 return false;
             }
@@ -205,7 +227,7 @@ public final class UiKit {
 
         ValueAnimator va = ValueAnimator.ofInt(from, to);
         va.setDuration(D_LAYER);
-        va.setInterpolator(new DecelerateInterpolator());
+        va.setInterpolator(EASE_STD);
         va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator an) {
@@ -229,7 +251,7 @@ public final class UiKit {
         if (arrow != null) {
             arrow.animate().rotation(open ? 90f : 0f)
                     .setDuration(D_LAYER)
-                    .setInterpolator(new DecelerateInterpolator()).start();
+                    .setInterpolator(EASE_STD).start();
         }
     }
 
@@ -250,7 +272,7 @@ public final class UiKit {
         v.animate().alpha(1f).translationY(0f)
                 .setStartDelay(Math.max(0, delayMs))
                 .setDuration(D_LAYER)
-                .setInterpolator(new DecelerateInterpolator()).start();
+                .setInterpolator(EASE_DECEL).start();
     }
 
     /** 卡片头右侧的折叠箭头：固定「▸」，靠 rotation 0 ↔ 90 表示开合。 */
@@ -275,6 +297,8 @@ public final class UiKit {
         private static final int PAD_DP = 3;
         private final View knob;
         private boolean on;
+        /** 轨道变色动画句柄：连点时先取消上一段，避免两个动画抢同一个背景。 */
+        private ValueAnimator trackAnim;
         public Switch(Context ctx) {
             super(ctx);
             setBackground(round(SWITCH_OFF, ctx, 999));
@@ -311,17 +335,39 @@ public final class UiKit {
         /** animated=true 时播放滑块位移动画。 */
         public void setOn(boolean value, boolean animated) {
             this.on = value;
-            Context c = getContext();
-            setBackground(round(value ? ACC : SWITCH_OFF, c, 999));
+            final Context c = getContext();
             int travel = dp(c, W_DP - H_DP);
-            float to = value ? travel : 0f;
+            final float to = value ? travel : 0f;
             knob.animate().cancel();
-            if (animated) {
-                knob.animate().translationX(to).setDuration(D_MICRO)
-                        .setInterpolator(new DecelerateInterpolator()).start();
-            } else {
-                knob.setTranslationX(to);
+            if (trackAnim != null) {
+                trackAnim.cancel();
+                trackAnim = null;
             }
+            if (!animated) {
+                setBackground(round(value ? ACC : SWITCH_OFF, c, 999));
+                knob.setTranslationX(to);
+                return;
+            }
+            // 轨道颜色：ArgbEvaluator 逐帧插值。
+            // 【为何】原先是 setBackground(三元) 一下跳色，与滑块 180ms 的位移不同步，
+            //   看上去就是“轨道啪一下变了、滑块慢慢跟”。两者同时长同曲线才顺。
+            final int from = value ? SWITCH_OFF : ACC;
+            final int toColor = value ? ACC : SWITCH_OFF;
+            final ArgbEvaluator ev = new ArgbEvaluator();
+            ValueAnimator ta = ValueAnimator.ofFloat(0f, 1f);
+            ta.setDuration(D_MICRO);
+            ta.setInterpolator(EASE_STD);
+            ta.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator an) {
+                    float f = (Float) an.getAnimatedValue();
+                    setBackground(round(((Integer) ev.evaluate(f, from, toColor)).intValue(), c, 999));
+                }
+            });
+            trackAnim = ta;
+            ta.start();
+            knob.animate().translationX(to).setDuration(D_MICRO)
+                    .setInterpolator(EASE_STD).start();
         }
     }
 
@@ -484,6 +530,15 @@ public final class UiKit {
                     dp(act, 420));
             w.setLayout(wide, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+        // 弹窗入场：轻微上浮 + 缩放 + 淡入。
+        // 【为何】原先是 show() 后凭空出现，与 App 其他地方的过渡感不一致。
+        //   初始态必须在 show() 之前设好，否则会先闪一帧完整尺寸再缩回去。
+        col.setAlpha(0f);
+        col.setScaleX(0.94f);
+        col.setScaleY(0.94f);
+        col.setTranslationY(dp(act, 14));
+        col.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+                .setDuration(D_MICRO).setInterpolator(EASE_DECEL).start();
         dlg.show();
         return dlg;
     }
@@ -656,5 +711,316 @@ public final class UiKit {
         lp.topMargin = dp(ctx, 10);
         b.setLayoutParams(lp);
         return b;
+    }
+
+    /* ================= 整页转场：所有二级页共用 =================
+     * 【背景】各二级页原先都是 content.removeView(旧) + addView(新)，中间没有任何过渡，
+     *         观感是“畴”地一下整屏换掉 —— 这是全 App 最大的突兀源。
+     *         这里收口成三个方法，页面只管调用，不再自己拼 remove/add。
+     * 【单位】位移一律取容器宽度比例，不写死 dp，适配任意分辨率。
+     * 【为何不用 FragmentTransaction / ActivityOptions】本项目二级页不是 Fragment，
+     *         而是在 android.R.id.content 上手工叠的覆盖页；改造成 Fragment 会动到
+     *         所有页面的生命周期，风险远大于收益，所以就地给叠页加动效。
+     */
+
+    /** 屏宽（拿不到布局宽度时兜底用显示宽度）。 */
+    private static int pageW(ViewGroup content) {
+        int w = content.getWidth();
+        return w > 0 ? w : content.getResources().getDisplayMetrics().widthPixels;
+    }
+
+    /**
+     * 打开一个覆盖页：新页自右侧滑入。
+     * 旧覆盖页立即移除 —— 它会被新页完全遮住，不给它做动画反而更干净、也不会残留视图。
+     */
+    public static void openPage(ViewGroup content, View page, String tag) {
+        if (content == null || page == null) {
+            return;
+        }
+        View old = tag == null ? null : content.findViewWithTag(tag);
+        if (old != null) {
+            content.removeView(old);
+        }
+        page.setTag(tag);
+        page.setTranslationX(pageW(content) * 0.14f);
+        page.setAlpha(0f);
+        content.addView(page, new ViewGroup.LayoutParams(-1, -1));
+        page.animate().translationX(0f).alpha(1f)
+                .setDuration(D_PAGE).setInterpolator(EASE_DECEL).start();
+    }
+
+    /** 同层内容替换（切分段 / 翻日期 / 二级页重建）：只交叉淡入，不做位移，避免方向误导。 */
+    public static void swapPage(ViewGroup content, View page, String tag) {
+        if (content == null || page == null) {
+            return;
+        }
+        final View old = tag == null ? null : content.findViewWithTag(tag);
+        page.setTag(tag);
+        page.setAlpha(0f);
+        content.addView(page, new ViewGroup.LayoutParams(-1, -1));
+        page.animate().alpha(1f).setDuration(D_PAGE).setInterpolator(EASE_DECEL)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        // 挂在新页（一直在树上）的结束回调上，比挂旧页可靠。
+                        if (old != null && old.getParent() instanceof ViewGroup) {
+                            ((ViewGroup) old.getParent()).removeView(old);
+                        }
+                    }
+                }).start();
+    }
+
+    /**
+     * 关闭一个覆盖页：向右滑出 + 淡出后移除。
+     * 【幂等】removeView 对非子 View 是空操作，重复调用安全。
+     */
+    public static void closePage(final View page) {
+        if (page == null) {
+            return;
+        }
+        if (!(page.getParent() instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup parent = (ViewGroup) page.getParent();
+        page.animate().translationX(pageW(parent) * 0.14f).alpha(0f)
+                .setDuration(D_LAYER).setInterpolator(EASE_ACCEL)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        parent.removeView(page);
+                    }
+                }).start();
+    }
+
+    /**
+     * 淡入出现（列表项 / 提示条）——先可见再淡入，绝不用"喷"一下的方式。
+     * 【为何】全 App 有 30 处 setVisibility(VISIBLE/GONE) 直接切换，
+     *   其中提示条、附件条、记忆状态这类小元素的硬切换最刺眼，这里统一收口。
+     */
+    public static void reveal(final View v) {
+        if (v == null) {
+            return;
+        }
+        if (v.getVisibility() != View.VISIBLE) {
+            v.setVisibility(View.VISIBLE);
+            v.setAlpha(0f);
+        }
+        v.animate().cancel();
+        v.animate().alpha(1f).setDuration(D_MICRO).setInterpolator(EASE_STD).start();
+    }
+
+    /** 淡出隐藏（动画结束后才置 GONE，保留布局占位直到真正隐藏）。 */
+    public static void collapse(final View v) {
+        if (v == null || v.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        v.animate().cancel();
+        v.animate().alpha(0f).setDuration(D_MICRO).setInterpolator(EASE_ACCEL)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (v.getAlpha() < 0.05f) {
+                            v.setVisibility(View.GONE);
+                        }
+                    }
+                }).start();
+    }
+
+    /** 一行代码表达"要显示就淡入、要隐藏就淡出"。 */
+    public static void showHide(View v, boolean show) {
+        if (show) {
+            reveal(v);
+        } else {
+            collapse(v);
+        }
+    }
+
+    /** 文字颜色平滑过渡（权限状态红↔绿、选中态紫↔灰）。 */
+    public static void setTextColorAnimated(final TextView t, int toColor) {
+        if (t == null) {
+            return;
+        }
+        int from = t.getCurrentTextColor();
+        if (from == toColor) {
+            return;
+        }
+        final ArgbEvaluator ev = new ArgbEvaluator();
+        ValueAnimator va = ValueAnimator.ofFloat(0f, 1f);
+        va.setDuration(D_MICRO);
+        va.setInterpolator(EASE_STD);
+        va.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator an) {
+                float f = (Float) an.getAnimatedValue();
+                t.setTextColor(((Integer) ev.evaluate(f, from, toColor)).intValue());
+            }
+        });
+        va.start();
+    }
+
+    /**
+     * 平滑滚回顶部。
+     * 【为何】scrollTo(0,0) 是瞬时硬拽，卡片折叠、展开更早历史后用这个太生硬。
+     *   低版本没有 smoothScrollTo 的 ScrollView 子类仍有 API，直接可用。
+     */
+    public static void scrollToTop(final ScrollView sv) {
+        if (sv == null) {
+            return;
+        }
+        sv.post(new Runnable() {
+            @Override
+            public void run() {
+                sv.smoothScrollTo(0, 0);
+            }
+        });
+    }
+
+    /**
+     * 列表错峰入场：容器每个直接子 View 依次淡入 + 上浮。
+     * 【用于】首屏 / 打开面板时一次性挂了很多行，一起出现看着很“顿”；错峰 24ms 就有流动感。
+     * 【步长】默认 26ms；行数超 12 时自动压到 14ms，免得底部项等太久。
+     */
+    public static void stagger(ViewGroup col) {
+        stagger(col, 0);
+    }
+
+    public static void stagger(ViewGroup col, int firstDelayMs) {
+        if (col == null) {
+            return;
+        }
+        int n = col.getChildCount();
+        int step = n > 12 ? 14 : 24;
+        for (int i = 0; i < n; i++) {
+            enter(col.getChildAt(i), firstDelayMs + i * step);
+        }
+    }
+
+    /** 错峰上限：只给前 12 个错峰，其余立即可见，避免长列表末尾迟迟不出现。 */
+    public static void staggerCapped(ViewGroup col, int maxCount) {
+        if (col == null) {
+            return;
+        }
+        int n = Math.min(col.getChildCount(), maxCount);
+        for (int i = 0; i < n; i++) {
+            enter(col.getChildAt(i), i * 24);
+        }
+    }
+
+    /**
+     * 从底部弹上来：遮罩淡入 + 面板上滑。
+     * 【用于】ChatDrawer / SheetPanel 这类底部面板，替代原先直接 addView 的硬弹。
+     */
+    public static void slideUpIn(final View shade, final View panel) {
+        if (shade == null || panel == null) {
+            return;
+        }
+        float h = panel.getHeight() > 0 ? panel.getHeight()
+                : panel.getResources().getDisplayMetrics().heightPixels * 0.5f;
+        shade.setAlpha(0f);
+        panel.setTranslationY(h);
+        shade.animate().alpha(1f).setDuration(D_LAYER).setInterpolator(EASE_STD).start();
+        panel.animate().translationY(0f).setDuration(D_PAGE).setInterpolator(EASE_DECEL).start();
+    }
+
+    /** 从左侧推入：抽屉专用（遮罩淡入 + 抽屉右移进屏）。 */
+    public static void slideInLeft(final View shade, final View panel) {
+        if (shade == null || panel == null) {
+            return;
+        }
+        float w = panel.getWidth() > 0 ? panel.getWidth()
+                : panel.getResources().getDisplayMetrics().widthPixels * 0.8f;
+        shade.setAlpha(0f);
+        panel.setTranslationX(-w);
+        shade.animate().alpha(1f).setDuration(D_LAYER).setInterpolator(EASE_STD).start();
+        panel.animate().translationX(0f).setDuration(D_PAGE).setInterpolator(EASE_DECEL).start();
+    }
+
+    /**
+     * 底部面板出场：面板下滑 + 遮罩淡出，结束后整体移除。
+     * 取遮罩的子 View 0 当面板（与 SheetPanel.open 的层级一致）。
+     */
+    public static void slideDownOut(final View shade) {
+        slideOut(shade, true);
+    }
+
+    /** 左侧抽屉出场：面板左滑 + 遮罩淡出。 */
+    public static void slideOutLeft(final View shade) {
+        slideOut(shade, false);
+    }
+
+    private static void slideOut(final View shade, final boolean down) {
+        if (shade == null || !(shade.getParent() instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup parent = (ViewGroup) shade.getParent();
+        View panel = shade instanceof ViewGroup && ((ViewGroup) shade).getChildCount() > 0
+                ? ((ViewGroup) shade).getChildAt(0) : null;
+        shade.animate().alpha(0f).setDuration(D_LAYER).setInterpolator(EASE_ACCEL).start();
+        if (panel != null) {
+            float dist = down
+                    ? (panel.getHeight() > 0 ? panel.getHeight()
+                        : shade.getResources().getDisplayMetrics().heightPixels * 0.5f)
+                    : -(panel.getWidth() > 0 ? panel.getWidth()
+                        : shade.getResources().getDisplayMetrics().widthPixels * 0.8f);
+            android.animation.ObjectAnimator oa = down
+                    ? android.animation.ObjectAnimator.ofFloat(panel, "translationY", panel.getTranslationY(), dist)
+                    : android.animation.ObjectAnimator.ofFloat(panel, "translationX", panel.getTranslationX(), dist);
+            oa.setDuration(D_LAYER);
+            oa.setInterpolator(EASE_ACCEL);
+            oa.start();
+        }
+        shade.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                parent.removeView(shade);
+            }
+        }, D_LAYER);
+    }
+
+    /**
+     * 换主题 / 重建后的一次性淡入：消除 recreate 那一瞬的闪白。
+     * 【为何】ThemeManager 换色后走 act.recreate()，新 Activity 首帧直出，
+     *   深色↔浅色跳变时格外刺眼。挂一层与窗口同大的临时遮罩淡出，
+     *   等于把"重建"这一帧盖过去，观感变成平滑过渡。
+     * 【注意】遮罩必须不可点、且动画结束后一定移除，否则会吃掉全屏触摸。
+     */
+    public static void themeFade(Activity act) {
+        if (act == null || act.getWindow() == null) {
+            return;
+        }
+        View decor = act.getWindow().getDecorView();
+        if (!(decor instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup root = (ViewGroup) decor;
+        final View cover = new View(act);
+        cover.setBackgroundColor(BG);
+        cover.setClickable(false);
+        root.addView(cover, new ViewGroup.LayoutParams(-1, -1));
+        cover.animate().alpha(0f).setDuration(D_PAGE).setInterpolator(EASE_STD)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        root.removeView(cover);
+                    }
+                }).start();
+    }
+
+    /** 淡出后移除（遮罩类浮层的统一关闭）。 */
+    public static void fadeOutRemove(final View v) {
+        if (v == null) {
+            return;
+        }
+        if (!(v.getParent() instanceof ViewGroup)) {
+            return;
+        }
+        final ViewGroup parent = (ViewGroup) v.getParent();
+        v.animate().alpha(0f).setDuration(D_MICRO).setInterpolator(EASE_ACCEL)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        parent.removeView(v);
+                    }
+                }).start();
     }
 }

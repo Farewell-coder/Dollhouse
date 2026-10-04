@@ -4,9 +4,14 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.Dialog;
 import android.app.NotificationManager;
+import android.app.StatusBarManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -47,10 +52,14 @@ public final class HomeUi {
     private static final String TAG_TOGGLE = "feiyu_home_toggle";
     private static final String TAG_PETS = "feiyu_home_pets";
     private static final String TAG_PERM_NOTIF = "feiyu_perm_notif";
+    /** Shizuku 授权行的 View tag：四态文案由 ShizukuBridge 提供，不走 bindPermRow 的两态常量。 */
+    private static final String TAG_PERM_SHIZUKU = HomeCards.TAG_PERM_SHIZUKU;
     /** 第一级开关：隐藏后台（最近任务）卡片。 */
     private static final String TAG_HIDE_RECENTS = "feiyu_hide_recents";
     /** 通知权限的运行时申请回调码。 */
     private static final int REQ_NOTIF = 102;
+    /** Shizuku 授权请求码（结果经 ShizukuBridge 的 listener 回来）。 */
+    private static final int REQ_SHIZUKU = 103;
 
     /** 卡片标题：旧分组。 */
     private static final String T_WEB = "\u8054\u7f51\u641c\u7d22";
@@ -68,6 +77,8 @@ public final class HomeUi {
     /** 权限卡片内两行子项的左侧名称。 */
     private static final String T_PERM_OVERLAY_NAME = "\u60ac\u6d6e\u7a97\u6743\u9650";
     private static final String T_PERM_NOTIF_NAME = "\u901a\u77e5\u6743\u9650";
+    /** Shizuku 授权行（权限卡片下级第一项）：让本应用与 AI 拿到 adb shell 级能力。 */
+    private static final String T_PERM_SHIZUKU_NAME = "Shizuku \u6388\u6743";
     /** 权限卡片下级：保活分组的说明行与子项名称（@需求：保活权限挂「权限」卡片下级）。 */
     private static final String T_PERM_BATTERY_NAME = "\u7535\u6c60\u4f18\u5316\u767d\u540d\u5355";
     /** 【v2.9.6】后台耗电管理：ColorOS 冻结后台应用的开关页（OplusHansManager freeze）。 */
@@ -110,6 +121,15 @@ public final class HomeUi {
     private static final String TAG_THEME_MONET = "feiyu_theme_monet";
     /** 【v2.10.0】「关于」卡片里那一行入口按钮的 tag。 */
     private static final String TAG_ABOUT_ENTRY = "feiyu_about_entry";
+    /** 【需求】权限卡片下级的磁贴开关与开关指令（两者是同一条「启停」通道的两种入口）。 */
+    private static final String T_TILE = "快捷设置磁贴";
+    private static final String T_CMD = "开关指令";
+    private static final String T_CMD_COPY = "复制 \u203a";
+    private static final String T_CMD_COPIED = "已复制 \u2713";
+    /** 复制出去的外部链接：同一条链接兼管开与关（PetLinkActivity 里按运行状态自行判断）。 */
+    private static final String T_CMD_LINK = "dollhouse://pet/toggle";
+    private static final String TAG_TILE_SWITCH = "feiyu_tile_switch";
+    private static final String TAG_CMD_ROW = "feiyu_cmd_row";
     /** 人偶当前是否处于「已启动」状态，仅用于切换首页那颗按钮的文案。 */
     private static boolean running;
 
@@ -301,6 +321,8 @@ public final class HomeUi {
             homeScroll.setBackgroundColor(UiKit.BG);
             // 【v2.10.0】让内容不足一屏时也撑满：上面的 weight 才会真的生效。
             homeScroll.setFillViewport(true);
+            // 关掉滑动到头部的拉伸辉光：那是系统默认装饰，与本 App 的卡片质感不搭。
+            homeScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
             homeScroll.addView(homeBox);
             homeScroll.setTag(TAG_HOME);
 
@@ -347,8 +369,12 @@ public final class HomeUi {
 
             LinearLayout cardPerm = HomeCards.buildCard(ctx, T_PERM);
             LinearLayout permBody = (LinearLayout) cardPerm.getChildAt(1);
-            // 三行权限子项：第一行 左名称 + 右开关（隐藏最近任务卡片）；
-            // 后两行 左名称 + 右状态（未授权时整行可点去授权）。
+            // ---- 权限卡片下级第一项：Shizuku 授权（四态：已授权 / 未授权 / 服务未运行 / 未安装）----
+            // 【为什么放最前】它是本应用与 AI 拿到 shell 级能力的总开关，其余权限只影响人偶本身。
+            //   文案与可点性由 ShizukuBridge.state 决定，走 bindShizukuRow 绑定（不是两态 bindPermRow）。
+            permBody.addView(HomeCards.permRow(ctx, T_PERM_SHIZUKU_NAME, TAG_PERM_SHIZUKU));
+            // 权限子项：左名称 + 右开关（隐藏最近任务卡片）；
+            // 其余行 左名称 + 右状态（未授权时整行可点去授权）。
             UiKit.Switch hideRecents = new UiKit.Switch(ctx);
             hideRecents.setTag(TAG_HIDE_RECENTS);
             hideRecents.setOn(PetPrefs.hideRecents(ctx));
@@ -364,6 +390,28 @@ public final class HomeUi {
             permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_BG_POWER_NAME, TAG_GUIDE_BG_POWER));
             permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_AUTOSTART_NAME, TAG_GUIDE_AUTOSTART));
             permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_BG_ACTIVITY_NAME, TAG_GUIDE_BG_ACTIVITY));
+            // ---- 【需求】开关通道（「权限」卡片下级）：磁贴开关 + 开关指令，两者是同一条启停通道的两种入口 ----
+            // 磁贴开关：右侧是自绘开关，开=请系统把磁贴放进快捷面板，关=打开面板让你长按移除；
+            //  真实状态由 TileService 的 onTileAdded / onTileRemoved 回写 PetPrefs.tileAdded。
+            UiKit.Switch tileSw = new UiKit.Switch(ctx);
+            tileSw.setTag(TAG_TILE_SWITCH);
+            tileSw.setOn(PetPrefs.tileAdded(ctx), false);
+            permBody.addView(HomeCards.switchRow(ctx, T_TILE, tileSw, new HomeCards.OnChanged() {
+                @Override
+                public void onChanged(boolean on, Context c) {
+                    onTileSwitchChanged(on, c);
+                }
+            }));
+            // 开关指令：整行可点，右侧是「复制 ›」；点一下把同一条链接复制走（开与关共用）。
+            LinearLayout cmdRow = HomeCards.valueRow(ctx, T_CMD, TAG_CMD_ROW);
+            HomeCards.setRowValue(cmdRow, T_CMD_COPY);
+            cmdRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    copyToggleLink(v.getContext());
+                }
+            });
+            permBody.addView(cmdRow);
             permBody.setVisibility(View.VISIBLE);
             // 首帧就按真实授权状态渲染两行，不等 onResume。
             syncPerm(activity);
@@ -554,6 +602,98 @@ public final class HomeUi {
         bindPermRow(find(act, TAG_PERM_NOTIF), hasNotif(ctx));
         // 电池优化白名单：进了白名单才算「已授权」（isIgnoringBatteryOptimizations=true）。
         bindPermRow(find(act, TAG_PERM_BATTERY), ignoringBattery(ctx));
+        // Shizuku 授权行：四态（已授权 / 未授权 / 服务未运行 / 未安装），只有「已授权」不可点。
+        bindShizukuRow(find(act, TAG_PERM_SHIZUKU), ShizukuBridge.state(ctx));
+        // 磁贴开关：系统没有查询接口，只能按 TileService 回调回写的值显示。
+        View tileRow = find(act, TAG_TILE_SWITCH);
+        if (tileRow instanceof UiKit.Switch) {
+            ((UiKit.Switch) tileRow).setOn(PetPrefs.tileAdded(ctx), false);
+        }
+    }
+
+    /**
+     * 磁贴开关被拨动：开 = 请求系统把磁贴加进快捷面板；关 = 打开快捷面板让你长按移除。
+     *
+     * 【为什么「关」不能直接移除】Android 没有 requestRemoveTileService 这种 API，
+     *   移除磁贴只能由用户在面板里长按拖走；能做的只有把面板打开、把话说明白。
+     * 【为什么开关状态不在这里写死】系统会异步回 onTileAdded / onTileRemoved，
+     *   由那两个回调回写 PetPrefs.tileAdded 才是最准的；这里只做乐观预置，失败再回滚。
+     */
+    static void onTileSwitchChanged(boolean on, Context ctx) {
+        if (on) {
+            boolean ok = requestAddTile(ctx);
+            PetPrefs.setTileAdded(ctx, ok ? PetPrefs.tileAdded(ctx) : false);
+            if (!ok) {
+                openQuickSettings(ctx);
+            }
+        } else {
+            PetPrefs.setTileAdded(ctx, false);
+            openQuickSettings(ctx);
+        }
+    }
+
+    /**
+     * 请求系统把本应用的磁贴放进快捷面板（Android 13+ 才有这个接口）。
+     * 低版本 / 失败返回 false，由调用方退回「打开面板手动添加」。
+     */
+    private static boolean requestAddTile(Context ctx) {
+        if (Build.VERSION.SDK_INT < 33) {
+            return false;
+        }
+        try {
+            StatusBarManager sbm = (StatusBarManager) ctx.getSystemService("statusbar");
+            if (sbm == null) {
+                return false;
+            }
+            sbm.requestAddTileService(
+                    new ComponentName(ctx, PetTileService.class),
+                    ctx.getString(R.string.app_name),
+                    Icon.createWithResource(ctx, R.drawable.ic_tile_pet),
+                    ctx.getMainExecutor(),
+                    // 这个回调系统要求非 null：传 null 会在系统回结果时 NPE，必须给空实现。
+                    new java.util.function.Consumer<Integer>() {
+                        @Override
+                        public void accept(Integer code) {
+                        }
+                    });
+            return true;
+        } catch (Throwable ignored) {
+            Log.w(LOG_TAG, "ignored", ignored);
+            return false;
+        }
+    }
+
+    /** 打开快捷设置面板（用户在那里长按磁贴可移除或拖动排序）。 */
+    private static void openQuickSettings(Context ctx) {
+        try {
+            Intent i = new Intent("android.settings.QUICK_SETTINGS");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+        } catch (Throwable ignored) {
+            Log.w(LOG_TAG, "ignored", ignored);
+        }
+    }
+
+    /**
+     * 「开关指令」行被点：把 dollhouse://pet/toggle 复制进系统剪贴板。
+     * 反馈用本行右侧文字变化（复制 ›  →  已复制 ✓），符合「不许用浮层短提示」的硬约束。
+     */
+    static void copyToggleLink(Context ctx) {
+        try {
+            ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) {
+                return;
+            }
+            cm.setPrimaryClip(ClipData.newPlainText("Dollhouse", T_CMD_LINK));
+            if (ctx instanceof Activity) {
+                View row = find((Activity) ctx, TAG_CMD_ROW);
+                if (row != null) {
+                    HomeCards.setRowValue(row, T_CMD_COPIED);
+                }
+            }
+        } catch (Throwable ignored) {
+            Log.w(LOG_TAG, "ignored", ignored);
+        }
     }
 
     // 是否已加入电池优化白名单（无需权限即可查询）。查询异常一律当作「未加入」。
@@ -582,7 +722,65 @@ public final class HomeUi {
             requestNotif(ctx);
         } else if (TAG_PERM_BATTERY.equals(tag)) {
             requestIgnoreBattery(ctx);
+        } else if (TAG_PERM_SHIZUKU.equals(tag)) {
+            shizukuClicked(ctx);
         }
+    }
+
+    /**
+     * Shizuku 授权行点击：按四态分别落地。
+     * 已授权时该行不可点（bindShizukuRow 已关掉 clickable），走不到这里。
+     */
+    static void shizukuClicked(Context ctx) {
+        switch (ShizukuBridge.state(ctx)) {
+            case ShizukuBridge.S_NOT_INSTALLED:
+                // 没装管理器：没有可跳转的目标，只能用自绘弹窗把话说清楚（禁止 Toast/Snackbar）。
+                showShizukuMissing(ctx);
+                break;
+            case ShizukuBridge.S_NOT_RUNNING:
+                // 管理器在但服务没跑：拉起管理器，用户在里面启动服务。
+                // 【兜底】拿不到启动 Intent 时不能「点了没反应」——给一句说明（禁止 Toast）。
+                if (!ShizukuBridge.openManager(ctx)) {
+                    showShizukuDialog(ctx, "\u65e0\u6cd5\u81ea\u52a8\u6253\u5f00 Shizuku \u7ba1\u7406\u5668\u3002\n\n"
+                            + "\u8bf7\u624b\u52a8\u6253\u5f00\u5b83\u5e76\u542f\u52a8\u670d\u52a1\uff0c\u518d\u56de\u5230\u8fd9\u91cc\u3002");
+                }
+                break;
+            default:
+                // 【老版兼容】server < v11 的 Shizuku 没有「运行时授权」这套机制，
+                //   requestPermission 在老版上不弹框、不会有结果回调 —— 点了等于没反应。
+                //   老版的做法是：在管理器界面里手动勾选本应用（勾上即视为已授权）。
+                if (ShizukuBridge.needManagerForGrant()) {
+                    if (!ShizukuBridge.openManager(ctx)) {
+                        showShizukuDialog(ctx, "\u65e0\u6cd5\u81ea\u52a8\u6253\u5f00 Shizuku \u7ba1\u7406\u5668\u3002\n\n"
+                                + "\u4f60\u7684 Shizuku \u7248\u672c\u8f83\u65e7\uff0c\u9700\u8981\u5728\u7ba1\u7406\u5668\u91cc\u624b\u52a8\u52fe\u9009\u672c\u5e94\u7528\u3002");
+                    } else {
+                        showShizukuDialog(ctx, "\u4f60\u7684 Shizuku \u7248\u672c\u8f83\u65e7\u3002\n\n"
+                                + "\u8bf7\u5728\u7ba1\u7406\u5668\u91cc\u628a\u672c\u5e94\u7528\u52fe\u9009\u4e3a\u300c\u5df2\u6388\u6743\u300d\uff0c"
+                                + "\u7136\u540e\u56de\u5230\u8fd9\u91cc\u3002");
+                    }
+                    break;
+                }
+                // 未授权：由 server 弹系统确认框，结果经 listener 回来再刷新这一行。
+                ShizukuBridge.requestPermission(REQ_SHIZUKU);
+                break;
+        }
+    }
+
+    /** 「未安装 Shizuku 管理器」说明弹窗：无 Toast 约束下的唯一合法反馈通道。 */
+    private static void showShizukuMissing(Context ctx) {
+        showShizukuDialog(ctx, "\u672a\u68c0\u6d4b\u5230 Shizuku \u7ba1\u7406\u5668\u3002\n\n"
+                + "\u5148\u5b89\u88c5 Shizuku \u5e76\u542f\u52a8\u5176\u670d\u52a1\uff08\u9700\u914d\u5408 adb / \u65e0\u7ebf\u8c03\u8bd5\uff09\uff0c"
+                + "\u518d\u56de\u5230\u8fd9\u91cc\u6388\u6743\u3002\u6388\u6743\u540e\u672c\u5e94\u7528\u4e0e AI \u90fd\u80fd\u4f7f\u7528\u7cfb\u7edf\u7ea7\u80fd\u529b\u3002");
+    }
+
+    /** Shizuku 授权行的通用说明弹窗（无 Toast 约束下的唯一合法反馈通道）。 */
+    private static void showShizukuDialog(Context ctx, String message) {
+        Activity act = UiKit.findActivity(ctx);
+        if (act == null) {
+            return;
+        }
+        UiKit.showDialog(act, T_PERM_SHIZUKU_NAME,
+                UiKit.dialogMessage(act, message), "\u77e5\u9053\u4e86", null, null, null);
     }
 
     /**
@@ -686,7 +884,28 @@ public final class HomeUi {
         View last = r.getChildAt(1);
         if (last instanceof TextView) {
             ((TextView) last).setText(granted ? HomeCards.S_OK : HomeCards.S_NO);
-            ((TextView) last).setTextColor(granted ? UiKit.OK : UiKit.ERR);
+            UiKit.setTextColorAnimated((TextView) last, granted ? UiKit.OK : UiKit.ERR);
+        }
+        r.setClickable(!granted);
+    }
+
+    /**
+     * Shizuku 授权行按四态绑定：右侧文案由 ShizukuBridge 给（已授权 / 未授权 / 服务未运行 / 未安装）；
+     * 只有「已授权」是绿字不可点，其余三态都红字可点（分别去授权 / 去启动服务 / 去装管理器）。
+     */
+    private static void bindShizukuRow(View row, int state) {
+        if (!(row instanceof LinearLayout)) {
+            return;
+        }
+        LinearLayout r = (LinearLayout) row;
+        if (r.getChildCount() < 2) {
+            return;
+        }
+        View last = r.getChildAt(1);
+        boolean granted = state == ShizukuBridge.S_GRANTED;
+        if (last instanceof TextView) {
+            ((TextView) last).setText(ShizukuBridge.stateText(state));
+            UiKit.setTextColorAnimated((TextView) last, granted ? UiKit.OK : UiKit.ERR);
         }
         r.setClickable(!granted);
     }
@@ -757,8 +976,9 @@ public final class HomeUi {
             if (settings == null || home == null || settings.getVisibility() != View.VISIBLE) {
                 return false;
             }
-            settings.setVisibility(View.GONE);
-            home.setVisibility(View.VISIBLE);
+            // 与前进路径保持同一种过渡：交叉淡入，而非硬切。
+            showDiff(home.getParent() instanceof ViewGroup ? (ViewGroup) home.getParent() : null,
+                    home, settings);
             return true;
         } catch (Throwable ignored) {
             Log.w(LOG_TAG, "ignored", ignored);
@@ -1107,17 +1327,43 @@ public final class HomeUi {
             if (settings == null || homeView == null) {
                 return;
             }
-            homeView.setVisibility(home ? View.VISIBLE : View.GONE);
-            settings.setVisibility(home ? View.GONE : View.VISIBLE);
-            // 切页淡入 + 上移，避免硬切；换主题重建时不重播，免得又闪一次。
-            if (!PetPrefs.themeRestore(activity)) {
-                UiKit.enter(home ? homeView : settings, 0);
+            if (PetPrefs.themeRestore(activity)) {
+                // 换主题重建：直接落到目标页，不重播动画，免得又闪一次。
+                homeView.setVisibility(home ? View.VISIBLE : View.GONE);
+                settings.setVisibility(home ? View.GONE : View.VISIBLE);
+                return;
             }
+            // 切页：目标页淡入、旧页同步淡出（两页同宿主，必须交叉，否则会糊在一起）。
+            showDiff(homeView.getParent() instanceof ViewGroup
+                    ? (ViewGroup) homeView.getParent() : null,
+                    home ? homeView : settings, home ? settings : homeView);
         } catch (Throwable ignored) {
             Log.w(LOG_TAG, "ignored", ignored);
         }
     }
 
+    /**
+     * 同一宿主内的「两页二选一」：目标页淡入 + 旧页同步淡出。
+     * 【为何不用 UiKit.enter】enter 只管入场；旧页若仍可见，两页会同时叠着糊一下。
+     */
+    private static void showDiff(final ViewGroup host, final View in, final View out) {
+        if (host == null || in == null || out == null) {
+            return;
+        }
+        in.setVisibility(View.VISIBLE);
+        in.setAlpha(0f);
+        out.setAlpha(1f);
+        in.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (out.getAlpha() < 0.05f) {
+                            out.setVisibility(View.GONE);
+                        }
+                    }
+                }).start();
+        out.animate().alpha(0f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_ACCEL).start();
+    }
     // 按 tag 在 decorView 里找控件（本轮改造的通用定位手段）。
     private static View find(Activity activity, String tag) {
         View decor = activity == null || activity.getWindow() == null

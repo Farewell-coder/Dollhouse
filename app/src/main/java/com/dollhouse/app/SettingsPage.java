@@ -250,7 +250,8 @@ public final class SettingsPage {
         box.addView(card);
         // 换主题重建时跳过入场动画，否则每张卡片会按序号延迟重冒一遍，看着像按钮消失。
         if (!PetPrefs.themeRestore(ctx)) {
-            UiKit.enter(card, box.getChildCount() * 24);
+            // 【丝滑】错峰序号加上限：卡片多时最末尾不再等太久。
+            UiKit.enter(card, Math.min(box.getChildCount(), 8) * 24);
         }
     }
 

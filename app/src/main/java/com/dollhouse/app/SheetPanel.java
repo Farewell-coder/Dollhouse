@@ -63,10 +63,7 @@ final class SheetPanel {
         shade.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                ViewGroup p = (ViewGroup) shade.getParent();
-                if (p != null) {
-                    p.removeView(shade);
-                }
+                UiKit.slideDownOut(shade);
             }
         });
 
@@ -95,6 +92,13 @@ final class SheetPanel {
         layer.addView(shade, new FrameLayout.LayoutParams(-1, -1));
 
         panel.setTag(tag + "_panel");
+        // 底部面板：遮罩淡入 + 面板自底部滑入（原先直接 addView，瞬间弹出）。
+        panel.post(new Runnable() {
+            @Override
+            public void run() {
+                UiKit.slideUpIn(shade, panel);
+            }
+        });
         return shade;
     }
 
@@ -112,7 +116,7 @@ final class SheetPanel {
         for (int i = 0; i < tags.length; i++) {
             View v = layer.findViewWithTag(tags[i]);
             if (v != null) {
-                layer.removeView(v);
+                UiKit.slideDownOut(v);
             }
         }
     }
@@ -197,9 +201,10 @@ final class SheetPanel {
         String cur = SettingsProfiles.readPref(ctx, SettingsProfiles.KEY_CURRENT);
         final String current = cur == null ? "" : cur;
         body.addView(sub(ctx, "共 " + arr.length() + " 套配置。点一下选中它，并展开这套配置可用的模型清单 —— "
-                + "这里只列你在设置页点过 ☆ 收藏的模型。\n想增删配置、收藏模型去设置页的「模型配置」卡片。"));
-
+                + "每套配置各存一份自己的收藏，展开时只列这一套收藏过的模型。\n想增删配置、收藏模型去设置页的「模型配置」卡片。"));
         ScrollView sc = new ScrollView(ctx);
+        // 【归属】同一时刻只展开一套配置；展开下一套时把上一套收干净。
+        final OpenRow open = new OpenRow();
         final LinearLayout list = new LinearLayout(ctx);
         list.setOrientation(LinearLayout.VERTICAL);
         sc.addView(list, new ViewGroup.LayoutParams(-1, -2));
@@ -234,24 +239,43 @@ final class SheetPanel {
                         public void onClick(View v) {
                             // 展开即代表选中这套配置（整套切掉端点 + 密钥 + 模型）。
                             SettingsProfiles.switchTo(ctx, rowName, null, null);
+                            // 【归属】先把上一套收干净：两套的模型清单同时挂着，
+                            //   「谁是下级」在观感上就糊了 —— 用户报的正是这个。
+                            if (open.models != null && open.models != models) {
+                                UiKit.collapse(open.models);
+                                open.models.removeAllViews();
+                                if (open.opened != null) {
+                                    open.opened[0] = false;
+                                }
+                                open.models = null;
+                                open.opened = null;
+                            }
                             if (opened[0]) {
                                 opened[0] = false;
-                                models.setVisibility(8);
+                                open.models = null;
+                                open.opened = null;
+                                // 【丝滑】模型清单收起用淡出，不再一下消失。
+                                UiKit.collapse(models);
                                 models.removeAllViews();
                                 return;
                             }
                             opened[0] = true;
-                            models.setVisibility(0);
-                            // 【交互】这里只列「收藏过」的模型 —— 收藏入口在设置页的模型清单里（每行右侧的星）。
+                            open.models = models;
+                            open.opened = opened;
+                            // 【丝滑】模型清单展开用淡入，不再一下冒出来。
+                            UiKit.reveal(models);
+                            // 【交互】只列「这套配置自己收藏过」的模型 —— 收藏入口在设置页的模型清单里（每行右侧的星）。
+                            //         收藏按配置各存一份，换一套配置能不能看到，取决于它自己收没收藏。
                             //         不联网、不拉服务端清单，所以没有 loading 竞态。
                             models.removeAllViews();
-                            JSONArray stars = SettingsProfiles.loadStars(ctx);
+                            JSONArray stars = SettingsProfiles.loadStars(ctx, rowName);
                             if (stars.length() == 0) {
-                                models.addView(labelOf(ctx, "还没有收藏模型。去设置页「聊天设置（云端 API）」的模型清单里，"
-                                        + "点模型右侧的 ☆ 收藏，收藏过的才会出现在这里。"));
+                                models.addView(labelOf(ctx, "这套配置还没有收藏模型。去设置页「聊天设置（云端 API）」的模型清单里，"
+                                        + "点模型右侧的 ☆ 收藏，收藏过的才会出现在它下面。"));
                                 return;
                             }
-                            final String curModel = SettingsProfiles.readPref(ctx, "model");
+                            // 【归属】勾选态看这套配置自己的模型，不是全局活跃值。
+                            final String curModel = o.optString("m", "");
                             for (int k = 0; k < stars.length(); k++) {
                                 final String mn = stars.optString(k, "").trim();
                                 if (mn.length() == 0) {
@@ -283,7 +307,16 @@ final class SheetPanel {
         body.addView(sc, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    /** 模型清单里的一行：选中态给底色，点一下就把这套配置的模型换成它。 */
+    /**
+     * 「当前展开的那一套」的句柄：只记容器和它自己的开关标志。
+     * 【为什么需要】展开前要先把它收干净，否则两套的模型清单会同时挂在面板上，
+     *   看着就像「不是这套配置的下级也被列出来了」。
+     */
+    private static final class OpenRow {
+        LinearLayout models;
+        boolean[] opened;
+    }
+    /** 模型清单里的一行：选中态给底色，点一下就把「这套配置」的模型换成它。 */
     private static TextView modelRow(Context ctx, String name, boolean active,
                                      View.OnClickListener onClick) {
         TextView t = new TextView(ctx);

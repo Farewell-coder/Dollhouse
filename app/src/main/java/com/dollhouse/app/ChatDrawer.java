@@ -112,6 +112,30 @@ final class ChatDrawer {
         });
         head.addView(add);
         panel.addView(head);
+        // 【v0.0.1】人偶专属入口：固定顶格在标题行下方。
+        //   点一下切到「人偶」会话 —— 以后这个会话里说的话就是直接跟人偶说；
+        //   其他会话的回复不再往人偶头顶气泡上送（闸门见 ChatPanel 的 PetBus.say）。
+        Button petEntry = flatButton(ctx, ChatSessions.isPet(ctx) ? "● 与人偶的对话" : "与人偶的对话");
+        LinearLayout.LayoutParams pelp = new LinearLayout.LayoutParams(-1, -2);
+        pelp.topMargin = dp(8.0f);
+        petEntry.setLayoutParams(pelp);
+        petEntry.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // 【池切换】点一下进人偶池（前导 ● 点亮），再点一下回自聊池（● 消失）。
+                //   不关抽屉：留着让用户直接看到圆圈变化与列表随池切换。
+                if (ChatSessions.isPet(ctx)) {
+                    ChatSessions.setPool(ctx, ChatSessions.POOL_SELF);
+                } else {
+                    ChatSessions.ensurePet(ctx);
+                    ChatSessions.setPool(ctx, ChatSessions.POOL_PET);
+                }
+                host.reloadHistory();
+                refresh();
+                petEntry.setText(ChatSessions.isPet(ctx) ? "● 与人偶的对话" : "与人偶的对话");
+            }
+        });
+        panel.addView(petEntry);
 
         ScrollView sc = new ScrollView(ctx);
         this.content = new LinearLayout(ctx);
@@ -143,12 +167,19 @@ final class ChatDrawer {
         plp.gravity = Gravity.START;
         this.shade.addView(panel, plp);
         refresh();
+        // 抽屉：遮罩淡入 + 面板自左侧推入（原先瞬现）。
+        panel.post(new Runnable() {
+            @Override
+            public void run() {
+                UiKit.slideInLeft(shade, panel);
+            }
+        });
     }
 
     void close() {
         View view = this.shade;
         if (view != null && view.getParent() != null) {
-            ((ViewGroup) view.getParent()).removeView(view);
+            UiKit.slideOutLeft(view);
         }
     }
 
@@ -159,6 +190,10 @@ final class ChatDrawer {
             return;
         }
         Context ctx = this.host.getContext();
+        // 【丝滑】重铺前记住滚动位置，铺完恢复，避免刷新后跳回顶部。
+        final ScrollView keepSc = box.getParent() instanceof ScrollView
+                ? (ScrollView) box.getParent() : null;
+        final int keepY = keepSc == null ? 0 : keepSc.getScrollY();
         box.removeAllViews();
 
         String cur = ChatSessions.currentId(ctx);
@@ -173,6 +208,16 @@ final class ChatDrawer {
             box.addView(convRow(ctx, o, id.equals(cur)));
         }
 
+        // 【丝滑】行分批淡入；并恢复重铺前的滚动位置。
+        UiKit.staggerCapped(box, 10);
+        if (keepSc != null) {
+            keepSc.post(new Runnable() {
+                @Override
+                public void run() {
+                    keepSc.scrollTo(0, keepY);
+                }
+            });
+        }
         // 【v2.3】「本会话摘要」分区已移除：摘要统一由聊天记录里的「ⓘ 历史对话摘要」呈现。
     }
 
@@ -322,7 +367,7 @@ final class ChatDrawer {
         cancel.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                parent.removeView(overlay);
+                UiKit.fadeOutRemove(overlay);
             }
         });
         bar.addView(cancel);
@@ -333,7 +378,7 @@ final class ChatDrawer {
         ok.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                parent.removeView(overlay);
+                UiKit.fadeOutRemove(overlay);
                 if (onOk != null) {
                     onOk.run();
                 }
@@ -347,6 +392,12 @@ final class ChatDrawer {
         blp.gravity = Gravity.CENTER;
         overlay.addView(box, blp);
         parent.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        // 【丝滑】弹层淡入 + 卡片轻微放大，不再瞬现。
+        overlay.setAlpha(0f);
+        box.setScaleX(0.94f);
+        box.setScaleY(0.94f);
+        overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
+        box.animate().scaleX(1f).scaleY(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
     }
 
     /** 叠一层输入框（用于重命名）。 */
@@ -391,7 +442,7 @@ final class ChatDrawer {
         cancel.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                parent.removeView(overlay);
+                UiKit.fadeOutRemove(overlay);
             }
         });
         bar.addView(cancel);
@@ -403,7 +454,7 @@ final class ChatDrawer {
             @Override
             public void onClick(View v) {
                 String value = input.getText() == null ? "" : input.getText().toString().trim();
-                parent.removeView(overlay);
+                UiKit.fadeOutRemove(overlay);
                 if (onText != null) {
                     onText.onText(value);
                 }
@@ -417,6 +468,12 @@ final class ChatDrawer {
         blp.gravity = Gravity.CENTER;
         overlay.addView(box, blp);
         parent.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        // 【丝滑】弹层淡入 + 卡片轻微放大，不再瞬现。
+        overlay.setAlpha(0f);
+        box.setScaleX(0.94f);
+        box.setScaleY(0.94f);
+        overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
+        box.animate().scaleX(1f).scaleY(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
     }
 
     private static String fmtTime(long ts) {

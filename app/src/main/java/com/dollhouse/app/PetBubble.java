@@ -59,6 +59,20 @@ final class PetBubble {
     static final int PAGE_SENTENCES = 2;
     /** 一片的行数硬上限（用户说的「对话框格子」）：两句超了就退一句，一句还超就按此硬切。 */
     static final int PAGE_MAX_LINES = 3;
+    /**
+     * 气泡最少显示行数（用户定案：不足三行就按两行显示）。
+     * 【为什么】单行回复若只占一行高，气泡会随字数忽高忽低、切页时突兀；
+     *   固定下限两行后，短句与两行句同一个高度，视觉稳定。
+     */
+    static final int LINES_MIN = 2;
+    /** 行间距（dp），必须与 layout() 的 setLineSpacing 一致，否则补足行数时高度算不准。 */
+    private static final float LINE_GAP_DP = 2.0f;
+    /**
+     * 气泡底部余量（dp）。
+     * 【与 draw 对齐】draw() 里「框顶 = 高度 - 文字高 - 2*上下内边距 - 尾巴高」，
+     *   恒等于 4dp；高度公式必须与之一致，脱节就会框比文字高一截。
+     */
+    private static final float BUBBLE_SLACK_DP = 4.0f;
     private final Path path = new Path();
     /**
      * 【v2.10.2】绘制用临时矩形：draw() 每帧都会走到，预分配避免每帧一个 RectF 对象
@@ -118,11 +132,14 @@ final class PetBubble {
             return;
         }
         // 可用宽度扣减也要乘 scale，否则放大后文字被挤成一行几个字。
-        int max = Math.max(1, Math.round(availWidth) - Math.round((PAD_H_DP * 2.0f) * density * this.scale));
+        // 【修 v0.0.1】可用宽度还要扣掉左右留白（INSET）：绘制时框的左右边界各自
+        //   内缩 inset，只扣 PAD_H 的话排版宽会比框内宽多 2*inset，最右一列字会顶出框外。
+        int max = Math.max(1, Math.round(availWidth)
+                - Math.round((PAD_H_DP * 2.0f + INSET_DP * 2.0f) * density * this.scale));
         this.layout = StaticLayout.Builder.obtain(this.text, 0, this.text.length(), this.textPaint, max)
                 .setAlignment(Layout.Alignment.ALIGN_CENTER)
                 .setIncludePad(false)
-                .setLineSpacing(2.0f * density * this.scale, 1.0f)
+                .setLineSpacing(LINE_GAP_DP * density * this.scale, 1.0f)
                 // 回答过长只显示前 MAX_LINES 行，末尾省略号，不把气泡撑满整屏。
                 .setMaxLines(this.maxLines)
                 .setEllipsize(TextUtils.TruncateAt.END)
@@ -394,18 +411,35 @@ final class PetBubble {
 
     /** 气泡自身需要的高度（含上下内边距与尾巴）；无内容时返 0。 */
     int neededHeight(float width, float density) {
-        if (this.layout == null) {
+        // 【修 v0.0.1】宽度变了必须重排：旧实现在有缓存 layout 时直接拿旧 layout 量高，
+        //   若那一版是按更窄宽度排的（多一行），高度就按多一行算（用户报的「两行占三行」来源之一）。
+        if (this.layout == null || width != this.lastWidth) {
             layout(width, density);
         }
-        StaticLayout staticLayout = this.layout;
-        if (staticLayout == null) {
-            return 0;
-        }
         float s = this.scale;
-        return staticLayout.getHeight()
+        return Math.round(needTextHeight(density))
                 + (Math.round(PAD_V_DP * density * s) * 2)
                 + Math.round(TAIL_H_DP * density * s)
-                + Math.round(4.0f * density * s);
+                + Math.round(BUBBLE_SLACK_DP * density * s);
+    }
+    /**
+     * 文字区实占高度：不足 LINES_MIN 行时按 LINES_MIN 行补足，其余按实际行高。
+     * 【用户定案】文字过多用三行、不足三行按两行显示 —— 下限固定，上限由 maxLines 截断。
+     */
+    private float needTextHeight(float density) {
+        StaticLayout staticLayout = this.layout;
+        if (staticLayout == null) {
+            return 0.0f;
+        }
+        int lines = staticLayout.getLineCount();
+        if (lines <= 0) {
+            return 0.0f;
+        }
+        if (lines >= LINES_MIN) {
+            return staticLayout.getHeight();
+        }
+        return staticLayout.getHeight() * LINES_MIN
+                + (Math.round(LINE_GAP_DP * density * this.scale) * (LINES_MIN - 1));
     }
 
     /** 由 PetView 设置可用高度（决定气泡贴底位置）。 */
@@ -436,7 +470,10 @@ final class PetBubble {
         float inset = INSET_DP * density * s;
         float tailH = TAIL_H_DP * density * s;
         float tail = TAIL_DP * density * s;
-        float width = canvas.getWidth();
+        // 【修 v0.0.1】框宽锁定为「排版时那一版可用宽度」：canvas 宽是窗口宽，
+        //   贴边时窗口有一截在屏外，两套口径不一致会让文字按 A 宽换行、框按 B 宽绘制
+        //   （用户报的「串字 / 造成格子 / 有字溢出」）。
+        float width = this.lastWidth > 0.0f ? this.lastWidth : canvas.getWidth();
         // 人偶贴边时窗口有 0.68*petWidth 在屏幕外，气泡按可见区收边，否则一半画在屏外。
         float left = Math.max(inset, (0.0f - windowX) + inset);
         float right = Math.min(width - inset, (screenW - windowX) - inset);
@@ -445,7 +482,11 @@ final class PetBubble {
             left = inset;
             right = width - inset;
         }
-        float boxH = this.layout.getHeight() + (padV * 2.0f);
+        // 【修 v0.0.1】框高与 neededHeight 同口径（至少 LINES_MIN 行），
+        //   文字再于框内垂直居中：单行回复时框比文字高，不居中会贴框顶像填空。
+        float textH = this.layout.getHeight();
+        float boxInnerH = needTextHeight(density);
+        float boxH = boxInnerH + (padV * 2.0f);
         float top = Math.max(1.0f * density, (this.height - boxH) - tailH);
         float bottom = boxH + top;
         this.path.reset();
@@ -459,7 +500,9 @@ final class PetBubble {
         canvas.drawPath(this.path, this.fill);
         canvas.drawPath(this.path, this.edge);
         canvas.save();
-        canvas.translate(left + padH, top + padV);
+        // 【修 v0.0.1】把文字裁进框内：排版口径万一对不齐，也不会溢到框外。
+        canvas.clipRect(left + padH, top + padV, right - padH, bottom - padV);
+        canvas.translate(left + padH, top + padV + Math.max(0.0f, (boxInnerH - textH) / 2.0f));
         this.layout.draw(canvas);
         canvas.restore();
     }

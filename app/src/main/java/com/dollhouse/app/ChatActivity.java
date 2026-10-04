@@ -42,6 +42,8 @@ public class ChatActivity extends Activity {
             @Override
             public void onClose() {
                 ChatActivity.this.finish();
+                // 【丝滑】关闭全屏聊天页时淡出，不用系统默认的硬切。
+                ChatActivity.this.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
             }
         }, true);
         this.panel = chatPanel;

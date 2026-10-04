@@ -51,7 +51,7 @@ final class MemPage {
             if (old == null) {
                 return false;
             }
-            content.removeView(old);
+            UiKit.closePage(old);
             return true;
         } catch (Throwable t) {
             return false;
@@ -69,13 +69,8 @@ final class MemPage {
             if (content == null) {
                 return;
             }
-            View old = content.findViewWithTag(TAG_PAGE);
-            if (old != null) {
-                content.removeView(old);
-            }
             View page = buildPage(act, content);
-            page.setTag(TAG_PAGE);
-            content.addView(page, new ViewGroup.LayoutParams(-1, -1));
+            UiKit.openPage(content, page, TAG_PAGE);
         } catch (Throwable ignored) {
             Log.w(LOG_TAG, "ignored", ignored);
         }
@@ -122,6 +117,8 @@ final class MemPage {
             }
             box.addView(item(ctx, o));
         }
+        // 【丝滑】列表项错峰淡入，不再一次性铺满。
+        UiKit.staggerCapped(box, 6);
         if (arr.length() == 0) {
             LinearLayout empty = card(ctx);
             TextView e = new TextView(ctx);

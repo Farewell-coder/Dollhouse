@@ -21,6 +21,7 @@ Dollhouse 是一款 Android 桌面宠物应用。安装后，鲸鱼娘「小肥�
 - [权限说明](#权限说明)
 - [兼容性](#兼容性)
 - [隐私](#隐私)
+- [致谢与第三方组件](#致谢与第三方组件)
 - [开源协议](#开源协议)
 
 ---
@@ -74,11 +75,22 @@ Dollhouse 是一款 Android 桌面宠物应用。安装后，鲸鱼娘「小肥�
 - **人偶比例**：可调大小
 - **贴边行为**：可切换左/右侧偏好
 
+### 高级权限（Shizuku）
+
+> **这是可选能力，不授权也能正常使用全部桌面宠物与聊天功能。**
+
+设置页「权限」卡片下有「Shizuku 授权」一行。授权后，本应用与内置 AI 可获得 **adb shell 级**的系统能力（等同 `adb shell`，uid 2000），例如查询系统状态、读取系统设置。
+
+- **不内置任何提权手段**：Shizuku 需要用户自行安装，并通过 `adb` 或 root 启动其服务；本应用只请求授权，不参与提权
+- **授权可随时撤回**：在 Shizuku 管理器里取消勾选即失效
+- **老版本兼容**：同时支持固定包名的旧版 Shizuku 与「随机包名 / 隐身」模式的新版；服务版本低于 v11 时会引导你去管理器里手动勾选授权
+- **AI 侧调用需先授权**：未授权时 `shell` 工具不会出现在模型可见的工具列表里
+
 ---
 
 ## AI 对话与记忆
 
-Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API」入口，兼容**任意 OpenAI 格式接口**（自定义 Base URL / API Key / 模型名）。
+Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API」入口，兼容**任意 OpenAI 格式接口**（自定义 Base URL / API Key / 模型名），并支持**保存多套配置**随时切换。每套配置各自维护自己的模型清单与**星标收藏**，互不串台。
 
 > 本项目**不包含任何 API Key**。所有凭据由使用者在 App 内自行填写，仅保存在本机 SharedPreferences 中。
 
@@ -86,7 +98,7 @@ Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API
 
 - **多轮会话**：会话列表、重命名、历史持久化
 - **记忆系统**：会话内容自动摘要与归并，避免上下文无限膨胀；可手动触发整理
-- **工具调用**：支持函数调用，可接入联网搜索
+- **工具调用**：支持函数调用，可接入联网搜索；授权 Shizuku 后额外开放**系统命令**（`shell`）工具，详见[高级权限（Shizuku）](#高级权限shizuku)
 - **思考等级**：可调节推理强度
 - **Token 统计**：按**每日 / 每周 / 累计**三个维度分段查看消耗，带迷你折线图
 - **统计口径可视化**：用环形进度显示当前聊天条数占记忆触发阈值的比例
@@ -109,7 +121,7 @@ Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API
 - **前台服务**：以 `specialUse` 类型前台服务保活，通知栏常驻（可从通知直接关闭人偶）
 - **开机恢复**：支持开机自启（可在设置中关闭）
 
-实测（本机 ColorOS 14 / 天玑 700 级别）：贴边空闲态 CPU 占用约 **3.5%**，远低于满帧运行。
+在一台 ColorOS 14 / 天玑 700 级别机型上采样：贴边空闲态 CPU 占用约 **3.5%**。该数值随机型、ROM 与系统负载不同而有所差异，仅供参考。
 
 ---
 
@@ -165,6 +177,8 @@ EOF
 | 项 | 值 |
 | --- | --- |
 | applicationId | `com.dollhouse.app` |
+| versionName | `0.0.2` |
+| versionCode | 2 |
 | compileSdk | 35 |
 | minSdk | 24 |
 | targetSdk | 34 |
@@ -197,8 +211,19 @@ Dollhouse/
 │       │   ├── SettingsPage.java         # 设置页框架
 │       │   ├── SettingsRegistry.java     # 设置项注册表
 │       │   ├── HomeUi.java               # 首页 UI
+│       │   ├── ApiConfigPage.java        # 配置 API 详情页（多套配置 / 模型收藏）
+│       │   ├── SettingsProfiles.java     # 多套配置的存储与读写
+│       │   ├── SettingsProfilePanel.java # 配置切换面板
+│       │   ├── SettingsCard.java         # 设置卡片组件
+│       │   ├── ChatToolRunner.java       # 模型工具调用调度
+│       │   ├── PetLinkActivity.java      # 快捷方式入口页
+│       │   ├── PetTileService.java       # 快捷设置磁贴
+│       │   ├── PetToggle.java            # 人偶显示开关
+│       │   ├── ShizukuBridge.java        # Shizuku 授权与 shell 执行（可选能力）
+│       │   ├── ShellTool.java            # AI 可调用的 shell 工具
 │       │   └── ...
 │       └── res/
+│           └── drawable/ic_tile_pet.xml  # 快捷设置磁贴图标
 ├── build.gradle
 ├── settings.gradle
 ├── gradle.properties
@@ -222,6 +247,11 @@ Dollhouse/
 | `VIBRATE` | 触摸反馈 |
 | `RECEIVE_BOOT_COMPLETED` | 开机自动恢复人偶 |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 请求加入省电白名单（可选，用于提升后台存活率） |
+| `moe.shizuku.manager.permission.API_V23` | **可选**：Shizuku 授权后由 server 授予，用于执行 `shell` 命令 |
+
+**`<queries>` 声明**：为了让 Android 11+ 的包可见性限制下能识别 Shizuku 管理器，Manifest 中声明了 `moe.shizuku.privileged.api`、`rikka.sui` 两个包名，以及 `REQUEST_PERMISSION` 这个 intent action。前者覆盖固定包名的旧版，后者覆盖随机包名的新版，**两者缺一都会在另一种形态上失灵**。
+
+**关于 `INTERACT_ACROSS_USERS_FULL`**：`rikka.shizuku.ShizukuProvider` 在 Manifest 中以该权限作为 provider 的访问控制属性（限定仅本应用 / shell 身份可访问），**它不是本应用向系统申请的权限**，故不出现在上表中。
 
 **不使用**：定位、通讯录、相机、麦克风、存储读写、剪贴板读取。
 
@@ -244,13 +274,32 @@ Dollhouse/
 ## 隐私
 
 - **不采集**：不收集、不上传任何用户数据
-- **不联网**（除非你配置了 AI 接口）：未配置 API 时，应用完全离线运行
+- **不联网**（除非你配置了 AI 接口）：未配置 API 时，应用自身不发起任何网络请求（Shizuku 本身也不需要联网）
 - **凭据本地化**：API Key 仅存储在本机应用私有目录，不上传任何服务器
-- **无第三方 SDK**：不含广告、统计、崩溃上报等任何第三方组件
+- **第三方 SDK**：除**可选的**开源 Shizuku 客户端库（RikkaApps，Apache-2.0，见[致谢](#致谢与第三方组件)）外，不含广告、统计、崩溃上报等任何第三方组件
+- **Shizuku 能力默认关闭**：`shell` 命令执行需要你显式授权 Shizuku，且已授权的命令由**你发起的 AI 对话**触发；本应用不会在后台自行执行 shell 命令
+- **Shizuku 命令的可见范围**：授权后经 `shell` 执行的命令及其输出，会作为对话内容发送给**你配置的第三方 AI 服务**（这是「AI 触发命令」的必经链路）；同时命令可读取系统中任意可读文件与设置，请自行评估敏感性
+- **命令由模型生成**：`shell` 命令内容来自模型输出，可能存在误伤或破坏性操作（删除文件、修改系统设置等）。当前仅靠系统提示词约束，**没有命令白名单，也没有二次确认**，请谨慎使用
 
 ---
 
-## 开源协议
+## 致谢与第三方组件
+
+### Shizuku
+
+本项目通过 [Shizuku](https://github.com/RikkaApps/Shizuku) 提供可选的系统级 `shell` 能力。
+
+Shizuku 由 **RikkaApps（RikkaW）** 开发，采用 Apache License 2.0 开源。它让应用在**用户明确授权**的前提下，以 `adb`/`root` 身份调用系统 API，无需 root 即可获得受控的高权限能力。
+
+- 项目主页：<https://github.com/RikkaApps/Shizuku>
+- API 文档：<https://github.com/RikkaApps/Shizuku-API>
+- 本项目使用其官方依赖：`dev.rikka.shizuku:api:13.1.5` 与 `dev.rikka.shizuku:provider:13.1.5`
+
+> 特别致谢 RikkaApps 提供的这套权限框架 —— 没有它，这类「无需 root 的受控高权限」需求只能靠 root 或每台机器打补丁解决。
+
+**注意**：Shizuku 是**独立安装**的第三方应用，不随本仓库分发。本仓库的 GPL-3.0 协议仅覆盖 Dollhouse 自身代码；Shizuku 二进制与其 API 依赖遵循其自身的 Apache-2.0 协议。
+
+### 开源协议
 
 本项目采用 **GNU General Public License v3.0（GPL-3.0）** 协议开源，详见 [LICENSE](LICENSE)。
 

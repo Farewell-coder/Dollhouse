@@ -110,6 +110,27 @@ public final class PetPrefs {
         get(context).edit().putString("conv_current", str == null ? "" : str).apply();
     }
 
+    /**
+     * 【v0.0.1·池化】当前所处的会话池："self"（自聊）/ "pet"（人偶）。
+     * 【为什么单独存】两池各自有一份「当前会话 id」，光靠 id 无法判断当前在哪个池。
+     */
+    public static String convPool(Context context) {
+        return get(context).getString("conv_pool", "");
+    }
+
+    public static void setConvPool(Context context, String str) {
+        get(context).edit().putString("conv_pool", str == null ? "" : str).apply();
+    }
+
+    /** 【v0.0.1·池化】人偶池（pet）的当前会话 id；自聊池仍用 conv_current。 */
+    public static String convCurrentPet(Context context) {
+        return get(context).getString("conv_current_pet", "");
+    }
+
+    public static void setConvCurrentPet(Context context, String str) {
+        get(context).edit().putString("conv_current_pet", str == null ? "" : str).apply();
+    }
+
     public static String convHistory(Context context, String id) {
         return get(context).getString("conv_" + id, "[]");
     }
@@ -383,6 +404,21 @@ public static void setLearnEnabled(Context context, boolean z) {
 
     public static void setHideRecents(Context context, boolean z) {
         get(context).edit().putBoolean("hide_recents", z).apply();
+    }
+
+    /**
+     * 快捷设置磁贴是否已被用户添加。
+     *
+     * 【为什么需要缓存】系统没有任何「查询某磁贴是否已添加」的公开 API，
+     * 唯一可靠的信号是 TileService.onTileAdded / onTileRemoved 两个回调；
+     * 这里把回调结果存下来，设置页那个开关就按这个值显示。
+     */
+    public static boolean tileAdded(Context context) {
+        return get(context).getBoolean("tile_added", false);
+    }
+
+    public static void setTileAdded(Context context, boolean z) {
+        get(context).edit().putBoolean("tile_added", z).apply();
     }
 
 // 保活：用户是否主动点过「关闭人偶」。为 true 时，被划掉 / 重启开机都不自动拉起。

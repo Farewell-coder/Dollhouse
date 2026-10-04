@@ -67,7 +67,7 @@ final class ApiConfigPage {
             if (old == null) {
                 return false;
             }
-            content.removeView(old);
+            UiKit.closePage(old);
             CURRENT_PROVIDER = "";
             return true;
         } catch (Throwable ignored) {
@@ -104,7 +104,7 @@ final class ApiConfigPage {
             if (CURRENT_PROVIDER.length() > 0) {
                 show(act, null);
             } else {
-                content.removeView(old);
+                UiKit.closePage(old);
             }
             return true;
         } catch (Throwable ignored) {
@@ -119,14 +119,15 @@ final class ApiConfigPage {
             if (content == null) {
                 return;
             }
-            View old = content.findViewWithTag(TAG_PAGE);
-            if (old != null) {
-                content.removeView(old);
-            }
+            // 进二级详情 = 前进（右侧滑入）；返回一级 / 同层刷新 = 交叉淡入。
+            boolean push = provider != null || content.findViewWithTag(TAG_PAGE) == null;
             View page = build(act, provider);
-            page.setTag(TAG_PAGE);
             CURRENT_PROVIDER = provider == null ? "" : provider;
-            content.addView(page, new ViewGroup.LayoutParams(-1, -1));
+            if (push) {
+                UiKit.openPage(content, page, TAG_PAGE);
+            } else {
+                UiKit.swapPage(content, page, TAG_PAGE);
+            }
         } catch (Throwable ignored) {
             Log.w(LOG_TAG, "ignored", ignored);
         }
@@ -341,8 +342,9 @@ final class ApiConfigPage {
         mdlStatus.setTextSize(UiKit.FS_SUB);
         mdlStatus.setTextColor(UiKit.SUB);
         mdlStatus.setPadding(dp(ctx, 2), 0, 0, dp(ctx, 6));
-        mdlStatus.setVisibility(View.GONE);
         mdlOuter.addView(mdlStatus);
+        // 【丝滑】初始收起态：先可见再淡出，避免首帧硬闪一下。
+        UiKit.collapse(mdlStatus);
         final LinearLayout mdlBox = new LinearLayout(ctx);
         mdlBox.setOrientation(LinearLayout.VERTICAL);
         mdlOuter.addView(mdlBox);
@@ -406,12 +408,13 @@ final class ApiConfigPage {
             return;
         }
         for (int i = 0; i < st.stack.getChildCount(); i++) {
-            st.stack.getChildAt(i).setVisibility(i == index ? View.VISIBLE : View.GONE);
+            // 【丝滑】页签切换用淡入淡出，不再硬切。
+            UiKit.showHide(st.stack.getChildAt(i), i == index);
         }
         Context ctx = st.act;
         for (int i = 0; i < st.tabs.length; i++) {
             boolean on = i == index;
-            st.tabs[i].setTextColor(on ? UiKit.ACC : UiKit.SUB);
+            UiKit.setTextColorAnimated(st.tabs[i], on ? UiKit.ACC : UiKit.SUB);
             st.tabs[i].setBackground(on ? UiKit.round(UiKit.FIELD, ctx, 10) : null);
         }
         if (index == 1 && st.mdlBox.getChildCount() == 0) {
@@ -815,6 +818,7 @@ final class ApiConfigPage {
         final TextView status = st.mdlStatus;
         box.removeAllViews();
         status.setVisibility(View.VISIBLE);
+        UiKit.reveal(status);
         status.setText("正在拉取模型列表\u2026");
 
         LinearLayout tips = card(ctx);
@@ -866,6 +870,8 @@ final class ApiConfigPage {
                             final String mn = models.get(i);
                             box.addView(modelRow(st, mn, mn.equals(curModel)));
                         }
+                        // 【丝滑】模型较多，只让前几行错峰淡入，其余立即可见。
+                        UiKit.staggerCapped(box, 8);
                     }
                 });
             }
@@ -892,7 +898,7 @@ final class ApiConfigPage {
         nm.setEllipsize(TextUtils.TruncateAt.END);
         r.addView(nm, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        final boolean starred = SettingsProfiles.isStarred(ctx, model);
+        final boolean starred = SettingsProfiles.isStarred(ctx, st.provider, model);
         final TextView star = new TextView(ctx);
         star.setText(starred ? "\u2605" : "\u2606");
         star.setTextSize(UiKit.FS_ICON);
@@ -903,7 +909,10 @@ final class ApiConfigPage {
         star.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                boolean now = SettingsProfiles.toggleStar(ctx, model);
+                // 【归属】这个地方的清单是按 st.provider 这套配置的端点拉回来的，
+                //   收藏也必须落进同一套配置 —— 无参版会写进「当前配置」，
+                //   当详情页停留的配置 ≠ 当前配置时，星就点到了别人身上。
+                boolean now = SettingsProfiles.toggleStar(ctx, st.provider, model);
                 star.setText(now ? "\u2605" : "\u2606");
                 star.setTextColor(now ? UiKit.ACC : UiKit.SUB);
             }
@@ -915,8 +924,9 @@ final class ApiConfigPage {
         r.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String name = SettingsProfiles.readPref(ctx, SettingsProfiles.KEY_CURRENT);
-                SettingsProfiles.setProfileModel(ctx, name, model);
+                // 【归属】改的是「这一页所属配置」的模型，不是当前活跃配置。
+                //   原先读 KEY_CURRENT 再写，在详情页停留的配置 ≠ 当前配置时会改错对象。
+                SettingsProfiles.setProfileModel(ctx, st.provider, model);
                 buildModelsTab(st);
             }
         });

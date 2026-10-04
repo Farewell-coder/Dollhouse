@@ -148,7 +148,8 @@ final class ChatBubbles {
     static void scrollToBottom(ChatPanel host) {
         host.scroller.post(new Runnable() {            @Override
             public void run() {
-                host.scroller.fullScroll(130);
+                // 【丝滑】原来 fullScroll 瞬跳到底，与 ChatPanel 的 smoothScrollTo 手感不一致。
+                host.scroller.smoothScrollTo(0, host.messages.getHeight());
             }
         });
     }
@@ -240,7 +241,12 @@ final class ChatBubbles {
                 @Override
                 public void onClick(View v) {
                     boolean show = body.getVisibility() != 0;
-                    body.setVisibility(show ? 0 : 8);
+                    // 【丝滑】摘要展开/收起改为淡入淡出，不再一下冒出来/一下消失。
+                    if (show) {
+                        UiKit.reveal(body);
+                    } else {
+                        UiKit.collapse(body);
+                    }
                     label.setText(show ? "ⓘ 历史对话摘要（点击收起）" : "ⓘ 历史对话摘要");
                 }
             });

@@ -26,6 +26,8 @@ import android.widget.TextView;
 final class HomeCards {
     /** 悬浮窗权限行的 tag，供 HomeUi.syncPerm 定位该行。 */
     static final String TAG_PERM_OVERLAY = "feiyu_perm_overlay";
+    /** Shizuku 授权行的 tag，供 HomeUi.syncPerm 定位该行（四态，文案由 ShizukuBridge 给）。 */
+    static final String TAG_PERM_SHIZUKU = "feiyu_perm_shizuku";
     /** 权限行右侧状态文案。 */
     static final String S_OK = "\u5df2\u6388\u6743";
     static final String S_NO = "\u672a\u6388\u6743";
@@ -210,7 +212,11 @@ final class HomeCards {
         }
         LinearLayout r = (LinearLayout) row;
         if (r.getChildCount() >= 2 && r.getChildAt(1) instanceof TextView) {
-            ((TextView) r.getChildAt(1)).setText(text == null ? "" : text);
+            TextView tv = (TextView) r.getChildAt(1);
+            tv.setText(text == null ? "" : text);
+            // 【丝滑】状态值刷新时淡入一下，避免"秒变"的突兀。
+            tv.setAlpha(0.35f);
+            tv.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_STD).start();
         }
     }
     /**
@@ -261,7 +267,8 @@ final class HomeCards {
         final Context appCtx = ctx.getApplicationContext();
         final boolean open = PetPrefs.hasCardOpen(appCtx, fTitle)
                 ? PetPrefs.cardOpen(appCtx, fTitle) : fallbackOpen;
-        arrow.setRotation(open ? 90f : 0f);
+        // 【丝滑】初始展开态也走动画，不再瞬间旋转。
+        arrow.animate().rotation(open ? 90f : 0f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_STD).start();
         if (open) {
             body.setVisibility(View.VISIBLE);
         } else {

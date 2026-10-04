@@ -10,7 +10,22 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
+    <!-- Shizuku 客户端权限：由 Shizuku server（adb/root 身份）在授权后授予本应用。 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+    <!-- 【包可见性·必须】SDK 30+ 默认查不到别的应用，这里要把两种形态都声明到：
+         ① <package>：未隐身的老版 Shizuku 是固定包名 moe.shizuku.privileged.api，
+            不声明的话 getPackageInfo / getLaunchIntentForPackage 都会被系统挡住，
+            于是装了 Shizuku 却被误判成「未安装」。
+         ② <intent>：新版「隐身 / 随机包名」会把 applicationId 改成 moe.shizuku.privileged.api.xxxx，
+            固定包名查不到；但该 action 名不会被随机化，用它的持有者反查即可。
+         两者缺一，就会在「另一种形态」的 Shizuku 上失灵。 -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="rikka.sui" />
+        <intent>
+            <action android:name="moe.shizuku.privileged.api.intent.action.REQUEST_PERMISSION" />
+        </intent>
+    </queries>
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
@@ -53,6 +68,33 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 外部链接落地页：浏览器 / 自动化软件 / 终端 am start 都能拉起。
+             dollhouse://pet/on | off | toggle
+             com.dollhouse.app.action.PET_ON | PET_OFF | PET_TOGGLE
+             只做一次启停转发，不显示界面，所以用 NoDisplay 主题（必须 onCreate 内 finish）。
+             【关键】taskAffinity="" 让它自成独立任务，绝不能与 MainActivity 同任务栈 ——
+             否则外部指令一触发，系统会把整个应用任务栈顶到前台，用户就被弹进 App 界面了。 -->
+        <activity
+            android:name=".PetLinkActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dollhouse" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.dollhouse.app.action.PET_ON" />
+                <action android:name="com.dollhouse.app.action.PET_OFF" />
+                <action android:name="com.dollhouse.app.action.PET_TOGGLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".PetService"
             android:exported="false"
@@ -68,5 +110,27 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <!-- 快捷设置磁贴：状态跟随桌宠启停，点一下切换。
+             必须声明 BIND_QUICK_SETTINGS_TILE 且 exported="true"，否则系统绑不上。 -->
+        <!-- Shizuku 客户端 provider：server（adb/root）启动本应用时把 binder 推到这里。
+             三个约束缺一不可：authorities 必须是自己的包名 + .shizuku（server 按此寻址）、
+             exported 必须 true（server 在别的进程）、multiprocess 必须 false（否则拿错 uid）。
+             声明 permission 是为了让这个 provider 只被本应用与 shell 身份访问。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <service
+            android:name=".PetTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_pet"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

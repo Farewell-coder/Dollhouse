@@ -121,6 +121,8 @@ final class HomeScreenBuilder {
             @Override
             public void onClick(View v) {
                 act.startActivity(new Intent(act, ChatActivity.class));
+                // 【丝滑】跳全屏聊天页时淡入，不用系统默认的硬切。
+                act.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
             }
         });
         box.addView(openChat);

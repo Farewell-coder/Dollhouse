@@ -283,7 +283,7 @@ public final class TokenStat {
             if (old == null) {
                 return false;
             }
-            content.removeView(old);
+            UiKit.closePage(old);
             return true;
         } catch (Throwable t) {
             return false;
@@ -311,12 +311,9 @@ public final class TokenStat {
             return;
         }
         View old = content.findViewWithTag(TAG_PAGE);
-        if (old != null) {
-            content.removeView(old);
-        }
         View page = buildPage(act, content);
-        page.setTag(TAG_PAGE);
-        content.addView(page, new ViewGroup.LayoutParams(-1, -1));
+        // 切分段 / 翻日期是同层刷新：用交叉淡入，不做位移（位移会诱导用户以为页面在横向跳）。
+        UiKit.swapPage(content, page, TAG_PAGE);
     }
 
     private static Activity findActivity(Context ctx) {

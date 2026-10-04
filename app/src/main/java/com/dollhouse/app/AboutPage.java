@@ -53,7 +53,7 @@ final class AboutPage {
             if (old == null) {
                 return false;
             }
-            content.removeView(old);
+            UiKit.closePage(old);
             return true;
         } catch (Throwable t) {
             return false;
@@ -71,13 +71,8 @@ final class AboutPage {
             if (content == null) {
                 return;
             }
-            View old = content.findViewWithTag(TAG_PAGE);
-            if (old != null) {
-                content.removeView(old);
-            }
             View page = buildPage(act);
-            page.setTag(TAG_PAGE);
-            content.addView(page, new ViewGroup.LayoutParams(-1, -1));
+            UiKit.openPage(content, page, TAG_PAGE);
         } catch (Throwable ignored) {
             Log.w(LOG_TAG, "ignored", ignored);
         }

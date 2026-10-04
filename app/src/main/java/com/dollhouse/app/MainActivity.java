@@ -11,6 +11,7 @@ import android.os.Looper;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import rikka.shizuku.Shizuku;
 
 /**
  * 【职责】主界面宿主（Manifest 用相对名 .MainActivity 引用，类名不可改）。
@@ -44,6 +45,36 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
 
     /** 每秒刷新一次权限与状态。 */
     private final Handler ticker = new Handler(Looper.getMainLooper());
+    /**
+     * Shizuku 授权结果监听：server 那边确认/拒绝后回调，回来刷新「权限」卡片里的授权行。
+     * 【为什么只刷新不提示】UiKit.java:30 硬约束禁止 Toast / Snackbar / 自实现浮层短提示，
+     *   授权成功与否直接体现在那一行的绿字/红字上，不需要再弹一层。
+     */
+    private final Shizuku.OnRequestPermissionResultListener shizukuPermListener =
+            new Shizuku.OnRequestPermissionResultListener() {
+                @Override
+                public void onRequestPermissionResult(int requestCode, int grantResult) {
+                    // 授权结果刚到，先作废状态缓存再刷新，否则要等 TTL 过了才显示新状态。
+                    ShizukuBridge.invalidate();
+                    HomeUi.sync(MainActivity.this);
+                }
+            };
+    /** binder 就绪监听：服务后启动（用户去管理器里开了服务）时自动把授权行刷成新状态。 */
+    private final Shizuku.OnBinderReceivedListener shizukuBinderListener =
+            new Shizuku.OnBinderReceivedListener() {
+                @Override
+                public void onBinderReceived() {
+                    ShizukuBridge.invalidate();
+                    HomeUi.sync(MainActivity.this);
+                }
+            };
+    /**
+     * 【去重】监听器是否已挂上。
+     * 【为什么需要】Shizuku.addRequestPermissionResultListener 内部不做去重，而 onResume
+     *   有可能在没有配对 onPause 的情况下被再调一次（厂商 ROM 的多窗口/分屏重建路径），
+     *   那就会把同一个 listener 挂多份，回调被重复触发。
+     */
+    private boolean shizukuListenersOn = false;
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -74,21 +105,39 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
         SettingsPage.apply(this);
         HomeUi.apply(this);
         // 换主题重建的话，把滚动位置滚回原处（冷启动时这个标志是关的，不会乱跳）。
+        boolean silkRestored = PetPrefs.themeRestore(this);
         HomeUi.restoreScroll(this);
+        // 【丝滑】换主题重建会重跑 onCreate，新界面首帧直出；盖一层底色淡出，消除闪白。
+        if (silkRestored) {
+            UiKit.themeFade(this);
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // 【修 v0.0.1】「默认一直开着」：用户没主动关过就保证人偶常驻。
+        //   开机广播在 ColorOS 上可能被拦，这里以「每次回主页对账」作为第二道保险（幂等）。
+        PetToggle.aliveOnBoot(this);
         refresh();
         refreshLocalUi();
         HomeUi.sync(this);
+        // 【Shizuku】监听挂在这一对生命周期里：授权结果 / 服务后启动都要能自动刷回界面。
+        if (!shizukuListenersOn) {
+            shizukuListenersOn = true;
+            ShizukuBridge.addPermissionListener(shizukuPermListener);
+            ShizukuBridge.addBinderListener(shizukuBinderListener);
+        }
         ticker.postDelayed(tick, 800L);
     }
 
     @Override
     protected void onPause() {
         ticker.removeCallbacks(tick);
+        // 【Shizuku】摘掉监听，避免页面不在前台时还持有 Activity 引用。
+        ShizukuBridge.removePermissionListener(shizukuPermListener);
+        ShizukuBridge.removeBinderListener(shizukuBinderListener);
+        shizukuListenersOn = false;
         super.onPause();
     }
 
