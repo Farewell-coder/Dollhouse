@@ -18,7 +18,6 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -92,6 +91,14 @@ public final class HomeUi {
     private static final String T_CHAT_NEW = "\u804a\u5929";
     private static final String T_DOLL_NEW = "\u4eba\u5076";
     private static final String T_LOOK_NEW = "\u5916\u89c2";
+    /** 「外观」卡片下级的两个聊天背景入口（整行样式，与「主题模式」一致）。 */
+    private static final String T_LOOK_BG = "\u804a\u5929\u80cc\u666f";
+    private static final String T_LOOK_BG_CLEAR = "\u6e05\u9664\u80cc\u666f";
+    private static final String T_LOOK_BG_OFF = "\u672a\u8bbe\u7f6e";
+    private static final String T_LOOK_BG_ON = "\u5df2\u8bbe\u7f6e";
+    private static final String T_LOOK_BG_GO = "\u203a";
+    private static final String TAG_LOOK_BG = "feiyu_look_bg";
+    private static final String TAG_LOOK_BG_CLEAR = "feiyu_look_bg_clear";
     private static final String T_EMPTY_HINT = "\u6682\u65e0\u66f4\u591a\u7684\u4eba\u5076";
     private static final String T_SCALE = "调整比例";
     private static final String T_SCALE_HINT = "点加减号调整，范围 0% ~ 100%，每档 10%。";
@@ -193,18 +200,9 @@ public final class HomeUi {
                 // 结构不符，整体放弃，保持原样可用。
                 return;
             }
-            // 两个图片功能的入口按钮：从设置页摘出，稍后重排进「外观」。
-            // 【修·根因】这两个按钮创建在「聊天背景」分组里，SettingsPage.apply 会先把它们
-            //   包进那张卡片的 body；按 box 顶层遍历必然找不到（旧实现在这里恒为 null，
-            //   于是两个按钮既没被搬进「外观」、也没被美化 —— 就是「外观下两个功能失效」）。
-            //   改按 tag 在整棵视图树里递归查找；且背景按钮的文本要等 onResume 的
-            //   refreshLocalUi 才写入，创建时是空串，文本匹配同样靠不住，必须用 tag。
-            Button bBg = findButtonByTag(activity, HomeCards.TAG_BG_PICK);
-            Button bClear = findButtonByTag(activity, HomeCards.TAG_BG_CLEAR);
-            // 注意：它们此刻多半已不是 box 的直接子，box.removeView 对非直接子是空操作，
-            //       必须按控件自己的父容器摘除，否则下面 addView 到「外观」会因已有父而抛异常。
-            detachFromParent(bBg);
-            detachFromParent(bClear);
+            // 两个图片功能的入口按钮：留在「聊天背景」卡片的正文里即可。
+            // 【改】不再把它们搬进「外观」——改为在「外观」里新建两行 valueRow 做入口，
+            //   原按钮控件随卡片壳一起弃用（跳过搬运即可，不必摘除，控件实例仍留在原 body）。
             // 按钮从设置页摘掉（控件实例仍有效，首页通过 performClick 复用其逻辑）。
             box.removeView(bStart);
             box.removeView(bStop);
@@ -407,20 +405,45 @@ public final class HomeUi {
             syncPerm(activity);
             syncHideRecents(activity);
 
-            // 「外观」：两个图片功能入口。
-            //   聊天背景按钮 = 选一张图（PickFileActivity -> ImageStore -> PetPrefs.chatBackground）
-            //   清除背景按钮 = 撤销上面那张图
-            // 用的是原按钮实例，原生监听器原样保留，这里只统一外观。
+            // 「外观」：聊天背景（选图 / 清除）+ 主题模式 + 莫奈主题色。
+            //   原先是两颗整宽大按钮，与卡片里其余行样式割裂；用户已定案统一成行样式。
             LinearLayout cardLook = HomeCards.buildCard(ctx, T_LOOK_NEW);
             LinearLayout lookBody = (LinearLayout) cardLook.getChildAt(1);
-            if (bBg != null) {
-                HomeCards.styleFeature(ctx, bBg);
-                lookBody.addView(bBg);
-            }
-            if (bClear != null) {
-                HomeCards.styleFeature(ctx, bClear);
-                lookBody.addView(bClear);
-            }
+            // 聊天背景：整行可点，拉起系统选择器（复用 PickFileActivity 一次性选图通道）。
+            final LinearLayout bgRow = HomeCards.valueRow(ctx, T_LOOK_BG, TAG_LOOK_BG);
+            bgRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Context c = v.getContext();
+                    if (!(c instanceof MainActivity)) {
+                        return;
+                    }
+                    MainActivity m = (MainActivity) c;
+                    m.pickPurpose = 1;
+                    PickFileActivity.setListener(m);
+                    PickFileActivity.setPurpose(PetPrefs.BG_DIR);
+                    PickFileActivity.start(m);
+                }
+            });
+            lookBody.addView(bgRow);
+            // 清除背景：整行可点，抹掉已设的聊天背景图。
+            LinearLayout bgClearRow = HomeCards.valueRow(ctx, T_LOOK_BG_CLEAR, TAG_LOOK_BG_CLEAR);
+            HomeCards.setRowValue(bgClearRow, T_LOOK_BG_GO);
+            bgClearRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Context c = v.getContext();
+                    if (!(c instanceof MainActivity)) {
+                        return;
+                    }
+                    MainActivity m = (MainActivity) c;
+                    PetPrefs.setChatBackground(m, "");
+                    m.notifyPetService();
+                    m.refreshLocalUi();
+                    syncLookBg(m);
+                }
+            });
+            lookBody.addView(bgClearRow);
             // 主题模式：整行可点，右侧显示当前档位名；点击弹单选面板，选完立即重建界面。
             LinearLayout themeRow = HomeCards.valueRow(ctx, T_THEME_MODE, TAG_THEME_MODE);
             themeRow.setOnClickListener(new View.OnClickListener() {
@@ -444,8 +467,8 @@ public final class HomeUi {
                         }
                     }));
             // 「聊天背景」卡片正文（透明度说明 / 标签 / 滑条）并进「外观」。
-            //   【修】这张卡片原来被整张 kill 掉，透明度调节就此消失；两个按钮已被摘走，
-            //   剩下的正文整体搬过来，页面层级也更少一层。
+            //   【修】这张卡片原来被整张 kill 掉，透明度调节就此消失；本轮两个入口已改成
+            //   「外观」里的行，卡片正文里那两颗废弃大按钮跳过不搬，其余（说明 / 标签 / 滑条）整体搬过来。
             if (cardBg != null) {
                 LinearLayout bgBody = (LinearLayout) cardBg.getChildAt(1);
                 List<View> bgChildren = new ArrayList<View>();
@@ -454,6 +477,12 @@ public final class HomeUi {
                 }
                 for (int i = 0; i < bgChildren.size(); i++) {
                     View c = bgChildren.get(i);
+                    // 跳过原两个按钮：入口已在「外观」里改用行样式，这两颗控件连同卡片壳一起弃用。
+                    Object tag = c.getTag();
+                    if (tag != null && (HomeCards.TAG_BG_PICK.equals(tag)
+                            || HomeCards.TAG_BG_CLEAR.equals(tag))) {
+                        continue;
+                    }
                     bgBody.removeView(c);
                     // 顶部间距由「外观」卡片内既有行给出，这里抹掉原有的 10dp 上边距。
                     LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
@@ -462,6 +491,7 @@ public final class HomeUi {
                 }
             }
             syncTheme(activity);
+            syncLookBg(activity);
 
             // 「人偶」：目前为空位，后续加人偶时往这里塞。
             LinearLayout cardDoll = HomeCards.buildCard(ctx, T_DOLL_NEW);
@@ -587,6 +617,7 @@ public final class HomeUi {
             syncPerm(ctx);
             syncHideRecents(ctx);
             syncTheme(ctx);
+            syncLookBg(ctx);
             syncMem(ctx);
         } catch (Throwable ignored) {
             Logs.w(LOG_TAG, "ignored", ignored);
@@ -1075,6 +1106,17 @@ public final class HomeUi {
             ((UiKit.Switch) monetRow).setOn(ThemeManager.monet(ctx), false);
         }
     }
+    // 刷新「外观」里的聊天背景行：右侧显示「未设置 / 已设置」。
+    private static void syncLookBg(Context ctx) {
+        if (!(ctx instanceof Activity)) {
+            return;
+        }
+        View row = find((Activity) ctx, TAG_LOOK_BG);
+        if (row != null) {
+            HomeCards.setRowValue(row, PetPrefs.chatBackground(ctx).isEmpty()
+                    ? T_LOOK_BG_OFF : T_LOOK_BG_ON);
+        }
+    }
     // 主题模式选择面板：四档单选，选完写偏好并立即重建当前界面。
     private static void pickThemeMode(final Activity act) {
         if (act == null) {
@@ -1112,10 +1154,18 @@ public final class HomeUi {
         row.addView(t, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
         // 主题选中态：描边对勾图标（无选中则占位保持行高一致）。
-        View mark = selected
-                ? Icons.view(act, Icons.IC_CHECK, 16.0f, UiKit.ACC)
-                : new View(act);
-        row.addView(mark, new LinearLayout.LayoutParams(UiKit.dp(act, 22), -2));
+        // 【坑·必看】占位必须用固定尺寸 View，不能用 `new View(act)` + WRAP_CONTENT：
+        //   裸 View 没有内容，onMeasure 走 View.getDefaultSize(AT_MOST) —— 直接取满父给的
+        //   可用高度，于是每一行"未选中"的档位都被撑到近整屏。表现就是弹窗里只有选中项一行
+        //   正常，其余选项被拉成整屏高、根本点不到（「主题模式点开没法正常选择」的真根因）。
+        //   这里把高宽都定死成与对勾图标行一致，四行等高。
+        View mark;
+        if (selected) {
+            mark = Icons.view(act, Icons.IC_CHECK, 16.0f, UiKit.ACC);
+        } else {
+            mark = new View(act);
+        }
+        row.addView(mark, new LinearLayout.LayoutParams(UiKit.dp(act, 22), UiKit.dp(act, 22)));
 
         UiKit.press(row);
         row.setOnClickListener(new View.OnClickListener() {
@@ -1375,27 +1425,9 @@ public final class HomeUi {
     }
 
     /**
-     * 按 tag 在整棵视图树里找一个 Button。
-     * 【为什么不用 HomeCards.cardTitle 那套顶层遍历】这两个按钮会被 SettingsPage 收进卡片 body，
-     *   已不在顶层；findViewWithTag 是深度递归，且只有 Button 会被打上这两个 tag，
-     *   不会误抓到同名的卡片标题 TextView。
+     * 【已删·findButtonByTag / detachFromParent】原用于把「聊天背景」卡片里两颗大按钮摘出来
+     *   搬进「外观」。本轮两入口已改成行样式（bgRow / bgClearRow），这两个私有方法不再有调用方。
      */
-    private static Button findButtonByTag(Activity activity, String tag) {
-        View v = find(activity, tag);
-        return v instanceof Button ? (Button) v : null;
-    }
-
-    /** 按控件自己的父容器摘除（box.removeView 只对直接子有效，对深层子节点是空操作）。 */
-    private static void detachFromParent(View v) {
-        if (v == null) {
-            return;
-        }
-        ViewParent p = v.getParent();
-        if (p instanceof ViewGroup) {
-            ((ViewGroup) p).removeView(v);
-        }
-    }
-
     // 深度优先找第一个 ScrollView：首页整页都挂在它下面。
     private static ScrollView findScrollView(View v) {
         if (v == null) {

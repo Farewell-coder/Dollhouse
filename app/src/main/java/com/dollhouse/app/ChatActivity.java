@@ -75,6 +75,10 @@ public class ChatActivity extends Activity {
         ChatPanel chatPanel = this.panel;
         if (chatPanel != null) {
             chatPanel.refreshHint();
+            // 【修·聊天背景不生效】用户去设置页选完背景图再回来时，本 Activity 可能没销毁、
+            //   直接复用旧的 ChatPanel（singleTop），只在构造时调过一次 applyBackground()，
+            //   于是「选完图聊天页背景没变化」。每次回前台重套一次即可（幂等）。
+            chatPanel.applyBackground();
         }
     }
     /**

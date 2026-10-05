@@ -501,7 +501,11 @@ public final class ThemeManager {
                     hsv(hue, 0.30f, 0.22f),
                     hsv(hue, 0.08f, 0.35f),
                     0xFFFF8A5C, 0xFFFF8FB8, 0xFF8AA6FF,
-                    black ? 0x26FFFFFF : 0x1AFFFFFF
+                    black ? 0x26FFFFFF : 0x1AFFFFFF,
+                    // 【修·莫奈失效根因】末位 SCRIM 原缺失，导致本数组仅 28 个元素，
+                    //   cachedMonetPalette() 的 p.length == PAL_SIZE(29) 恒为 false，
+                    //   取色结果永远被丢弃、永远回退内置调色板（表现为开关能开、配色不变）。
+                    black ? 0xB3000000 : 0xA6000000
             };
         }
         // 浅色档底色近白，字色必须压暗到对比度达标 —— 否则黄/青/绿壁纸下会白字白底、看不清。
@@ -534,7 +538,9 @@ public final class ThemeManager {
                 0xFFFFF4D6,
                 hsv(hue, 0.08f, 0.82f),
                 0xFFF2603C, 0xFFE8608F, 0xFF5A7BD8,
-                0x1422315B
+                0x1422315B,
+                // 【修·莫奈失效根因】同上：末位 SCRIM 原缺失使数组只有 28 个元素。
+                0x8A000000
         };
     }
 }

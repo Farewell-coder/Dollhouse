@@ -309,22 +309,10 @@ final class HomeCards {
         return card;
     }
 
-    /** 把原按钮统一成「外观」里的功能入口样式（白底描边次按钮）。 */
-    static void styleFeature(Context ctx, Button b) {
-        if (b == null) {
-            return;
-        }
-        b.setAllCaps(false);
-        b.setTextSize(UiKit.FS_BTN);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        int pad = UiKit.dp(ctx, 14);
-        b.setPadding(pad, pad, pad, pad);
-        UiKit.secondary(b, ctx);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = UiKit.dp(ctx, 10);
-        b.setLayoutParams(lp);
-    }
-
+    /**
+     * 【已删·styleFeature(Context, Button)】原把「聊天背景」卡片里两颗大按钮改成白底描边次按钮样式。
+     *   本轮两入口已改成 valueRow 行样式（与「主题模式」一致），该方法不再有调用方。
+     */
     /** 一行浅灰小注脚。 */
     static void addHint(Context ctx, LinearLayout dest, String s) {
         TextView t = new TextView(ctx);
