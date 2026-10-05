@@ -79,23 +79,6 @@ final class ChatBubbles {
             ChatBubbles.scrollToBottom(host);
         }
     }
-    // 【死代码】加宽 chip 构造函数，全工程无调用方；smali 反编译残留，保留以对齐原始行为。
-    static TextView wideChip(ChatPanel host, String str, View.OnClickListener onClickListener) {
-        TextView textView = new TextView(host.getContext());
-        textView.setText(str);
-        textView.setTextSize(UiKit.FS_CHIP);
-        textView.setPadding(UiKit.dp(host.getContext(), 11.0f), UiKit.dp(host.getContext(), 6.0f), UiKit.dp(host.getContext(), 11.0f), UiKit.dp(host.getContext(), 6.0f));
-        GradientDrawable gradientDrawable = new GradientDrawable();
-        gradientDrawable.setCornerRadius(UiKit.dp(host.getContext(), UiKit.RADIUS_CHIP));
-        gradientDrawable.setColor(UiKit.CHAT_CHIP_BG);
-        textView.setBackground(gradientDrawable);
-        textView.setTextColor(UiKit.CHAT_CHIP_FG);
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-2, -2);
-        layoutParams.rightMargin = UiKit.dp(host.getContext(), 6.0f);
-        textView.setLayoutParams(layoutParams);
-        textView.setOnClickListener(onClickListener);
-        return textView;
-    }
     static LinearLayout buildActions(final ChatPanel host) {
         LinearLayout linearLayout = new LinearLayout(host.getContext());
         linearLayout.setOrientation(0);

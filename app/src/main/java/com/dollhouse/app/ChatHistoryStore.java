@@ -558,15 +558,6 @@ final class ChatHistoryStore {
         } catch (Throwable unused) {
         }
     }
-    static String precedingUserText(ChatPanel host, int i) {
-        for (int i2 = i - 1; i2 >= 0; i2--) {
-            JSONObject optJSONObject = host.history.optJSONObject(i2);
-            if (optJSONObject != null && "user".equals(optJSONObject.optString("role"))) {
-                return optJSONObject.optString("content");
-            }
-        }
-        return "";
-    }
     /**
      * 把一段文本压成单行：用正则删掉所有回车 / 换行 / 连续空白（含全角空格、不换行空格）。
      *

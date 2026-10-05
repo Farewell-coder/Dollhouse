@@ -55,10 +55,6 @@ final class ChatSessions {
         return o != null && POOL_PET.equals(o.optString("pool", POOL_SELF)) ? POOL_PET : POOL_SELF;
     }
 
-    /** 指定会话是否属于人偶池。 */
-    static boolean isPetId(Context ctx, String id) {
-        return POOL_PET.equals(poolOf(find(ctx, id)));
-    }
 
     // ==================== 清单 ====================
 

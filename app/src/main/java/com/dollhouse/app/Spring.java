@@ -35,11 +35,6 @@ public final class Spring {
         this.c = c;
     }
 
-    /** 换参数（不重置进度，用于运行时切换手感）。 */
-    public void config(double k, double c) {
-        this.k = k;
-        this.c = c;
-    }
 
     /** 重新起跳：进度归零，速度保留并 clamp。 */
     public void start() {
@@ -88,8 +83,4 @@ public final class Spring {
         return Math.abs(1.0 - this.x) < 0.001 && Math.abs(this.v) < 0.02;
     }
 
-    /** 阻尼比 ζ = c / (2√k)。1.0 = 临界阻尼（不过冲）。 */
-    public double zeta() {
-        return this.c / (2.0 * Math.sqrt(this.k));
-    }
 }

@@ -111,8 +111,6 @@ public final class HomeUi {
     /** 主题相关文案（「外观」卡片下级）。 */
     private static final String T_THEME_MODE = "\u4e3b\u9898\u6a21\u5f0f";
     private static final String T_THEME_MONET = "\u83ab\u5948\u4e3b\u9898\u8272";
-    /** 莫奈取色不可用时的提示。 */
-    private static final String T_THEME_MONET_NO = "\u58c1\u7eb8\u53d6\u8272\u4e0d\u53ef\u7528\uff0c\u4ecd\u7528\u5185\u7f6e\u914d\u8272";
     /** 主题行的 View tag，供 syncTheme 定位与点击分发。 */
     private static final String TAG_THEME_MODE = "feiyu_theme_mode";
     private static final String TAG_THEME_MONET = "feiyu_theme_monet";
@@ -581,13 +579,6 @@ public final class HomeUi {
         }
     }
 
-    /** 以后增加人偶时调用：把新的展示控件塞进首页的人偶容器。 */
-    public static void addDoll(Activity activity, View doll) {
-        View holder = find(activity, TAG_PETS);
-        if (holder instanceof LinearLayout && doll != null) {
-            ((LinearLayout) holder).addView(doll);
-        }
-    }
 
     /** 每次回到前台时调用：刷新首页按钮文案与「权限」卡片两行状态。 */
     public static void sync(Context ctx) {

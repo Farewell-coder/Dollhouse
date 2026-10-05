@@ -31,9 +31,6 @@ public final class PetBus {
         }
     }
 
-    public static boolean isPetOnScreen() {
-        return listener != null;
-    }
 
     public static void say(String str, long j) {
         PetBus.Listener listener2 = listener;

@@ -25,9 +25,7 @@ final class SettingsRegistry {
     static final List<SettingsCard> CARDS = new ArrayList<SettingsCard>();
     static {
         CARDS.add(new ApiCard());
-        CARDS.add(new SimpleCard("联网搜索", false, false));
         CARDS.add(new SimpleCard("操作方式", false, false));
-        CARDS.add(new SimpleCard("学习（点赞 -> 示范）", false, false));
         CARDS.add(new SimpleCard("应用图标", false, false));
         CARDS.add(new SimpleCard("聊天背景", false, false));
         CARDS.add(new SimpleCard("本地模型（离线，不花 token）", true, false));

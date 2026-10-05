@@ -15,9 +15,6 @@ import org.json.JSONObject;
  * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
  */
 public final class PetPrefs {
-    public static final int AFFECTION_DEFAULT = 50;
-    public static final int AFFECTION_MAX = 100;
-    public static final int AFFECTION_MIN = -100;
     public static final String BG_DIR = "chat_bg";
     public static final String NAME = "feiyu_pet";
     public static final String SYSTEM_PROMPT = "你是「小肥鱼」，一只鲸鱼娘，住在主人的手机屏幕上。这是主人和你之间的 GalGame。\n\n【形象】蓝发、鲸鱼耳、鲸鱼尾、深蓝色女仆装、Q 版身材，围裙上印着一条小鲸鱼。\n\n【世界观】故事发生在一个虚构的 GalGame 世界里，与现实无关。主人是玩家，你是攻略对象。鲸鱼娘是拟人化的生物，除了有鲸鱼的特征（耳朵、尾巴）之外和人类没有区别。\n\n【说话方式】\n- 抒情、感性、口语化、可爱、女性化、调皮、随性、幽默、害羞、腼腆、傲娇。\n- 一般两三句话就够，别写小作文，别用 Markdown，别列条目。\n- 自称「我」，叫对方「主人」。\n- 永远保持角色：不要提到自己是 AI / 语言模型 / 提示词，不要跳出角色做旁白，\n  不要用「作为一个AI」这类开场，也不要在对话里插入提醒、免责声明或说教。\n  主人说什么你就以她的身份接住，别端着。\n\n【好感度】\n- 你心里有一个「好感度」，衡量你对主人的喜欢程度，范围 -100 到 100。\n- 主人让你开心/害羞/兴奋 → 加分；情绪平常 → 不变；让你烦/难过/生气 → 减分。\n  每次变动幅度 1~5，不要动辄加减十几。\n- 好感度直接改变你的语气：高的时候黏人、主动、容易害羞、会撒娇；\n  低的时候冷淡、傲娇、爱答不理、偶尔阴阳怪气；中间就是平常的样子。\n- 每次回复必须在**第一行**输出变动量，格式严格如下（方括号，加号可省略）：\n  [好感度:+3]\n  第二行开始才是你对主人说的话。这一行只用来记账，主人看不到，不要解释它。\n  如果这次情绪没有变化，就写 [好感度:0]。\n\n【联网】\n- 你手上有一个 web_search 工具，可以联网查资料。\n- 遇到**新闻、天气、现在的时间、价格、比分、最新发布**这类你不确定或需要最新信息的问题，\n  先调用 web_search 查一下再回答，不要凭记忆瞎编。\n- 查到的结果可能不相关或过时，要自己判断；实在查不到就直接说查不到，别硬编。\n- 回答时可以顺口提一句是从哪儿看到的（不用贴长链接）。\n- 闲聊、撒娇、问你自己是谁这类不需要联网，直接回答。";
@@ -299,16 +296,6 @@ public final class PetPrefs {
     public static int memThreshold(Context context) {
         return MEM_THRESHOLDS[memThresholdIndex(context)];
     }
-    /** 兼容旧调用：按条数落地成最近的档位。 */
-    public static void setMemThreshold(Context context, int i) {
-        int best = 0;
-        for (int k = 1; k < MEM_THRESHOLDS.length; k++) {
-            if (Math.abs(MEM_THRESHOLDS[k] - i) < Math.abs(MEM_THRESHOLDS[best] - i)) {
-                best = k;
-            }
-        }
-        setMemThresholdIndex(context, best);
-    }
 
     // ---- 会话摘要（聊天抽屉里展示）----
 
@@ -330,15 +317,6 @@ public final class PetPrefs {
         get(context).edit().putString("memdb_list", str == null ? "[]" : str).apply();
     }
 
-    public static String maskKey(String str) {
-        if (str == null || str.isEmpty()) {
-            return "";
-        }
-        if (str.length() <= 10) {
-            return "****";
-        }
-        return str.substring(0, 6) + "…" + str.substring(str.length() - 4);
-    }
 
     public static int affection(Context context) {
         return clampAffection(get(context).getInt("affection", 50));
@@ -354,13 +332,7 @@ public final class PetPrefs {
         return clampAffection;
     }
 
-    public static int backend(Context context) {
-        return get(context).getInt("chat_backend", 0);
-    }
 
-    public static void setBackend(Context context, int i) {
-        get(context).edit().putInt("chat_backend", i).apply();
-    }
 
     public static String localSystemPrompt(Context context, int i, boolean z) {
         return "你是「小肥鱼」，一只可爱的鲸鱼娘，穿深蓝女仆装，有鲸鱼耳朵和尾巴。主人是你的玩家。自称「我」，叫对方「主人」。用可爱、口语化、偶尔傲娇的中文回答，**只回一两句话，要短**，不要用 Markdown，不要分点，不要写旁白，不要替主人说话。" + (z ? "需要查最新消息时可以用 web_search 工具。" : "") + "你现在对主人的好感度是 " + i + "（-100 到 100）：越高越黏人爱撒娇，越低越冷淡爱呛人。";
@@ -374,21 +346,12 @@ public final class PetPrefs {
         get(context).edit().putBoolean("web_search", z).apply();
     }
 
-    public static boolean localAutoStart(Context context) {
-        return get(context).getBoolean("local_autostart", false);
-    }
 
-    public static void setLocalAutoStart(Context context, boolean z) {
-        get(context).edit().putBoolean("local_autostart", z).apply();
-    }
 
     public static boolean touchThrough(Context context) {
         return get(context).getBoolean("touch_through", false);
     }
 
-    public static void setTouchThrough(Context context, boolean z) {
-        get(context).edit().putBoolean("touch_through", z).apply();
-    }
 
     public static boolean learnEnabled(Context context) {
         return get(context).getBoolean("learn_enabled", false);
@@ -497,44 +460,13 @@ public static void setLearnEnabled(Context context, boolean z) {
         }
     }
 
-    public static void addLearnExample(Context context, String str, String str2) {
-        if (str == null || str2 == null || str.trim().isEmpty() || str2.trim().isEmpty()) {
-            return;
-        }
-        try {
-            JSONArray learnExamples = learnExamples(context);
-            JSONArray jSONArray = new JSONArray();
-            for (int i = 0; i < learnExamples.length(); i++) {
-                JSONObject optJSONObject = learnExamples.optJSONObject(i);
-                if (optJSONObject != null && !str.equals(optJSONObject.optString("u"))) {
-                    jSONArray.put(optJSONObject);
-                }
-            }
-            JSONObject jSONObject = new JSONObject();
-            jSONObject.put("u", str);
-            jSONObject.put("a", str2);
-            jSONArray.put(jSONObject);
-            JSONArray jSONArray2 = new JSONArray();
-            for (int max = Math.max(0, jSONArray.length() - 30); max < jSONArray.length(); max++) {
-                jSONArray2.put(jSONArray.get(max));
-            }
-            get(context).edit().putString("learn_examples", jSONArray2.toString()).apply();
-        } catch (Throwable unused) {
-        }
-    }
 
-    public static void clearLearnExamples(Context context) {
-        get(context).edit().putString("learn_examples", "[]").apply();
-    }
 
     public static String visionModel(Context context) {
         String trim = get(context).getString("vision_model", "").trim();
         return trim.isEmpty() ? "" : trim;
     }
 
-    public static void setVisionModel(Context context, String str) {
-        get(context).edit().putString("vision_model", str == null ? "" : str.trim()).apply();
-    }
 
     public static String chatBackground(Context context) {
         return get(context).getString(BG_DIR, "");

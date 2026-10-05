@@ -104,10 +104,6 @@ final class ShizukuBridge {
         }
     }
 
-    /** 行是否可点：只有「已授权」之外的三态才需要用户操作。 */
-    static boolean needAction(int state) {
-        return state != S_GRANTED;
-    }
 
     /** 是否需要在 pre-v11 场景下引导用户去管理器手动授权。 */
     static boolean needManagerForGrant() {

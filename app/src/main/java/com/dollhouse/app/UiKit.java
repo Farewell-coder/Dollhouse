@@ -630,18 +630,6 @@ public final class UiKit {
         return iv;
     }
 
-    /** 统一顶栏图标（字符版）：保留给确实没有对应矢量图的场合，新代码一律用 iconView。 */
-    public static TextView iconBtn(Context ctx, String glyph, float sizeSp, int color) {
-        TextView t = new TextView(ctx);
-        t.setText(glyph);
-        t.setTextSize(sizeSp);
-        t.setTextColor(color);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setGravity(Gravity.CENTER);
-        t.setClickable(true);
-        press(t);
-        return t;
-    }
 
     /**
      * 统一顶栏：返回键 + 标题 + 副标题（副标题可空）。
@@ -754,14 +742,6 @@ public final class UiKit {
         return b;
     }
 
-    /** 统一整宽按钮：底部主操作区用，带 10dp 上间距。 */
-    public static Button blockBtn(Context ctx, String text, boolean primary) {
-        Button b = btn(ctx, text, primary);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(ctx, 10);
-        b.setLayoutParams(lp);
-        return b;
-    }
 
     /* ================= 整页转场：所有二级页共用 =================
      * 【背景】各二级页原先都是 content.removeView(旧) + addView(新)，中间没有任何过渡，

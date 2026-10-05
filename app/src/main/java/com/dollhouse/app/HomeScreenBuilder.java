@@ -335,23 +335,6 @@ final class HomeScreenBuilder {
         return e;
     }
 
-    /** 弹窗展示一段可选中的等宽文本（调试与故障排查用）。 */
-    static void showText(MainActivity act, String title, String body) {
-        TextView t = new TextView(act);
-        t.setText(body == null || body.isEmpty() ? "(\u7a7a)" : body);
-        t.setTextSize(UiKit.FS_TINY);
-        t.setTextIsSelectable(true);
-        t.setTypeface(Typeface.MONOSPACE);
-        t.setTextColor(UiKit.TITLE);
-        int pad = Math.round(act.dp(12.0f));
-        t.setPadding(pad, pad, pad, pad);
-        t.setBackground(UiKit.rowBg(act, UiKit.FIELD));
-        ScrollView scroll = new ScrollView(act);
-        scroll.addView(t);
-        scroll.setLayoutParams(new LinearLayout.LayoutParams(-1,
-                Math.round(act.getResources().getDisplayMetrics().heightPixels * 0.5f)));
-        UiKit.showDialog(act, title, scroll, "\u5173\u95ed", null, null, null);
-    }
 
     /** 同排按钮统一样式：走 UiKit 次按钮（白底描边），与首页其它按钮保持一致。 */
     private static void styleBarButton(Button b, MainActivity act) {

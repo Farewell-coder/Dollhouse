@@ -35,32 +35,17 @@ public final class Icons {
     public static final int IC_SEND = R.drawable.ic_send;
     public static final int IC_PLUS = R.drawable.ic_plus;
     public static final int IC_MINUS = R.drawable.ic_minus;
-    public static final int IC_TRASH = R.drawable.ic_trash;
-    public static final int IC_COPY = R.drawable.ic_copy;
-    public static final int IC_EDIT = R.drawable.ic_edit;
-    public static final int IC_REFRESH = R.drawable.ic_refresh;
-    public static final int IC_SEARCH = R.drawable.ic_search;
     public static final int IC_CHECK = R.drawable.ic_check;
-    public static final int IC_EXTERNAL = R.drawable.ic_external;
 
-    // ---- 状态 ----
-    public static final int IC_CHECK_CIRCLE = R.drawable.ic_check_circle;
-    public static final int IC_X_CIRCLE = R.drawable.ic_x_circle;
     public static final int IC_INFO = R.drawable.ic_info;
-    public static final int IC_WARNING = R.drawable.ic_warning;
     /** 收藏星（实心 / 空心两态）。 */
     public static final int IC_STAR = R.drawable.ic_star;
     public static final int IC_STAR_OFF = R.drawable.ic_star_off;
-    public static final int IC_SPINNER = R.drawable.ic_spinner;
 
-    // ---- 功能 ----
-    public static final int IC_CHAT = R.drawable.ic_chat;
     public static final int IC_BRAIN = R.drawable.ic_brain;
     public static final int IC_IMAGE = R.drawable.ic_image;
     public static final int IC_SETTINGS = R.drawable.ic_settings;
     public static final int IC_CHART = R.drawable.ic_chart;
-    public static final int IC_SHIELD = R.drawable.ic_shield;
-    public static final int IC_TERMINAL = R.drawable.ic_terminal;
     public static final int IC_WHALE = R.drawable.ic_whale;
 
     private Icons() {

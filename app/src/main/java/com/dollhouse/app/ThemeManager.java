@@ -147,10 +147,6 @@ public final class ThemeManager {
         }
     }
 
-    /** 对话框样式：深色下用深色底，避免暗色主题里弹出白框。 */
-    public static int dialogTheme(Context c) {
-        return isDark(c) ? R.style.DollhouseDialogDark : R.style.DollhouseDialog;
-    }
 
     /** 把当前主题写进 UiKit 的颜色字段。任何异常都不允许影响启动。 */
     public static void apply(Context c) {
@@ -256,15 +252,6 @@ public final class ThemeManager {
                 });
             }
         }, "dh-monet").start();
-    }
-    /** 作废取色缓存：壁纸换了或用户重新打开开关时调用，下次后台取色会重新解码。 */
-    public static void invalidateHueCache(Context c) {
-        try {
-            PetPrefs.setThemeMonetWall(c, Integer.MIN_VALUE);
-            PetPrefs.setThemeMonetHue10(c, Integer.MIN_VALUE);
-        } catch (Throwable ignored) {
-            Logs.w(LOG_TAG, "ignored", ignored);
-        }
     }
     /** 供 apply() 使用的同步取色：只读缓存，未命中就返回 null 走内置配色。 */
     private static int[] cachedMonetPalette(Context c, boolean dark, boolean black) {

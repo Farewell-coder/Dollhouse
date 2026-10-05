@@ -57,12 +57,6 @@ public class PetView extends View {
     private static final int MX = 28;
     private static final int MY = 36;
     /**
-     * 趴姿露出比例：趴到聊天框顶时露出人偶自身的多少。
-     * 【调优】0.6 只露头+肩，用户报「有点断头」；提到 0.72 能看到胸／腰，
-     *         仍是标准的「趴」而非「被切断」。
-     */
-    public static final float PEEK_FRACTION = 0.72f;
-    /**
      * 聊天框顶边与人偶的搭接量 / 人偶宽度：0.013 即 150dp 人偶搭约 2dp、225dp 人偶搭约 3dp。
      * 【调优】旧值 0.06（150dp 搭 9dp）在 3x 屏下实测 27px，视觉上像「被砍一刀」；
      *         用户要求「重合一丝丝」，收到 2~3dp 量级，仅洴住头顶一点点。
@@ -476,9 +470,6 @@ public class PetView extends View {
         }
         invalidate();
     }
-    public boolean isEdgePeeking() {
-        return this.lean != 0.0f;
-    }
     public int edgeInsetPx() {
         return Math.round(petWidth() * EDGE_INSET);
     }
@@ -665,9 +656,6 @@ public class PetView extends View {
             this.blinkCountdown = 1.2f;
         }
         invalidate();
-    }
-    public boolean isPeeking() {
-        return this.peek;
     }
     public int perchHeight() {
         // 【定案 v2.6】完整身高：人偶整只悬在框上，不裁下半截。
