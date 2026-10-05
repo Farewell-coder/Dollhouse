@@ -361,12 +361,8 @@ public final class HomeUi {
             // 【为什么放最前】它是本应用与 AI 拿到 shell 级能力的总开关，其余权限只影响人偶本身。
             //   文案与可点性由 ShizukuBridge.state 决定，走 bindShizukuRow 绑定（不是两态 bindPermRow）。
             permBody.addView(HomeCards.permRow(ctx, T_PERM_SHIZUKU_NAME, TAG_PERM_SHIZUKU));
-            // 权限子项：左名称 + 右开关（隐藏最近任务卡片）；
-            // 其余行 左名称 + 右状态（未授权时整行可点去授权）。
-            UiKit.Switch hideRecents = new UiKit.Switch(ctx);
-            hideRecents.setTag(TAG_HIDE_RECENTS);
-            hideRecents.setOn(PetPrefs.hideRecents(ctx));
-            permBody.addView(HomeCards.switchRow(ctx, T_HIDE_RECENTS, hideRecents));
+            // 【需求】权限子项重排：两颗开关（快捷设置磁贴 / 隐藏后台卡片）集中到卡片末尾相邻两行，
+            //   「开关指令」作为复制入口独占最后一行；其余行照旧「左名称 + 右状态」。
             permBody.addView(HomeCards.permRow(ctx, T_PERM_OVERLAY_NAME, HomeCards.TAG_PERM_OVERLAY));
             permBody.addView(HomeCards.permRow(ctx, T_PERM_NOTIF_NAME, TAG_PERM_NOTIF));
             // ---- 保活分组（「权限」卡片的下级）：让桌宠被划掉 / 冻结 / 重启后还能自己回来 ----
@@ -390,6 +386,11 @@ public final class HomeUi {
                     onTileSwitchChanged(on, c);
                 }
             }));
+            // 隐藏后台卡片：与「快捷设置磁贴」紧邻，两颗开关并排落在卡片倒数第二、倒数第三行。
+            UiKit.Switch hideRecents = new UiKit.Switch(ctx);
+            hideRecents.setTag(TAG_HIDE_RECENTS);
+            hideRecents.setOn(PetPrefs.hideRecents(ctx));
+            permBody.addView(HomeCards.switchRow(ctx, T_HIDE_RECENTS, hideRecents));
             // 开关指令：整行可点，右侧是「复制 ›」；点一下把同一条链接复制走（开与关共用）。
             LinearLayout cmdRow = HomeCards.valueRow(ctx, T_CMD, TAG_CMD_ROW);
             HomeCards.setRowValue(cmdRow, T_CMD_COPY);
@@ -559,30 +560,32 @@ public final class HomeUi {
                         }
                     });
             memBodyRef.addView(thresholdRow);
-            Button memLib = HomeCards.mkButton(ctx, T_MEM_LIB, false);
-            memLib.setTag(TAG_MEM_LIB);
-            memLib.setOnClickListener(new View.OnClickListener() {
+            // 【需求】「打开记忆库」由整宽白底描边按钮改成卡片内既有行样式（与「主题模式」一致）。
+            LinearLayout memLibRow = HomeCards.valueRow(ctx, T_MEM_LIB, TAG_MEM_LIB);
+            HomeCards.setRowValue(memLibRow, T_LOOK_BG_GO);
+            memLibRow.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     MemPage.open(v.getContext());
                 }
             });
-            memBodyRef.addView(memLib);
+            memBodyRef.addView(memLibRow);
             syncMem(activity);
             box.addView(cardMem);
             // 「关于」：原来是展开式卡片，v2.10.0 改成一行入口，点击进整页（AboutPage）。
             //   卡片外壳与标题「关于」保留不动 —— SettingsPage 按标题文本分组，改了会整体错位。
             LinearLayout cardAbout = HomeCards.buildCard(ctx, T_EMPTY[2], true);
             LinearLayout aboutBody = (LinearLayout) cardAbout.getChildAt(1);
-            Button aboutEntry = HomeCards.mkButton(ctx, "关于本软件", false);
-            aboutEntry.setTag(TAG_ABOUT_ENTRY);
-            aboutEntry.setOnClickListener(new View.OnClickListener() {
+            // 【需求】「关于本软件」同样由整宽按钮改成行样式，与卡片内其余行观感统一。
+            LinearLayout aboutRow = HomeCards.valueRow(ctx, "关于本软件", TAG_ABOUT_ENTRY);
+            HomeCards.setRowValue(aboutRow, T_LOOK_BG_GO);
+            aboutRow.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     AboutPage.open(v.getContext());
                 }
             });
-            aboutBody.addView(aboutEntry);
+            aboutBody.addView(aboutRow);
             box.addView(cardAbout);
 
             // 两页共用同一底色，切页不再跳色。

@@ -484,6 +484,17 @@ final class SheetPanel {
             return;
         }
         body.addView(title(ctx, "记忆"));
+        // 【需求】「发图」并入本面板（原工具条上的独立「图片」按钮已撤掉）：
+        //   点它先收起面板，再拉起系统相册；选完的图挂在输入栏上方的附件条里，随下一条消息发出。
+        body.addView(entryRow(ctx, Icons.IC_IMAGE, "发图", "选一张图片发给她", new Runnable() {
+            @Override
+            public void run() {
+                closeAll(layer);
+                if (host != null) {
+                    host.openPicker();
+                }
+            }
+        }));
         body.addView(sub(ctx, "她在聊天里觉得值得长期记住的事，会自己写进记忆库，下次开口前带上。"));
 
         // 一行开关：左侧标题 + 说明，右侧滑动开关。
@@ -586,6 +597,57 @@ final class SheetPanel {
                 boolean now = !sw.isOn();
                 sw.setOn(now, true);
                 toggle.onSet(now);
+            }
+        });
+        return r;
+    }
+    /**
+     * 面板里的一行「图标 + 名称/说明 + ›」入口。
+     * 样式对齐 switchRow：SOFT 圆角底 + 12dp 横向内边距 + 8dp 上间距，点一下先收面板再执行动作。
+     */
+    private static LinearLayout entryRow(Context ctx, int icon, String name, String hint, final Runnable action) {
+        LinearLayout r = new LinearLayout(ctx);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setBackground(UiKit.round(UiKit.SOFT, ctx, 10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = UiKit.dp(ctx, 8);
+        r.setLayoutParams(lp);
+        int pad = UiKit.dp(ctx, 12);
+        r.setPadding(pad, UiKit.dp(ctx, 10), pad, UiKit.dp(ctx, 10));
+        ImageView iv = UiKit.iconView(ctx, icon, 15.0f, UiKit.SUB);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-2, -2);
+        ilp.rightMargin = UiKit.dp(ctx, 10);
+        iv.setLayoutParams(ilp);
+        r.addView(iv);
+        LinearLayout texts = new LinearLayout(ctx);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView t = new TextView(ctx);
+        t.setText(name);
+        t.setTextSize(UiKit.FS_BTN);
+        t.setTextColor(UiKit.TITLE);
+        texts.addView(t);
+        TextView s = new TextView(ctx);
+        s.setText(hint);
+        s.setTextSize(UiKit.FS_TINY);
+        s.setTextColor(UiKit.SUB);
+        s.setPadding(0, UiKit.dp(ctx, 2), 0, 0);
+        texts.addView(s);
+        r.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView go = new TextView(ctx);
+        go.setText("\u203a");
+        go.setTextSize(UiKit.FS_BTN);
+        go.setTextColor(UiKit.SUB);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        r.addView(go, new LinearLayout.LayoutParams(-2, -2));
+        r.setClickable(true);
+        UiKit.press(r);
+        r.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (action != null) {
+                    action.run();
+                }
             }
         });
         return r;

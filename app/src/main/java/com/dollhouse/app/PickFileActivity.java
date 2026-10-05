@@ -1,23 +1,30 @@
 package com.dollhouse.app;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 
 /**
- * 【职责】一次性选文件 Activity：图片与文本文件都从这里进来。
+ * 【职责】一次性选图 Activity：所有「选一张图」的入口（发图 / 聊天背景）都走这里。
  *
  * 【交互】用静态 Listener 把结果回传给发起方（MainActivity 或 ChatPanel），随后立即 finish。
  *
- * 【坑】listener 是静态字段，属于「本进程内凑合能用」的写法：如果发起方在选文件过程中被回收，回调就会落空，所以用完必须置回 null。
+ * 【坑】listener 是静态字段，属于「本进程内凑合能用」的写法：如果发起方在选图过程中被回收，回调就会落空，所以用完必须置回 null。
+ *
+ * 【修·历史缺陷】原先本页走 GET_CONTENT 且 type 写成通配的任意文件，必然拉起文件管理器（用户找不到图片）；
+ *   且 Manifest 上挂着 noHistory="true"，本页在被选择器覆盖的瞬间就被 finish，
+ *   onActivityResult 永远收不到结果 —— 发图失效与聊天背景不生效共用这一个根因。两者均已修掉。
  *
  * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
  */
 public class PickFileActivity extends Activity {
     private static final int MAX_TEXT_BYTES = 24576;
     private static final int REQ = 81;
+    private static final String LOG_TAG = "DollhousePick";
     private static PickFileActivity.Listener listener = null;
     private static String purpose = "chat_img";
 
@@ -47,19 +54,51 @@ public class PickFileActivity extends Activity {
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // 【修·选图回调丢失】原实现在重建时直接 finish()，配合 Manifest 的 noHistory 会让本页
+        //   在系统相册覆盖它的瞬间就死掉，结果永远回不来。现在改成「重建不自尽、也不重弹」：
+        //   只等系统把选择结果投递进 onActivityResult。
         if (bundle != null) {
-            finish();
+            Logs.i(LOG_TAG, "[重建] 跳过重复拉起选择器，等待结果");
             return;
         }
         try {
-            Intent intent = new Intent("android.intent.action.GET_CONTENT");
-            intent.addCategory("android.intent.category.OPENABLE");
-            intent.setType("*/*");
-            intent.putExtra("android.intent.extra.MIME_TYPES", new String[]{"image/*", "text/*", "application/json", "application/xml", "application/javascript"});
-            startActivityForResult(Intent.createChooser(intent, "选图片或文本文件"), REQ);
+            startActivityForResult(pickImageIntent(), REQ);
+        } catch (ActivityNotFoundException anf) {
+            Logs.w(LOG_TAG, "照片选择器不可用，降级", anf);
+            try {
+                startActivityForResult(compatImageIntent(), REQ);
+            } catch (ActivityNotFoundException anf2) {
+                try {
+                    startActivityForResult(legacyImageIntent(), REQ);
+                } catch (Throwable th) {
+                    fail("打不开相册：" + th.getMessage());
+                }
+            }
         } catch (Throwable th) {
-            fail("打不开文件选择器：" + th.getMessage());
+            fail("打不开相册：" + th.getMessage());
         }
+    }
+
+    /** Android 13+ 原生照片选择器；10~12 上由 Google Play 服务回填，无需存储权限。 */
+    private Intent pickImageIntent() {
+        Intent intent = new Intent("android.provider.action.PICK_IMAGES");
+        intent.setType("image/*");
+        return intent;
+    }
+
+    /** 回退一：只认图片的 GET_CONTENT —— 由相册/图库应用接单，不再进文件管理器。 */
+    private Intent compatImageIntent() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        return intent;
+    }
+
+    /** 回退二：传统相册 ACTION_PICK。 */
+    private Intent legacyImageIntent() {
+        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        intent.setType("image/*");
+        return intent;
     }
 
     private void fail(String str) {
@@ -77,12 +116,14 @@ public class PickFileActivity extends Activity {
             return;
         }
         if (i2 != -1 || intent == null || intent.getData() == null) {
+            Logs.i(LOG_TAG, "[取消] 没选图，直接收尾");
             finish();
             return;
         }
         final Uri data = intent.getData();
         final String valueOf = String.valueOf(intent.getType());
         final PickFileActivity.Listener listener2 = listener;
+        Logs.i(LOG_TAG, "[回传] type=" + valueOf + " purpose=" + purpose);
         new Thread(new Runnable() {
             @Override
             public void run() {

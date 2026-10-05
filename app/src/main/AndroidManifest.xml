@@ -61,11 +61,13 @@
             android:theme="@android:style/Theme.Material.Light.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- 【修·选图回调丢失】原 android:noHistory="true" 会让本页在被系统相册覆盖的瞬间
+             被 finish 掉，选完图返回时 onActivityResult 永远收不到结果 —— 「聊天背景设了没反应」
+             与「发图失效」是同一个根因。去掉该属性后本页可存活到结果投递完成，再自行 finish()。 -->
         <activity
             android:name=".PickFileActivity"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- 外部链接落地页：浏览器 / 自动化软件 / 终端 am start 都能拉起。

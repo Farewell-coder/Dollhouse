@@ -2,6 +2,7 @@ package com.dollhouse.app;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.view.Gravity;
@@ -242,10 +243,7 @@ final class HomeScreenBuilder {
         });
         box.addView(clearBg);
 
-        box.addView(hintText(act, 0,
-                "\u9009\u4e00\u5f20\u56fe\u5f53\u804a\u5929\u9875\u7684\u80cc\u666f\u3002\u4f1a\u81ea\u52a8\u7f29\u5230 1080px \u5b58\u5728\u5e94\u7528\u79c1\u6709\u76ee\u5f55\u91cc\u3002\n"
-                        + "\u4e0b\u9762\u7684\u6ed1\u5757\u8c03\u80cc\u666f\u56fe\u7684\u900f\u660e\u5ea6\uff1a\u8c03\u592a\u4f4e\u53ea\u5269\u9762\u677f\u5e95\u8272\uff0c\u8c03\u592a\u9ad8\u767d\u8272\u6c14\u6ce1\u548c\u6df1\u8272\u6587\u5b57\u4f1a\u7cca\u5728\u82b1\u54e8\u7684\u56fe\u4e0a\u3002"));
-
+        // 【需求】原「选一张图当聊天页的背景…」两段说明文字整段删除（用户定案）。
         act.bgAlphaLabel = new TextView(act);
         act.bgAlphaLabel.setTextSize(UiKit.FS_SUB);
         act.bgAlphaLabel.setTextColor(UiKit.TITLE);
@@ -255,6 +253,11 @@ final class HomeScreenBuilder {
         SeekBar alpha = new SeekBar(act);
         alpha.setMax(100);
         alpha.setProgress(PetPrefs.chatBgAlpha(act));
+        // 【需求】滑块由系统默认绿色改成主题色圆角样式：轨道/滑块取主色，底轨取分隔线色。
+        alpha.setProgressTintList(ColorStateList.valueOf(UiKit.ACC));
+        alpha.setThumbTintList(ColorStateList.valueOf(UiKit.ACC));
+        alpha.setProgressBackgroundTintList(ColorStateList.valueOf(UiKit.LINE));
+        alpha.setSplitTrack(false);
         alpha.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onStartTrackingTouch(SeekBar bar) {
@@ -275,14 +278,6 @@ final class HomeScreenBuilder {
         });
         box.addView(alpha, new LinearLayout.LayoutParams(-1, -2));
         act.updateBgAlphaLabel(PetPrefs.chatBgAlpha(act));
-
-        TextView footer = hintText(act, 18,
-                "\u8bf4\u660e\uff1a\n"
-                        + "\u00b7 \u684c\u5ba0\u9760\u524d\u53f0\u670d\u52a1\u8fd0\u884c\uff0c\u901a\u77e5\u680f\u4f1a\u6709\u4e00\u6761\u5e38\u9a7b\u901a\u77e5\uff0c\u70b9\u300c\u9000\u51fa\u684c\u5ba0\u300d\u4e5f\u80fd\u5173\u6389\u3002\n"
-                        + "\u00b7 \u677e\u624b\u540e\u4f1a\u81ea\u52a8\u5438\u9644\u5230\u6700\u8fd1\u7684\u5c4f\u5e55\u8fb9\u7f18\uff0c\u4f4d\u7f6e\u4f1a\u88ab\u8bb0\u4f4f\u3002\n"
-                        + "\u00b7 \u90e8\u5206\u7cfb\u7edf\uff08MIUI / EMUI / ColorOS\uff09\u9700\u8981\u989d\u5916\u5141\u8bb8\u300c\u540e\u53f0\u5f39\u51fa\u754c\u9762\u300d\u6216\u628a\u672c\u5e94\u7528\u52a0\u5165\u81ea\u542f\u52a8\u767d\u540d\u5355\uff0c\u5426\u5219\u91cd\u542f\u540e\u684c\u5ba0\u4e0d\u4f1a\u81ea\u52a8\u51fa\u73b0\u3002\n"
-                        + "\u00b7 \u5979\u4e0d\u4f1a\u8054\u7f51\uff0c\u4e5f\u4e0d\u4f1a\u8bfb\u53d6\u4f60\u7684\u4efb\u4f55\u6570\u636e\u3002");
-        box.addView(footer);
 
         return scroll;
     }

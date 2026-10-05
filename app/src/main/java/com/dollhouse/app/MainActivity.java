@@ -237,7 +237,6 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
     }
 
     /* ------------------------- PickFileActivity.Listener ------------------------- */
-
     @Override
     public void onPicked(String path, String name) {
         if (pickPurpose == PICK_BG) {
@@ -246,9 +245,13 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
             }
             PetPrefs.setChatBackground(this, path);
             notifyPetService();
+            Logs.i("DollhousePick", "[背景] 已写入 " + path);
         }
         pickPurpose = 0;
         refreshLocalUi();
+        // 【修·行状态不刷新】onPicked 是选择器回传的异步结果，onResume 里的 HomeUi.sync
+        //   可能早于它执行，于是「外观 → 聊天背景」行会停在「未设置」。这里补一次即时刷新。
+        HomeUi.sync(this);
     }
 
     @Override

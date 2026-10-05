@@ -288,17 +288,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             }
         });
         toolWrap.addView(memIcon, iconLp(dp(2.0f)));
-        // 【修·附件断链】工具条补一个「图片」入口。
-        //   ChatPanel.openPicker() 原本全工程零调用点，PickFileActivity 的图片回调
-        //   （onPicked -> pendingImage）永远收不到东西 —— 「给她发图片」这条链路是死的。
-        ImageView imgIcon = UiKit.iconView(getContext(), Icons.IC_IMAGE, UiKit.FS_ICON, UiKit.SUB);
-        imgIcon.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                ChatPanel.this.openPicker();
-            }
-        });
-        toolWrap.addView(imgIcon, iconLp(dp(2.0f)));
+        // 【需求】工具条上的独立「图片」按钮撤掉：加号同时承担「功能面板」入口并落到最右，
+        //   发图项并入加号展开的面板（SheetPanel.showMemory 顶部新增「发图」行）。
         // 【v2.8】右侧的「记忆总结中」：weight=1 吃掉三个图标之后的全部留白，文字贴右。
         // 【坑】只在总结在途时可见（GONE 不参与布局），所以平时三个图标的位置与之前完全一致。
         TextView busy = new TextView(getContext());
