@@ -29,6 +29,14 @@ final class HomeCards {
     static final String TAG_PERM_OVERLAY = "feiyu_perm_overlay";
     /** Shizuku 授权行的 tag，供 HomeUi.syncPerm 定位该行（四态，文案由 ShizukuBridge 给）。 */
     static final String TAG_PERM_SHIZUKU = "feiyu_perm_shizuku";
+    /**
+     * 「外观」卡片里两个图片功能入口按钮的 tag。
+     * 【为什么必须用 tag 而不是文本】这两个按钮创建在「聊天背景」分组里，SettingsPage.apply
+     *   会先把它们包进那张卡片的 body，HomeUi.apply 再按顶层遍历已经找不到；
+     *   而且背景按钮的文本要等 onResume 的 refreshLocalUi 才写入，创建时是空串，文本匹配也靠不住。
+     */
+    static final String TAG_BG_PICK = "feiyu_look_bg_pick";
+    static final String TAG_BG_CLEAR = "feiyu_look_bg_clear";
     /** 权限行右侧状态文案。 */
     static final String S_OK = "\u5df2\u6388\u6743";
     static final String S_NO = "\u672a\u6388\u6743";

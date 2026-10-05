@@ -77,4 +77,17 @@ public class ChatActivity extends Activity {
             chatPanel.refreshHint();
         }
     }
+    /**
+     * 【修·返回键】抽屉开着时先关抽屉，而不是直接退出聊天页。
+     *   原实现没有这个方法，ChatPanel.closeDrawerIfOpen() 全工程零调用点 ——
+     *   左侧抽屉一打开，按返回键就整个退出去，只能点遮罩关。
+     *   与 MainActivity 的处理顺序保持一致：先让页面内的浮层吃掉返回键，再交给系统。
+     */
+    @Override
+    public void onBackPressed() {
+        if (this.panel != null && this.panel.closeDrawerIfOpen()) {
+            return;
+        }
+        super.onBackPressed();
+    }
 }

@@ -218,6 +218,7 @@ final class HomeScreenBuilder {
         // 聊天背景
         box.addView(sectionTitle(act, "\u804a\u5929\u80cc\u666f"));
         act.bgBtn = mkButton(act, "");
+        act.bgBtn.setTag(HomeCards.TAG_BG_PICK);
         act.bgBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -230,6 +231,7 @@ final class HomeScreenBuilder {
         box.addView(act.bgBtn);
 
         Button clearBg = mkButton(act, "\u6e05\u9664\u80cc\u666f");
+        clearBg.setTag(HomeCards.TAG_BG_CLEAR);
         clearBg.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {

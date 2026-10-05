@@ -18,6 +18,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -68,9 +69,6 @@ public final class HomeUi {
     private static final String T_OP_OLD = "\u64cd\u4f5c\u65b9\u5f0f";
     private static final String T_BG = "\u804a\u5929\u80cc\u666f";
     private static final String T_FOOTER = "\u8bf4\u660e\uff1a";
-    /** 两个图片功能入口的按钮文本（原 App 自带，本轮把按钮搬进「外观」）。 */
-    private static final String B_BG = "\u804a\u5929\u80cc\u666f";
-    private static final String B_BG_CLEAR = "\u6e05\u9664\u80cc\u666f";
     /** 卡片标题：新框架。 */
     private static final String T_PERM = "\u6743\u9650";
     /** 权限卡片内两行子项的左侧名称。 */
@@ -198,30 +196,17 @@ public final class HomeUi {
                 return;
             }
             // 两个图片功能的入口按钮：从设置页摘出，稍后重排进「外观」。
-            // 注意用 instanceof Button 过滤：卡片标题里也有「聊天背景」这种同名 TextView。
-            Button bBg = null;
-            Button bClear = null;
-            for (int i = 0; i < box.getChildCount(); i++) {
-                View v = box.getChildAt(i);
-                if (!(v instanceof Button)) {
-                    continue;
-                }
-                String t = UiKit.textOf(v);
-                if (t == null) {
-                    continue;
-                }
-                if (t.contains(B_BG_CLEAR)) {
-                    bClear = (Button) v;
-                } else if (t.contains(B_BG)) {
-                    bBg = (Button) v;
-                }
-            }
-            if (bBg != null) {
-                box.removeView(bBg);
-            }
-            if (bClear != null) {
-                box.removeView(bClear);
-            }
+            // 【修·根因】这两个按钮创建在「聊天背景」分组里，SettingsPage.apply 会先把它们
+            //   包进那张卡片的 body；按 box 顶层遍历必然找不到（旧实现在这里恒为 null，
+            //   于是两个按钮既没被搬进「外观」、也没被美化 —— 就是「外观下两个功能失效」）。
+            //   改按 tag 在整棵视图树里递归查找；且背景按钮的文本要等 onResume 的
+            //   refreshLocalUi 才写入，创建时是空串，文本匹配同样靠不住，必须用 tag。
+            Button bBg = findButtonByTag(activity, HomeCards.TAG_BG_PICK);
+            Button bClear = findButtonByTag(activity, HomeCards.TAG_BG_CLEAR);
+            // 注意：它们此刻多半已不是 box 的直接子，box.removeView 对非直接子是空操作，
+            //       必须按控件自己的父容器摘除，否则下面 addView 到「外观」会因已有父而抛异常。
+            detachFromParent(bBg);
+            detachFromParent(bClear);
             // 按钮从设置页摘掉（控件实例仍有效，首页通过 performClick 复用其逻辑）。
             box.removeView(bStart);
             box.removeView(bStop);
@@ -233,6 +218,7 @@ public final class HomeUi {
             // ---- 设置页：摘旧卡片、留新卡片 ----
             View cardChat = null;
             View cardOp = null;
+            LinearLayout cardBg = null;
             List<View> kill = new ArrayList<View>();
             for (int i = 0; i < box.getChildCount(); i++) {
                 View v = box.getChildAt(i);
@@ -250,10 +236,17 @@ public final class HomeUi {
                     cardChat = v;
                 } else if (T_OP_OLD.equals(t)) {
                     cardOp = v;
-                } else if (T_WEB.equals(t) || T_LEARN.equals(t)
-                        || T_ICON.equals(t) || T_BG.equals(t)) {
-                    // 联网搜索 / 学习 = 功能取消；应用图标 / 聊天背景 = 功能入口已
-                    // 提到「外观」里做成按钮，卡片本体（只剩说明文字）不再需要。
+                } else if (T_BG.equals(t)) {
+                    // 【修】原来整张「聊天背景」卡片都被摘掉，可卡里除了两个已搬到「外观」的
+                    //   按钮，还留着「背景透明度」的说明、标签与滑条 —— 摘卡片等于把透明度
+                    //   调节整个弄没了（全工程没有第二处重建滑条的代码）。改成保留这张卡片，
+                    //   稍后把它的正文整体并进「外观」。
+                    if (v instanceof LinearLayout) {
+                        cardBg = (LinearLayout) v;
+                    }
+                } else if (T_WEB.equals(t) || T_LEARN.equals(t) || T_ICON.equals(t)) {
+                    // 联网搜索 / 学习 = 功能取消；应用图标 = 功能入口已提到「外观」里
+                    // 做成按钮，卡片本体（只剩说明文字）不再需要。
                     kill.add(v);
                 }
             }
@@ -452,6 +445,24 @@ public final class HomeUi {
                             onMonetChanged(on, c);
                         }
                     }));
+            // 「聊天背景」卡片正文（透明度说明 / 标签 / 滑条）并进「外观」。
+            //   【修】这张卡片原来被整张 kill 掉，透明度调节就此消失；两个按钮已被摘走，
+            //   剩下的正文整体搬过来，页面层级也更少一层。
+            if (cardBg != null) {
+                LinearLayout bgBody = (LinearLayout) cardBg.getChildAt(1);
+                List<View> bgChildren = new ArrayList<View>();
+                for (int i = 0; i < bgBody.getChildCount(); i++) {
+                    bgChildren.add(bgBody.getChildAt(i));
+                }
+                for (int i = 0; i < bgChildren.size(); i++) {
+                    View c = bgChildren.get(i);
+                    bgBody.removeView(c);
+                    // 顶部间距由「外观」卡片内既有行给出，这里抹掉原有的 10dp 上边距。
+                    LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
+                    clp.topMargin = 0;
+                    lookBody.addView(c, clp);
+                }
+            }
             syncTheme(activity);
 
             // 「人偶」：目前为空位，后续加人偶时往这里塞。
@@ -1370,6 +1381,28 @@ public final class HomeUi {
             return null;
         }
         return ((ViewGroup) decor).findViewWithTag(tag);
+    }
+
+    /**
+     * 按 tag 在整棵视图树里找一个 Button。
+     * 【为什么不用 HomeCards.cardTitle 那套顶层遍历】这两个按钮会被 SettingsPage 收进卡片 body，
+     *   已不在顶层；findViewWithTag 是深度递归，且只有 Button 会被打上这两个 tag，
+     *   不会误抓到同名的卡片标题 TextView。
+     */
+    private static Button findButtonByTag(Activity activity, String tag) {
+        View v = find(activity, tag);
+        return v instanceof Button ? (Button) v : null;
+    }
+
+    /** 按控件自己的父容器摘除（box.removeView 只对直接子有效，对深层子节点是空操作）。 */
+    private static void detachFromParent(View v) {
+        if (v == null) {
+            return;
+        }
+        ViewParent p = v.getParent();
+        if (p instanceof ViewGroup) {
+            ((ViewGroup) p).removeView(v);
+        }
     }
 
     // 深度优先找第一个 ScrollView：首页整页都挂在它下面。

@@ -288,6 +288,17 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             }
         });
         toolWrap.addView(memIcon, iconLp(dp(2.0f)));
+        // 【修·附件断链】工具条补一个「图片」入口。
+        //   ChatPanel.openPicker() 原本全工程零调用点，PickFileActivity 的图片回调
+        //   （onPicked -> pendingImage）永远收不到东西 —— 「给她发图片」这条链路是死的。
+        ImageView imgIcon = UiKit.iconView(getContext(), Icons.IC_IMAGE, UiKit.FS_ICON, UiKit.SUB);
+        imgIcon.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                ChatPanel.this.openPicker();
+            }
+        });
+        toolWrap.addView(imgIcon, iconLp(dp(2.0f)));
         // 【v2.8】右侧的「记忆总结中」：weight=1 吃掉三个图标之后的全部留白，文字贴右。
         // 【坑】只在总结在途时可见（GONE 不参与布局），所以平时三个图标的位置与之前完全一致。
         TextView busy = new TextView(getContext());
@@ -306,6 +317,42 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         toolLp.leftMargin = dp(10.0f);
         toolLp.rightMargin = dp(10.0f);
         toolLp.bottomMargin = dp(2.0f);
+        // 【修·附件断链】附件预览条：缩略图 + 说明 + 移除按钮。
+        //   原先 attachStrip / attachThumb / attachLabel 三个字段只有读取方，从来没有创建代码，
+        //   refreshAttachStrip() 里 `attachStrip == null` 直接 return —— 选了图也看不到、去不掉。
+        this.attachStrip = new LinearLayout(getContext());
+        this.attachStrip.setOrientation(0);
+        this.attachStrip.setGravity(16);
+        this.attachStrip.setBackground(UiKit.round(UiKit.CARD, getContext(), 16));
+        this.attachStrip.setPadding(dp(8.0f), dp(6.0f), dp(6.0f), dp(6.0f));
+        this.attachThumb = new ImageView(getContext());
+        this.attachThumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        LinearLayout.LayoutParams thumbLp = new LinearLayout.LayoutParams(dp(40.0f), dp(40.0f));
+        thumbLp.rightMargin = dp(8.0f);
+        this.attachStrip.addView(this.attachThumb, thumbLp);
+        this.attachLabel = new TextView(getContext());
+        this.attachLabel.setTextSize(UiKit.FS_TINY);
+        this.attachLabel.setTextColor(UiKit.SUB);
+        this.attachLabel.setSingleLine(true);
+        this.attachLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        this.attachStrip.addView(this.attachLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        ImageView attachClear = UiKit.iconView(getContext(), Icons.IC_CLOSE, 14.0f, UiKit.SUB);
+        attachClear.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                ChatPanel.this.clearAttachment();
+            }
+        });
+        this.attachStrip.addView(attachClear, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams attachLp = new LinearLayout.LayoutParams(-1, -2);
+        attachLp.leftMargin = dp(10.0f);
+        attachLp.rightMargin = dp(10.0f);
+        attachLp.bottomMargin = dp(2.0f);
+        this.attachStrip.setLayoutParams(attachLp);
+        // 初始收起（仍占据布局，由 alpha/显隐控制）。
+        this.attachStrip.setVisibility(View.GONE);
+        this.attachStrip.setAlpha(0f);
+        addView(this.attachStrip);
         addView(this.toolRow, toolLp);
         LinearLayout linearLayout3 = new LinearLayout(getContext());
         this.inputRow = linearLayout3;
