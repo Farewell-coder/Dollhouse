@@ -5,11 +5,11 @@ import android.content.DialogInterface;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
@@ -135,12 +135,7 @@ public final class ApiSectionTuner {
         final Context fCtx = ctx;
 
         // 输入框末尾挂一颗方形展开图标：点击拉取 / 收起服务端返回的模型清单。
-        final TextView caret = new TextView(ctx);
-        caret.setTextSize(18.0f);
-        caret.setTextColor(UiKit.TITLE);
-        caret.setGravity(Gravity.CENTER);
-        caret.setBackground(UiKit.round(UiKit.SOFT, ctx, 10));
-        caret.setText(UiKit.ARROW_CLOSED);
+        final ImageView caret = Icons.view(ctx, Icons.IC_CHEVRON_DOWN, 18.0f, UiKit.TITLE);
 
         LinearLayout hbox = new LinearLayout(ctx);
         hbox.setOrientation(LinearLayout.HORIZONTAL);
@@ -193,7 +188,7 @@ public final class ApiSectionTuner {
         popup.setOnDismissListener(new PopupWindow.OnDismissListener() {
             @Override
             public void onDismiss() {
-                caret.setText(UiKit.ARROW_CLOSED);
+                caret.setImageResource(Icons.IC_CHEVRON_DOWN);
             }
         });
 
@@ -244,19 +239,19 @@ public final class ApiSectionTuner {
                                 label.setEllipsize(android.text.TextUtils.TruncateAt.END);
                                 item.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-                                final TextView star = new TextView(fCtx);
-                                star.setTextSize(17.0f);
-                                star.setGravity(Gravity.CENTER);
+                                final boolean st0 = SettingsProfiles.isStarred(fCtx, name);
+                                final ImageView star = Icons.view(fCtx,
+                                        st0 ? Icons.IC_STAR : Icons.IC_STAR_OFF, 18.0f,
+                                        st0 ? UiKit.ACC : UiKit.SUB);
                                 star.setPadding(UiKit.dp(fCtx, 8), UiKit.dp(fCtx, 8),
                                         UiKit.dp(fCtx, 4), UiKit.dp(fCtx, 8));
-                                star.setText(SettingsProfiles.isStarred(fCtx, name) ? "★" : "☆");
-                                star.setTextColor(SettingsProfiles.isStarred(fCtx, name) ? UiKit.ACC : UiKit.SUB);
                                 star.setOnClickListener(new View.OnClickListener() {
                                     @Override
                                     public void onClick(View v) {
                                         boolean on = SettingsProfiles.toggleStar(fCtx, name);
-                                        star.setText(on ? "★" : "☆");
-                                        star.setTextColor(on ? UiKit.ACC : UiKit.SUB);
+                                        star.setImageDrawable(Icons.get(fCtx,
+                                                on ? Icons.IC_STAR : Icons.IC_STAR_OFF,
+                                                on ? UiKit.ACC : UiKit.SUB));
                                     }
                                 });
                                 item.addView(star, new LinearLayout.LayoutParams(-2, -2));
@@ -270,7 +265,7 @@ public final class ApiSectionTuner {
                                         fInput.setText(name);
                                         fInput.setSelection(name.length());
                                         popup.dismiss();
-                                        caret.setText(UiKit.ARROW_CLOSED);
+                                        caret.setImageResource(Icons.IC_CHEVRON_DOWN);
                                         status.setTextColor(UiKit.SUB);
                                         status.setText("\u5df2\u9009\u7528\uff1a" + name);
                                     }
@@ -282,14 +277,14 @@ public final class ApiSectionTuner {
                             // \u8d85\u8fc7 ApiSectionTuner.MODEL_ROWS \u884c\u56fa\u5b9a\u9ad8\u5ea6\u53ef\u6eda\u52a8\uff0c\u5426\u5219\u81ea\u9002\u5e94\u3002
                             popup.setHeight(models.size() > ApiSectionTuner.MODEL_ROWS ? UiKit.dp(fCtx, 210) : -2);
                             ApiSectionTuner.showModelPopup(popup, fInput);
-                            caret.setText(UiKit.ARROW_OPEN);
+                            caret.setImageResource(Icons.IC_CHEVRON_UP);
                             loading[0] = false;
                         } else {
                             options.removeAllViews();
                             if (popup.isShowing()) {
                                 popup.dismiss();
                             }
-                            caret.setText(UiKit.ARROW_CLOSED);
+                            caret.setImageResource(Icons.IC_CHEVRON_DOWN);
                             status.setVisibility(View.VISIBLE);
                             status.setTextColor(UiKit.ERR);
                             status.setText("\u672a\u80fd\u83b7\u53d6\u6a21\u578b\u5217\u8868\uff1a" + (error == null ? "\u672a\u77e5\u9519\u8bef" : error));
@@ -306,10 +301,10 @@ public final class ApiSectionTuner {
                 if (options.getChildCount() > 0) {
                     if (popup.isShowing()) {
                         popup.dismiss();
-                        caret.setText(UiKit.ARROW_CLOSED);
+                        caret.setImageResource(Icons.IC_CHEVRON_DOWN);
                     } else {
                         ApiSectionTuner.showModelPopup(popup, fInput);
-                        caret.setText(UiKit.ARROW_OPEN);
+                        caret.setImageResource(Icons.IC_CHEVRON_UP);
                     }
                     return;
                 }
@@ -393,7 +388,7 @@ public final class ApiSectionTuner {
                         try {
                             c.disconnect();
                         } catch (Throwable ignored) {
-                            Log.w(LOG_TAG, "ignored", ignored);
+                            Logs.w(LOG_TAG, "ignored", ignored);
                         }
                     }
                 }
@@ -439,7 +434,7 @@ public final class ApiSectionTuner {
                 }
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         return out;
     }

@@ -269,13 +269,13 @@ final class ChatHistoryStore {
         //          「裁剪 + 不写暂存」：后者会真丢消息，与「数据全留」的定案冲突。
         int before = host.history.length();
         if (host.prevCount > 0) {
-            android.util.Log.i("DollhouseMemo", "[save] 展开态全量落盘 len=" + before);
+            Logs.i("DollhouseMemo", "[save] 展开态全量落盘 len=" + before);
             PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history).toString());
             return;
         }
         host.history = trimForSave(ctx, id, host.history);
         if (before != host.history.length()) {
-            android.util.Log.i("DollhouseMemo", "[save] 裁剪 before=" + before + " after=" + host.history.length());
+            Logs.i("DollhouseMemo", "[save] 裁剪 before=" + before + " after=" + host.history.length());
         }
         PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history).toString());
     }
@@ -309,13 +309,13 @@ final class ChatHistoryStore {
                 } catch (Throwable unused) {
                 }
             }
-            android.util.Log.i("DollhouseMemo", "[pushPrev] srcLen=" + src.length()
+            Logs.i("DollhouseMemo", "[pushPrev] srcLen=" + src.length()
                     + " end=" + end + " prevLen=" + prev.length() + " 覆盖写=true");
             // 【v2.9.6】本次没有可留的原文时也要落一次空值：把上一次的残留清干净，
             //  否则「加载更早」入口会指向一批早就被并进摘要的旧消息。
             PetPrefs.setConvPrev(ctx, id, prev.toString());
         } catch (Throwable unused) {
-            android.util.Log.i("DollhouseMemo", "[pushPrev] 异常");
+            Logs.i("DollhouseMemo", "[pushPrev] 异常");
         }
     }
 
@@ -660,6 +660,15 @@ final class ChatHistoryStore {
                 thinkObj.put("content", thinkPrompt);
                 jSONArray.put(thinkObj);
             }
+            // 【思考框】格式约束：推理型模型会把正文写进思考区而把 content 留空，
+            // 上层就只能拿到空气泡。这里独立补一条 system 指令把「正文必须有内容」说死。
+            // 【为什么独立一条】人设原文（SYSTEM_PROMPT）属保留内容，一个字不动；
+            // 追加独立消息与上面「思考程度」同款做法，两边入口（全屏页 / 迷你框）共用本方法，一并受约束。
+            JSONObject fmtObj = new JSONObject();
+            fmtObj.put("role", "system");
+            fmtObj.put("content", "【回复格式】你对主人说的话必须写在正文里，正文不能为空；"
+                    + "推理、分析、自我检查的过程请放在思考区，既不要混进正文，也不要用思考区代替正文。");
+            jSONArray.put(fmtObj);
             int i = 2;
             // 总记忆库：AI 自主写入的长期记忆，作为额外 system 提示注入（上限 1200 字）。
             // 【开关】加号面板里可以关掉注入：她照旧往库里写，但不再随时「记得」这些事。

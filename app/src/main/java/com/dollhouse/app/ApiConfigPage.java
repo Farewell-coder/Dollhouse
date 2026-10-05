@@ -7,12 +7,12 @@ import android.content.ContextWrapper;
 import android.graphics.Typeface;
 import android.text.InputType;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -129,7 +129,7 @@ final class ApiConfigPage {
                 UiKit.swapPage(content, page, TAG_PAGE);
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -200,7 +200,7 @@ final class ApiConfigPage {
                         handleBack(ctx);
                     }
                 });
-        TextView add = UiKit.iconBtn(ctx, "+", UiKit.FS_ICON, UiKit.ACC);
+        ImageView add = UiKit.iconView(ctx, Icons.IC_PLUS, UiKit.FS_ICON, UiKit.ACC);
         add.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -282,7 +282,7 @@ final class ApiConfigPage {
         col.addView(tags);
         r.addView(col, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        TextView more = UiKit.iconBtn(ctx, "⋮", UiKit.FS_ICON, UiKit.SUB);
+        ImageView more = UiKit.iconView(ctx, Icons.IC_MORE, UiKit.FS_ICON, UiKit.SUB);
         more.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -440,6 +440,21 @@ final class ApiConfigPage {
         return c;
     }
 
+    /** 单字符尖括号 -> 图标资源；其它返回 0（按文字渲染）。 */
+    private static int arrowRes(String s) {
+        if (s == null || s.length() != 1) {
+            return 0;
+        }
+        char c = s.charAt(0);
+        if (c == '\u203a') {
+            return Icons.IC_CHEVRON_RIGHT;
+        }
+        if (c == '\u2039') {
+            return Icons.IC_CHEVRON_LEFT;
+        }
+        return 0;
+    }
+
     /** 整宽可点行：左名称 + 右值/箭头。 */
     private static LinearLayout row(Context ctx, String name, String right, View.OnClickListener cb) {
         LinearLayout r = new LinearLayout(ctx);
@@ -460,12 +475,18 @@ final class ApiConfigPage {
         r.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
         if (right != null && right.length() > 0) {
-            TextView v = new TextView(ctx);
-            v.setText(right);
-            v.setTextSize(UiKit.FS_BTN);
-            v.setTextColor(UiKit.SUB);
-            v.setTypeface(Typeface.DEFAULT_BOLD);
-            r.addView(v, new LinearLayout.LayoutParams(-2, -2));
+            int arrow = arrowRes(right);
+            if (arrow != 0) {
+                // 单字符尖括号一律换成描边图标，避免字形在各家 ROM 上粗细不一。
+                r.addView(Icons.view(ctx, arrow, 18.0f, UiKit.SUB));
+            } else {
+                TextView v = new TextView(ctx);
+                v.setText(right);
+                v.setTextSize(UiKit.FS_BTN);
+                v.setTextColor(UiKit.SUB);
+                v.setTypeface(Typeface.DEFAULT_BOLD);
+                r.addView(v, new LinearLayout.LayoutParams(-2, -2));
+            }
         }
         if (cb != null) {
             r.setClickable(true);
@@ -891,7 +912,7 @@ final class ApiConfigPage {
         r.setLayoutParams(lp);
 
         TextView nm = new TextView(ctx);
-        nm.setText((selected ? "\u2713 " : "") + model);
+        nm.setText(model);
         nm.setTextSize(UiKit.FS_BTN);
         nm.setTextColor(selected ? UiKit.CHAT_CHIP_FG : UiKit.TITLE);
         nm.setSingleLine(true);
@@ -899,11 +920,9 @@ final class ApiConfigPage {
         r.addView(nm, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
         final boolean starred = SettingsProfiles.isStarred(ctx, st.provider, model);
-        final TextView star = new TextView(ctx);
-        star.setText(starred ? "\u2605" : "\u2606");
-        star.setTextSize(UiKit.FS_ICON);
-        star.setTextColor(starred ? UiKit.ACC : UiKit.SUB);
-        star.setGravity(Gravity.CENTER);
+        final ImageView star = Icons.view(ctx,
+                starred ? Icons.IC_STAR : Icons.IC_STAR_OFF, UiKit.FS_ICON,
+                starred ? UiKit.ACC : UiKit.SUB);
         star.setClickable(true);
         UiKit.press(star);
         star.setOnClickListener(new View.OnClickListener() {
@@ -913,8 +932,9 @@ final class ApiConfigPage {
                 //   收藏也必须落进同一套配置 —— 无参版会写进「当前配置」，
                 //   当详情页停留的配置 ≠ 当前配置时，星就点到了别人身上。
                 boolean now = SettingsProfiles.toggleStar(ctx, st.provider, model);
-                star.setText(now ? "\u2605" : "\u2606");
-                star.setTextColor(now ? UiKit.ACC : UiKit.SUB);
+                star.setImageDrawable(Icons.get(ctx,
+                        now ? Icons.IC_STAR : Icons.IC_STAR_OFF,
+                        now ? UiKit.ACC : UiKit.SUB));
             }
         });
         r.addView(star, new LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 36)));

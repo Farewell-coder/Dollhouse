@@ -500,7 +500,7 @@ final class PetTalk {
                     }
                     @Override
                     public void flash(String msg) {
-                        android.util.Log.i("DollhouseMemo", "[mini] " + msg);
+                        Logs.i("DollhouseMemo", "[mini] " + msg);
                     }
                     @Override
                     public void busy(boolean busy) {

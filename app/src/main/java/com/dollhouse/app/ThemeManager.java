@@ -13,7 +13,6 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 /**
  * 【职责】整体 UI 主题：四档模式（随系统 / 白色 / 暗色 / 纯黑）+ 莫奈主题色（按壁纸动态取色）。
@@ -71,33 +70,35 @@ public final class ThemeManager {
     private static final int I_EMOTE_2 = 25;
     private static final int I_EMOTE_3 = 26;
     private static final int I_STROKE = 27;
-    private static final int PAL_SIZE = 28;
+    /** 弹层遮罩色（抽屉 / 面板背后的压暗层）。 */
+    private static final int I_SCRIM = 28;
+    private static final int PAL_SIZE = 29;
 
     /** 白色档内置调色板（与改造前 UiKit 的取值一致，保证默认观感不变）。 */
     private static final int[] LIGHT = {
-            0xFF6B4EE6, 0xFF8B6EF7, 0xFFFFFFFF, 0xFFF4F5F9, 0xFF22315B, 0xFF5A6B99,
-            0xFFE6E7EF, 0xFFF2F5FF, 0xFFF2F3F7, 0xFFF4F2FD, 0xFF1B8A3A, 0xFFB3261E,
+            0xFF6B4EE6, 0xFF8B6EF7, 0xFFFFFFFF, 0xFFF1F2F7, 0xFF22315B, 0xFF5A6B99,
+            0xFFE6E7EF, 0xFFF6F4FF, 0xFFEAECF4, 0xFFF4F2FD, 0xFF1B8A3A, 0xFFB3261E,
             0xFFFFFFFF, 0xFF4C6FDE, 0xFFC9D4EE, 0xFFE4EAF8, 0xFF3A5BC7, 0xFFDCE6FF,
             0xFFEDF1FA, 0xFF7A88B0, 0xFFE6EBF8, 0xFF8A5A00, 0xFFFFF4D6, 0xFFC9CEDD,
-            0xFFF2603C, 0xFFE8608F, 0xFF5A7BD8, 0x1422315B
+            0xFFF2603C, 0xFFE8608F, 0xFF5A7BD8, 0x1422315B, 0x8A000000
     };
 
     /** 暗色档内置调色板。 */
     private static final int[] DARK = {
             0xFF9B85F0, 0xFFB39DFF, 0xFF1E1F26, 0xFF121317, 0xFFE8EAF2, 0xFF9BA3BC,
-            0xFF2E3038, 0xFF23242C, 0xFF23242C, 0xFF25263A, 0xFF5FD07E, 0xFFFF6B60,
+            0xFF2E3038, 0xFF23242C, 0xFF282A36, 0xFF25263A, 0xFF5FD07E, 0xFFFF6B60,
             0xFF1A1030, 0xFF5C7BE8, 0xFF3A3F52, 0xFF2A2F42, 0xFFA9BCF5, 0xFF3A4472,
             0xFF24273A, 0xFF8A93B0, 0xFF2B3048, 0xFFF0C674, 0xFF3A3320, 0xFF3E4250,
-            0xFFFF8A5C, 0xFFFF8FB8, 0xFF8AA6FF, 0x1AFFFFFF
+            0xFFFF8A5C, 0xFFFF8FB8, 0xFF8AA6FF, 0x1AFFFFFF, 0xA6000000
     };
 
     /** 纯黑档内置调色板：卡片与页面同为纯黑，靠描边与行底色分层。 */
     private static final int[] BLACK = {
             0xFF9B85F0, 0xFFB39DFF, 0xFF000000, 0xFF000000, 0xFFEDEDF2, 0xFF9A9AA5,
-            0xFF303030, 0xFF0D0D0D, 0xFF101010, 0xFF1A1626, 0xFF5FD07E, 0xFFFF6B60,
+            0xFF303030, 0xFF0D0D0D, 0xFF151515, 0xFF1A1626, 0xFF5FD07E, 0xFFFF6B60,
             0xFF1A1030, 0xFF5C7BE8, 0xFF333333, 0xFF1A1A1A, 0xFFA9BCF5, 0xFF2E2E3E,
             0xFF141414, 0xFF8A93B0, 0xFF1C1C28, 0xFFF0C674, 0xFF2A2416, 0xFF3A3A3A,
-            0xFFFF8A5C, 0xFFFF8FB8, 0xFF8AA6FF, 0x26FFFFFF
+            0xFFFF8A5C, 0xFFFF8FB8, 0xFF8AA6FF, 0x26FFFFFF, 0xB3000000
     };
 
     private ThemeManager() {
@@ -197,6 +198,7 @@ public final class ThemeManager {
             UiKit.EMOTE_2 = p[I_EMOTE_2];
             UiKit.EMOTE_3 = p[I_EMOTE_3];
             UiKit.STROKE = p[I_STROKE];
+            UiKit.SCRIM = p[I_SCRIM];
             // 窗口背景同步成当前主题底色：换主题走 recreate()，重建的那一瞬间会先露出
             // 窗口背景，不刷的话暗色 / 纯黑下会闪一下白。
             Activity act = UiKit.findActivity(c);
@@ -204,7 +206,7 @@ public final class ThemeManager {
                 act.getWindow().setBackgroundDrawable(new ColorDrawable(UiKit.BG));
             }
         } catch (Throwable t) {
-            Log.w(LOG_TAG, "ignored", t);
+            Logs.w(LOG_TAG, "ignored", t);
         }
     }
 
@@ -241,7 +243,7 @@ public final class ThemeManager {
                 try {
                     ok = refreshHueCache(app);
                 } catch (Throwable t) {
-                    Log.w(LOG_TAG, "ignored", t);
+                    Logs.w(LOG_TAG, "ignored", t);
                 }
                 final boolean result = ok;
                 main.post(new Runnable() {
@@ -261,7 +263,7 @@ public final class ThemeManager {
             PetPrefs.setThemeMonetWall(c, Integer.MIN_VALUE);
             PetPrefs.setThemeMonetHue10(c, Integer.MIN_VALUE);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
     /** 供 apply() 使用的同步取色：只读缓存，未命中就返回 null 走内置配色。 */
@@ -274,7 +276,7 @@ public final class ThemeManager {
             int[] p = fromHue(hue, dark, black);
             return p != null && p.length == PAL_SIZE ? p : null;
         } catch (Throwable t) {
-            Log.w(LOG_TAG, "ignored", t);
+            Logs.w(LOG_TAG, "ignored", t);
             return null;
         }
     }
@@ -288,7 +290,7 @@ public final class ThemeManager {
                 return savedHue10 / 10.0f;
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         return Float.NaN;
     }
@@ -298,7 +300,7 @@ public final class ThemeManager {
         try {
             wallId = WallpaperManager.getInstance(c).getWallpaperId(WallpaperManager.FLAG_SYSTEM);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         int savedWall = PetPrefs.themeMonetWall(c);
         int savedHue10 = PetPrefs.themeMonetHue10(c);
@@ -348,7 +350,7 @@ public final class ThemeManager {
             }
             return hsv[0];
         } catch (Throwable t) {
-            Log.w(LOG_TAG, "ignored", t);
+            Logs.w(LOG_TAG, "ignored", t);
             return Float.NaN;
         }
     }
@@ -362,7 +364,7 @@ public final class ThemeManager {
             try {
                 d = wm.getDrawable();
             } catch (Throwable ignored) {
-                Log.w(LOG_TAG, "ignored", ignored);
+                Logs.w(LOG_TAG, "ignored", ignored);
             }
             if (d == null) {
                 return Float.NaN;
@@ -379,7 +381,7 @@ public final class ThemeManager {
             d.setBounds(0, 0, w, h);
             d.draw(cv);
         } catch (Throwable t) {
-            Log.w(LOG_TAG, "ignored", t);
+            Logs.w(LOG_TAG, "ignored", t);
             if (small != null) {
                 small.recycle();
             }
@@ -435,7 +437,7 @@ public final class ThemeManager {
             }
             return (float) (ang * 180.0 / Math.PI);
         } catch (Throwable t) {
-            Log.w(LOG_TAG, "ignored", t);
+            Logs.w(LOG_TAG, "ignored", t);
             return Float.NaN;
         } finally {
             small.recycle();

@@ -47,7 +47,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     private String pendingTextName;
     boolean requestHasImage;
     ScrollView scroller;
-    private Button sendBtn;
+    private ImageView sendBtn;
     /** 【v2.8】工具条右侧的「记忆总结中」：仅在总结在途时可见，结束后消失。 */
     private TextView memoBusy;
     /** 【v2.8】聊天记录里「ⓘ 历史对话摘要」那条节点，总结完成后据此滚过去。 */
@@ -79,6 +79,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     private CtxRing ctxRing;
     /** 当前在途请求的取消句柄；null 表示没有正在跑的请求。 */
     private DeepSeekClient.Task task;
+    /** 【思考框】本次请求发出的时刻（毫秒），用于算「思考了 X 秒」。 */
+    private long askStartMs;
     /** 抽屉层：包住整块面板，不改变 ChatPanel 的构造签名与父子结构。 */
     private ChatDrawer drawer;
     static final Pattern AFFECTION_HEAD = Pattern.compile("^\\s*[\\[【]\\s*好感度\\s*[:：]\\s*([+-]?\\d+)\\s*[\\]】]\\s*");
@@ -188,7 +190,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         linearLayout.setOnTouchListener(onTouchListener);
         // 【观感】返回键钉在左上角：改成无底扁平图标 + 38dp 命中区，靠 UiKit.press 的
         // 缩放反馈表达可点。原先是白底描边胶囊，在顶栏里比标题还抢眼，所以显得突兀。
-        TextView backIcon = UiKit.iconBtn(getContext(), "←", UiKit.FS_ICON, UiKit.TITLE);
+        ImageView backIcon = UiKit.iconView(getContext(), Icons.IC_ARROW_LEFT, UiKit.FS_ICON, UiKit.TITLE);
         backIcon.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 if (ChatPanel.this.controller != null) {
@@ -198,7 +200,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         });
         linearLayout.addView(backIcon, iconLp(0));
         // 抽屉排第二：同样扁平，字号更小、色阶更淡，层级低于返回键。
-        TextView drawerIcon = UiKit.iconBtn(getContext(), "☰", UiKit.FS_ICON, UiKit.SUB);
+        ImageView drawerIcon = UiKit.iconView(getContext(), Icons.IC_MENU, UiKit.FS_ICON, UiKit.SUB);
         drawerIcon.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 ChatPanel.this.openDrawer();
@@ -265,21 +267,21 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         this.toolRow = toolWrap;
         toolWrap.setOrientation(0);
         toolWrap.setGravity(16);
-        TextView modelIcon = UiKit.iconBtn(getContext(), "◯", UiKit.FS_ICON, UiKit.TITLE);
+        ImageView modelIcon = UiKit.iconView(getContext(), Icons.IC_SETTINGS, UiKit.FS_ICON, UiKit.TITLE);
         modelIcon.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 SheetPanel.showModels(ChatPanel.this.getContext(), ChatPanel.this.findLayer());
             }
         });
         toolWrap.addView(modelIcon, iconLp(0));
-        TextView thinkIcon = UiKit.iconBtn(getContext(), "💡", UiKit.FS_ICON, UiKit.SUB);
+        ImageView thinkIcon = UiKit.iconView(getContext(), Icons.IC_BRAIN, UiKit.FS_ICON, UiKit.SUB);
         thinkIcon.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 SheetPanel.showThink(ChatPanel.this.getContext(), ChatPanel.this.findLayer(), ChatPanel.this);
             }
         });
         toolWrap.addView(thinkIcon, iconLp(dp(2.0f)));
-        TextView memIcon = UiKit.iconBtn(getContext(), "＋", UiKit.FS_ICON, UiKit.SUB);
+        ImageView memIcon = UiKit.iconView(getContext(), Icons.IC_PLUS, UiKit.FS_ICON, UiKit.SUB);
         memIcon.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 SheetPanel.showMemory(ChatPanel.this.getContext(), ChatPanel.this.findLayer(), ChatPanel.this);
@@ -330,11 +332,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         this.inputRow.addView(this.input, new LinearLayout.LayoutParams(0, -2, 1.0f));
         // 【观感】发送键改成 38dp 圆形图标：原来的长条「发送」白字紫底在输入行里像块招牌，
         // 视觉上比输入框还重。改成圆形 + 单字图标后与输入行的圆角胶囊同一套语汇。
-        Button button = new Button(getContext());
+        ImageView button = new ImageView(getContext());
         this.sendBtn = button;
-        button.setText("↑");
-        this.sendBtn.setAllCaps(false);
-        this.sendBtn.setTextSize(18.0f);
         UiKit.sendButton(this.sendBtn, getContext());
         this.sendBtn.setOnClickListener(new View.OnClickListener() {            @Override
             public void onClick(View view) {
@@ -367,7 +366,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     /** 请求在途时把发送键切成「停止」，回来再切回「发送」。 */
     private void setWaiting(boolean z) {
         this.waiting = z;
-        Button button = this.sendBtn;
+        ImageView button = this.sendBtn;
         if (button == null) {
             return;
         }
@@ -376,7 +375,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                 .withEndAction(new Runnable() {
                     @Override
                     public void run() {
-                        button.setText(z ? "■" : "↑");
+                        button.setImageResource(z ? Icons.IC_CLOSE : Icons.IC_SEND);
+                        Icons.tint(button, UiKit.ON_ACC);
                         button.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_STD).start();
                     }
                 }).start();
@@ -803,15 +803,15 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     public void summarizeNow() {
         // 【v2.9.1】每个静默 return 都补一条可见提示：全工程禁用 Toast，
         // 不给反馈用户只会以为「点了没反应」，无法区分「真失败」与「本就没得总结」。
-        android.util.Log.i("DollhouseMemo", "[入口] 点按立即总结 histLen=" + this.history.length()
+        Logs.i("DollhouseMemo", "[入口] 点按立即总结 histLen=" + this.history.length()
                 + " running=" + MemSummarizer.isRunning());
         if (MemSummarizer.isRunning()) {
-            android.util.Log.i("DollhouseMemo", "[入口] 被挡: 上一次还在进行中");
+            Logs.i("DollhouseMemo", "[入口] 被挡: 上一次还在进行中");
             flashMemo("上一次总结还在进行中");
             return;
         }
         if (this.history.length() < 1) {
-            android.util.Log.i("DollhouseMemo", "[入口] 被挡: 历史为空");
+            Logs.i("DollhouseMemo", "[入口] 被挡: 历史为空");
             flashMemo("当前对话是空的，没什么可总结的");
             return;
         }
@@ -821,7 +821,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         //  收回 = 原样退回暂存位（数据一条不丢），之后本次只总结「摘要 + 之后的消息」。
         if (this.prevCount > 0) {
             boolean folded = ChatHistoryStore.collapsePrev(this, this.prevCount);
-            android.util.Log.i("DollhouseMemo", "[入口] 收回展开态 ok=" + folded
+            Logs.i("DollhouseMemo", "[入口] 收回展开态 ok=" + folded
                     + " prevCount=" + this.prevCount);
             this.prevCount = 0;
             // 立即重铺：无论后续总结成败，界面上都要与内存一致（不再显示那批临时回看的消息）。
@@ -834,7 +834,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     void flashMemo(String msg) {
         final TextView t = this.memoBusy;
         if (t == null || msg == null || msg.trim().isEmpty()) {
-            android.util.Log.i("DollhouseMemo", "[flash] 丢弃 t=" + (t != null)
+            Logs.i("DollhouseMemo", "[flash] 丢弃 t=" + (t != null)
                     + " msgEmpty=" + (msg == null || msg.trim().isEmpty()));
             return;
         }
@@ -848,7 +848,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         //  回调 finally 必调 setMemoBusy(false)，不设这个标志的话 setVisibility(0)
         //  会被立刻改回 8，同一帧完成、不绘制中间态 —— 用户什么都看不到。
         this.flashHold = true;
-        android.util.Log.i("DollhouseMemo", "[flash] 显示提示 len=" + msg.length());
+        Logs.i("DollhouseMemo", "[flash] 显示提示 len=" + msg.length());
         t.setText(msg);
         UiKit.reveal(t);
         this.pendingFlash = new Runnable() {
@@ -1006,6 +1006,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         String[] endpoint = endpoint();
         // 【交互】记忆工具始终可用（AI 自己决定记什么）；联网工具按用户开关决定。
         JSONArray buildTools = z ? buildTools() : null;
+        // 【思考框】计时起点：这一刻算「模型开始思考」。
+        // 【坑】非流式请求（stream=false）拿不到思考阶段的起止，只能量整段往返；
+        //       工具轮里每次重发 askModel 都会重置，所以显示的是「最后一轮」的耗时。
+        this.askStartMs = System.currentTimeMillis();
         this.task = new DeepSeekClient.Task();
         DeepSeekClient.chatRaw(endpoint[1], endpoint[0], (0 == 0 && this.requestHasImage) ? PetPrefs.visionModel(getContext()) : endpoint[2], jSONArray, buildTools, samplingParams(false), this.task, new DeepSeekClient.RawCallback() {            @Override
             public void onMessage(JSONObject jSONObject, String str) {
@@ -1039,7 +1043,13 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
                 if (jSONObject != null) {
                     TokenStat.recordFrom(ChatPanel.this.getContext(), jSONObject);
                 }
-                ChatPanel.this.handleReply(jSONObject != null ? jSONObject.optString("content", "") : "");
+                // 【思考框】正文与思考内容分别取出：原来只取 content，reasoning_content 拿到就丢。
+                // 【坑】耗时用「发起请求 → 回调回来」的整段近似（非流式无法只量思考段），
+                //       夹在网络往返与正文生成之间，数值会偏长。
+                String contentText = jSONObject == null ? "" : jSONObject.optString("content", "");
+                String reasoningText = jSONObject == null ? "" : jSONObject.optString("reasoning_content", "");
+                long costMs = System.currentTimeMillis() - ChatPanel.this.askStartMs;
+                ChatPanel.this.handleReply(contentText, reasoningText, costMs);
             }
         });
     }
@@ -1140,37 +1150,70 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             addBubble("（出错了：" + str + "）", false);
         }
     }
+    /** 兼容入口：不带思考内容的旧签名（外部契约不变）。 */
     public void handleReply(String str) {
+        handleReply(str, "", 0L);
+    }
+
+    /**
+     * 【思考框】带推理内容与耗时的版本。
+     * 【分流】
+     *   正文非空 → 自聊池先铺思考框再铺气泡（折叠条正好落在气泡正上方）；人偶池照旧只铺气泡。
+     *   正文为空 → 人偶池拿思考内容顶上（她必须开口，不能只剩空气泡）；
+     *              自聊池只铺思考框，既不铺空气泡也不写历史（思考内容不落盘）。
+     *   两者都空 → 走既有错误气泡。
+     */
+    public void handleReply(String str, String reasoning, long costMs) {
         int i;
         boolean z;
         this.task = null;
-        if (isAttachedToWindow()) {
-            setWaiting(false);
-            removeThinking();
-            Matcher matcher = AFFECTION_HEAD.matcher(str);
-            if (matcher.find()) {
-                try {
-                    i = Integer.parseInt(matcher.group(1));
-                } catch (Throwable unused) {
-                    i = 0;
-                }
-                z = true;
+        if (!isAttachedToWindow()) {
+            return;
+        }
+        setWaiting(false);
+        removeThinking();
+        String body = str == null ? "" : str;
+        String think = reasoning == null ? "" : reasoning.trim();
+        boolean pet = ChatSessions.isPet(getContext());
+        if (body.trim().isEmpty()) {
+            if (think.isEmpty()) {
+                finishWithError("模型返回了空内容");
+                return;
+            }
+            if (pet) {
+                body = think;
+                think = "";
             } else {
+                ChatBubbles.addThinkingBox(this, think, costMs);
+                return;
+            }
+        }
+        Matcher matcher = AFFECTION_HEAD.matcher(body);
+        if (matcher.find()) {
+            try {
+                i = Integer.parseInt(matcher.group(1));
+            } catch (Throwable unused) {
                 i = 0;
-                z = false;
             }
-            String trim = AFFECTION_ANY.matcher(str).replaceAll("").trim();
-            if (trim.isEmpty()) {
-                trim = z ? "……" : str.trim();
-            }
-            if (z) {
-                PetBus.affection(PetPrefs.addAffection(getContext(), i));
-            }
-            ChatHistoryStore.push(this, "assistant", trim);
-            addBubble(trim, false, this.history.length() - 1);
-            if (ChatSessions.isPet(getContext())) {
-                PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L);
-            }
+            z = true;
+        } else {
+            i = 0;
+            z = false;
+        }
+        String trim = AFFECTION_ANY.matcher(body).replaceAll("").trim();
+        if (trim.isEmpty()) {
+            trim = z ? "……" : body.trim();
+        }
+        if (z) {
+            PetBus.affection(PetPrefs.addAffection(getContext(), i));
+        }
+        ChatHistoryStore.push(this, "assistant", trim);
+        if (!pet && !think.isEmpty()) {
+            ChatBubbles.addThinkingBox(this, think, costMs);
+        }
+        addBubble(trim, false, this.history.length() - 1);
+        if (pet) {
+            PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L);
         }
     }
 }

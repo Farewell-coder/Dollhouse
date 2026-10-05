@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.graphics.Typeface;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -72,7 +71,7 @@ final class MemPage {
             View page = buildPage(act, content);
             UiKit.openPage(content, page, TAG_PAGE);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 

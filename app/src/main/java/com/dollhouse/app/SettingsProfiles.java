@@ -1,9 +1,9 @@
 package com.dollhouse.app;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.Log;
 import android.widget.EditText;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -37,6 +37,7 @@ public final class SettingsProfiles {
      * 读出全部配置；为空或损坏时重建一份默认配置。
      */
     public static JSONArray loadProfiles(Context ctx) {
+        purgeLegacyStars(ctx);
         String raw = readPref(ctx, KEY_PROFILES);
         if (raw.length() > 0) {
             try {
@@ -45,7 +46,7 @@ public final class SettingsProfiles {
                     return arr;
                 }
             } catch (Throwable ignored) {
-                Log.w(LOG_TAG, "ignored", ignored);
+                Logs.w(LOG_TAG, "ignored", ignored);
             }
         }
         JSONArray arr = new JSONArray();
@@ -67,7 +68,7 @@ public final class SettingsProfiles {
             o.put("k", key);
             o.put("m", model);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         return o;
     }
@@ -86,13 +87,52 @@ public final class SettingsProfiles {
     /* ------------------------------ 收藏模型（命星） ------------------------------ */
 
     /**
-     * 旧版（全局一份）收藏键。仅作升级兜底：每套配置还没有自己的收藏时，
-     * 「当前配置」先拿它当初始值；一旦发生一次收藏/取消，内容就迁到专属键并清掉它。
+     * 旧版（全局一份）收藏键：v0.0.4 及以前所有配置共用这一个键。
+     * 【现状】收藏已改为「每套配置各存一份」，此键如今只剩清理价值 ——
+     *   由 purgeLegacyStars() 在首次读到配置时一次性抹掉，任何读取路径都不再碰它。
+     * 【为什么不能留】留着它 + 兜底读取，就等于把「别的配置/端点下收藏过的模型」
+     *   当初始值喂给当前配置，用户看到的就是「不是这套配置的下级却被列了出来」。
      */
     public static final String KEY_STARS = "model_stars";
     /** 每套配置的收藏键：model_stars|&lt;配置名&gt;。 */
     private static String starKeyOf(String profile) {
         return KEY_STARS + "|" + (profile == null ? "" : profile);
+    }
+
+    /** 一次性清理的持久标志键：置位后任何进程都不再清收藏。 */
+    private static final String KEY_PURGED = "stars_purged_v004";
+
+    /**
+     * 一次性清掉全部「旧收藏」：
+     *   ① 旧版全局键 model_stars（v0.0.4 及以前所有配置共用）；
+     *   ② 各配置的专属键 model_stars|&lt;配置名&gt;。
+     * 【为什么连专属键一起清】用户实报的串台，其脏数据可能已经落进专属键
+     *   （旧版兜底读取把全局键的内容喂给当前配置后，只要用户再点过一次收藏，
+     *    整份清单就被写进了专属键）。只删全局键会漏掉这一层，所以一刀切干净。
+     * 【为什么标志要持久化】若只用内存标志，App 每次重启都会重清一遍，
+     *   把用户重启前刚重新收藏的模型又抹掉 —— 那才是真事故。
+     *   持久标志保证「一生只清一次」，清完之后收藏功能恢复正常读写。
+     * 【时机】任何读配置 / 读收藏的入口都会经过这里，覆盖全部入口。
+     * 【代价】升级后所有配置的收藏都视为「空的」，需要用户重新点一次 ★ ——
+     *   这是唯一能彻底断开串台的路子：旧数据无法判断原本属于哪套配置。
+     * 【范围】只删收藏键（KEY_STARS 及其 | 前缀派生键），配置本身、端点、密钥一律不动。
+     */
+    private static void purgeLegacyStars(Context ctx) {
+        try {
+            SharedPreferences p = PetPrefs.get(ctx);
+            if (p.getBoolean(KEY_PURGED, false)) {
+                return;
+            }
+            SharedPreferences.Editor ed = p.edit().putBoolean(KEY_PURGED, true);
+            for (String k : p.getAll().keySet()) {
+                if (k != null && (k.equals(KEY_STARS) || k.startsWith(KEY_STARS + "|"))) {
+                    ed.remove(k);
+                }
+            }
+            ed.apply();
+        } catch (Throwable ignored) {
+            Logs.w(LOG_TAG, "ignored", ignored);
+        }
     }
     /**
      * 读「当前配置」的收藏模型清单。
@@ -104,14 +144,14 @@ public final class SettingsProfiles {
      * 读某套配置的收藏模型清单。损坏一律退回空表。
      * 【归属】收藏按配置存 —— 换一套配置只看得到它自己收藏的模型，
      *   不会再出现「不是这套配置的下级却列了别人的模型」。
-     * 【升级】该配置还没有专属键、且它就是当前配置时，退回旧版全局键（老数据不丢）。
+     * 【不放兜底】曾经这里会在「专属键为空 + 该配置恰为当前」时回退读旧版全局键，
+     *   结果把别的配置/端点下收藏过的模型当初始值喂了进来（用户实报的串台）。
+     *   旧键已由 purgeLegacyStars() 清掉，这里只认专属键。
      * 【用途】聊天面板圆环里「展开模型」只列这里的模型；设置页模型浮层里的每行都带一颗可点的星。
      */
     public static JSONArray loadStars(Context ctx, String profile) {
+        purgeLegacyStars(ctx);
         String raw = readPref(ctx, starKeyOf(profile));
-        if (raw.length() == 0 && profile != null && profile.equals(readPref(ctx, KEY_CURRENT))) {
-            raw = readPref(ctx, KEY_STARS);
-        }
         if (raw.length() > 0) {
             try {
                 JSONArray arr = new JSONArray(raw);
@@ -124,7 +164,7 @@ public final class SettingsProfiles {
                 }
                 return out;
             } catch (Throwable ignored) {
-                Log.w(LOG_TAG, "ignored", ignored);
+                Logs.w(LOG_TAG, "ignored", ignored);
             }
         }
         return new JSONArray();
@@ -147,8 +187,8 @@ public final class SettingsProfiles {
     }
     /**
      * 切换某个模型在某套配置下的收藏状态，返回切换后的结果（true = 已收藏）。
-     * 【升级】首次写入时顺手清掉旧版全局键：内容已落到专属键，留着反而会在
-     *   别的配置上被兜底读出来，制造「别人的模型」的错觉。
+     * 【归属】只写这一套配置的专属键。旧版全局键由 purgeLegacyStars() 一律清掉，
+     *   这里不再往回写，也不再需要「顺手清空它」。
      */
     public static boolean toggleStar(Context ctx, String profile, String model) {
         String m = model == null ? "" : model.trim();
@@ -170,9 +210,6 @@ public final class SettingsProfiles {
             out.put(m);
         }
         writePref(ctx, starKeyOf(profile), out.toString());
-        if (profile != null && profile.equals(readPref(ctx, KEY_CURRENT))) {
-            writePref(ctx, KEY_STARS, "");
-        }
         return !removed;
     }
 
@@ -202,7 +239,7 @@ public final class SettingsProfiles {
         try {
             PetPrefs.get(ctx).edit().putString(key, value).apply();
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -251,7 +288,7 @@ public final class SettingsProfiles {
             profile.put("k", textOf(inputs[1]));
             profile.put("m", textOf(inputs[2]));
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         writePref(ctx, KEY_PROFILES, profiles.toString());
     }
@@ -269,7 +306,7 @@ public final class SettingsProfiles {
             profile.put("k", readPref(ctx, "api_key"));
             profile.put("m", readPref(ctx, "model"));
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         writePref(ctx, KEY_PROFILES, profiles.toString());
     }
@@ -326,7 +363,7 @@ public final class SettingsProfiles {
         try {
             profile.put("m", model == null ? "" : model);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         writePref(ctx, KEY_PROFILES, profiles.toString());
         if (name.equals(readPref(ctx, KEY_CURRENT))) {

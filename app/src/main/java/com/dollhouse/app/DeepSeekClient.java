@@ -75,11 +75,11 @@ public final class DeepSeekClient {
                     //  只在 content 为空时启用，完全不影响正常返回路径。
                     String rc = jSONObject == null ? null : jSONObject.optString("reasoning_content", "");
                     if (rc != null && !rc.trim().isEmpty()) {
-                        android.util.Log.i("DollhouseMemo", "[parse] content 为空，回退 reasoning_content len=" + rc.length());
+                        Logs.i("DollhouseMemo", "[parse] content 为空，回退 reasoning_content len=" + rc.length());
                         callback.onResult(rc.trim(), null);
                         return;
                     }
-                    android.util.Log.i("DollhouseMemo", "[parse] content 与 reasoning_content 均为空，判定为空内容");
+                    Logs.i("DollhouseMemo", "[parse] content 与 reasoning_content 均为空，判定为空内容");
                     callback.onResult(null, "模型返回了空内容");
                 } else {
                     callback.onResult(optString.trim(), null);
@@ -119,11 +119,11 @@ public final class DeepSeekClient {
                     //  只在 content 为空时启用，完全不影响正常返回路径。
                     String rc = jSONObject == null ? null : jSONObject.optString("reasoning_content", "");
                     if (rc != null && !rc.trim().isEmpty()) {
-                        android.util.Log.i("DollhouseMemo", "[parse] content 为空，回退 reasoning_content len=" + rc.length());
+                        Logs.i("DollhouseMemo", "[parse] content 为空，回退 reasoning_content len=" + rc.length());
                         callback.onResult(rc.trim(), null);
                         return;
                     }
-                    android.util.Log.i("DollhouseMemo", "[parse] content 与 reasoning_content 均为空，判定为空内容");
+                    Logs.i("DollhouseMemo", "[parse] content 与 reasoning_content 均为空，判定为空内容");
                     callback.onResult(null, "模型返回了空内容");
                 } else {
                     callback.onResult(optString.trim(), null);
@@ -206,7 +206,7 @@ public final class DeepSeekClient {
                     os.close();
                     int code = conn.getResponseCode();
                     String text = DeepSeekClient.readAll((code < 200 || code >= 300) ? conn.getErrorStream() : conn.getInputStream());
-                    android.util.Log.i("DollhouseMemo", "[http] code=" + code + " bodyLen=" + (text == null ? -1 : text.length()));
+                    Logs.i("DollhouseMemo", "[http] code=" + code + " bodyLen=" + (text == null ? -1 : text.length()));
                     if (code >= 200 && code < 300) {
                         JSONObject root = new JSONObject(text);
                         JSONArray choices = root.optJSONArray("choices");
@@ -240,7 +240,7 @@ public final class DeepSeekClient {
                                 while (ks.hasNext()) {
                                     keys.append(ks.next()).append(',');
                                 }
-                                android.util.Log.i("DollhouseMemo", "[http] finishReason=" + fr
+                                Logs.i("DollhouseMemo", "[http] finishReason=" + fr
                                         + " msgKeys=" + keys + " contentLen=" + msg.optString("content", "").length());
                             } catch (Throwable ignored) {
                             }

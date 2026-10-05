@@ -153,6 +153,92 @@ final class ChatBubbles {
             }
         });
     }
+    /**
+     * 【思考框】可折叠的「思考了 X 秒」条：折叠态一行摘要，点开显示完整推理过程。
+     * 【位置】铺在对应回复气泡的正上方（调用方先加本节点、再加气泡）。
+     * 【数据】思考内容只在内存里过一手，不落盘（重开 / 切会话即消失）。
+     * 【时长】由调用方传入的整段往返耗时近似（非流式请求无法只量思考段）。
+     * 【视觉】底色沿用「思考中…」占位气泡的 CHAT_ACTION_BG，收起与展开之间视觉连续。
+     */
+    static View addThinkingBox(ChatPanel host, String reasoning, long costMs) {
+        Context ctx = host.getContext();
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(1);
+        box.setBackground(UiKit.round(UiKit.CHAT_ACTION_BG, ctx, 15));
+        int padH = UiKit.dp(ctx, 12.0f);
+        int padV = UiKit.dp(ctx, 8.0f);
+        box.setPadding(padH, padV, padH, padV);
+        int maxW = (int) (host.getResources().getDisplayMetrics().widthPixels * 0.72d);
+
+        // 标题行：脑图标 + 「思考了 X 秒」+ 展开箭头。
+        LinearLayout head = new LinearLayout(ctx);
+        head.setOrientation(0);
+        head.setGravity(16);
+        head.addView(Icons.view(ctx, Icons.IC_BRAIN, 13.0f, UiKit.CHAT_CHIP_MUTE),
+                new LinearLayout.LayoutParams(-2, -2));
+        final TextView label = new TextView(ctx);
+        label.setText(thinkCostText(costMs));
+        label.setTextSize(UiKit.FS_CHIP);
+        label.setTextColor(UiKit.CHAT_CHIP_MUTE);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, -2);
+        llp.leftMargin = UiKit.dp(ctx, 6.0f);
+        head.addView(label, llp);
+        // 中间用 Space 吃掉剩余宽度：标题贴左、箭头贴右。
+        head.addView(new android.view.View(ctx), new LinearLayout.LayoutParams(0, 1, 1.0f));
+        final ImageView arrow = Icons.view(ctx, Icons.IC_CHEVRON_DOWN, 13.0f, UiKit.CHAT_CHIP_MUTE);
+        head.addView(arrow, new LinearLayout.LayoutParams(-2, -2));
+        box.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        // 正文：默认收起。
+        final TextView body = new TextView(ctx);
+        body.setText(reasoning == null ? "" : reasoning);
+        body.setTextSize(UiKit.FS_SUB);
+        body.setTextColor(UiKit.SUB);
+        body.setTextIsSelectable(true);
+        body.setMaxWidth(maxW);
+        body.setLineSpacing(UiKit.dp(ctx, 3.0f), 1.0f);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+        tlp.topMargin = UiKit.dp(ctx, 6.0f);
+        body.setLayoutParams(tlp);
+        body.setVisibility(8);
+        box.addView(body);
+
+        // 【交互】整行可点：展开 / 收起推理正文，箭头同步换向。
+        head.setClickable(true);
+        UiKit.press(head);
+        head.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean show = body.getVisibility() != 0;
+                if (show) {
+                    UiKit.reveal(body);
+                } else {
+                    UiKit.collapse(body);
+                }
+                arrow.setImageResource(show ? Icons.IC_CHEVRON_UP : Icons.IC_CHEVRON_DOWN);
+                Icons.tint(arrow, UiKit.CHAT_CHIP_MUTE);
+            }
+        });
+
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-2, -2);
+        blp.bottomMargin = UiKit.dp(ctx, 4.0f);
+        host.messages.addView(box, blp);
+        // 【v2.8】与 addBubble 同一道门：展开重铺期间不许把视图推到底。
+        if (!host.holdScroll) {
+            ChatBubbles.scrollToBottom(host);
+        }
+        return box;
+    }
+
+    /** 「思考了 X 秒」文案：不足 0.1 秒按 0.1 秒显示，避免出现「思考了 0.0 秒」。 */
+    private static String thinkCostText(long costMs) {
+        double sec = costMs / 1000.0d;
+        if (sec < 0.1d) {
+            sec = 0.1d;
+        }
+        return String.format(java.util.Locale.CHINA, "思考了 %.1f 秒", sec);
+    }
+
     // 插入「思考中…」占位气泡。
     static void addThinking(ChatPanel host, String str) {
         LinearLayout linearLayout = new LinearLayout(host.getContext());
@@ -210,11 +296,12 @@ final class ChatBubbles {
         head.setGravity(16);
         head.addView(sumLine(ctx), new LinearLayout.LayoutParams(0, Math.max(1, UiKit.dp(ctx, 1.0f)), 1.0f));
         final TextView label = new TextView(ctx);
-        label.setText("ⓘ 历史对话摘要");
+        label.setText("历史对话摘要");
         label.setTextSize(UiKit.FS_TINY);
         label.setTextColor(UiKit.SUB);
         label.setGravity(17);
         label.setPadding(UiKit.dp(ctx, 10.0f), UiKit.dp(ctx, 3.0f), UiKit.dp(ctx, 10.0f), UiKit.dp(ctx, 3.0f));
+        head.addView(Icons.view(ctx, Icons.IC_INFO, 13.0f, UiKit.SUB));
         head.addView(label, new LinearLayout.LayoutParams(-2, -2));
         head.addView(sumLine(ctx), new LinearLayout.LayoutParams(0, Math.max(1, UiKit.dp(ctx, 1.0f)), 1.0f));
         box.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -247,7 +334,7 @@ final class ChatBubbles {
                     } else {
                         UiKit.collapse(body);
                     }
-                    label.setText(show ? "ⓘ 历史对话摘要（点击收起）" : "ⓘ 历史对话摘要");
+                    label.setText(show ? "历史对话摘要（点击收起）" : "历史对话摘要");
                 }
             });
         }

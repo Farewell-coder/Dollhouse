@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -17,11 +18,11 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.animation.DecelerateInterpolator;
 import android.view.animation.PathInterpolator;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -75,10 +76,8 @@ public final class UiKit {
     public static int EMOTE_3 = 0xFF5A7BD8;
     /** 卡片描边（带透明度，深色主题下会换成浅色）。 */
     public static int STROKE = 0x1422315B;
-
-    /** 折叠箭头（收起 / 展开）。 */
-    public static final String ARROW_CLOSED = "▸";
-    public static final String ARROW_OPEN = "▾";
+    /** 弹层遮罩色：抽屉 / 底部面板背后的压暗层，深色主题下更重。 */
+    public static int SCRIM = 0x8A000000;
 
     /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 整页转场 300ms。 */
     public static final int D_PRESS = 90;
@@ -151,18 +150,21 @@ public final class UiKit {
      * 【坑】用 Button 时必须自行清掉主题带来的 minWidth/minHeight（默认 88×48dp），
      *      否则外层给的 38dp 方形会被撑成椭圆，圆形就不圆了。
      */
-    public static void sendButton(TextView b, Context c) {
+    public static void sendButton(ImageView b, Context c) {
         GradientDrawable g = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR, new int[]{ACC, ACC2});
         g.setCornerRadius(dp(c, 999));
         b.setBackground(g);
-        b.setTextColor(ON_ACC);
-        b.setGravity(Gravity.CENTER);
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setMinHeight(0);
-        b.setMinimumHeight(0);
-        b.setIncludeFontPadding(false);
+        b.setImageResource(R.drawable.ic_send);
+        Drawable d = b.getDrawable();
+        if (d != null) {
+            try {
+                d.mutate().setTint(ON_ACC);
+            } catch (Throwable ignored) {
+            }
+        }
+        b.setScaleType(ImageView.ScaleType.CENTER);
+        b.setClickable(true);
         b.setPadding(0, 0, 0, 0);
         b.setElevation(dp(c, 3));
         press(b);
@@ -194,9 +196,23 @@ public final class UiKit {
                             .setDuration(D_PRESS)
                             .setInterpolator(EASE_STD).start();
                 } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
-                    view.animate().scaleX(1f).scaleY(1f)
-                            .setDuration(D_PRESS)
-                            .setInterpolator(EASE_STD).start();
+                    // 【弹簧】松手那一下用 bouncy（ζ=0.40）弹回，按下仍用 EASE_STD 保持跟手。
+                    view.animate().cancel();
+                    final View fv = view;
+                    Springs.drive(Springs.bouncy(), new Springs.Listener() {
+                        @Override
+                        public void onUpdate(float p) {
+                            float s = Springs.lerp(0.96f, 1.0f, p);
+                            fv.setScaleX(s);
+                            fv.setScaleY(s);
+                        }
+
+                        @Override
+                        public void onEnd() {
+                            fv.setScaleX(1f);
+                            fv.setScaleY(1f);
+                        }
+                    });
                 }
                 return false;
             }
@@ -207,7 +223,7 @@ public final class UiKit {
      * 卡片展开 / 收起：高度动画 + 箭头旋转 90°。
      * 收起态 height=0（不用 GONE，免得布局跳），展开结束回到 WRAP_CONTENT。
      */
-    public static void expand(final View body, final TextView arrow, final boolean open) {
+    public static void expand(final View body, final View arrow, final boolean open) {
         if (body.getLayoutParams() == null) {
             return;
         }
@@ -249,9 +265,21 @@ public final class UiKit {
         });
         va.start();
         if (arrow != null) {
-            arrow.animate().rotation(open ? 90f : 0f)
-                    .setDuration(D_LAYER)
-                    .setInterpolator(EASE_STD).start();
+            // 【弹簧】箭头旋转同样走 snappy，与卡片高度动画同节奏。
+            final View fa = arrow;
+            final float fromRot = fa.getRotation();
+            final float toRot = open ? 90f : 0f;
+            Springs.drive(Springs.snappy(), new Springs.Listener() {
+                @Override
+                public void onUpdate(float p) {
+                    fa.setRotation(Springs.lerp(fromRot, toRot, p));
+                }
+
+                @Override
+                public void onEnd() {
+                    fa.setRotation(toRot);
+                }
+            });
         }
     }
 
@@ -275,14 +303,9 @@ public final class UiKit {
                 .setInterpolator(EASE_DECEL).start();
     }
 
-    /** 卡片头右侧的折叠箭头：固定「▸」，靠 rotation 0 ↔ 90 表示开合。 */
-    public static TextView arrow(Context ctx) {
-        TextView t = new TextView(ctx);
-        t.setText("\u25b8");
-        t.setTextSize(18.0f);
-        t.setTextColor(TITLE);
-        t.setGravity(Gravity.CENTER);
-        t.setBackground(round(SOFT, ctx, 10));
+    /** 卡片头右侧的折叠箭头：描边 chevron 图标，靠 rotation 0 ↔ 90 表示开合。 */
+    public static ImageView arrow(Context ctx) {
+        ImageView t = Icons.view(ctx, Icons.IC_CHEVRON_RIGHT, 18.0f, TITLE);
         return t;
     }
 
@@ -354,20 +377,25 @@ public final class UiKit {
             final int from = value ? SWITCH_OFF : ACC;
             final int toColor = value ? ACC : SWITCH_OFF;
             final ArgbEvaluator ev = new ArgbEvaluator();
-            ValueAnimator ta = ValueAnimator.ofFloat(0f, 1f);
-            ta.setDuration(D_MICRO);
-            ta.setInterpolator(EASE_STD);
-            ta.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            final float fromX = knob.getTranslationX();
+            final float toX = to;
+            // 【弹簧】轨道与滑块共用同一条弹簧进度：snappy（ζ=0.73）。
+            //   历史坑：轨道 setBackground 硬跳 + 滑块 180ms 位移，看着是「轨道啪一下变了、滑块慢慢跟」。
+            //   现在两者由同一个 progress 驱动，绝不会再脱节。
+            ValueAnimator ta = Springs.drive(Springs.snappy(), new Springs.Listener() {
                 @Override
-                public void onAnimationUpdate(ValueAnimator an) {
-                    float f = (Float) an.getAnimatedValue();
-                    setBackground(round(((Integer) ev.evaluate(f, from, toColor)).intValue(), c, 999));
+                public void onUpdate(float p) {
+                    knob.setTranslationX(Springs.lerp(fromX, toX, p));
+                    setBackground(round(((Integer) ev.evaluate(p, from, toColor)).intValue(), c, 999));
+                }
+
+                @Override
+                public void onEnd() {
+                    knob.setTranslationX(toX);
+                    setBackground(round(toColor, c, 999));
                 }
             });
             trackAnim = ta;
-            ta.start();
-            knob.animate().translationX(to).setDuration(D_MICRO)
-                    .setInterpolator(EASE_STD).start();
         }
     }
 
@@ -579,7 +607,30 @@ public final class UiKit {
     /** 药丸 / 行 / 输入框圆角（dp）。 */
     public static final int RADIUS_CHIP = 10;
 
-    /** 统一顶栏图标：圆形浅底 + 指定字号 / 颜色 + 固定命中区。 */
+    /**
+     * 统一图标按钮：裸贴描边图标 + 固定命中区，靠 press 缩放反馈表达可点。
+     * 【为何用 padding 而不是直接给图标尺寸】调用方可能用 iconLp() 之类再覆盖
+     *   LayoutParams（命中区要 40dp）。若图标本身跟着容器撑大，视觉就会时大时小；
+     *   所以把「视觉边长」钉在 padding 上，容器给多大都不影响图标实际大小。
+     */
+    public static ImageView iconView(Context ctx, int resId, float sizeDp, int color) {
+        ImageView iv = new ImageView(ctx);
+        int hit = dp(ctx, HIT_DP);
+        int pad = Math.max(0, (hit - dp(ctx, sizeDp)) / 2);
+        iv.setPadding(pad, pad, pad, pad);
+        iv.setLayoutParams(new ViewGroup.LayoutParams(hit, hit));
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        Drawable d = Icons.get(ctx, resId, color);
+        if (d != null) {
+            iv.setImageDrawable(d);
+        }
+        iv.setClickable(true);
+        iv.setFocusable(false);
+        press(iv);
+        return iv;
+    }
+
+    /** 统一顶栏图标（字符版）：保留给确实没有对应矢量图的场合，新代码一律用 iconView。 */
     public static TextView iconBtn(Context ctx, String glyph, float sizeSp, int color) {
         TextView t = new TextView(ctx);
         t.setText(glyph);
@@ -588,7 +639,6 @@ public final class UiKit {
         t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setGravity(Gravity.CENTER);
         t.setClickable(true);
-        t.setBackground(round(SOFT, ctx, 999));
         press(t);
         return t;
     }
@@ -604,7 +654,7 @@ public final class UiKit {
         bar.setGravity(Gravity.CENTER_VERTICAL);
 
         if (back != null) {
-            TextView b = iconBtn(ctx, "←", FS_ICON, TITLE);
+            ImageView b = iconView(ctx, Icons.IC_ARROW_LEFT, FS_ICON, TITLE);
             b.setOnClickListener(back);
             LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(ctx, HIT_DP), dp(ctx, HIT_DP));
             blp.rightMargin = dp(ctx, 10);

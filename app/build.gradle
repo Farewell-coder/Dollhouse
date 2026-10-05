@@ -19,8 +19,8 @@ android {
         applicationId "com.dollhouse.app"
         minSdk 24
         targetSdk 34
-        versionCode 2
-        versionName "0.0.2"
+        versionCode 3
+        versionName "0.0.3"
     }
 
     signingConfigs {
@@ -41,8 +41,12 @@ android {
             minifyEnabled false
         }
         release {
-            minifyEnabled false
-            shrinkResources false
+            // 开启代码收缩 + 资源收缩：去掉未引用类/方法与资源，并把 Logs.* 全部消掉。
+            // 反射面只有 Shizuku 一处，规则见 proguard-rules.pro。
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
             if (hasKeystore) {
                 signingConfig signingConfigs.release
             }

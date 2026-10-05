@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.util.Log;
 
 /**
  * 【职责】开机自启：系统启动完成后把桌宠服务拉回来。
@@ -39,7 +38,7 @@ public class BootReceiver extends BroadcastReceiver {
                 context.startService(start);
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 }

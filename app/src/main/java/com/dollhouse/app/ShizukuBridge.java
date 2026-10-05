@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.util.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -163,7 +162,7 @@ final class ShizukuBridge {
                 }
             }
         } catch (Throwable t) {
-            Log.w(TAG, "resolve by action failed", t);
+            Logs.w(TAG, "resolve by action failed", t);
         }
         return null;
     }
@@ -235,7 +234,7 @@ final class ShizukuBridge {
         try {
             Shizuku.requestPermission(requestCode);
         } catch (Throwable t) {
-            Log.w(TAG, "requestPermission failed", t);
+            Logs.w(TAG, "requestPermission failed", t);
         }
     }
 
@@ -259,7 +258,7 @@ final class ShizukuBridge {
                 return true;
             }
         } catch (Throwable t) {
-            Log.w(TAG, "launch manager failed", t);
+            Logs.w(TAG, "launch manager failed", t);
         }
         try {
             Intent details = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
@@ -268,7 +267,7 @@ final class ShizukuBridge {
             ctx.startActivity(details);
             return true;
         } catch (Throwable t) {
-            Log.w(TAG, "open details failed", t);
+            Logs.w(TAG, "open details failed", t);
             return false;
         }
     }
@@ -278,7 +277,7 @@ final class ShizukuBridge {
         try {
             Shizuku.addRequestPermissionResultListener(listener);
         } catch (Throwable t) {
-            Log.w(TAG, "add listener failed", t);
+            Logs.w(TAG, "add listener failed", t);
         }
     }
 
@@ -287,7 +286,7 @@ final class ShizukuBridge {
         try {
             Shizuku.removeRequestPermissionResultListener(listener);
         } catch (Throwable t) {
-            Log.w(TAG, "remove listener failed", t);
+            Logs.w(TAG, "remove listener failed", t);
         }
     }
 
@@ -296,7 +295,7 @@ final class ShizukuBridge {
         try {
             Shizuku.addBinderReceivedListenerSticky(listener);
         } catch (Throwable t) {
-            Log.w(TAG, "add binder listener failed", t);
+            Logs.w(TAG, "add binder listener failed", t);
         }
     }
 
@@ -305,7 +304,7 @@ final class ShizukuBridge {
         try {
             Shizuku.removeBinderReceivedListener(listener);
         } catch (Throwable t) {
-            Log.w(TAG, "remove binder listener failed", t);
+            Logs.w(TAG, "remove binder listener failed", t);
         }
     }
 
@@ -334,7 +333,7 @@ final class ShizukuBridge {
             m.setAccessible(true);
             proc = (Process) m.invoke(null, new String[]{"sh", "-c", cmd}, null, null);
         } catch (Throwable t) {
-            Log.w(TAG, "newProcess failed", t);
+            Logs.w(TAG, "newProcess failed", t);
             return "\uff08\u65e0\u6cd5\u542f\u52a8 shell \u8fdb\u7a0b\uff1a" + brief(t) + "\uff09";
         }
         if (proc == null) {
@@ -381,7 +380,7 @@ final class ShizukuBridge {
             tErr.join(1200L);
             return format(outBuf.toString(), errBuf.toString(), finished);
         } catch (Throwable t) {
-            Log.w(TAG, "exec failed", t);
+            Logs.w(TAG, "exec failed", t);
             return "\uff08\u6267\u884c\u5931\u8d25\uff1a" + brief(t) + "\uff09";
         } finally {
             try {

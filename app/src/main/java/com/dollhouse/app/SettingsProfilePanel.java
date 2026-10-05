@@ -3,12 +3,12 @@ package com.dollhouse.app;
 import android.app.Activity;
 import android.content.Context;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.List;
@@ -186,12 +186,8 @@ public final class SettingsProfilePanel {
         curLabel.setEllipsize(TextUtils.TruncateAt.END);
         sel.addView(curLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        final TextView caret = new TextView(ctx);
-        caret.setText("\u25be");
-        caret.setTextSize(UiKit.FS_BTN);
-        caret.setTextColor(UiKit.SUB);
-        caret.setGravity(Gravity.CENTER);
-        sel.addView(caret, new LinearLayout.LayoutParams(UiKit.dp(ctx, 24), -2));
+        final ImageView caret = Icons.view(ctx, Icons.IC_CHEVRON_DOWN, 18.0f, UiKit.SUB);
+        sel.addView(caret, new LinearLayout.LayoutParams(UiKit.dp(ctx, 24), UiKit.dp(ctx, 24)));
         box.addView(sel);
 
         final LinearLayout panel = new LinearLayout(ctx);
@@ -201,7 +197,7 @@ public final class SettingsProfilePanel {
         final String panelKey = "配置列表";
         final boolean panelOpen = PetPrefs.cardOpen(appCtx, panelKey);
         panel.setVisibility(panelOpen ? View.VISIBLE : View.GONE);
-        caret.setText(panelOpen ? "\u25b4" : "\u25be");
+        caret.setImageResource(panelOpen ? Icons.IC_CHEVRON_UP : Icons.IC_CHEVRON_DOWN);
         box.addView(panel);
 
         sel.setOnClickListener(new View.OnClickListener() {
@@ -210,7 +206,7 @@ public final class SettingsProfilePanel {
                 boolean show = panel.getVisibility() != View.VISIBLE;
                 // 【丝滑】配置列表展开/收起用淡入淡出，不再硬切换。
                 UiKit.showHide(panel, show);
-                caret.setText(show ? "\u25b4" : "\u25be");
+                caret.setImageResource(show ? Icons.IC_CHEVRON_UP : Icons.IC_CHEVRON_DOWN);
                 PetPrefs.setCardOpen(appCtx, panelKey, show);
             }
         });
@@ -264,7 +260,7 @@ public final class SettingsProfilePanel {
                         try {
                             o.put("n", name);
                         } catch (Throwable ignored) {
-                            Log.w(LOG_TAG, "ignored", ignored);
+                            Logs.w(LOG_TAG, "ignored", ignored);
                         }
                         SettingsProfiles.writePref(ctx, SettingsProfiles.KEY_PROFILES, a.toString());
                         SettingsProfiles.writePref(ctx, SettingsProfiles.KEY_CURRENT, name);

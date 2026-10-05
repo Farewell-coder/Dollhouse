@@ -3,12 +3,12 @@ package com.dollhouse.app;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Typeface;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -65,7 +65,7 @@ public final class SettingsPage {
             }
             build(root, activity);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             // 呈现层改动，任何意外都不能影响设置页原本可用的功能。
         }
     }
@@ -201,7 +201,7 @@ public final class SettingsPage {
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         head.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        final TextView arrow = UiKit.arrow(ctx);
+        final ImageView arrow = UiKit.arrow(ctx);
         head.addView(arrow, new LinearLayout.LayoutParams(UiKit.dp(ctx, 30), UiKit.dp(ctx, 30)));
         card.addView(head);
 
@@ -290,7 +290,7 @@ public final class SettingsPage {
         try {
             SettingsProfiles.syncFromPrefs(ctx);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -341,10 +341,11 @@ public final class SettingsPage {
         row.addView(t, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
         TextView go = new TextView(ctx);
-        go.setText("查看 Token 消耗统计　›");
+        go.setText("查看 Token 消耗统计");
         go.setTextSize(UiKit.FS_SUB);
         go.setTextColor(UiKit.SUB);
-        row.addView(go, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(Icons.labeled(ctx, Icons.IC_CHART, 14.0f, UiKit.SUB, go, 4),
+                new LinearLayout.LayoutParams(-2, -2));
 
         row.setOnClickListener(new View.OnClickListener() {
             @Override

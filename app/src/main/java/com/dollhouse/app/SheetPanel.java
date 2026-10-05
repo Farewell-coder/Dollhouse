@@ -6,6 +6,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -58,7 +59,7 @@ final class SheetPanel {
 
         final FrameLayout shade = new FrameLayout(ctx);
         shade.setTag(tag);
-        shade.setBackgroundColor(0x8A000000);
+        shade.setBackgroundColor(UiKit.SCRIM);
         shade.setClickable(true);
         shade.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -392,10 +393,7 @@ final class SheetPanel {
             rail.removeAllViews();
             names.removeAllViews();
 
-            TextView bulb = new TextView(ctx);
-            bulb.setText("💡");
-            bulb.setTextSize(24.0f);
-            bulb.setGravity(Gravity.CENTER);
+            ImageView bulb = Icons.view(ctx, Icons.IC_BRAIN, 24.0f, UiKit.ACC);
             rail.addView(bulb, new LinearLayout.LayoutParams(UiKit.dp(ctx, 46), UiKit.dp(ctx, 46)));
 
             LinearLayout box = new LinearLayout(ctx);
@@ -519,7 +517,7 @@ final class SheetPanel {
             public void onClick(View v) {
                 closeAll(layer);
                 // 【v2.9.4】覆盖复审报的 P1：host==null 会让整条链路静默不执行。
-                android.util.Log.i("DollhouseMemo", "[入口] 面板点按 host=" + (host != null));
+                Logs.i("DollhouseMemo", "[入口] 面板点按 host=" + (host != null));
                 if (host != null) {
                     host.summarizeNow();
                 }

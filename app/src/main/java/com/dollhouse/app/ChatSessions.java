@@ -243,7 +243,7 @@ final class ChatSessions {
                 try {
                     o.put("pool", POOL_PET);
                     saveAll(ctx, all);
-                    android.util.Log.i("DollhouseMemo", "[ensurePet] 旧 pet 会话已迁入人偶池");
+                    Logs.i("DollhouseMemo", "[ensurePet] 旧 pet 会话已迁入人偶池");
                 } catch (Throwable unused) {
                 }
                 break;

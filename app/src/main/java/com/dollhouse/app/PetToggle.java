@@ -4,7 +4,6 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.util.Log;
 
 /**
  * 【职责】桌宠启停的统一出口：外部链接（PetLinkActivity）、快捷设置磁贴（PetTileService）、
@@ -38,7 +37,7 @@ final class PetToggle {
                 }
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         return false;
     }
@@ -54,7 +53,7 @@ final class PetToggle {
                 ctx.startService(i);
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -65,7 +64,7 @@ final class PetToggle {
             i.setAction(PetService.ACTION_STOP);
             ctx.startService(i);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 

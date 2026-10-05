@@ -5,10 +5,10 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.pm.PackageInfo;
 import android.graphics.Typeface;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -74,7 +74,7 @@ final class AboutPage {
             View page = buildPage(act);
             UiKit.openPage(content, page, TAG_PAGE);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -146,12 +146,9 @@ final class AboutPage {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, 0, 0, dp(ctx, 12));
 
-        TextView logo = new TextView(ctx);
-        logo.setText("◈");
-        logo.setTextSize(20.0f);
-        logo.setTextColor(UiKit.ACC);
-        logo.setGravity(Gravity.CENTER);
+        ImageView logo = Icons.view(ctx, Icons.IC_WHALE, 22.0f, UiKit.ACC);
         logo.setBackground(UiKit.roundStroke(UiKit.CARD, UiKit.ACC, ctx, 12));
+        logo.setPadding(dp(ctx, 9), dp(ctx, 9), dp(ctx, 9), dp(ctx, 9));
         int s = dp(ctx, 40);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(s, s);
         llp.rightMargin = dp(ctx, 12);

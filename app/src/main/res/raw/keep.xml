@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================================
+  资源收缩白名单（shrinkResources 的 keep 清单）
+
+  【为什么必须有这个文件】本轮开启 R8 + shrinkResources 后实测发现真实回归：
+    Icons.IC_* 是 `static final int` 编译期常量，R8 会把引用点全部常量折叠成
+    字面量、进而删掉这些字段；AGP 的资源收缩器只看「字段是否还被代码读写」，
+    于是判定对应资源无人引用并把它从 APK 里删掉。
+    实测被误删：ic_chevron_down / ic_chevron_up / ic_chart（模型列表与配置面板的
+    展开箭头、设置页的统计入口图标），以及 ic_stat_pet（桌宠前台通知的小图标）。
+    这些资源在运行期由 Icons.get() 按资源 id 加载 —— 一旦缺失，Icons.get() 会
+    静默吞掉异常，界面上表现为「图标位置整个空掉」，且不会崩，极难排查。
+
+  【代价】图标全部是 24dp 描边矢量，33 个合计仅约 30KB；把它们纳入白名单后
+    资源收缩仍会清理其它类型（layout / string / style）里确实没人用的条目。
+    本工程真正的大头是位图：pet_side.png / pet_back.png 已在源码层物理删除
+    （合计 -359KB），那个收益跟 shrinkResources 是否放行图标无关。
+
+  【边界】本文件只声明「别删」，不改任何资源内容与行为。
+  ============================================================================
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_*,@drawable/pet_*,@mipmap/ic_launcher,@style/DollhouseDialog,@style/DollhouseDialogDark" />

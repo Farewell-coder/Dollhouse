@@ -15,6 +15,7 @@ import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 /**
@@ -59,7 +60,7 @@ public class PetTalkInput {
     private WindowManager.LayoutParams lp;
     private LinearLayout root;
     private EditText input;
-    private TextView button;
+    private ImageView button;
     private boolean added = false;
     private final Runnable autoHide = new Runnable() {
         @Override
@@ -157,7 +158,7 @@ public class PetTalkInput {
     }
     /** 请求在途时禁用发送键，避免连点重复发。 */
     void setBusy(boolean z) {
-        TextView textView = this.button;
+        ImageView textView = this.button;
         if (textView == null) {
             return;
         }
@@ -236,10 +237,7 @@ public class PetTalkInput {
         });
         this.input = editText;
         bar.addView(editText, new LinearLayout.LayoutParams(0, -1, 1.0f));
-        TextView textView = new TextView(this.ctx);
-        textView.setText("发送");
-        textView.setTextSize(UiKit.FS_BTN);
-        textView.setGravity(Gravity.CENTER);
+        ImageView textView = new ImageView(this.ctx);
         textView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {

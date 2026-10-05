@@ -67,7 +67,7 @@ final class ChatDrawer {
         if (this.shade == null) {
             FrameLayout shadeView = new FrameLayout(ctx);
             this.shade = shadeView;
-            shadeView.setBackgroundColor(0x8A000000);
+            shadeView.setBackgroundColor(UiKit.SCRIM);
             shadeView.setClickable(true);
             shadeView.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -334,7 +334,7 @@ final class ChatDrawer {
         }
         Context ctx = this.host.getContext();
         final FrameLayout overlay = new FrameLayout(ctx);
-        overlay.setBackgroundColor(0x8A000000);
+        overlay.setBackgroundColor(UiKit.SCRIM);
         overlay.setClickable(true);
 
         LinearLayout box = new LinearLayout(ctx);
@@ -397,7 +397,22 @@ final class ChatDrawer {
         box.setScaleX(0.94f);
         box.setScaleY(0.94f);
         overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
-        box.animate().scaleX(1f).scaleY(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
+        // 【弹簧】卡片放大走 snappy（ζ=0.73），与 overlay 淡入同帧开始；
+        //   overlay 的 alpha 保持线性淡入不动（透明度过冲会穿帮）。
+        Springs.drive(Springs.snappy(), new Springs.Listener() {
+            @Override
+            public void onUpdate(float p) {
+                float s = Springs.lerp(0.94f, 1.0f, p);
+                box.setScaleX(s);
+                box.setScaleY(s);
+            }
+
+            @Override
+            public void onEnd() {
+                box.setScaleX(1f);
+                box.setScaleY(1f);
+            }
+        });
     }
 
     /** 叠一层输入框（用于重命名）。 */
@@ -408,7 +423,7 @@ final class ChatDrawer {
         }
         Context ctx = this.host.getContext();
         final FrameLayout overlay = new FrameLayout(ctx);
-        overlay.setBackgroundColor(0x8A000000);
+        overlay.setBackgroundColor(UiKit.SCRIM);
         overlay.setClickable(true);
 
         LinearLayout box = new LinearLayout(ctx);
@@ -473,7 +488,22 @@ final class ChatDrawer {
         box.setScaleX(0.94f);
         box.setScaleY(0.94f);
         overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
-        box.animate().scaleX(1f).scaleY(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
+        // 【弹簧】卡片放大走 snappy（ζ=0.73），与 overlay 淡入同帧开始；
+        //   overlay 的 alpha 保持线性淡入不动（透明度过冲会穿帮）。
+        Springs.drive(Springs.snappy(), new Springs.Listener() {
+            @Override
+            public void onUpdate(float p) {
+                float s = Springs.lerp(0.94f, 1.0f, p);
+                box.setScaleX(s);
+                box.setScaleY(s);
+            }
+
+            @Override
+            public void onEnd() {
+                box.setScaleX(1f);
+                box.setScaleY(1f);
+            }
+        });
     }
 
     private static String fmtTime(long ts) {

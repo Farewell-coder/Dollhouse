@@ -7,6 +7,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -161,11 +162,12 @@ final class HomeCards {
         label.setTextColor(UiKit.TITLE);
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView go = new TextView(ctx);
-        go.setText("\u53bb\u8bbe\u7f6e \u203a");
+        go.setText("\u53bb\u8bbe\u7f6e");
         go.setTextSize(UiKit.FS_BTN);
         go.setTextColor(UiKit.SUB);
         go.setTypeface(Typeface.DEFAULT_BOLD);
-        row.addView(go, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(Icons.labeled(ctx, Icons.IC_CHEVRON_RIGHT, 14.0f, UiKit.SUB, go, 2),
+                new LinearLayout.LayoutParams(-2, -2));
         row.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -255,7 +257,7 @@ final class HomeCards {
         t.setTypeface(Typeface.DEFAULT_BOLD);
         head.addView(t, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        final TextView arrow = UiKit.arrow(ctx);
+        final ImageView arrow = UiKit.arrow(ctx);
         head.addView(arrow, new LinearLayout.LayoutParams(UiKit.dp(ctx, 30), UiKit.dp(ctx, 30)));
         card.addView(head);
 
@@ -268,7 +270,17 @@ final class HomeCards {
         final boolean open = PetPrefs.hasCardOpen(appCtx, fTitle)
                 ? PetPrefs.cardOpen(appCtx, fTitle) : fallbackOpen;
         // 【丝滑】初始展开态也走动画，不再瞬间旋转。
-        arrow.animate().rotation(open ? 90f : 0f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_STD).start();
+        Springs.drive(Springs.snappy(), new Springs.Listener() {
+            @Override
+            public void onUpdate(float p) {
+                arrow.setRotation(Springs.lerp(0f, open ? 90f : 0f, p));
+            }
+
+            @Override
+            public void onEnd() {
+                arrow.setRotation(open ? 90f : 0f);
+            }
+        });
         if (open) {
             body.setVisibility(View.VISIBLE);
         } else {
@@ -393,7 +405,7 @@ final class HomeCards {
         label.setTextColor(UiKit.TITLE);
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        TextView minus = stepButton(ctx, "−");
+        ImageView minus = stepButton(ctx, Icons.IC_MINUS);
         minus.setTag(tag + "_minus");
         minus.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -413,7 +425,7 @@ final class HomeCards {
         value.setLayoutParams(new LinearLayout.LayoutParams(UiKit.dp(ctx, 62), -2));
         row.addView(value);
 
-        TextView plus = stepButton(ctx, "+");
+        ImageView plus = stepButton(ctx, Icons.IC_PLUS);
         plus.setTag(tag + "_plus");
         plus.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -425,16 +437,13 @@ final class HomeCards {
         return row;
     }
 
-    /** 步进器的圆形按钮：直径 34dp，白底描边。 */
-    private static TextView stepButton(Context ctx, String text) {
-        TextView t = new TextView(ctx);
-        t.setText(text);
-        t.setTextSize(18.0f);
-        t.setTextColor(UiKit.TITLE);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setGravity(Gravity.CENTER);
+    /** 步进器的圆形按钮：直径 34dp，白底描边 + 描边图标（加/减）。 */
+    private static ImageView stepButton(Context ctx, int resId) {
+        ImageView t = Icons.view(ctx, resId, 16.0f, UiKit.TITLE);
+        t.setClickable(true);
         int size = UiKit.dp(ctx, 34);
         t.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+        t.setPadding(0, 0, 0, 0);
         t.setBackground(UiKit.roundStroke(UiKit.CARD, UiKit.LINE, ctx, 17));
         UiKit.press(t);
         return t;

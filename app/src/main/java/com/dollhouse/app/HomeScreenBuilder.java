@@ -1,5 +1,6 @@
 package com.dollhouse.app;
 
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
@@ -25,6 +26,33 @@ import android.widget.TextView;
 final class HomeScreenBuilder {
 
     private HomeScreenBuilder() {
+    }
+
+    /**
+     * 按「实际显示宽度」解码人偶首屏图。
+     * 【为何需要】原实现直接 decodeResource 出 391×512 全图，只为在首页显示 190dp（≈570px
+     *   宽屏下更小）；ARGB8888 一张就占 0.76MB，冷启动白掏内存。
+     *   这里用 inSampleSize 把解码尺寸压到不超过目标宽度的 2 倍，肉眼无差、内存降到 1/4。
+     */
+    private static android.graphics.Bitmap decodePet(Context ctx, int targetPx) {
+        try {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            BitmapFactory.decodeResource(ctx.getResources(), R.drawable.pet_front, o);
+            if (o.outWidth <= 0) {
+                return null;
+            }
+            int sample = 1;
+            while (o.outWidth / (sample * 2) >= targetPx && sample * 2 <= 8) {
+                sample *= 2;
+            }
+            BitmapFactory.Options o2 = new BitmapFactory.Options();
+            o2.inSampleSize = sample;
+            o2.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+            return BitmapFactory.decodeResource(ctx.getResources(), R.drawable.pet_front, o2);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** 搭出首页根视图；控件实例通过 act 的包级字段回传。 */
@@ -60,7 +88,7 @@ final class HomeScreenBuilder {
         box.addView(subtitle);
 
         ImageView pet = new ImageView(act);
-        pet.setImageBitmap(BitmapFactory.decodeResource(act.getResources(), R.drawable.pet_front));
+        pet.setImageBitmap(decodePet(act, Math.round(act.dp(190.0f))));
         pet.setAdjustViewBounds(true);
         LinearLayout.LayoutParams petLp = new LinearLayout.LayoutParams(Math.round(act.dp(190.0f)), -2);
         petLp.gravity = Gravity.CENTER;

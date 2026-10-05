@@ -15,7 +15,6 @@ import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -566,7 +565,7 @@ public final class HomeUi {
             boolean toSettings = PetPrefs.themeOnSettings(activity);
             show(activity, !toSettings);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             // 呈现层调整，任何意外都不允许影响原有功能。
         }
     }
@@ -588,7 +587,7 @@ public final class HomeUi {
             syncTheme(ctx);
             syncMem(ctx);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -658,7 +657,7 @@ public final class HomeUi {
                     });
             return true;
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             return false;
         }
     }
@@ -670,7 +669,7 @@ public final class HomeUi {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -692,7 +691,7 @@ public final class HomeUi {
                 }
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -706,7 +705,7 @@ public final class HomeUi {
                     (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
             return pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             return false;
         }
     }
@@ -819,7 +818,7 @@ public final class HomeUi {
                 return;
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         try {
             Intent i = new Intent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS");
@@ -827,7 +826,7 @@ public final class HomeUi {
             ctx.startActivity(i);
             return;
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         // 【v2.9.6】两层都失败时兜底到应用详情页，绝不静默什么都不发生。
         requestAppDetails(ctx);
@@ -841,7 +840,7 @@ public final class HomeUi {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -858,7 +857,7 @@ public final class HomeUi {
             ctx.startActivity(i);
             return true;
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             return false;
         }
     }
@@ -919,7 +918,7 @@ public final class HomeUi {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             return nm == null || nm.areNotificationsEnabled();
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             return false;
         }
     }
@@ -932,7 +931,7 @@ public final class HomeUi {
             }
             return true;
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             return false;
         }
     }
@@ -963,7 +962,7 @@ public final class HomeUi {
                 }
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
         return false;
     }
@@ -981,7 +980,7 @@ public final class HomeUi {
                     home, settings);
             return true;
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             return false;
         }
     }
@@ -1019,7 +1018,7 @@ public final class HomeUi {
                 }
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
     /**
@@ -1044,7 +1043,7 @@ public final class HomeUi {
                 task.setExcludeFromRecents(hide);
             }
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -1110,11 +1109,10 @@ public final class HomeUi {
         t.setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         row.addView(t, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        TextView mark = new TextView(act);
-        mark.setText(selected ? "\u2713" : "");
-        mark.setTextSize(UiKit.FS_BTN);
-        mark.setTextColor(UiKit.ACC);
-        mark.setGravity(Gravity.CENTER);
+        // 主题选中态：描边对勾图标（无选中则占位保持行高一致）。
+        View mark = selected
+                ? Icons.view(act, Icons.IC_CHECK, 16.0f, UiKit.ACC)
+                : new View(act);
         row.addView(mark, new LinearLayout.LayoutParams(UiKit.dp(act, 22), -2));
 
         UiKit.press(row);
@@ -1185,7 +1183,7 @@ public final class HomeUi {
         try {
             act.recreate();
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -1234,7 +1232,7 @@ public final class HomeUi {
                 }
             });
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
     /** 调整人偶比例：delta 为 -1 / +1，每档 10%（内部与显示同步走 10 档）。 */
@@ -1268,7 +1266,7 @@ public final class HomeUi {
             i.setAction(PetService.ACTION_REFRESH);
             ctx.startService(i);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -1286,13 +1284,13 @@ public final class HomeUi {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
             try {
                 Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 ctx.startActivity(i);
             } catch (Throwable ignored2) {
-                Log.w(LOG_TAG, "ignored", ignored2);
+                Logs.w(LOG_TAG, "ignored", ignored2);
             }
         }
     }
@@ -1315,7 +1313,7 @@ public final class HomeUi {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -1338,7 +1336,7 @@ public final class HomeUi {
                     ? (ViewGroup) homeView.getParent() : null,
                     home ? homeView : settings, home ? settings : homeView);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 

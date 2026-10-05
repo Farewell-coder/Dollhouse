@@ -13,12 +13,10 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
-import android.view.animation.DecelerateInterpolator;
 import java.util.Random;
 
 /**
@@ -244,7 +242,7 @@ public class PetService extends Service {
                 startService(restart);
             }
         } catch (Throwable ignored) {
-            Log.w("Dollhouse", "ignored", ignored);
+            Logs.w("Dollhouse", "ignored", ignored);
         }
     }
     @Override
@@ -408,7 +406,7 @@ public class PetService extends Service {
                     201326592 | 67108864);
             pending.send();
         } catch (Throwable ignored) {
-            Log.w("Dollhouse", "ignored", ignored);
+            Logs.w("Dollhouse", "ignored", ignored);
         }
     }
     /** 让桌宠原地跳一下（单/双击的共用动作）。 */

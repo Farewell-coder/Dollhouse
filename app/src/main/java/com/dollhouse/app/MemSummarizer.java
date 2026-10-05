@@ -109,7 +109,7 @@ final class MemSummarizer {
                 }
                 // 【v2.9.5】自动档同样先收回展开态：补回批是临时回看，不该被算作待压缩的正文。
                 boolean folded = ChatHistoryStore.collapsePrev(host, host.prevCount);
-                android.util.Log.i("DollhouseMemo", "[maybeAuto] 收回展开态 ok=" + folded
+                Logs.i("DollhouseMemo", "[maybeAuto] 收回展开态 ok=" + folded
                         + " prevCount=" + host.prevCount);
                 host.prevCount = 0;
                 if (folded) {
@@ -276,9 +276,9 @@ final class MemSummarizer {
         }
         int len = sink.history().length();
         int count = len;
-        android.util.Log.i("DollhouseMemo", "[summarizeNow] len=" + len + " count=" + count);
+        Logs.i("DollhouseMemo", "[summarizeNow] len=" + len + " count=" + count);
         if (count < 1) {
-            android.util.Log.i("DollhouseMemo", "[summarizeNow] 中止: 历史为空");
+            Logs.i("DollhouseMemo", "[summarizeNow] 中止: 历史为空");
             // 【v2.9.1】不再静默：全工程禁用 Toast，不给反馈用户只会以为点了没反应。
             sink.flash("对话太短，暂时没什么可总结的");
             if (done != null) {
@@ -291,10 +291,10 @@ final class MemSummarizer {
 
     private static void summarize(final Sink sink, final int count, final Runnable done) {
         final Context ctx = sink.ctx().getApplicationContext();
-        android.util.Log.i("DollhouseMemo", "[summarize] 进入 count=" + count
+        Logs.i("DollhouseMemo", "[summarize] 进入 count=" + count
                 + " histLen=" + sink.history().length() + " hasKey=" + PetPrefs.hasKey(ctx));
         if (!PetPrefs.hasKey(ctx)) {
-            android.util.Log.i("DollhouseMemo", "[summarize] 中止: 未填 API Key");
+            Logs.i("DollhouseMemo", "[summarize] 中止: 未填 API Key");
             // 【v2.9.1】原先这里静默返回，用户完全不知道是「没填 API Key」还是「功能坏了」。
             sink.flash("还没填 API Key");
             if (done != null) {
@@ -311,10 +311,10 @@ final class MemSummarizer {
         // 若快照就是那个引用，之后连对比基准都被改掉了。
         final JSONArray snapshot = copyOf(sink.history());
         String transcript = transcript(snapshot, count);
-        android.util.Log.i("DollhouseMemo", "[summarize] snapshotLen=" + snapshot.length()
+        Logs.i("DollhouseMemo", "[summarize] snapshotLen=" + snapshot.length()
                 + " transcriptLen=" + transcript.length() + " convId=" + convId);
         if (transcript.trim().isEmpty()) {
-            android.util.Log.i("DollhouseMemo", "[summarize] 中止: transcript 为空");
+            Logs.i("DollhouseMemo", "[summarize] 中止: transcript 为空");
             sink.flash("没有可总结的内容");
             if (done != null) {
                 done.run();
@@ -322,7 +322,7 @@ final class MemSummarizer {
             return;
         }
         if (!RUNNING.compareAndSet(false, true)) {
-            android.util.Log.i("DollhouseMemo", "[summarize] 中止: RUNNING 锁被占用");
+            Logs.i("DollhouseMemo", "[summarize] 中止: RUNNING 锁被占用");
             sink.flash("上一次总结还在进行中");
             if (done != null) {
                 done.run();
@@ -335,9 +335,9 @@ final class MemSummarizer {
         //  之后每次手动/自动总结都被 isRunning 静默挡掉 —— 等于总结功能永久失效。
         try {
             sink.busy(true);
-            android.util.Log.i("DollhouseMemo", "[summarize] 已进入总结中状态，发起请求");
+            Logs.i("DollhouseMemo", "[summarize] 已进入总结中状态，发起请求");
         } catch (Throwable unused) {
-            android.util.Log.i("DollhouseMemo", "[summarize] 中止: setMemoBusy 抛异常");
+            Logs.i("DollhouseMemo", "[summarize] 中止: setMemoBusy 抛异常");
             RUNNING.set(false);
             if (done != null) {
                 done.run();
@@ -364,7 +364,7 @@ final class MemSummarizer {
             DeepSeekClient.chat(PetPrefs.apiKey(ctx), PetPrefs.baseUrl(ctx), PetPrefs.model(ctx), messages, 4096, new DeepSeekClient.Callback() {
             @Override
             public void onResult(final String str, final String str2) {
-                android.util.Log.i("DollhouseMemo", "[callback] 到达 ok=" + (str != null && !str.trim().isEmpty())
+                Logs.i("DollhouseMemo", "[callback] 到达 ok=" + (str != null && !str.trim().isEmpty())
                         + " okLen=" + (str == null ? -1 : str.length())
                         + " err=" + (str2 == null || str2.trim().isEmpty() ? "无" : "有"));
                 try {
@@ -372,7 +372,7 @@ final class MemSummarizer {
                         // 【v2.9.1·P0】失败必须可见：原先这里直接 return，把 str2 的错误原因
                         //  整个丢掉（覆盖所有网络/HTTP 错误与「HTTP 200 但 content 为空」），
                         //  而全工程禁用 Toast，用户只看到「记忆总结中」闪一下 —— 就是「点了没反应」。
-                        android.util.Log.i("DollhouseMemo", "[callback] 失败分支: 无有效内容");
+                        Logs.i("DollhouseMemo", "[callback] 失败分支: 无有效内容");
                         sink.flash(str2 == null || str2.trim().isEmpty()
                                 ? "总结没成功，稍后再试" : "总结没成功：" + str2);
                         return;
@@ -384,7 +384,7 @@ final class MemSummarizer {
                     //  锚定会话被删时 currentOfPool 返回 null，比较不等 → 仍然放弃。
                     if (!convId.equals(ChatSessions.currentOfPool(ctx, convId))) {
                         // 【v2.9.2】换会话也要说一声，否则整条链路又一次「点了没反应」。
-                        android.util.Log.i("DollhouseMemo", "[callback] 放弃: 会话已切换");
+                        Logs.i("DollhouseMemo", "[callback] 放弃: 会话已切换");
                         sink.flash("已切换对话，这次总结跳过");
                         return;
                     }
@@ -395,13 +395,13 @@ final class MemSummarizer {
                     //  改成「前缀逐条比对」：只要当前历史开头那 count 条仍是当初那批，
                     //  就在当前历史上做替换，期间新增的消息原样留在尾部。
                     if (!prefixMatches(sink.history(), snapshot, count)) {
-                        android.util.Log.i("DollhouseMemo", "[callback] 放弃: 前缀不匹配 curLen="
+                        Logs.i("DollhouseMemo", "[callback] 放弃: 前缀不匹配 curLen="
                                 + sink.history().length() + " snapLen=" + snapshot.length() + " count=" + count);
                         sink.flash("对话已变化，这次总结跳过");
                         return;
                     }
                     final String summary = str.trim();
-                    android.util.Log.i("DollhouseMemo", "[callback] 成功: summaryLen=" + summary.length()
+                    Logs.i("DollhouseMemo", "[callback] 成功: summaryLen=" + summary.length()
                             + " count=" + count + " curLen=" + sink.history().length());
                     MemStore.add(ctx, convId, summary, count);
                     // 【v2.8】总结会整体替换 history，展开态的切点（头部摘要数 + count）随之失效：
@@ -430,7 +430,7 @@ final class MemSummarizer {
                     // 【v2.9.4】成功路径必须可见：原先成功时聊天区只是无声地重铺，
                     //  用户无法区分「压好了」与「什么都没发生」，正是「总结没成功」报障的来源。
                     sink.flash("已把 " + count + " 条压成摘要");
-                    android.util.Log.i("DollhouseMemo", "[callback] 已落盘 newHistLen=" + sink.history().length());
+                    Logs.i("DollhouseMemo", "[callback] 已落盘 newHistLen=" + sink.history().length());
                     final Runnable after = done;
                     sink.uiRefresh(new Runnable() {
                         @Override
@@ -441,7 +441,7 @@ final class MemSummarizer {
                         }
                     });
                 } catch (Throwable unused) {
-                    android.util.Log.i("DollhouseMemo", "[callback] 成功块内异常: " + unused.getClass().getSimpleName());
+                    Logs.i("DollhouseMemo", "[callback] 成功块内异常: " + unused.getClass().getSimpleName());
                     // 【v2.9.3·P1】成功块内的落盘/构造异常也必须说一声：否则「记忆总结中」亮一下就没，
                     //  用户看到的仍是「点了没反应」。flashHold 保证随后的 finally 不会同帧隐藏它。
                     sink.flash("总结写入失败，稍后再试");
@@ -461,7 +461,7 @@ final class MemSummarizer {
         //  到点主动复位，避免「记忆总结中」永久卡在工具条上（真机报障）。
         armWatchdog(sink);
         } catch (Throwable t) {
-            android.util.Log.i("DollhouseMemo", "[summarize] 同步异常: " + t.getClass().getSimpleName());
+            Logs.i("DollhouseMemo", "[summarize] 同步异常: " + t.getClass().getSimpleName());
             // 【坑】RUNNING 一旦置位，只有回调里的 finally 会清。若 chat() 在启动线程前
             // 就同步抛了（参数求值、start() 失败），这个锁会永久卡住，自动总结从此静默失效。
             // 【v2.8】同步抛异常时回调不会来，「记忆总结中」必须在这里撤掉（放在 done 之前，防回调抛异常漏撤）。
@@ -485,7 +485,7 @@ final class MemSummarizer {
                 if (!RUNNING.compareAndSet(true, false)) {
                     return;
                 }
-                android.util.Log.i("DollhouseMemo", "[watchdog] 超时兜底: 回调未到达，主动复位");
+                Logs.i("DollhouseMemo", "[watchdog] 超时兜底: 回调未到达，主动复位");
                 sink.post(new Runnable() {
                     @Override
                     public void run() {

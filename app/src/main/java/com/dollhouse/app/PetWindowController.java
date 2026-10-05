@@ -9,7 +9,6 @@ import android.provider.Settings;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.animation.DecelerateInterpolator;
 
 /**
  * 【职责】桌宠悬浮窗的挂载与几何：attach/detach、按锚点摆位、贴边吸附动画、上滑偷看（peek）、气泡增高。
@@ -453,17 +452,22 @@ final class PetWindowController {
         int screenH = host.getResources().getDisplayMetrics().heightPixels;
         host.prefs.edit().putInt("rest_px", i2).putInt("rest_fy", i)
                 .putFloat("rest_rx", i2 / (float) i3).putFloat("rest_ry", i / (float) screenH).apply();
-        ValueAnimator ofInt = ValueAnimator.ofInt(host.lp.x, round2);
-        host.snapAnim = ofInt;
-        ofInt.setDuration(UiKit.D_LAYER);
-        host.snapAnim.setInterpolator(new DecelerateInterpolator());
-        host.snapAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {            @Override
-            public void onAnimationUpdate(ValueAnimator valueAnimator) {
-                host.lp.x = ((Integer) valueAnimator.getAnimatedValue()).intValue();
+        // 【弹簧】贴边吸附改 snappy（ζ=0.73）：临到边带一点过冲，落位更像「被吸住」。
+        //   句柄仍存 host.snapAnim，onDestroy / 重排前的 cancel 逻辑不受影响。
+        final int fromX = host.lp.x;
+        host.snapAnim = Springs.drive(Springs.snappy(), new Springs.Listener() {
+            @Override
+            public void onUpdate(float p) {
+                host.lp.x = Springs.lerpInt(fromX, round2, p);
+                host.safeUpdate();
+            }
+
+            @Override
+            public void onEnd() {
+                host.lp.x = round2;
                 host.safeUpdate();
             }
         });
-        host.snapAnim.start();
     }
 
     void enterEdgePeek(boolean z) {

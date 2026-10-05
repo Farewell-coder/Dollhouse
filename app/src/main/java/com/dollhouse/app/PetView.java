@@ -10,7 +10,6 @@ import android.graphics.Paint;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.text.TextPaint;
-import android.util.Log;
 import android.view.View;
 /**
  * 【职责】桌宠的绘制与手势：呼吸、眨眼、拖拽倾斜、贴边吸附。
@@ -339,6 +338,7 @@ public class PetView extends View {
         }
         this.lowPower = true;
         this.animating = true;
+        invalidateScreenCache();
         removeCallbacks(this.frame);
         postDelayed(this.frame, HEARTBEAT_MS);
     }
@@ -354,14 +354,34 @@ public class PetView extends View {
         postDelayed(this.frame, 16L);
         invalidate();
     }
-    // 屏幕是否亮着。拿不到电源服务时按「亮着」处理，宁可多跑也不让桌宠在亮屏时卡住。
+    /** screenOn() 结果缓存时间：帧循环 30~60fps 下，原来每帧一次 Binder 太浪费。 */
+    private static final long SCREEN_POLL_MS = 500L;
+    private long screenCheckedAt = 0L;
+    private boolean screenCached = true;
+
+    /**
+     * 屏幕是否亮着。拿不到电源服务时按「亮着」处理，宁可多跑也不让桌宠在亮屏时卡住。
+     * 【为何加缓存】isInteractive() 是跨进程调用，帧循环里每帧问一次纯属浪费；
+     *   亮灭切换有 SCREEN_ON/OFF 广播兜底（广播里会强制刷新），500ms 的上限误差无感。
+     */
     private boolean screenOn() {
+        long now = SystemClock.uptimeMillis();
+        if (now - screenCheckedAt < SCREEN_POLL_MS) {
+            return screenCached;
+        }
+        screenCheckedAt = now;
         try {
             PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
-            return pm == null || pm.isInteractive();
+            screenCached = pm == null || pm.isInteractive();
         } catch (Throwable ignored) {
-            return true;
+            screenCached = true;
         }
+        return screenCached;
+    }
+
+    /** 亮灭广播到达时强制刷新缓存，保证状态切换零延迟。 */
+    private void invalidateScreenCache() {
+        this.screenCheckedAt = 0L;
     }
     /**
      * 熄屏时彻底停掉帧循环（不是降频，是 removeCallbacks + 停 invalidate），
@@ -374,6 +394,7 @@ public class PetView extends View {
             if (intent == null || intent.getAction() == null) {
                 return;
             }
+            invalidateScreenCache();
             boolean on = Intent.ACTION_SCREEN_ON.equals(intent.getAction());
             if (on) {
                 // 亮屏：从当前状态接着跑，并立刻补一帧，避免第一帧还停在旧画面。
@@ -405,7 +426,7 @@ public class PetView extends View {
                 stopAnim();
             }
         } catch (Throwable ignored) {
-            Log.w("Dollhouse", "ignored", ignored);
+            Logs.w("Dollhouse", "ignored", ignored);
         }
     }
     /** 由 detach 时调用：注销广播。 */
@@ -416,7 +437,7 @@ public class PetView extends View {
         try {
             getContext().unregisterReceiver(screenReceiver);
         } catch (Throwable ignored) {
-            Log.w("Dollhouse", "ignored", ignored);
+            Logs.w("Dollhouse", "ignored", ignored);
         }
         screenReceiverOn = false;
     }

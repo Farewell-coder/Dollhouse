@@ -6,11 +6,11 @@ import android.content.ContextWrapper;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.text.InputType;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -112,7 +112,7 @@ public final class TokenStat {
             }
             add(ctx, in, out, cache);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -296,7 +296,7 @@ public final class TokenStat {
             OFFSET = 0;
             show(ctx);
         } catch (Throwable ignored) {
-            Log.w(LOG_TAG, "ignored", ignored);
+            Logs.w(LOG_TAG, "ignored", ignored);
         }
     }
 
@@ -504,7 +504,7 @@ public final class TokenStat {
         lp.topMargin = dp(ctx, 10);
         row.setLayoutParams(lp);
 
-        TextView prev = UiKit.iconBtn(ctx, "‹", UiKit.FS_ICON, UiKit.TITLE);
+        ImageView prev = UiKit.iconView(ctx, Icons.IC_CHEVRON_LEFT, UiKit.FS_ICON, UiKit.TITLE);
         prev.setClickable(true);
         UiKit.press(prev);
         prev.setOnClickListener(new View.OnClickListener() {
@@ -514,7 +514,7 @@ public final class TokenStat {
                 show(v.getContext());
             }
         });
-        row.addView(prev, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(prev, new LinearLayout.LayoutParams(dp(ctx, UiKit.HIT_DP), dp(ctx, UiKit.HIT_DP)));
 
         TextView label = new TextView(ctx);
         label.setText(periodLabel());
@@ -525,7 +525,7 @@ public final class TokenStat {
         label.setPadding(dp(ctx, 10), 0, dp(ctx, 10), 0);
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
 
-        TextView next = UiKit.iconBtn(ctx, "›", UiKit.FS_ICON, UiKit.TITLE);
+        ImageView next = UiKit.iconView(ctx, Icons.IC_CHEVRON_RIGHT, UiKit.FS_ICON, UiKit.TITLE);
         next.setClickable(true);
         UiKit.press(next);
         boolean canBack = OFFSET > 0;
@@ -541,7 +541,7 @@ public final class TokenStat {
                 show(v.getContext());
             }
         });
-        row.addView(next, new LinearLayout.LayoutParams(-2, -2));
+        row.addView(next, new LinearLayout.LayoutParams(dp(ctx, UiKit.HIT_DP), dp(ctx, UiKit.HIT_DP)));
         return row;
     }
 

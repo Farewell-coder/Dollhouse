@@ -1,5 +1,9 @@
 # Dollhouse
 
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Farewell-coder/Dollhouse)](https://github.com/Farewell-coder/Dollhouse/releases)
+[![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B-3ddc84.svg)](#兼容性)
+
 > 一个住在你手机屏幕上的小鲸鱼娘。
 
 Dollhouse 是一款 Android 桌面宠物应用。安装后，鲸鱼娘「小肥鱼」会以系统悬浮窗的形式常驻在你的桌面上 —— 她会眨眼、会待机摆动、会拖到屏幕边缘探出半个身子偷看你，也会在你点她的时候开口说话，甚至能陪你聊天。
@@ -59,6 +63,8 @@ Dollhouse 是一款 Android 桌面宠物应用。安装后，鲸鱼娘「小肥�
 | 不可见 / 熄屏 | 250 ms | 停止推进动画 |
 | 熄屏低功耗心跳 | 1000 ms | 只跑自检，不绘制 |
 
+> v0.0.3 起，帧循环里的「屏幕是否点亮」判定改为 500 ms 缓存 + 广播即时失效，跨进程查询次数从「每帧一次」降到「每两秒一次」。
+
 熄屏时进入**心跳模式**而非彻底停帧 —— 因为广播一旦丢失就会永远醒不过来；心跳每秒自检一次「屏幕是否已亮」，亮屏立即恢复动画。
 
 ### 交互与聊天
@@ -92,6 +98,11 @@ Dollhouse 是一款 Android 桌面宠物应用。安装后，鲸鱼娘「小肥�
 
 Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API」入口，兼容**任意 OpenAI 格式接口**（自定义 Base URL / API Key / 模型名），并支持**保存多套配置**随时切换。每套配置各自维护自己的模型清单与**星标收藏**，互不串台。
 
+> **修复记录（v0.0.3，2026-10-05）**：旧版把所有配置的收藏混存在同一个键里，升级后又把它当作「初始值」兜底喂给当前配置，于是别的配置 / 端点下收藏过的模型就混进了展开列表。现已改为只认每套配置自己的收藏，并在首次启动时一次性清掉旧的收藏键与旧收藏数据。
+> **升级后各配置的收藏会显示为空** —— 这是清掉旧脏数据的必然结果，重新点一次 ☆ 收藏即可，此后不再复发。
+>
+> 同批次还修正了聊天面板发送键：纸飞机图标的**外框**本来就是居中的，但图形墨量压在右上角，视觉重心偏上偏右看着像歪。现已对图形做光学补偿（整条路径平移 0.95 视口单位）并把内在尺寸由 24dp 提到 27dp，偏移量减少约 44%。
+
 > 本项目**不包含任何 API Key**。所有凭据由使用者在 App 内自行填写，仅保存在本机 SharedPreferences 中。
 
 ### 能力
@@ -100,6 +111,7 @@ Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API
 - **记忆系统**：会话内容自动摘要与归并，避免上下文无限膨胀；可手动触发整理
 - **工具调用**：支持函数调用，可接入联网搜索；授权 Shizuku 后额外开放**系统命令**（`shell`）工具，详见[高级权限（Shizuku）](#高级权限shizuku)
 - **思考等级**：可调节推理强度
+- **思考展示框**：推理型模型的回复上方会出现一条可折叠的「思考了 X 秒」，点一下即展开完整推理过程。仅「自聊」会话显示，与人偶对话时保持原有对话形态；思考内容只在本次会话内有效，不写入聊天记录
 - **Token 统计**：按**每日 / 每周 / 累计**三个维度分段查看消耗，带迷你折线图
 - **统计口径可视化**：用环形进度显示当前聊天条数占记忆触发阈值的比例
 
@@ -118,6 +130,10 @@ Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API
 - **离屏层**：人偶视图启用硬件层
 - **贴边降频**：用户离开人偶视线时（贴边态）主动降到 4 fps
 - **熄屏静默**：熄屏时几乎不耗 CPU，但保证亮屏必可见
+- **日志零成本**：全部日志走 `Logs` 收口类，开关是编译期常量（`false`），release 构建里调用与参数拼接被整体消除；排障时改 `true` 重编即可恢复
+- **R8 代码与资源收缩**：release 开启 `minifyEnabled` + `shrinkResources`，并配 `res/raw/keep.xml` 白名单兜底（防止「常量折叠导致运行时资源查找落空」这类静默失效）
+- **按目标尺寸解码位图**：人偶底图经 `inSampleSize` 降采样到实际显示宽度再解码，不再整图全尺寸展开；两张零引用底图已在源码层删除（-359 KB）
+- **跨进程调用缓存**：屏幕亮灭状态改为 500 ms 轮询缓存，广播到达时立即失效，避免帧循环每帧跨进程查询
 - **前台服务**：以 `specialUse` 类型前台服务保活，通知栏常驻（可从通知直接关闭人偶）
 - **开机恢复**：支持开机自启（可在设置中关闭）
 
@@ -127,7 +143,7 @@ Dollhouse 不绑定任何一家模型服务。她在设置页提供「配置 API
 
 ## 截图
 
-> 待补充。运行 `./gradlew assembleRelease` 后安装即可直接体验。
+> 待补充。运行 `./gradlew assembleRelease` 后安装即可直接体验；也可前往 [Releases](https://github.com/Farewell-coder/Dollhouse/releases) 页查看实机截图。
 
 ---
 
@@ -177,13 +193,15 @@ EOF
 | 项 | 值 |
 | --- | --- |
 | applicationId | `com.dollhouse.app` |
-| versionName | `0.0.2` |
-| versionCode | 2 |
+| versionName | `0.0.3` |
+| versionCode | 3 |
 | compileSdk | 35 |
 | minSdk | 24 |
 | targetSdk | 34 |
 | Java | 17 |
 | AGP | 8.5.2 |
+
+对应的发行包见 [Releases · v0.0.3](https://github.com/Farewell-coder/Dollhouse/releases/tag/v0.0.3)。
 
 ---
 
@@ -208,6 +226,10 @@ Dollhouse/
 │       │   ├── MemStore.java             # 记忆存储与摘要
 │       │   ├── TokenStat.java            # Token 统计
 │       │   ├── UiKit.java                # 主题与配色常量
+│       │   ├── Icons.java                # 图标工厂（描边图标运行时上色）
+│       │   ├── Logs.java                 # 日志收口（编译期常量开关，release 全消）
+│       │   ├── Spring.java               # 阻尼谐振子积分器
+│       │   ├── Springs.java              # 弹簧预置与 ValueAnimator 驱动器
 │       │   ├── SettingsPage.java         # 设置页框架
 │       │   ├── SettingsRegistry.java     # 设置项注册表
 │       │   ├── HomeUi.java               # 首页 UI
@@ -223,10 +245,13 @@ Dollhouse/
 │       │   ├── ShellTool.java            # AI 可调用的 shell 工具
 │       │   └── ...
 │       └── res/
-│           └── drawable/ic_tile_pet.xml  # 快捷设置磁贴图标
+│           ├── drawable/ic_tile_pet.xml  # 快捷设置磁贴图标
+│           ├── drawable/ic_*.xml         # 统一描边图标集（33 个）
+│           └── raw/keep.xml              # 资源收缩白名单（R8 常量折叠兜底）
 ├── build.gradle
 ├── settings.gradle
 ├── gradle.properties
+├── app/proguard-rules.pro        # R8 规则（Shizuku 反射整包 keep）
 ├── keystore.properties.example   # 签名配置模板
 ├── LICENSE                       # GPL-3.0
 └── README.md
@@ -285,6 +310,35 @@ Dollhouse/
 
 ## 致谢与第三方组件
 
+### Lucide
+
+项目内全部 33 个描边图标（`app/src/main/res/drawable/ic_*.xml`）的**视觉风格参照 [Lucide](https://lucide.dev) 图标集**。
+
+Lucide 采用 **ISC License** 开源（宽松许可：允许自由使用、修改与再分发，只需保留版权声明）。本项目并未直接分发 Lucide 的原始 SVG 文件，而是按其造型规范**重绘为 Android VectorDrawable 资源**，描边颜色在运行期由 `Icons.tint()` 覆盖，以适配多套主题配色。
+
+- 项目主页：<https://github.com/lucide-icons/lucide>
+- 官网：<https://lucide.dev>
+
+```
+Lucide — Copyright (c) for portions of Lucide are held by
+Cole Bemis 2013-2022 as part of Feather (MIT).
+All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+> ISC 与 GPL-3.0 兼容：Lucide 的版权声明与许可文本已随本说明保留，Dollhouse 自身代码仍以 GPL-3.0 分发。
+
 ### Shizuku
 
 本项目通过 [Shizuku](https://github.com/RikkaApps/Shizuku) 提供可选的系统级 `shell` 能力。
@@ -299,7 +353,9 @@ Shizuku 由 **RikkaApps（RikkaW）** 开发，采用 Apache License 2.0 开源�
 
 **注意**：Shizuku 是**独立安装**的第三方应用，不随本仓库分发。本仓库的 GPL-3.0 协议仅覆盖 Dollhouse 自身代码；Shizuku 二进制与其 API 依赖遵循其自身的 Apache-2.0 协议。
 
-### 开源协议
+---
+
+## 开源协议
 
 本项目采用 **GNU General Public License v3.0（GPL-3.0）** 协议开源，详见 [LICENSE](LICENSE)。
 
