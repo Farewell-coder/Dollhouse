@@ -37,15 +37,15 @@ Android 桌宠应用，把悬浮人偶、聊天和记忆管理放在一起。
 - ML Kit 及其 Google 依赖适用各自条款和数据处理规则，不能据此承诺应用完全不联网或不产生 SDK 诊断数据。
 - 授权后的设备命令可能读取界面、文件和设置，也可能修改设备状态。模型生成的指令可能出错，不应把工具输出或权限授权视为安全保证。
 
-## v0.0.4
+## v0.0.5
 
-提供商详情页改为浮动毛玻璃胶囊底栏，修正底部让位、滚动重绘、切换标签后的绑定与文字层级；整理记忆开关、设置布局和主题图标，并加入可选设备交互与保活调整。详情见 [更新记录](CHANGELOG.md)。
+源码全面迁移至 Kotlin：87 个 Java 文件改写为等价 Kotlin，工程内已无 `.java`。同时整理包结构（`ui` / `pet` / `ai` / `data` / `agent` / `device` / `keepalive` / `core` / `anim`），Manifest 声明的组件类仍保留在根包。行为、界面与数据格式不变，未改任何对外契约（偏好键、通知渠道、组件名、文件路径等均保持原值）。详情见 [更新记录](CHANGELOG.md)。
 
-版本：versionName **0.0.4** / versionCode **4**。
+版本：versionName **0.0.5** / versionCode **5**。
 
 ## 构建
 
-需要 JDK 17、Android SDK 35；工程使用 Gradle 8.7、AGP 8.5.2、Kotlin 1.9.24。
+需要 JDK 17、Android SDK 35；工程使用 Gradle 8.7、AGP 8.5.2、Kotlin 1.9.24。源码为纯 Kotlin，无 Java 源文件。
 
 ```bash
 git clone https://github.com/Farewell-coder/Dollhouse.git
@@ -65,7 +65,7 @@ cd Dollhouse
 | 来源 | 用途 | 许可或条款 |
 | --- | --- | --- |
 | [Lucide](https://github.com/lucide-icons/lucide) | 图标路径的 Android 适配 | ISC，Feather 衍生部分为 MIT |
-| [morphicons](https://github.com/guillermolg00/morphicons) | 弹簧积分器与预置参数的 Java 移植 | MIT |
+| [morphicons](https://github.com/guillermolg00/morphicons) | 弹簧积分器与预置参数的 Kotlin 移植 | MIT |
 | [Shizuku API](https://github.com/RikkaApps/Shizuku-API) | 授权与系统接口客户端 | MIT；不等同于独立管理器的许可 |
 | Kotlin、协程、Hilt/Dagger、AndroidX 等 | 运行时及依赖 | Apache-2.0 等，逐项见清单 |
 | Google ML Kit / Play services | 文字识别及其依赖 | Google ML Kit / Android SDK 条款，适用独立第三方条款 |

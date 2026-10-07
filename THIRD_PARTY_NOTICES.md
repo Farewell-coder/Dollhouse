@@ -5,7 +5,7 @@ Dollhouse 自有代码使用 GPL-3.0。下列代码、图标及依赖分别遵�
 ## 代码与图标
 
 - Lucide：图标路径适配为 Android VectorDrawable；完整 ISC 及 Feather 衍生部分 MIT 文本见 [Lucide-LICENSE](licenses/Lucide-LICENSE.txt)。同时保留之前随项目附带的 [版权文本](licenses/Lucide-legacy-ISC.txt)。
-- morphicons：Spring.java 从弹簧积分器移植，Springs.java 采用弹簧预置参数，并适配 Android 驱动；见 [MIT](licenses/morphicons-MIT.txt)。
+- morphicons：Spring.kt 从弹簧积分器移植，Springs.kt 采用弹簧预置参数，并适配 Android 驱动；见 [MIT](licenses/morphicons-MIT.txt)。
 - Shizuku API 13.1.5（api / aidl / shared / provider）：客户端依赖适用 [MIT](licenses/Shizuku-API-MIT.txt)。独立 Shizuku 管理器不随 APK 分发，其许可另行适用。
 - Hilt / Dagger、AndroidX、Kotlin / 协程、Guava listenablefuture、javax.inject、JSR305 与部分 Google 开源基础组件：见 [Apache-2.0](licenses/Apache-2.0.txt) 及所附逐组件版权文件。
 - Google ML Kit / Play services / ODML：适用 [ML Kit 服务条款](https://developers.google.com/ml-kit/terms) 或 [Android SDK 条款](https://developer.android.com/studio/terms.html)，并非都以开源许可发布。其实际构建 AAR 内附带的第三方许可原文与索引已完整提取至 licenses/bundled/，不得因首页缩短而删除这些文本。
