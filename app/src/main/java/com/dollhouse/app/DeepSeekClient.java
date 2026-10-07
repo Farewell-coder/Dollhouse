@@ -2,11 +2,8 @@ package com.dollhouse.app;
 
 import android.os.Handler;
 import android.os.Looper;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -136,13 +133,99 @@ public final class DeepSeekClient {
         chatRaw(str, str2, str3, jSONArray, jSONArray2, jSONObject, null, rawCallback);
     }
 
+    /* ------------------------------ 供应商口径（规格书） ------------------------------ */
+
+    /**
+     * 【规格书口径】按供应商发一次对话请求。
+     * 【为什么保留旧重载】老调用点传的是裸 baseUrl；新调用点传 Provider，协议头与地址全由
+     *   ModelRules 决定。两条路最终都汇到同一个工厂方法，业务层不再各自拼 URL 与协议头。
+     * 【baseUrl 的作用】仅在 pv 为空时兜底（老配置 / 未迁移数据），pv 非空时完全忽略。
+     */
+    public static void chat(Provider pv, String key, String baseUrl, String model, JSONArray jSONArray,
+                            int maxTokens, final DeepSeekClient.Callback callback) {
+        JSONObject extra = new JSONObject();
+        if (maxTokens > 0) {
+            try {
+                extra.put("max_tokens", maxTokens);
+            } catch (Throwable ignored) {
+            }
+        }
+        chatRaw(pv, key, baseUrl, model, jSONArray, null, extra, null, new DeepSeekClient.RawCallback() {
+            @Override
+            public void onMessage(JSONObject jSONObject, String str4) {
+                String text = textOf(jSONObject, str4);
+                if (text == null && str4 == null) {
+                    callback.onResult(null, "\u6a21\u578b\u8fd4\u56de\u4e86\u7a7a\u5185\u5bb9");
+                    return;
+                }
+                callback.onResult(text, str4);
+            }
+        });
+    }
+
+    /** 不带输出预算的供应商口径版本。 */
+    public static void chat(Provider pv, String key, String baseUrl, String model, JSONArray jSONArray,
+                            DeepSeekClient.Callback callback) {
+        chat(pv, key, baseUrl, model, jSONArray, 0, callback);
+    }
+
+    /**
+     * 【规格书·规则5】把本次请求体里历史消息的思考内容摘掉。
+     * 【字段】兼容常见两种写法：reasoning_content（DeepSeek 系）与 reasoning（OpenAI 系）。
+     * 【为什么可以就地改】messages 是调用方为「这一次请求」刚构建出来的数组（下次请求会重新
+     *   构建一份），所以就地删字段不会影响它持有的历史；不需要深拷贝，省一次整包解析。
+     */
+    private static void stripReasoning(JSONArray messages) {
+        if (messages == null || messages.length() == 0) {
+            return;
+        }
+        try {
+            for (int i = 0; i < messages.length(); i++) {
+                JSONObject o = messages.optJSONObject(i);
+                if (o != null) {
+                    o.remove("reasoning_content");
+                    o.remove("reasoning");
+                }
+            }
+        } catch (Throwable t) {
+            // 清理失败就保持原样：宁可多发一个字段，也不要因为清理动作把整次请求搞崩。
+            Logs.w("Dollhouse", "stripReasoning failed", t);
+        }
+    }
+
+    /**
+     * 【正文抽取】把一次回调整理成「正文 / 错误」两段。
+     * 【坑】推理型模型会把正文写进 reasoning_content、content 留空，这里做兜底回退；
+     *   两者都空才算失败，不能拿空串当成功交上去。
+     */
+    private static String textOf(JSONObject msg, String err) {
+        if (err != null) {
+            return null;
+        }
+        String content = msg == null ? "" : msg.optString("content", "");
+        if (content != null && !content.trim().isEmpty()) {
+            return content.trim();
+        }
+        String rc = msg == null ? "" : msg.optString("reasoning_content", "");
+        if (rc != null && !rc.trim().isEmpty()) {
+            return rc.trim();
+        }
+        return null;
+    }
+
     /**
      * 带取消句柄的版本：task 非空时，调用方可以随时 task.cancel() 把连接断掉。
      * 【坑】取消判定看的是 task.cancelled，不是异常类型——主动断开抛出来的异常
      *       与网络故障长得一模一样，只能靠这个标志区分。
      */
     public static void chatRaw(final String str, final String str2, final String str3, final JSONArray jSONArray, final JSONArray jSONArray2, final JSONObject jSONObject, final DeepSeekClient.Task task, final DeepSeekClient.RawCallback rawCallback) {
-        new Thread(new Runnable() {            @Override
+        chatRaw(null, str, str2, str3, jSONArray, jSONArray2, jSONObject, task, rawCallback);
+    }
+
+    /** 真正干活的那一个：pv 为空时按裸 baseUrl 走（旧口径），否则按供应商拼地址与协议头。 */
+    public static void chatRaw(final Provider pv, final String str, final String str2, final String str3, final JSONArray jSONArray, final JSONArray jSONArray2, final JSONObject jSONObject, final DeepSeekClient.Task task, final DeepSeekClient.RawCallback rawCallback) {
+        new Thread(new Runnable() {
+            @Override
             public void run() {
                 JSONObject msgObject = null;
                 String errText = null;
@@ -155,106 +238,33 @@ public final class DeepSeekClient {
                     if (str == null || str.isEmpty()) {
                         throw new IllegalStateException("\u8fd8\u6ca1\u586b API key");
                     }
-                    JSONObject body = new JSONObject();
-                    body.put("model", str3);
-                    body.put("messages", jSONArray);
-                    // 【v2.9.4】调用方在 extraBody 里显式带了 max_tokens 就不要再塞默认值：
-                    //  传 -1 表示「不限制」，该字段根本不下发，由服务端按模型默认上限处理。
-                    if (!(jSONObject != null && jSONObject.has("max_tokens"))) {
-                        body.put("max_tokens", 500);
+                    JSONObject body = buildBody(str3, jSONArray, jSONArray2, jSONObject);
+                    // 【规格书·规则5】回传历史思考过程：关掉时把历史消息里的 reasoning 字段剥掉，
+                    //   避免把上一轮的思考内容再次送回；开着时保持原样。
+                    if (pv != null && !pv.resendHistoryReasoning) {
+                        stripReasoning(jSONArray);
                     }
-                    body.put("temperature", 1.2d);
-                    body.put("stream", false);
-                    if (jSONArray2 != null && jSONArray2.length() > 0) {
-                        body.put("tools", jSONArray2);
-                        body.put("tool_choice", "auto");
-                    }
-                    if (jSONObject != null) {
-                        Iterator<String> keys = jSONObject.keys();
-                        while (keys.hasNext()) {
-                            String k = keys.next();
-                            Object v = jSONObject.get(k);
-                            // 【v2.9.4】-1 = 不限制输出长度：从请求体里摘掉该字段，
-                            //  交给服务端默认上限，避免小预算把中文摘要截成空 content。
-                            if ("max_tokens".equals(k) && (v instanceof Number)
-                                    && ((Number) v).intValue() < 0) {
-                                body.remove("max_tokens");
-                                continue;
-                            }
-                            body.put(k, v);
-                        }
-                    }
-                    // 兜底再规范一次：调用方若直接传了用户原始输入，这里也不至于抛 no protocol。
-                    String urlText = ApiEndpoint.chatUrl(str2);
+                    // 地址与协议头全部收口到 ApiClient：老口径传裸 baseUrl（str2），
+                    // 新口径传 Provider（协议决定路径与鉴权方式）。
+                    String urlText = pv == null ? ApiEndpoint.chatUrl(str2) : ApiClient.chatUrl(pv, str3);
                     if (urlText.isEmpty()) {
                         throw new IllegalStateException("\u8fd8\u6ca1\u586b\u63a5\u53e3\u5730\u5740");
                     }
-                    conn = (HttpURLConnection) new java.net.URL(urlText).openConnection();
+                    conn = ApiClient.open(urlText, pv, str, "POST", true);
                     if (task != null) {
                         task.conn = conn;
                     }
-                    conn.setRequestMethod("POST");
-                    conn.setConnectTimeout(15000);
-                    conn.setReadTimeout(120000);
-                    conn.setDoOutput(true);
-                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    conn.setRequestProperty("Authorization", "Bearer " + str);
-                    conn.setRequestProperty("Accept", "application/json");
-                    OutputStream os = conn.getOutputStream();
-                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
-                    os.flush();
-                    os.close();
+                    ApiClient.writeJson(conn, body.toString());
                     int code = conn.getResponseCode();
-                    String text = DeepSeekClient.readAll((code < 200 || code >= 300) ? conn.getErrorStream() : conn.getInputStream());
+                    String text = ApiClient.readBody(conn, code);
                     Logs.i("DollhouseMemo", "[http] code=" + code + " bodyLen=" + (text == null ? -1 : text.length()));
                     if (code >= 200 && code < 300) {
-                        JSONObject root = new JSONObject(text);
-                        JSONArray choices = root.optJSONArray("choices");
-                        JSONObject msg = (choices == null || choices.length() <= 0) ? null : choices.getJSONObject(0).optJSONObject("message");
-                        // 【v2.10.0】usage 是响应「顶层」字段，不在 message 里。以前只把 message
-                        //  交回上层，TokenStat.recordFrom 从 message 里找 usage 永远是 null，
-                        //  统计因此恒为 0（页面能开、数据全空）。这里把它挂到 message 上一并带回，
-                        //  键名用 __ 前缀避免与 message 自身字段冲突；runTools 重建 assistant 消息时
-                        //  只取 content / tool_calls，不会把 __usage 回灌进下一次请求体。
-                        if (msg != null) {
-                            try {
-                                JSONObject usage = root.optJSONObject("usage");
-                                if (usage != null) {
-                                    msg.putOpt("__usage", usage);
-                                }
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                        msgObject = msg;
-                        if (msg == null) {
+                        msgObject = parseOkBody(text);
+                        if (msgObject == null) {
                             errText = "\u6a21\u578b\u8fd4\u56de\u7ed3\u6784\u4e0d\u5bf9";
-                        } else {
-                            // 【v2.9.4】确诊用：finish_reason=length 即输出被预算截断；
-                            //   msgKeys 只看字段名（deepseek 系推理模型会把正文放进 reasoning_content），
-                            //   两者都不含任何正文与端点信息。
-                            try {
-                                String fr = (choices != null && choices.length() > 0)
-                                        ? choices.getJSONObject(0).optString("finish_reason", "") : "";
-                                StringBuilder keys = new StringBuilder();
-                                Iterator<String> ks = msg.keys();
-                                while (ks.hasNext()) {
-                                    keys.append(ks.next()).append(',');
-                                }
-                                Logs.i("DollhouseMemo", "[http] finishReason=" + fr
-                                        + " msgKeys=" + keys + " contentLen=" + msg.optString("content", "").length());
-                            } catch (Throwable ignored) {
-                            }
                         }
-                    } else if (code == 401) {
-                        errText = ApiEndpoint.explainHttpError(code, text, str2);
-                    } else if (code == 402) {
-                        errText = ApiEndpoint.explainHttpError(code, text, str2);
-                    } else if (code == 429) {
-                        errText = ApiEndpoint.explainHttpError(code, text, str2);
-                    } else if (jSONArray2 != null) {
-                        errText = "TOOLS_UNSUPPORTED HTTP 400: " + DeepSeekClient.shorten(text, 200);
                     } else {
-                        errText = ApiEndpoint.explainHttpError(code, text, str2);
+                        errText = buildHttpError(code, text, str2, jSONArray2);
                     }
                 } catch (Throwable t) {
                     msgObject = null;
@@ -278,30 +288,102 @@ public final class DeepSeekClient {
             }
         }, "feiyu-deepseek").start();
     }
+
+    /** 读流收口到 ApiClient（保留本方法只为兼容既有调用点）。 */
     public static String readAll(InputStream inputStream) throws Exception {
-        if (inputStream == null) {
-            return "";
-        }
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        byte[] bArr = new byte[4096];
-        while (true) {
-            int read = inputStream.read(bArr);
-            if (read <= 0) {
-                inputStream.close();
-                return new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
-            }
-            byteArrayOutputStream.write(bArr, 0, read);
-        }
+        return ApiClient.readAll(inputStream);
     }
 
+    /** 组装 chat/completions 请求体：默认参数 + tools + 调用方 extraBody 覆盖合并。 */
+    private static JSONObject buildBody(String model, JSONArray messages, JSONArray tools,
+            JSONObject extraBody) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("messages", messages);
+        // 【v2.9.4】调用方在 extraBody 里显式带了 max_tokens 就不要再塞默认值：
+        //  传 -1 表示「不限制」，该字段根本不下发，由服务端按模型默认上限处理。
+        if (!(extraBody != null && extraBody.has("max_tokens"))) {
+            body.put("max_tokens", 500);
+        }
+        body.put("temperature", 1.2d);
+        body.put("stream", false);
+        if (tools != null && tools.length() > 0) {
+            body.put("tools", tools);
+            body.put("tool_choice", "auto");
+        }
+        if (extraBody != null) {
+            Iterator<String> keys = extraBody.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                Object v = extraBody.get(k);
+                // 【v2.9.4】-1 = 不限制输出长度：从请求体里摘掉该字段，
+                //  交给服务端默认上限，避免小预算把中文摘要截成空 content。
+                if ("max_tokens".equals(k) && (v instanceof Number)
+                        && ((Number) v).intValue() < 0) {
+                    body.remove("max_tokens");
+                    continue;
+                }
+                body.put(k, v);
+            }
+        }
+        return body;
+    }
+
+    /**
+     * 解析 2xx 响应体，取第一条 choice 的 message。
+     * 【v2.10.0】usage 是响应「顶层」字段，不在 message 里。以前只把 message 交回上层，
+     *  TokenStat.recordFrom 从 message 里找 usage 永远是 null，统计因此恒为 0（页面能开、
+     *  数据全空）。这里把它挂到 message 上一并带回，键名用 __ 前缀避免与 message 自身字段
+     *  冲突；runTools 重建 assistant 消息时只取 content / tool_calls，不会回灌下一次请求体。
+     */
+    private static JSONObject parseOkBody(String text) throws Exception {
+        JSONObject root = new JSONObject(text);
+        JSONArray choices = root.optJSONArray("choices");
+        JSONObject msg = (choices == null || choices.length() <= 0)
+                ? null : choices.getJSONObject(0).optJSONObject("message");
+        if (msg == null) {
+            return null;
+        }
+        try {
+            JSONObject usage = root.optJSONObject("usage");
+            if (usage != null) {
+                msg.putOpt("__usage", usage);
+            }
+        } catch (Throwable ignored) {
+        }
+        // 【v2.9.4】确诊用：finish_reason=length 即输出被预算截断；msgKeys 只看字段名
+        //  （deepseek 系推理模型会把正文放进 reasoning_content），两者都不含正文与端点信息。
+        try {
+            String fr = (choices != null && choices.length() > 0)
+                    ? choices.getJSONObject(0).optString("finish_reason", "") : "";
+            StringBuilder keys = new StringBuilder();
+            Iterator<String> ks = msg.keys();
+            while (ks.hasNext()) {
+                keys.append(ks.next()).append(',');
+            }
+            Logs.i("DollhouseMemo", "[http] finishReason=" + fr
+                    + " msgKeys=" + keys + " contentLen=" + msg.optString("content", "").length());
+        } catch (Throwable ignored) {
+        }
+        return msg;
+    }
+
+    /**
+     * 非 2xx 的失败原因。
+     * 401/402/429 与其余状态码都走统一解释；仅在带 tools 时对 400 单独提示「不支持工具调用」。
+     */
+    private static String buildHttpError(int code, String text, String baseUrl, JSONArray tools) {
+        if (code == 401 || code == 402 || code == 429) {
+            return ApiEndpoint.explainHttpError(code, text, baseUrl);
+        }
+        if (tools != null) {
+            return "TOOLS_UNSUPPORTED HTTP 400: " + DeepSeekClient.shorten(text, 200);
+        }
+        return ApiEndpoint.explainHttpError(code, text, baseUrl);
+    }
+
+    /** 单行截断收口到 ApiClient。 */
     public static String shorten(String str, int i) {
-        if (str == null) {
-            return "";
-        }
-        String trim = str.replace('\n', ' ').trim();
-        if (trim.length() <= i) {
-            return trim;
-        }
-        return trim.substring(0, i) + "…";
+        return ApiClient.shorten(str, i);
     }
 }

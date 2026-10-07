@@ -51,7 +51,10 @@ final class HomeCards {
             }
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = UiKit.dp(ctx, 10);
+        // 【顶部不再加 margin】窗口未铺满时代，topBar 上面还有一层容器让位，
+        //   这里的 10dp 是「标题与状态栏之间」的额外呼吸；窗口铺满后这 10dp 会直接
+        //   顶在状态栏下沿、把标题又推下去，改成 0。
+        lp.topMargin = 0;
         lp.bottomMargin = UiKit.dp(ctx, 2);
         row.setLayoutParams(lp);
         return row;
@@ -134,6 +137,8 @@ final class HomeCards {
         state.setTextSize(UiKit.FS_BTN);
         state.setTextColor(UiKit.ERR);
         state.setTypeface(Typeface.DEFAULT_BOLD);
+        // 【状态图标】初始未授权：文字前面挂一枚叉图标，等 bindPermRow 按实时状态换成勾 / 叉。
+        Icons.stateIcon(state, Icons.IC_X_CIRCLE, UiKit.ERR, 13.0f, 4);
         row.addView(state, new LinearLayout.LayoutParams(-2, -2));
         // 点击动作统一交回 HomeUi 按 tag 分发，本类不认具体权限。
         row.setOnClickListener(new View.OnClickListener() {
@@ -215,18 +220,51 @@ final class HomeCards {
         row.addView(state, new LinearLayout.LayoutParams(-2, -2));
         return row;
     }
-    /** 更新 valueRow 的右侧状态文本。 */
+    /** 更新 valueRow 的右侧状态文本（不改颜色）。 */
     static void setRowValue(View row, String text) {
+        setRowValue(row, text, NO_TINT);
+    }
+
+    /** setRowValue 的「不改色」哨兵：正常颜色不可能是 -1（ARGB 恒为非负）。 */
+    static final int NO_TINT = -1;
+
+    /**
+     * 更新 valueRow 的右侧状态文本，并指定语义色。
+     *
+     * 【为何要带颜色】这些行的右侧写的是「状态」而不是「值」：
+     *   运行中 / 未运行、已设置 / 未设置、已授权 / 未授权。
+     *   之前一律 SUB 灰，用户看不出好坏 —— 这正是「未授权和已授权颜色没区分」的落点之一。
+     *
+     * @param color UiKit.OK / UiKit.ERR 语义色；传 NO_TINT 表示沿用当前色。
+     */
+    static void setRowValue(View row, String text, int color) {
         if (!(row instanceof LinearLayout)) {
             return;
         }
         LinearLayout r = (LinearLayout) row;
         if (r.getChildCount() >= 2 && r.getChildAt(1) instanceof TextView) {
             TextView tv = (TextView) r.getChildAt(1);
-            tv.setText(text == null ? "" : text);
-            // 【丝滑】状态值刷新时淡入一下，避免"秒变"的突兀。
-            tv.setAlpha(0.35f);
-            tv.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_STD).start();
+            String s = text == null ? "" : text;
+            boolean changed = !s.contentEquals(tv.getText());
+            tv.setText(s);
+            if (color != NO_TINT) {
+                // 【丝滑】走颜色插值而不是硬切：状态翻转 / 切主题时颜色是「流」过去的。
+                UiKit.setTextColorAnimated(tv, color);
+                // 【状态图标】按语义色挂一枚形状标记，与权限行同一套口径：绿 = 勾、红 = 叉。
+                //   中性色（NO_TINT / SUB）不挂 —— 「主题模式」「复制 ›」这类是入口行而不是状态行，
+                //   挂上状态标记反而语义混乱。
+                Icons.stateIcon(tv, color == UiKit.OK ? Icons.IC_CHECK_CIRCLE
+                        : color == UiKit.ERR ? Icons.IC_X_CIRCLE : 0, color, 13.0f, 4);
+            }
+            if (changed) {
+                // 【丝滑】先起弹簧脉冲，再起 alpha 淡入 —— 顺序不能反：
+                //   pulse 内部有一发 v.animate().cancel()（收掉上一段未跑完的缩放），
+                //   若放在 alpha 之后会把这次淡入一起取消，文字就卡在 0.35 透明度。
+                //   先 pulse 后 alpha，两者各管一条通道（scaleX/Y 走 Springs，alpha 走 View 动画），互不干扰。
+                UiKit.pulse(tv);
+                tv.setAlpha(0.35f);
+                tv.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_STD).start();
+            }
         }
     }
     /**

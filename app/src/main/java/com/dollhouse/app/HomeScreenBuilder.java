@@ -64,9 +64,23 @@ final class HomeScreenBuilder {
         LinearLayout box = new LinearLayout(act);
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = Math.round(act.dp(20.0f));
-        box.setPadding(pad, pad, pad, pad);
+        // 【状态栏高度不在这里留】本 box 经 HomeUi 拆分后只作「设置页」骨架，
+        //   而设置页首行就是 HomeCards.buildHeader → UiKit.topBar，它自带状态栏留白。
+        //   这里再留一次会变成双倍（实测标题被推到状态栏下方 100dp 以外）。
+        //   顶部也归零：顶栏自己已有 12dp 上内边距，这才是标准 appBar padding。
+        box.setPadding(pad, 0, pad, pad);
         scroll.addView(box, new ViewGroup.LayoutParams(-1, -2));
 
+        buildHeaderSection(act, box);
+        buildLegacyButtons(act, box);
+        buildChatSettingsSection(act, box);
+        buildLookSection(act, box);
+        return scroll;
+    }
+
+    /** 首页头部：标题 / 副标题 / 人偶 / 状态行。
+     *  【不可改】这四个控件依次是 box 的前 4 个 child，HomeUi.apply 按索引取用。 */
+    private static void buildHeaderSection(MainActivity act, LinearLayout box) {
         // 【v2.10.0】标题美化：字号加大、加粗、加字间距，颜色仍走 UiKit.TITLE（跟随主题）。
         // 【v2.10.1】字号 30sp → 36sp、顶部留白 6dp → 34dp：标题整体下移并再放大一档，
         //   与下方人偶区的距离拉开，视觉重心不再贴着屏幕顶部。
@@ -102,6 +116,10 @@ final class HomeScreenBuilder {
         act.status.setPadding(0, Math.round(act.dp(12.0f)), 0, Math.round(act.dp(12.0f)));
         box.addView(act.status);
 
+    }
+
+    /** 旧版入口按钮：悬浮窗权限 / 启动桌宠 / 停止桌宠 / 打开聊天（由 HomeUi 拆除并复用）。 */
+    private static void buildLegacyButtons(MainActivity act, LinearLayout box) {
         // 1. 悬浮窗权限
         act.overlayBtn = mkButton(act, "1. \u6388\u4e88\u300c\u663e\u793a\u5728\u5176\u4ed6\u5e94\u7528\u4e0a\u5c42\u300d");
         act.overlayBtn.setOnClickListener(new View.OnClickListener() {
@@ -156,6 +174,10 @@ final class HomeScreenBuilder {
         });
         box.addView(openChat);
 
+    }
+
+    /** 聊天设置分组：三个输入框 + 保存/测试同排 + 结果行。 */
+    private static void buildChatSettingsSection(MainActivity act, LinearLayout box) {
         // 聊天设置分组标题（SettingsPage 按此文本识别分组，不可改）。
         box.addView(sectionTitle(act, "\u804a\u5929\u8bbe\u7f6e\uff08\u4e91\u7aef API\uff09"));
 
@@ -209,6 +231,10 @@ final class HomeScreenBuilder {
         act.testResult.setTag(SettingsPage.TAG_TEST_RESULT);
         box.addView(act.testResult);
 
+    }
+
+    /** 操作方式说明 + 聊天背景选图/清除/透明度。 */
+    private static void buildLookSection(MainActivity act, LinearLayout box) {
         // 操作方式
         box.addView(sectionTitle(act, "\u64cd\u4f5c\u65b9\u5f0f"));
         box.addView(hintText(act, 0,
@@ -223,10 +249,13 @@ final class HomeScreenBuilder {
         act.bgBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                act.pickPurpose = 1;
-                PickFileActivity.setListener(act);
-                PickFileActivity.setPurpose(PetPrefs.BG_DIR);
-                PickFileActivity.start(act);
+                // 【背景裁剪】原先进 PickFileActivity 选图后直接铺满聊天页，比例不对就被拉伸；
+                //   现在跳裁剪页：选图 → 框选预览 → 按框落盘，聊天页拿到的永远不变形。
+                try {
+                    act.startActivity(new Intent(act, BackgroundCropActivity.class));
+                } catch (Throwable t) {
+                    Logs.w("DollhouseHome", "ignored", t);
+                }
             }
         });
         box.addView(act.bgBtn);
@@ -250,25 +279,15 @@ final class HomeScreenBuilder {
         act.bgAlphaLabel.setPadding(0, Math.round(act.dp(10.0f)), 0, 0);
         box.addView(act.bgAlphaLabel);
 
-        SeekBar alpha = new SeekBar(act);
+        UiKit.Slider alpha = new UiKit.Slider(act);
         alpha.setMax(100);
         alpha.setProgress(PetPrefs.chatBgAlpha(act));
-        // 【需求】滑块由系统默认绿色改成主题色圆角样式：轨道/滑块取主色，底轨取分隔线色。
-        alpha.setProgressTintList(ColorStateList.valueOf(UiKit.ACC));
-        alpha.setThumbTintList(ColorStateList.valueOf(UiKit.ACC));
-        alpha.setProgressBackgroundTintList(ColorStateList.valueOf(UiKit.LINE));
-        alpha.setSplitTrack(false);
-        alpha.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        // 【d17】由系统 SeekBar 换成自绘 UiKit.Slider：胶囊轨道 + 刻度点 + 终点标记 + 实时百分比，
+        //   形状由本 App 自己画（系统 SeekBar 的拇指/轨道样式随 ROM 走，tintList 只能改色不能改形，
+        //   做不出参考图那种形态）；配色读 UiKit.ACC / LINE / TITLE，莫奈切换时自动整体变色。
+        alpha.setOnChange(new UiKit.Slider.OnChange() {
             @Override
-            public void onStartTrackingTouch(SeekBar bar) {
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar bar) {
-            }
-
-            @Override
-            public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
+            public void onChanged(int value, boolean fromUser) {
                 PetPrefs.setChatBgAlpha(act, value);
                 act.updateBgAlphaLabel(value);
                 if (fromUser) {
@@ -276,11 +295,13 @@ final class HomeScreenBuilder {
                 }
             }
         });
-        box.addView(alpha, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams alphaLp = new LinearLayout.LayoutParams(-1, -2);
+        alphaLp.topMargin = Math.round(act.dp(4.0f));
+        box.addView(alpha, alphaLp);
         act.updateBgAlphaLabel(PetPrefs.chatBgAlpha(act));
 
-        return scroll;
     }
+
 
     /** 分组标题：16sp 加粗标题色，上间距 24dp。 */
     static TextView sectionTitle(MainActivity act, String text) {

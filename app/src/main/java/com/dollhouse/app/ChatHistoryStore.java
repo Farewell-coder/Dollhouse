@@ -8,11 +8,11 @@ import org.json.JSONObject;
  *
  * 【入口】ChatPanel（构造、发送、重生成、点赞）与 PetTalk（迷你聊天的收发与落档）。
  *
- * 【交互】历史数组仍由 host 持有（host.history），本类只读写不持有；持久化全走 PetPrefs；图片附件转 dataUrl 走 ImageStore。
+ * 【交互】历史数组仍由 host 持有（host.history），本类只读写不持有；持久化全走 PetPrefs；图片附件由 OcrEngine 扫成文字后并入正文。
  *
  * 【扩展】新增请求字段（模型参数、图片策略）只改 buildRequest；历史上限在 saveHistory 收口。
  *
- * 【坑】history 每次请求都会整段带上，改这里会直接影响 token 消耗；requestHasImage 为 host 字段，不能本地缓存。
+ * 【坑】history 每次请求都会整段带上，改这里会直接影响 token 消耗。
  */
 final class ChatHistoryStore {
     // 从偏好恢复「当前会话」的对话历史。
@@ -613,29 +613,34 @@ final class ChatHistoryStore {
         return out;
     }
     static JSONArray buildRequest(ChatPanel host) {
-        // 兼容入口：把「本次是否带图」写回 host 字段（ChatPanel 用它挑 visionModel）。
-        boolean[] hasImage = new boolean[1];
-        JSONArray jSONArray = buildRequest(host.getContext(), host.history, hasImage);
-        host.requestHasImage = hasImage[0];
-        return jSONArray;
-    }
-    static JSONArray buildRequest(android.content.Context ctx, JSONArray history) {
-        return buildRequest(ctx, history, null);
+        // 兼容入口：保留给仍按 host 调用的旧位置。
+        return buildRequest(host.getContext(), host.history);
     }
     /**
      * 【通用版】组装一次请求的全部 system 消息（人设 / 好感度 / 思考档位 / 长期记忆 / 学习示例）
      *   + 最近 12 条对话。参数与开关全部读自 PetPrefs，两个入口（全屏页 / 迷你聊天框）行为不会分叉。
-     * 【hasImageOut】长度 1 的 boolean 数组，回传「本次请求是否带图」；传 null 表示调用方不关心。
+     * 【OCR】图片不再以 image_url 上送，改成本地扫成文字拼进正文 —— 于是这里不再需要
+     *   「本次请求是否带图」这类回传参数，模型也一律用同一个（普通文本模型即可）。
      */
-    static JSONArray buildRequest(android.content.Context ctx, JSONArray history, boolean[] hasImageOut) {
+    static JSONArray buildRequest(android.content.Context ctx, JSONArray history) {
         JSONArray jSONArray = new JSONArray();
-        boolean hasImage = false;
         try {
             int affection = PetPrefs.affection(ctx);
             JSONObject jSONObject = new JSONObject();
             jSONObject.put("role", "system");
             jSONObject.put("content", 0 != 0 ? PetPrefs.localSystemPrompt(ctx, affection, PetPrefs.webSearchEnabled(ctx)) : PetPrefs.SYSTEM_PROMPT);
             jSONArray.put(jSONObject);
+            // 【设备操作】lamda 服务在跑时，追加一条独立 system 消息，告诉模型她手上还有 device 工具。
+            // 【为什么独立一条】人设原文 SYSTEM_PROMPT 属保留内容、一个字不动（与下面「回复格式」同款做法）；
+            //   而设备能力是「服务在不在」决定的运行时状态，没法写死在原文里。
+            // 【门控】服务没起就不加这段 —— 提示词里写着会用工具、tools 里却没有，模型会瞎编。
+            String deviceHint = LamdaManager.devicePrompt();
+            if (!deviceHint.isEmpty()) {
+                JSONObject devObj = new JSONObject();
+                devObj.put("role", "system");
+                devObj.put("content", deviceHint);
+                jSONArray.put(devObj);
+            }
             if (0 == 0) {
                 JSONObject jSONObject2 = new JSONObject();
                 jSONObject2.put("role", "system");
@@ -660,100 +665,133 @@ final class ChatHistoryStore {
             fmtObj.put("content", "【回复格式】你对主人说的话必须写在正文里，正文不能为空；"
                     + "推理、分析、自我检查的过程请放在思考区，既不要混进正文，也不要用思考区代替正文。");
             jSONArray.put(fmtObj);
-            int i = 2;
-            // 总记忆库：AI 自主写入的长期记忆，作为额外 system 提示注入（上限 1200 字）。
-            // 【开关】加号面板里可以关掉注入：她照旧往库里写，但不再随时「记得」这些事。
-            String memory = PetPrefs.memInject(ctx)
-                    ? MemDb.recentText(ctx, MemDb.MAX_INJECT_CHARS) : "";
-            if (!memory.isEmpty()) {
-                JSONObject memObj = new JSONObject();
-                memObj.put("role", "system");
-                memObj.put("content", "【关于主人的长期记忆】\n" + memory + "\n（这些是之前记下的事，回答时可以自然地用到，不要生硬复述。）");
-                jSONArray.put(memObj);
-            }
-            // 【核心修复】旧摘要（kind=summary）挂在历史头部，而下面只遍历最后 12 条，
-            //   对话一长它就永远进不了请求体 —— 表面现象就是「AI 记不住历史的话」。
-            //   这里把摘要从历史里单独拎出来显式注入，不再依赖「恰好落在 12 条窗口里」。
-            JSONArray summaries = new JSONArray();
-            for (int k = 0; k < history.length(); k++) {
-                JSONObject o = history.optJSONObject(k);
-                if (o != null && "summary".equals(o.optString("kind"))) {
-                    String c = o.optString("content", "");
-                    if (!c.trim().isEmpty()) {
-                        summaries.put(c);
-                    }
-                }
-            }
-            if (summaries.length() > 0) {
-                StringBuilder sb = new StringBuilder("【历史对话摘要】\n");
-                for (int k = 0; k < summaries.length(); k++) {
-                    sb.append(summaries.optString(k));
-                    sb.append('\n');
-                }
-                sb.append("（以上是你和主人早期对话的归档要点，接着聊时可以自然地用到，不要生硬复述。）");
-                JSONObject sumObj = new JSONObject();
-                sumObj.put("role", "system");
-                sumObj.put("content", sb.toString());
-                jSONArray.put(sumObj);
-            }
-            if (PetPrefs.learnEnabled(ctx)) {
-                JSONArray learnExamples = PetPrefs.learnExamples(ctx);
-                for (int length = learnExamples.length() - Math.min(0 != 0 ? 2 : 3, learnExamples.length()); length < learnExamples.length(); length++) {
-                    JSONObject optJSONObject = learnExamples.optJSONObject(length);
-                    if (optJSONObject != null) {
-                        JSONObject jSONObject3 = new JSONObject();
-                        jSONObject3.put("role", "user");
-                        jSONObject3.put("content", optJSONObject.optString("u"));
-                        jSONArray.put(jSONObject3);
-                        JSONObject jSONObject4 = new JSONObject();
-                        jSONObject4.put("role", "assistant");
-                        jSONObject4.put("content", optJSONObject.optString("a"));
-                        jSONArray.put(jSONObject4);
-                    }
-                }
-            }
-            boolean z = false;
-            int max = Math.max(0, history.length() - (0 != 0 ? 6 : 12));
-            while (max < history.length()) {
-                JSONObject optJSONObject2 = history.optJSONObject(max);
-                if (optJSONObject2 != null && !"summary".equals(optJSONObject2.optString("kind"))) {
-                    String optString = optJSONObject2.optString("role");
-                    String optString2 = optJSONObject2.optString("content");
-                    String optString3 = optJSONObject2.optString("image", null);
-                    if ((optString3 == null || optString3.isEmpty() || !"user".equals(optString) || i <= 0 || !ImageStore.exists(ctx, optString3)) ? z : true) {
-                        JSONArray jSONArray2 = new JSONArray();
-                        JSONObject jSONObject5 = new JSONObject();
-                        jSONObject5.put("type", "text");
-                        jSONObject5.put("text", optString2);
-                        jSONArray2.put(jSONObject5);
-                        JSONObject jSONObject6 = new JSONObject();
-                        jSONObject6.put("type", "image_url");
-                        JSONObject jSONObject7 = new JSONObject();
-                        jSONObject7.put("url", ImageStore.dataUrl(ctx, optString3));
-                        jSONObject7.put("detail", "low");
-                        jSONObject6.put("image_url", jSONObject7);
-                        jSONArray2.put(jSONObject6);
-                        JSONObject jSONObject8 = new JSONObject();
-                        jSONObject8.put("role", "user");
-                        jSONObject8.put("content", jSONArray2);
-                        jSONArray.put(jSONObject8);
-                        i--;
-                        hasImage = true;
-                    } else {
-                        JSONObject jSONObject9 = new JSONObject();
-                        jSONObject9.put("role", optString);
-                        jSONObject9.put("content", optString2);
-                        jSONArray.put(jSONObject9);
-                    }
-                }
-                max++;
-                z = false;
-            }
+            appendMemory(ctx, jSONArray);
+            appendSummaries(jSONArray, history);
+            appendLearnExamples(ctx, jSONArray);
+            appendTailMessages(ctx, jSONArray, history);
         } catch (Throwable unused) {
         }
-        if (hasImageOut != null) {
-            hasImageOut[0] = hasImage;
-        }
         return jSONArray;
+    }
+    /** 长期记忆注入：AI 自主写入的记忆库正文（上限见 MemDb.MAX_INJECT_CHARS），可在加号面板关闭。 */
+    private static void appendMemory(android.content.Context ctx, JSONArray arr) throws Exception {
+        // 总记忆库：AI 自主写入的长期记忆，作为额外 system 提示注入（上限 1200 字）。
+        // 【开关】加号面板里可以关掉注入：她照旧往库里写，但不再随时「记得」这些事。
+        String memory = PetPrefs.memInject(ctx)
+                ? MemDb.recentText(ctx, MemDb.MAX_INJECT_CHARS) : "";
+        if (!memory.isEmpty()) {
+            JSONObject memObj = new JSONObject();
+            memObj.put("role", "system");
+            memObj.put("content", "【关于主人的长期记忆】\n" + memory + "\n（这些是之前记下的事，回答时可以自然地用到，不要生硬复述。）");
+            arr.put(memObj);
+        }
+    }
+
+    /**
+     * 旧摘要（kind=summary）单独拎出来注入。
+     * 【为什么】摘要挂在历史头部，而尾部窗口只取最近 12 条，对话一长它就永远进不了请求体，
+     *   表面现象就是「AI 记不住历史的话」。
+     */
+    private static void appendSummaries(JSONArray arr, JSONArray history) throws Exception {
+        // 【核心修复】旧摘要（kind=summary）挂在历史头部，而下面只遍历最后 12 条，
+        //   对话一长它就永远进不了请求体 —— 表面现象就是「AI 记不住历史的话」。
+        //   这里把摘要从历史里单独拎出来显式注入，不再依赖「恰好落在 12 条窗口里」。
+        JSONArray summaries = new JSONArray();
+        for (int k = 0; k < history.length(); k++) {
+            JSONObject o = history.optJSONObject(k);
+            if (o != null && "summary".equals(o.optString("kind"))) {
+                String c = o.optString("content", "");
+                if (!c.trim().isEmpty()) {
+                    summaries.put(c);
+                }
+            }
+        }
+        if (summaries.length() > 0) {
+            StringBuilder sb = new StringBuilder("【历史对话摘要】\n");
+            for (int k = 0; k < summaries.length(); k++) {
+                sb.append(summaries.optString(k));
+                sb.append('\n');
+            }
+            sb.append("（以上是你和主人早期对话的归档要点，接着聊时可以自然地用到，不要生硬复述。）");
+            JSONObject sumObj = new JSONObject();
+            sumObj.put("role", "system");
+            sumObj.put("content", sb.toString());
+            arr.put(sumObj);
+        }
+    }
+
+    /** 学习示例注入：取最近几条「点赞 → 示范」，成对拼成 user/assistant。 */
+    private static void appendLearnExamples(android.content.Context ctx, JSONArray arr) throws Exception {
+        if (PetPrefs.learnEnabled(ctx)) {
+            JSONArray learnExamples = PetPrefs.learnExamples(ctx);
+            for (int length = learnExamples.length() - Math.min(0 != 0 ? 2 : 3, learnExamples.length()); length < learnExamples.length(); length++) {
+                JSONObject optJSONObject = learnExamples.optJSONObject(length);
+                if (optJSONObject != null) {
+                    JSONObject jSONObject3 = new JSONObject();
+                    jSONObject3.put("role", "user");
+                    jSONObject3.put("content", optJSONObject.optString("u"));
+                    arr.put(jSONObject3);
+                    JSONObject jSONObject4 = new JSONObject();
+                    jSONObject4.put("role", "assistant");
+                    jSONObject4.put("content", optJSONObject.optString("a"));
+                    arr.put(jSONObject4);
+                }
+            }
+        }
+    }
+
+    /**
+     * 尾部窗口：最近 12 条对话。
+     * 【OCR】图片不再以 image_url 上送，改成本地扫成文字拼进正文；带图消息有配额（i 初值 2）。
+     */
+    private static void appendTailMessages(android.content.Context ctx, JSONArray arr, JSONArray history) throws Exception {
+        int i = 2;
+        boolean z = false;
+        int max = Math.max(0, history.length() - (0 != 0 ? 6 : 12));
+        while (max < history.length()) {
+            JSONObject optJSONObject2 = history.optJSONObject(max);
+            if (optJSONObject2 != null && !"summary".equals(optJSONObject2.optString("kind"))) {
+                String optString = optJSONObject2.optString("role");
+                String optString2 = optJSONObject2.optString("content");
+                String optString3 = optJSONObject2.optString("image", null);
+                if ((optString3 == null || optString3.isEmpty() || !"user".equals(optString) || i <= 0 || !ImageStore.exists(ctx, optString3)) ? z : true) {
+                    // 【OCR】图片不再以 image_url 原样上送，改成本地扫成文字拼进正文。
+                    //   原链路碰上不支持图片的模型会整条请求失败；换成 text 后任何模型都能看懂。
+                    JSONObject jSONObject8 = new JSONObject();
+                    jSONObject8.put("role", optString);
+                    jSONObject8.put("content", withOcrCaption(ctx, optString2, optString3));
+                    arr.put(jSONObject8);
+                    i--;
+                } else {
+                    JSONObject jSONObject9 = new JSONObject();
+                    jSONObject9.put("role", optString);
+                    jSONObject9.put("content", optString2);
+                    arr.put(jSONObject9);
+                }
+            }
+            max++;
+            z = false;
+        }
+    }
+
+    /**
+     * 【OCR】把图片扫出来的文字拼进要发给模型的正文。
+     * 【为什么】图片不再以 image_url 原样上送（不少模型不认这个字段，整条请求会失败），
+     *   改为本地 OCR 出文字、当正文发出去后，任何纯文本模型都能看懂图里写了什么。
+     * 【还没扫过时】不添乱，原样返回用户写的话（发请求前 OcrEngine 会先补扫）。
+     */
+    private static String withOcrCaption(android.content.Context ctx, String text, String imagePath) {
+        String ocr = OcrEngine.text(ctx, imagePath);
+        if (ocr == null) {
+            return text;
+        }
+        String body = (text == null) ? "" : text.trim();
+        if (ocr.trim().isEmpty()) {
+            String note = "【图片】这张图里没有可识别的文字。";
+            return body.isEmpty() ? note : body + "\n\n" + note;
+        }
+        StringBuilder sb = new StringBuilder(body.isEmpty() ? "【图片里的文字】" : body + "\n\n【图片里的文字】");
+        sb.append('\n').append(ocr);
+        return sb.toString();
     }
 }

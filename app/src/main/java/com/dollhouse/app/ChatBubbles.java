@@ -84,13 +84,13 @@ final class ChatBubbles {
         linearLayout.setOrientation(0);
         linearLayout.setGravity(8388611);
         linearLayout.setPadding(UiKit.dp(host.getContext(), 2.0f), 0, 0, UiKit.dp(host.getContext(), 6.0f));
-        linearLayout.addView(actionChip(host, "↻ 重新生成", false, new View.OnClickListener() {            @Override
+        linearLayout.addView(actionChip(host, "重新生成", Icons.IC_REFRESH, false, new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 host.regenerate();
             }
         }));
         // 【交互】复制看上一条助手回复：取 history 里最后一条 assistant 正文。
-        linearLayout.addView(actionChip(host, "⧉ 复制", false, new View.OnClickListener() {            @Override
+        linearLayout.addView(actionChip(host, "复制", Icons.IC_COPY, false, new View.OnClickListener() {            @Override
             public void onClick(View view) {
                 host.copyLastReply();
             }
@@ -114,17 +114,36 @@ final class ChatBubbles {
         }
     }
     static TextView actionChip(ChatPanel host, String str, boolean z, View.OnClickListener onClickListener) {
-        TextView textView = new TextView(host.getContext());
+        return actionChip(host, str, 0, z, onClickListener);
+    }
+
+    /**
+     * 带图标的操作药丸。
+     *
+     * 【为什么用复合 drawable 而不是并排两个 View】药丸已由 UiKit.round 描出圆角背景，
+     *   再套一层 LinearLayout 会让按压缩放（UiKit.press）只作用到容器、文字背景不跟着缩，
+     *   看着像「两层壳在错位」。复合 drawable 直接长在文字上，缩放是整体一体的。
+     *
+     * @param iconRes Icons.IC_* 常量；传 0 = 纯文字（兼容旧调用）。
+     */
+    static TextView actionChip(ChatPanel host, String str, int iconRes, boolean z, View.OnClickListener onClickListener) {
+        Context ctx = host.getContext();
+        TextView textView = new TextView(ctx);
         textView.setText(str);
         textView.setTextSize(UiKit.FS_CHIP);
-        textView.setPadding(UiKit.dp(host.getContext(), 10.0f), UiKit.dp(host.getContext(), 5.0f), UiKit.dp(host.getContext(), 10.0f), UiKit.dp(host.getContext(), 5.0f));
+        textView.setPadding(UiKit.dp(ctx, 10.0f), UiKit.dp(ctx, 5.0f), UiKit.dp(ctx, 10.0f), UiKit.dp(ctx, 5.0f));
         textView.setBackground(UiKit.round(z ? UiKit.CHAT_CHIP_ON : UiKit.CHAT_CHIP_OFF,
-                host.getContext(), UiKit.RADIUS_CHIP));
+                ctx, UiKit.RADIUS_CHIP));
         textView.setTextColor(z ? UiKit.CHAT_CHIP_FG : UiKit.CHAT_CHIP_MUTE);
+        if (iconRes != 0) {
+            // 图标与文字同色：药丸的语义色一变，图标跟着走，不会留一枚「没换色」的旧图标。
+            Icons.stateIcon(textView, iconRes, textView.getCurrentTextColor(), 13.0f, 4);
+        }
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-2, -2);
-        layoutParams.rightMargin = UiKit.dp(host.getContext(), 6.0f);
+        layoutParams.rightMargin = UiKit.dp(ctx, 6.0f);
         textView.setLayoutParams(layoutParams);
         textView.setOnClickListener(onClickListener);
+        UiKit.press(textView);
         return textView;
     }
     // 滚到消息区底部。
@@ -284,7 +303,7 @@ final class ChatBubbles {
         label.setTextColor(UiKit.SUB);
         label.setGravity(17);
         label.setPadding(UiKit.dp(ctx, 10.0f), UiKit.dp(ctx, 3.0f), UiKit.dp(ctx, 10.0f), UiKit.dp(ctx, 3.0f));
-        head.addView(Icons.view(ctx, Icons.IC_INFO, 13.0f, UiKit.SUB));
+        head.addView(Icons.view(ctx, Icons.IC_CHAT, 13.0f, UiKit.SUB));
         head.addView(label, new LinearLayout.LayoutParams(-2, -2));
         head.addView(sumLine(ctx), new LinearLayout.LayoutParams(0, Math.max(1, UiKit.dp(ctx, 1.0f)), 1.0f));
         box.addView(head, new LinearLayout.LayoutParams(-1, -2));

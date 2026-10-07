@@ -48,11 +48,28 @@ public final class PetPrefs {
     }
 
     public static SharedPreferences get(Context context) {
-        return context.getSharedPreferences(NAME, 0);
+        SharedPreferences p = context.getSharedPreferences(NAME, 0);
+        purgeDeadKeys(p);
+        forceMemSwitchesOn(p);
+        return p;
     }
 
+    /**
+     * 当前生效的 API 密钥（明文）。
+     * 【v0.0.4】密钥已迁到「供应商 / 模型管理」里按供应商加密保存，这里只做转发。
+     * 【修·必须】这里原有一段对旧明文键 api_key 的静默兜底。该键已被
+     *   ProviderStore.purgeLegacy 在首次读盘时清掉，兜底恒返回空串 ——
+     *   结果是「本地根本没有密钥」被无声地当成空 Key 发出去，服务端回
+     *   401 Invalid token，用户读成「密钥不对 / 中转站不兼容」，根因被掩盖。
+     *   现在如实返回空串，由发请求前的那道预检负责把原因说清楚。
+     * 【隐私】明文只在本方法返回后短暂存在于内存，绝不写日志、绝不落盘。
+     */
     public static String apiKey(Context context) {
-        return get(context).getString("api_key", "").trim();
+        String k = ProviderStore.activeKey(context);
+        if (k != null && !k.isEmpty()) {
+            return k;
+        }
+        return "";
     }
 
     public static void setApiKey(Context context, String str) {
@@ -60,6 +77,10 @@ public final class PetPrefs {
     }
 
     public static String baseUrl(Context context) {
+        String active = ProviderStore.activeBaseUrl(context);
+        if (active != null && !active.isEmpty()) {
+            return active;
+        }
         String trim = get(context).getString("base_url", "").trim();
         return normUrl(trim.isEmpty() ? "" : trim);
     }
@@ -68,7 +89,17 @@ public final class PetPrefs {
         get(context).edit().putString("base_url", str == null ? "" : str.trim()).apply();
     }
 
+    /**
+     * 当前生效的模型名（请求体里的 "model"）。
+     * 【v0.0.4】模型已迁到「供应商 / 模型管理」，这里只做转发：优先取当前选中的模型，
+     *   没有配置供应商时回退旧键 model（老版本留下的单模型配置还能继续用）。
+     * 【修】上游 ProviderStore.activeModel 返回的是 displayName（模型名），不是内部记录 id。
+     */
     public static String model(Context context) {
+        String m = ProviderStore.activeModel(context);
+        if (m != null && !m.isEmpty()) {
+            return m;
+        }
         String trim = get(context).getString("model", "").trim();
         return trim.isEmpty() ? "" : trim;
     }
@@ -166,8 +197,9 @@ public final class PetPrefs {
 
     // ---- 上下文总结 / 压缩 ----
 
+    /** 「自动总结」总开关：默认开启（新装不再需要用户手动拨）。 */
     public static boolean memAuto(Context context) {
-        return get(context).getBoolean("mem_auto", false);
+        return get(context).getBoolean("mem_auto", true);
     }
 
     public static void setMemAuto(Context context, boolean z) {
@@ -239,6 +271,9 @@ public final class PetPrefs {
     public static final int[] MEM_THRESHOLDS = {20, 30, 40, 50};
     /** 档位表版本号。表结构每变一次就 +1。 */
     private static final int MEM_TABLE_VER = 2;
+
+    /** 记忆三项开关「强制开启」的一次性标记版本号。 */
+    private static final int MEM_SWITCH_VER = 1;
     /** 上一版的档位表，只用于把旧下标换算回条数。 */
     private static final int[] MEM_THRESHOLDS_V1 = {20, 40, 80};
     /** 默认档位（40 条）在 MEM_THRESHOLDS 里的下标。 */
@@ -391,6 +426,20 @@ public static void setLearnEnabled(Context context, boolean z) {
     public static void setUserStopped(Context context, boolean z) {
         get(context).edit().putBoolean("user_stopped", z).apply();
     }
+    /**
+     * 【lamda 自动保活】设备服务掉了 / 手机重启后，是否自动把它拉回来。
+     *
+     * 【为什么默认开】服务包有 204MB，肯把它下载下来的用户就等于已经表达过「我要用这个功能」，
+     *   再要求他多点一次开关是多余的。没下过包的用户不会因此产生任何后台行为 ——
+     *   巡检的第一道门就是「包在不在本地」，走不到用这个值的地方，行为与开关关闭完全一致。
+     *   用户显式关掉后本键被写入 false，之后一直以他的选择为准。
+     */
+    public static boolean lamdaAutoStart(Context context) {
+        return get(context).getBoolean("lamda_autostart", true);
+    }
+    public static void setLamdaAutoStart(Context context, boolean z) {
+        get(context).edit().putBoolean("lamda_autostart", z).apply();
+    }
     // 主题模式：0=随系统 / 1=白色 / 2=暗色 / 3=纯黑（见 ThemeManager.MODE_*）。
     public static int themeMode(Context context) {
         return get(context).getInt("theme_mode", 0);
@@ -486,6 +535,73 @@ public static void setLearnEnabled(Context context, boolean z) {
 
     public static void setChatBgAlpha(Context context, int i) {
         get(context).edit().putInt("chat_bg_alpha", Math.max(0, Math.min(100, i))).apply();
+    }
+    /**
+     * 聊天背景的宽高比（宽 / 高，浮点）。
+     * 【用途】裁剪页按这个比例出裁剪框，保证裁出来的图铺满聊天区时不被拉伸。
+     * 【写入】聊天页首帧量到 scroller 实际尺寸后回填一次；为 0 表示尚未量到。
+     * 【兜底】读取方遇到 0 应退回整屏比例自行计算（见 BackgroundCropActivity）。
+     */
+    public static float chatBgRatio(Context context) {
+        return get(context).getFloat("chat_bg_ratio", 0.0f);
+    }
+    public static void setChatBgRatio(Context context, float f) {
+        if (f <= 0.0f || Float.isNaN(f) || Float.isInfinite(f)) {
+            return;
+        }
+        get(context).edit().putFloat("chat_bg_ratio", f).apply();
+    }
+    /**
+     * 一次性清理旧「悬浮聊天窗」遗留键（chat_w / chat_h / chat_x / chat_y）。
+     * 【坑·致命】参数必须是已解析好的 SharedPreferences，绝不能写成 Context 再回头调 get()：
+     *   本方法由 get() 调用，若内部再调 get() 就是无限互递归，主线程会直接栈溢出
+     *   （实测 102667 层后 OOM/ANR，v0.0.3 曾因此完全无法启动）。
+     * 【为什么留着不行】那些键记录的是已删除功能的窗口尺寸与位置，
+     *   既无人读取，又会随备份带出去，属于纯垃圾；一次性抹掉后永不再清。
+     */
+    private static void purgeDeadKeys(SharedPreferences p) {
+        try {
+            if (p.getBoolean("dead_keys_purged", false)) {
+                return;
+            }
+            SharedPreferences.Editor ed = p.edit().putBoolean("dead_keys_purged", true);
+            ed.remove("chat_w");
+            ed.remove("chat_h");
+            ed.remove("chat_x");
+            ed.remove("chat_y");
+            ed.apply();
+        } catch (Throwable ignored) {
+            Logs.w("Dollhouse", "ignored", ignored);
+        }
+    }
+
+    /**
+     * 一次性把「记忆三项开关」拨到开启：自动总结 / 自动保存记忆 / 自动精简记忆。
+     *
+     * 【为什么需要】这三个开关的默认值虽已改为 true，但默认值只对「从未落盘过该键」的机器生效；
+     *   老用户的 prefs 里已经存了历史值（例如 mem_auto=false），改默认值对他们毫无作用。
+     *   因此升级后主动覆盖一次，保证「装上就是开的、功能默认生效」。
+     *
+     * 【为什么只做一次】用 mem_switch_ver 标记（与 MEM_TABLE_VER 同一套写法）。做完之后用户
+     *   若手动关掉某个开关，重启不会再被强制拨回来 —— 不夺走用户的选择权。
+     *
+     * 【坑·致命】参数必须是已解析好的 SharedPreferences：本方法由 get() 调用，
+     *   内部绝不能再调 get()，否则与 purgeDeadKeys 犯同一个无限递归的错。
+     */
+    private static void forceMemSwitchesOn(SharedPreferences p) {
+        try {
+            if (p.getInt("mem_switch_ver", 0) >= MEM_SWITCH_VER) {
+                return;
+            }
+            p.edit()
+                    .putBoolean("mem_auto", true)
+                    .putBoolean("mem_auto_save", true)
+                    .putBoolean("mem_auto_merge", true)
+                    .putInt("mem_switch_ver", MEM_SWITCH_VER)
+                    .apply();
+        } catch (Throwable ignored) {
+            Logs.w("Dollhouse", "ignored", ignored);
+        }
     }
 
     /**

@@ -27,6 +27,7 @@
         </intent>
     </queries>
     <application
+        android:name=".keepalive.DollhouseApp"
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
@@ -66,6 +67,16 @@
              与「发图失效」是同一个根因。去掉该属性后本页可存活到结果投递完成，再自行 finish()。 -->
         <activity
             android:name=".PickFileActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- 【背景裁剪】导入主题照片的中间页：选图 → 裁剪预览 → 按框落盘。
+             theme 用 Manifest 声明（而不是代码 setTheme），否则窗口背景还是 Light 的
+             浅色底，冷启动那一下会白闪。Translucent 会保留覆盖它的系统相册，
+             与 PickFileActivity 同一套路。 -->
+        <activity
+            android:name=".BackgroundCropActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
@@ -110,8 +121,33 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- 【无感保活】覆盖安装后同样要恢复：JobScheduler 的 persisted 任务在包被替换时会被清掉。 -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- 【无感保活】常驻保活服务：保的是「本应用进程」，不是人偶。
+             它在 onStartCommand 里挂一个 1×1 完全透明的悬浮窗（KeepAliveOverlay），
+             把进程从「缓存进程」提升到「可见进程」，从而不容易被系统回收。
+             与下面的 KeepAliveJobService / KeepAliveAlarmReceiver 互补：
+             前者让进程不容易死，后两者负责被回收后拉回来。
+             必须声明 specialUse 类型（targetSdk 34 起前台服务需显式类型）。 -->
+        <service
+            android:name=".keepalive.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="keep app process alive" />
+        </service>
+        <!-- 【无感保活】周期自检任务：JobScheduler 触发，落到 KeepAliveJobService。 -->
+        <service
+            android:name=".keepalive.KeepAliveJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 【无感保活】兜底闹钟：仅当厂商冻结 JobScheduler 时才用得上，6 小时一次。 -->
+        <receiver
+            android:name=".keepalive.KeepAliveAlarmReceiver"
+            android:exported="false" />
         <!-- 快捷设置磁贴：状态跟随桌宠启停，点一下切换。
              必须声明 BIND_QUICK_SETTINGS_TILE 且 exported="true"，否则系统绑不上。 -->
         <!-- Shizuku 客户端 provider：server（adb/root）启动本应用时把 binder 推到这里。

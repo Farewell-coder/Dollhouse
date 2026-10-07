@@ -136,7 +136,9 @@ final class MemMerger {
         }
 
         try {
-            DeepSeekClient.chat(PetPrefs.apiKey(app), PetPrefs.baseUrl(app), PetPrefs.model(app), messages,
+            // 【规格书】请求按「供应商 + 模型」组装，地址与协议头走 ApiClient。
+        DeepSeekClient.chat(ProviderStore.activeProvider(app), PetPrefs.apiKey(app),
+                PetPrefs.baseUrl(app), PetPrefs.model(app), messages,
                     new DeepSeekClient.Callback() {
                         @Override
                         public void onResult(final String reply, final String error) {

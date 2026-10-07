@@ -21,6 +21,16 @@
 # 本工程 android.useAndroidX=false，注解类不在类路径上，不静默会报 missing class。
 -dontwarn androidx.annotation.**
 
+# ---- MLKit OCR：靠 Manifest meta-data + 反射加载 Registrar，模型解析走 JNI ----
+# 【为何必须整包 keep】文字识别组件不是直接 new 出来的，而是先由
+#   MlKitComponentDiscoveryService 读 Manifest 里的 meta-data，再反射加载各 Registrar，
+#   最后反射查服务实现；R8 看不到这些字符串背后的类，裁掉后运行时会报
+#   「MlKitException: Failed to load text recognizer」这类只在真机才暴露的错。
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_vision_text** { *; }
+-dontwarn com.google.mlkit.**
+-dontwarn com.google.android.gms.internal.mlkit_vision_text**
+
 # ---- 反射调用的兜底：保留签名 / 注解 / 内部类信息 ----
 # getDeclaredMethod / getMethod 依赖参数类型与返回类型签名，
 # 匿名类与内部类被改名后 try/catch 的 getSimpleName() 会失真，一并保留属性。

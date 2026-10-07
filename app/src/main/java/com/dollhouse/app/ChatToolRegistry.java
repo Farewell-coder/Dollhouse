@@ -25,10 +25,14 @@ final class ChatToolRegistry {
     private static final String NAME_REMEMBER = "remember";
     /** 系统命令工具的注册名：不下发时也不影响「未授权→不出现」的门控语义。 */
     private static final String NAME_SHELL = "shell";
+    /** 设备控制工具的注册名：lamda 服务没跑时不下发，避免模型反复空调用。 */
+    private static final String NAME_DEVICE = LamdaTool.NAME;
     static {
         TOOLS.add(new SearchTool());
         // Shizuku 系统命令工具：常驻注册，是否真正下发由 buildSchema 的授权门控决定。
         TOOLS.add(new ShellTool());
+        // lamda 设备控制工具：同样常驻注册，门控在 buildSchema。
+        TOOLS.add(new LamdaTool());
     }
     private ChatToolRegistry() {
     }
@@ -68,6 +72,9 @@ final class ChatToolRegistry {
      */
     static JSONArray buildSchema(boolean webSearch, boolean remember) {
         boolean shellReady = ShizukuBridge.isReady();
+        // 【门控】lamda 设备工具只在服务真的活着时才下发；没起就摆给模型只会烧上下文。
+        //   探活走 2s 缓存，主线程调用不会卡。
+        boolean deviceReady = LamdaManager.aliveCached();
         JSONArray jSONArray = new JSONArray();
         try {
             for (int i = 0; i < TOOLS.size(); i++) {
@@ -79,6 +86,9 @@ final class ChatToolRegistry {
                     continue;
                 }
                 if (!shellReady && NAME_SHELL.equals(chatTool.name())) {
+                    continue;
+                }
+                if (!deviceReady && NAME_DEVICE.equals(chatTool.name())) {
                     continue;
                 }
                 JSONObject jSONObject = new JSONObject();

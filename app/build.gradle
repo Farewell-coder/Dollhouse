@@ -1,5 +1,8 @@
 plugins {
     id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.kapt'
+    id 'com.google.dagger.hilt.android'
 }
 
 // 签名凭据从 keystore.properties 读取（该文件不入版本库，见 .gitignore）。
@@ -19,8 +22,10 @@ android {
         applicationId "com.dollhouse.app"
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName "0.0.3"
+        versionCode 4
+        versionName "0.0.4"
+        // 资源裁剪：本应用文案为中文，en 仅作系统兜底。
+        resConfigs "zh", "en"
     }
 
     signingConfigs {
@@ -57,6 +62,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 
     lint {
         abortOnError false
@@ -74,4 +82,15 @@ dependencies {
     implementation('dev.rikka.shizuku:provider:13.1.5') {
         exclude group: 'androidx.annotation'
     }
+    // 【OCR】本地离线文字识别（中文）：把「图片 → 文字 → 交给模型」这条链路的后半段做掉。
+    // 选 bundled 版而非 GMS 版 —— 模型随包分发，不依赖 Play 服务动态下载，离线也能识别，
+    // 避免「设备拉不到模型 → OCR 静默失败」这种更难查的故障。
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+
+    // 【无感保活】保活模块独立使用 Kotlin + Hilt + 协程；存量 Java 不改。
+    // 保活全部基于系统 API（JobScheduler / AlarmManager / ConnectivityManager），
+    // 不引入任何第三方保活 SDK。
+    implementation 'com.google.dagger:hilt-android:2.51.1'
+    kapt 'com.google.dagger:hilt-android-compiler:2.51.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 }

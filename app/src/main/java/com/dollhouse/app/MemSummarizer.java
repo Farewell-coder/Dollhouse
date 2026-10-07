@@ -344,117 +344,17 @@ final class MemSummarizer {
             }
             return;
         }
-        JSONArray messages = new JSONArray();
-        try {
-            JSONObject sys = new JSONObject();
-            sys.put("role", "system");
-            sys.put("content", SUMMARY_PROMPT);
-            messages.put(sys);
-            JSONObject usr = new JSONObject();
-            usr.put("role", "user");
-            usr.put("content", transcript);
-            messages.put(usr);
-        } catch (Throwable unused) {
-        }
+        JSONArray messages = buildSummaryMessages(transcript);
         try {
             // 【v2.9.6】总结的输出预算：显式给 4096，效果等同「不限制」。
             //  【为什么不再传 -1】不下发 max_tokens 时，部分服务端/模型会走异常分支
             //    直接吐出空 content，用户那边看到的还是老报错「模型返回了空内容」。
             //    给一个远超 300 字中文摘要所需的显式值，既够用又不依赖服务端默认行为。
-            DeepSeekClient.chat(PetPrefs.apiKey(ctx), PetPrefs.baseUrl(ctx), PetPrefs.model(ctx), messages, 4096, new DeepSeekClient.Callback() {
+            DeepSeekClient.chat(ProviderStore.activeProvider(ctx), PetPrefs.apiKey(ctx),
+                    PetPrefs.baseUrl(ctx), PetPrefs.model(ctx), messages, 4096, new DeepSeekClient.Callback() {
             @Override
             public void onResult(final String str, final String str2) {
-                Logs.i("DollhouseMemo", "[callback] 到达 ok=" + (str != null && !str.trim().isEmpty())
-                        + " okLen=" + (str == null ? -1 : str.length())
-                        + " err=" + (str2 == null || str2.trim().isEmpty() ? "无" : "有"));
-                try {
-                    if (str == null || str.trim().isEmpty()) {
-                        // 【v2.9.1·P0】失败必须可见：原先这里直接 return，把 str2 的错误原因
-                        //  整个丢掉（覆盖所有网络/HTTP 错误与「HTTP 200 但 content 为空」），
-                        //  而全工程禁用 Toast，用户只看到「记忆总结中」闪一下 —— 就是「点了没反应」。
-                        Logs.i("DollhouseMemo", "[callback] 失败分支: 无有效内容");
-                        sink.flash(str2 == null || str2.trim().isEmpty()
-                                ? "总结没成功，稍后再试" : "总结没成功：" + str2);
-                        return;
-                    }
-                    // 【守卫①·v0.0.1 修正】两池拆分后 currentId(ctx) 只代表「当前池」的当前会话：
-                    //  人偶池的会话在「当前池是 self」时会被误判成「已切换」；反过来若用
-                    //  currentId 当锚点，人偶池压缩还会把摘要/暂存写到 self 池名下（静默串池）。
-                    //  改为「锚定会话是否仍是它所属池的当前会话」，且不触发 ensure（无副作用）；
-                    //  锚定会话被删时 currentOfPool 返回 null，比较不等 → 仍然放弃。
-                    if (!convId.equals(ChatSessions.currentOfPool(ctx, convId))) {
-                        // 【v2.9.2】换会话也要说一声，否则整条链路又一次「点了没反应」。
-                        Logs.i("DollhouseMemo", "[callback] 放弃: 会话已切换");
-                        sink.flash("已切换对话，这次总结跳过");
-                        return;
-                    }
-                    // 【守卫②·v2.9.1 修正】不再用「引用相等」判快照失效。
-                    //  请求在途期间用户很可能又发了一条消息，saveHistory → trimForSave 会把
-                    //  history 换成新数组（内容 = 原来那批 + 新增），引用比较必然不等，
-                    //  整次总结被静默丢弃 —— 真机上就是「点了没反应」。
-                    //  改成「前缀逐条比对」：只要当前历史开头那 count 条仍是当初那批，
-                    //  就在当前历史上做替换，期间新增的消息原样留在尾部。
-                    if (!prefixMatches(sink.history(), snapshot, count)) {
-                        Logs.i("DollhouseMemo", "[callback] 放弃: 前缀不匹配 curLen="
-                                + sink.history().length() + " snapLen=" + snapshot.length() + " count=" + count);
-                        sink.flash("对话已变化，这次总结跳过");
-                        return;
-                    }
-                    final String summary = str.trim();
-                    Logs.i("DollhouseMemo", "[callback] 成功: summaryLen=" + summary.length()
-                            + " count=" + count + " curLen=" + sink.history().length());
-                    MemStore.add(ctx, convId, summary, count);
-                    // 【v2.8】总结会整体替换 history，展开态的切点（头部摘要数 + count）随之失效：
-                    //         撤销展开态即可，补回的消息该被压缩的进摘要、剩下的仍在尾部，一条不丢。
-                    sink.clearPrev();
-                    // 【v2.9】真删除前先把原文存进「更早历史」暂存位：
-                    //   摘要给的是要点（长期记忆），原文仍可点顶部入口回看，
-                    //   避免「聊着聊着早期原话就再也找不回来」（真机反馈）。
-                    ChatHistoryStore.pushPrevTail(ctx, convId, snapshot, count);
-                    // 真删除：摘掉被压掉的那批，头部换成一条摘要消息。
-                    JSONArray arr = new JSONArray();
-                    JSONObject head = new JSONObject();
-                    head.put("role", "system");
-                    head.put("kind", "summary");
-                    head.put("content", "【早期对话要点】" + summary);
-                    arr.put(head);
-                    // 【v2.9.1】按**当前**历史重建（而非快照）：期间新增的消息必须留下。
-                    JSONArray cur = sink.history();
-                    for (int i = count; i < cur.length(); i++) {
-                        arr.put(cur.opt(i));
-                    }
-                    sink.setHistory(arr);
-                    // 【坑】落盘必须用显式 id 版：守卫①已确认 convId 仍是它所属池的当前会话，
-                    //   与 saveHistory(host) 内部取 currentId 的结果一致，但这里不再依赖全局指针。
-                    ChatHistoryStore.saveHistory(ctx, arr, convId);
-                    // 【v2.9.4】成功路径必须可见：原先成功时聊天区只是无声地重铺，
-                    //  用户无法区分「压好了」与「什么都没发生」，正是「总结没成功」报障的来源。
-                    sink.flash("已把 " + count + " 条压成摘要");
-                    Logs.i("DollhouseMemo", "[callback] 已落盘 newHistLen=" + sink.history().length());
-                    final Runnable after = done;
-                    sink.uiRefresh(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (after != null) {
-                                after.run();
-                            }
-                        }
-                    });
-                } catch (Throwable unused) {
-                    Logs.i("DollhouseMemo", "[callback] 成功块内异常: " + unused.getClass().getSimpleName());
-                    // 【v2.9.3·P1】成功块内的落盘/构造异常也必须说一声：否则「记忆总结中」亮一下就没，
-                    //  用户看到的仍是「点了没反应」。flashHold 保证随后的 finally 不会同帧隐藏它。
-                    sink.flash("总结写入失败，稍后再试");
-                    if (done != null) {
-                        done.run();
-                    }
-                } finally {
-                    // 【v2.9.5】回调真正到达：撤掉看门狗，正常收尾。
-                    cancelWatchdog(sink);
-                    RUNNING.set(false);
-                    // 【v2.8】无论成败都要撤掉「记忆总结中」，否则提示会永久挂在工具条上。
-                    sink.busy(false);
-                }
+                handleSummarizeResult(sink, ctx, convId, snapshot, count, done, str, str2);
             }
         });
         // 【v2.9.5】请求已发出，挂看门狗：进程被系统冻结导致回调永不到达时，
@@ -473,6 +373,130 @@ final class MemSummarizer {
                 done.run();
             }
         }
+    }
+
+    /** 构造总结请求的 messages：system 放归档提示词，user 放待归档的对话转录。 */
+    private static JSONArray buildSummaryMessages(String transcript) {
+        JSONArray messages = new JSONArray();
+        try {
+            JSONObject sys = new JSONObject();
+            sys.put("role", "system");
+            sys.put("content", SUMMARY_PROMPT);
+            messages.put(sys);
+            JSONObject usr = new JSONObject();
+            usr.put("role", "user");
+            usr.put("content", transcript);
+            messages.put(usr);
+        } catch (Throwable unused) {
+        }
+        return messages;
+    }
+
+    /**
+     * 总结请求的回调处理：成功校验、会话/前缀两道守卫、落盘与收尾。
+     * 拆出来只是让 summarize 的「同步发起」与「异步回调」分开读，
+     * 判定顺序、提示文案、副作用与原先的匿名 Callback 完全一致。
+     */
+    private static void handleSummarizeResult(final Sink sink, final Context ctx, final String convId,
+                                              final JSONArray snapshot, final int count, final Runnable done,
+                                              final String str, final String str2) {
+        Logs.i("DollhouseMemo", "[callback] 到达 ok=" + (str != null && !str.trim().isEmpty())
+                + " okLen=" + (str == null ? -1 : str.length())
+                + " err=" + (str2 == null || str2.trim().isEmpty() ? "无" : "有"));
+        try {
+            if (str == null || str.trim().isEmpty()) {
+                // 【v2.9.1·P0】失败必须可见：原先这里直接 return，把 str2 的错误原因
+                //  整个丢掉（覆盖所有网络/HTTP 错误与「HTTP 200 但 content 为空」），
+                //  而全工程禁用 Toast，用户只看到「记忆总结中」闪一下 —— 就是「点了没反应」。
+                Logs.i("DollhouseMemo", "[callback] 失败分支: 无有效内容");
+                sink.flash(str2 == null || str2.trim().isEmpty()
+                        ? "总结没成功，稍后再试" : "总结没成功：" + str2);
+                return;
+            }
+            // 【守卫①·v0.0.1 修正】两池拆分后 currentId(ctx) 只代表「当前池」的当前会话：
+            //  人偶池的会话在「当前池是 self」时会被误判成「已切换」；反过来若用
+            //  currentId 当锚点，人偶池压缩还会把摘要/暂存写到 self 池名下（静默串池）。
+            //  改为「锚定会话是否仍是它所属池的当前会话」，且不触发 ensure（无副作用）；
+            //  锚定会话被删时 currentOfPool 返回 null，比较不等 → 仍然放弃。
+            if (!convId.equals(ChatSessions.currentOfPool(ctx, convId))) {
+                // 【v2.9.2】换会话也要说一声，否则整条链路又一次「点了没反应」。
+                Logs.i("DollhouseMemo", "[callback] 放弃: 会话已切换");
+                sink.flash("已切换对话，这次总结跳过");
+                return;
+            }
+            // 【守卫②·v2.9.1 修正】不再用「引用相等」判快照失效。
+            //  请求在途期间用户很可能又发了一条消息，saveHistory → trimForSave 会把
+            //  history 换成新数组（内容 = 原来那批 + 新增），引用比较必然不等，
+            //  整次总结被静默丢弃 —— 真机上就是「点了没反应」。
+            //  改成「前缀逐条比对」：只要当前历史开头那 count 条仍是当初那批，
+            //  就在当前历史上做替换，期间新增的消息原样留在尾部。
+            if (!prefixMatches(sink.history(), snapshot, count)) {
+                Logs.i("DollhouseMemo", "[callback] 放弃: 前缀不匹配 curLen="
+                        + sink.history().length() + " snapLen=" + snapshot.length() + " count=" + count);
+                sink.flash("对话已变化，这次总结跳过");
+                return;
+            }
+            applySummary(ctx, sink, convId, str.trim(), count, snapshot, done);
+        } catch (Throwable unused) {
+            Logs.i("DollhouseMemo", "[callback] 成功块内异常: " + unused.getClass().getSimpleName());
+            // 【v2.9.3·P1】成功块内的落盘/构造异常也必须说一声：否则「记忆总结中」亮一下就没，
+            //  用户看到的仍是「点了没反应」。flashHold 保证随后的 finally 不会同帧隐藏它。
+            sink.flash("总结写入失败，稍后再试");
+            if (done != null) {
+                done.run();
+            }
+        } finally {
+            // 【v2.9.5】回调真正到达：撤掉看门狗，正常收尾。
+            cancelWatchdog(sink);
+            RUNNING.set(false);
+            // 【v2.8】无论成败都要撤掉「记忆总结中」，否则提示会永久挂在工具条上。
+            sink.busy(false);
+        }
+    }
+
+    /** 把一段转录压成摘要：写记忆库、暂存原文、按当前历史重建并落盘、给出可见提示。 */
+    private static void applySummary(final Context ctx, final Sink sink, final String convId,
+                                     final String summary, final int count, final JSONArray snapshot,
+                                     final Runnable done) throws Exception {
+        Logs.i("DollhouseMemo", "[callback] 成功: summaryLen=" + summary.length()
+                + " count=" + count + " curLen=" + sink.history().length());
+        MemStore.add(ctx, convId, summary, count);
+        // 【v2.8】总结会整体替换 history，展开态的切点（头部摘要数 + count）随之失效：
+        //         撤销展开态即可，补回的消息该被压缩的进摘要、剩下的仍在尾部，一条不丢。
+        sink.clearPrev();
+        // 【v2.9】真删除前先把原文存进「更早历史」暂存位：
+        //   摘要给的是要点（长期记忆），原文仍可点顶部入口回看，
+        //   避免「聊着聊着早期原话就再也找不回来」（真机反馈）。
+        ChatHistoryStore.pushPrevTail(ctx, convId, snapshot, count);
+        // 真删除：摘掉被压掉的那批，头部换成一条摘要消息。
+        JSONArray arr = new JSONArray();
+        JSONObject head = new JSONObject();
+        head.put("role", "system");
+        head.put("kind", "summary");
+        head.put("content", "【早期对话要点】" + summary);
+        arr.put(head);
+        // 【v2.9.1】按**当前**历史重建（而非快照）：期间新增的消息必须留下。
+        JSONArray cur = sink.history();
+        for (int i = count; i < cur.length(); i++) {
+            arr.put(cur.opt(i));
+        }
+        sink.setHistory(arr);
+        // 【坑】落盘必须用显式 id 版：守卫①已确认 convId 仍是它所属池的当前会话，
+        //   与 saveHistory(host) 内部取 currentId 的结果一致，但这里不再依赖全局指针。
+        ChatHistoryStore.saveHistory(ctx, arr, convId);
+        // 【v2.9.4】成功路径必须可见：原先成功时聊天区只是无声地重铺，
+        //  用户无法区分「压好了」与「什么都没发生」，正是「总结没成功」报障的来源。
+        sink.flash("已把 " + count + " 条压成摘要");
+        Logs.i("DollhouseMemo", "[callback] 已落盘 newHistLen=" + sink.history().length());
+        final Runnable after = done;
+        sink.uiRefresh(new Runnable() {
+            @Override
+            public void run() {
+                if (after != null) {
+                    after.run();
+                }
+            }
+        });
     }
     /** 【v2.9.5】挂看门狗：到点仍未见回调就主动复位状态并给可见提示。 */
     private static void armWatchdog(final Sink sink) {

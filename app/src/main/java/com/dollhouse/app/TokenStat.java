@@ -338,7 +338,11 @@ public final class TokenStat {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(UiKit.BG);
         int pad = dp(ctx, 16);
-        box.setPadding(pad, dp(ctx, 10), pad, dp(ctx, 20));
+        // 【顶部不再留白】窗口未铺满时，页盒顶上还有一层容器让位，这里的 10dp 是
+        //   内容与状态栏之间的额外呼吸；窗口铺满后它就直接顶在状态栏下沿，
+        //   而紧随其后的 UiKit.topBar 已经自带 statusBarPad，两处叠加会多出 10dp。
+        //   顶部归零，让位统一交给 topBar。
+        box.setPadding(pad, 0, pad, dp(ctx, 20));
 
         // 顶栏：统一走 UiKit.topBar
         LinearLayout bar = UiKit.topBar(ctx, "令牌消耗统计", "本机 AI 请求用量", new View.OnClickListener() {
@@ -360,6 +364,19 @@ public final class TokenStat {
             box.addView(dateRow(ctx));
         }
 
+        box.addView(buildOverviewCard(ctx, p));
+        // ---- 2x2 指标网格 ----
+        box.addView(buildMetricsGrid(ctx, p));
+        // ---- 说明 ----
+        box.addView(buildNote(ctx));
+        ScrollView sc = new ScrollView(ctx);
+        sc.setBackgroundColor(UiKit.BG);
+        sc.addView(box, new ViewGroup.LayoutParams(-1, -2));
+        return sc;
+    }
+
+    /** 周期总览大卡：总数 / 费用 / 药丸 + 折线图 + 图下小字。 */
+    private static View buildOverviewCard(Context ctx, SharedPreferences p) {
         long[] st = stats(p, MODE, OFFSET);
         long in = st[0];
         long out = st[1];
@@ -367,8 +384,6 @@ public final class TokenStat {
         long cache = st[3];
         long peak = st[4];
         float unit = price(p);
-
-        // ---- 周期总览大卡 ----
         LinearLayout over = card(ctx);
         TextView cap = new TextView(ctx);
         cap.setText(MODE == 0 ? "当日总览" : (MODE == 1 ? "本周总览" : "累计总览"));
@@ -376,7 +391,6 @@ public final class TokenStat {
         cap.setTextColor(UiKit.TITLE);
         cap.setTypeface(Typeface.DEFAULT_BOLD);
         over.addView(cap);
-
         TextView big = new TextView(ctx);
         big.setText(fmt(in + out) + " Token");
         big.setTextSize(30.0f);
@@ -384,14 +398,12 @@ public final class TokenStat {
         big.setTypeface(Typeface.DEFAULT_BOLD);
         big.setPadding(0, dp(ctx, 10), 0, 0);
         over.addView(big);
-
         TextView sub = new TextView(ctx);
         sub.setText("输入 " + fmt(in) + "　·　输出 " + fmt(out));
         sub.setTextSize(UiKit.FS_SUB);
         sub.setTextColor(UiKit.SUB);
         sub.setPadding(0, dp(ctx, 2), 0, 0);
         over.addView(sub);
-
         TextView fee = new TextView(ctx);
         fee.setText("费用约 ￥" + money(cost(in + out, unit)));
         fee.setTextSize(UiKit.FS_BTN);
@@ -399,7 +411,6 @@ public final class TokenStat {
         fee.setTypeface(Typeface.DEFAULT_BOLD);
         fee.setPadding(0, dp(ctx, 8), 0, 0);
         over.addView(fee);
-
         LinearLayout chips = new LinearLayout(ctx);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.setPadding(0, dp(ctx, 8), 0, 0);
@@ -411,13 +422,11 @@ public final class TokenStat {
             }
         }));
         over.addView(chips);
-
         // ---- 折线图 ----
         TextView tip = new TextView(ctx);
         tip.setTextSize(UiKit.FS_TINY);
         tip.setTextColor(UiKit.SUB);
         tip.setPadding(0, dp(ctx, 6), 0, 0);
-
         MiniChart chart = new MiniChart(ctx);
         final float[] vals = series(p, MODE, OFFSET);
         final String[] labs = seriesLabels(MODE, OFFSET, vals.length);
@@ -433,9 +442,16 @@ public final class TokenStat {
         });
         over.addView(chart, new LinearLayout.LayoutParams(-1, -2));
         over.addView(tip);
-        box.addView(over);
+        return over;
+    }
 
-        // ---- 2×2 指标网格 ----
+    /** 2x2 指标网格：峰值 / 请求次数 / 缓存命中 / 缓存率。 */
+    private static View buildMetricsGrid(Context ctx, SharedPreferences p) {
+        long[] st = stats(p, MODE, OFFSET);
+        long in = st[0];
+        long req = st[2];
+        long cache = st[3];
+        long peak = st[4];
         LinearLayout grid = new LinearLayout(ctx);
         grid.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, -2);
@@ -444,9 +460,11 @@ public final class TokenStat {
         grid.addView(row(ctx, "峰值 Token", fmt(peak), "请求次数", req + " 次"));
         grid.addView(row(ctx, "缓存命中", fmt(cache),
                 "缓存率", in > 0 ? Math.round(cache * 100f / in) + "%" : "—"));
-        box.addView(grid);
+        return grid;
+    }
 
-        // ---- 说明 ----
+    /** 页脚说明：统计口径 / 费用估算 / 保留策略。 */
+    private static View buildNote(Context ctx) {
         TextView note = new TextView(ctx);
         note.setTextSize(UiKit.FS_TINY);
         note.setTextColor(UiKit.SUB);
@@ -455,12 +473,7 @@ public final class TokenStat {
         note.setText("只统计本机发起的 AI 请求，数据来自接口返回的 usage 字段；接口不返回就不计入，不做估算。\n"
                 + "费用按「单价 × 用量」估算，点上面那枚药丸可以改单价，默认 ￥1.00 / 百万 token。\n"
                 + "按天历史保留最近 " + KEEP_DAYS + " 天；累计计数只增不减，数据仅保存在这台设备上。");
-        box.addView(note);
-
-        ScrollView sc = new ScrollView(ctx);
-        sc.setBackgroundColor(UiKit.BG);
-        sc.addView(box, new ViewGroup.LayoutParams(-1, -2));
-        return sc;
+        return note;
     }
 
     /* ----------------------------- 页面零件 ----------------------------- */
