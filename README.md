@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/Farewell-coder/Dollhouse)](https://github.com/Farewell-coder/Dollhouse/releases)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B-3ddc84.svg)](#兼容性)
 
-> 一个住在你手机屏幕上的小鲸鱼娘。
+> 一个桌宠软件。
 
 Dollhouse 是一款 Android 桌面宠物应用。安装后，鲸鱼娘「小肥鱼」会以系统悬浮窗的形式常驻在你的桌面上 —— 她会眨眼、会待机摆动、会拖到屏幕边缘探出半个身子偷看你，也会在你点她的时候开口说话，甚至能陪你聊天。
 
