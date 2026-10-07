@@ -37,6 +37,9 @@ import rikka.shizuku.Shizuku
  */
 class MainActivity : Activity() {
 
+    /** 通知权限请求码。 */
+    private val REQ_NOTIF = 101
+
     // ---- 以下字段由 HomeScreenBuilder 赋值，ChatSettingsSection / HomeUi 读取 ----
     internal var status: TextView? = null
     internal var bgAlphaLabel: TextView? = null
@@ -167,8 +170,8 @@ class MainActivity : Activity() {
             return
         }
 
-        label.text = "\u80cc\u666f\u56fe\u900f\u660e\u5ea6\u00a0\u00a0"
-                + (if (percent <= 8) "\uff08\u51e0\u4e4e\u770b\u4e0d\u89c1\u4e86\uff09"
+        label.text = "\u80cc\u666f\u56fe\u900f\u660e\u5ea6\u00a0\u00a0" +
+                (if (percent <= 8) "\uff08\u51e0\u4e4e\u770b\u4e0d\u89c1\u4e86\uff09"
                 else if (percent <= 45) "\uff08\u63a8\u8350\uff0c\u5b57\u6700\u6e05\u695a\uff09"
                 else if (percent <= 75) "\uff08\u56fe\u66f4\u660e\u663e\uff0c\u6ce8\u610f\u770b\u5b57\uff09"
                 else "\uff08\u539f\u56fe\uff0c\u6c14\u6ce1\u53ef\u80fd\u548c\u80cc\u666f\u7cca\u5728\u4e00\u8d77\uff09")

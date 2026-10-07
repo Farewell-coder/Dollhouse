@@ -193,9 +193,8 @@ object ShizukuBridge {
         if (now - CACHE_AT < CACHE_TTL_MS) {
             return CACHE_GRANTED
         }
-        val granted: Boolean
-        try {
-            granted = if (!cachedRun()) {
+        val granted: Boolean = try {
+            if (!cachedRun()) {
                 false
             } else if (Shizuku.isPreV11()) {
                 // 【注意】不能写成 getUid() >= 0：root 身份 server 的 uid 就是 0。
@@ -204,7 +203,7 @@ object ShizukuBridge {
                 Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
             }
         } catch (t: Throwable) {
-            granted = false
+            false
         }
         CACHE_GRANTED = granted
         CACHE_AT = SystemClock.elapsedRealtime()
@@ -217,11 +216,10 @@ object ShizukuBridge {
         if (now - CACHE_RUN_AT < CACHE_TTL_MS) {
             return CACHE_RUN
         }
-        val run: Boolean
-        try {
-            run = Shizuku.pingBinder()
+        val run: Boolean = try {
+            Shizuku.pingBinder()
         } catch (t: Throwable) {
-            run = false
+            false
         }
         CACHE_RUN = run
         CACHE_RUN_AT = SystemClock.elapsedRealtime()

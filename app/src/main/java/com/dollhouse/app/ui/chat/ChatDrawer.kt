@@ -313,7 +313,7 @@ class ChatDrawer(private val host: ChatPanel) {
         t2.text = message
         t2.setTextSize(UiKit.FS_SUB)
         t2.setTextColor(UiKit.SUB)
-        t2.setLineSpacing(dp(3.0f), 1.0f)
+        t2.setLineSpacing(UiKit.dp(host.context, 3).toFloat(), 1.0f)
         t2.setPadding(0, dp(10.0f), 0, 0)
         sh.box.addView(t2)
 

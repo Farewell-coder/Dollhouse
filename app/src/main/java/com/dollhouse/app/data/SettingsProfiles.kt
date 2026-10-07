@@ -131,7 +131,7 @@ object SettingsProfiles {
         }
         val safe = if (text == null) "" else text
         val editable = input.text
-        editable.replace(0, editable.length(), safe)
+        editable.replace(0, editable.length, safe)
         input.setSelection(safe.length)
     }
 

@@ -103,14 +103,14 @@ object BehaviorPage {
         val web = ModelEditKit.switchRow(ctx, box, "联网搜索",
                 "遇到时效性问题先联网查一下再回答", PetPrefs.webSearchEnabled(ctx))
         web.setOnClickListener {
-            val now = !web.isOn
+            val now = !web.isOn()
             web.setOn(now, true)
             PetPrefs.setWebSearchEnabled(ctx, now)
         }
         val mem = ModelEditKit.switchRow(ctx, box, "自动保存记忆",
                 "聊完自动把值得记的内容写进记忆库", PetPrefs.memAutoSave(ctx))
         mem.setOnClickListener {
-            val now = !mem.isOn
+            val now = !mem.isOn()
             mem.setOn(now, true)
             PetPrefs.setMemAutoSave(ctx, now)
         }

@@ -825,7 +825,7 @@ class PetView(context: Context) : View(context) {
             for (i4 in 0..MX) {
                 val f10 = i4 / MX.toFloat()
                 var f11 = 0.0f - ((1.0f - f9) * sin)
-                var wave = (((((smoothstep(TAILR_RU, 0.44f, Math.abs(f10 - EYE_U)) * HAIR_AMP) * smoothstep(EYE_RU, 0.95f, f9)) * Math.sin(((4.2f * f9) + f4) + (1.4f * f10)).toFloat()) + 0.0f) + ((falloff(f10, f9, TAILR_U, TAILR_V, TAILR_RU, TAILL_RU) * TAIL_AMP) * Math.sin(f5.toDouble()).toFloat())) - ((falloff(f10, f9, TAILL_U, TAILL_V, TAILL_RU, TAILL_RV) * 0.0195f) * Math.sin((f5 - TAILR_V).toDouble()).toFloat())) + (falloff(f10, f9, AHOGE_U, AHOGE_V, AHOGE_RU, AHOGE_RV) * AHOGE_AMP * Math.sin(f6.toDouble()).toFloat())
+                var wave = ((((((smoothstep(TAILR_RU, 0.44f, Math.abs(f10 - EYE_U)) * HAIR_AMP) * smoothstep(EYE_RU, 0.95f, f9)) * Math.sin((((4.2f * f9) + f4) + (1.4f * f10)).toDouble()).toFloat()) + 0.0f) + ((falloff(f10, f9, TAILR_U, TAILR_V, TAILR_RU, TAILL_RU) * TAIL_AMP) * Math.sin(f5.toDouble()).toFloat())) - ((falloff(f10, f9, TAILL_U, TAILL_V, TAILL_RU, TAILL_RV) * 0.0195f) * Math.sin((f5 - TAILR_V).toDouble()).toFloat())) + (falloff(f10, f9, AHOGE_U, AHOGE_V, AHOGE_RU, AHOGE_RV) * AHOGE_AMP * Math.sin(f6.toDouble()).toFloat())
                 val eyeFall = falloff(f10, f9, EYE_U, EYE_V, EYE_RU, EYE_RV)
                 if (eyeFall > 0.0f) {
                     f11 -= ((f9 - EYE_V) * f8) * eyeFall

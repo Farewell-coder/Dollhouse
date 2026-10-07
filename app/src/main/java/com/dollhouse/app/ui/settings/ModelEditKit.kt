@@ -195,7 +195,7 @@ object ModelEditKit {
     }
 
     /** 三格一排的可点 chip 行，返回这一行（chip 由调用方从返回的数组里取）。 */
-    fun chipRow(ctx: Context, labels: Array<String>, store: Array<TextView>): LinearLayout {
+    fun chipRow(ctx: Context, labels: Array<String>, store: Array<TextView?>): LinearLayout {
         val r = LinearLayout(ctx)
         r.orientation = LinearLayout.HORIZONTAL
         for (i in labels.indices) {

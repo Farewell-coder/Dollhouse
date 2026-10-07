@@ -374,7 +374,7 @@ class PetTalk(private val ctx: Context, private val host: Host) {
     private fun samplingParams(): JSONObject {
         val jSONObject = JSONObject()
         try {
-            jSONObject.put("temperature", 1.2d)
+            jSONObject.put("temperature", 1.2)
             jSONObject.put("max_tokens", 500)
             val thinkLevel = PetPrefs.thinkLevel(this.ctx)
             // 【三件套】与 ChatPanel 同款：思考参数被服务端拒（参数类 400）时剥掉重试一次，限一次。

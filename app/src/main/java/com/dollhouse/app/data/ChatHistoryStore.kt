@@ -601,7 +601,7 @@ object ChatHistoryStore {
         if (str == null) {
             return ""
         }
-        return str.replaceAll("[\\s\\u3000\\u00A0]+", "").trim()
+        return str.replace(Regex("[\\s\\u3000\\u00A0]+"), "").trim()
     }
     @JvmStatic
     fun bubbleVersion(str: String): String {

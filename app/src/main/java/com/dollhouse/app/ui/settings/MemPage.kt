@@ -116,10 +116,10 @@ object MemPage {
         note.setTextColor(UiKit.SUB)
         note.setLineSpacing(dp(ctx, 3).toFloat(), 1.0f)
         note.setPadding(dp(ctx, 2), dp(ctx, 14), dp(ctx, 2), 0)
-        note.text = "\u5979\u5728\u804a\u5929\u91cc\u89c9\u5f97\u503c\u5f97\u8bb0\u7684\u4e8b\u4f1a\u81ea\u5df1\u5199\u8fdb\u6765\uff0c"
-            + "\u4e0b\u6b21\u5f00\u53e3\u524d\u4f1a\u5e26\u4e0a\u8fd9\u4e9b\u5185\u5bb9\u3002\n"
-            + "\u5171 " + arr.length() + " \u6761\uff0c\u6700\u591a\u4fdd\u7559 " + MemDb.MAX_ENTRIES + " \u6761\uff0c"
-            + "\u8d85\u51fa\u65f6\u4e22\u6700\u65e7\u7684\u3002\u6570\u636e\u53ea\u5728\u8fd9\u53f0\u8bbe\u5907\u4e0a\u3002"
+        note.text = "\u5979\u5728\u804a\u5929\u91cc\u89c9\u5f97\u503c\u5f97\u8bb0\u7684\u4e8b\u4f1a\u81ea\u5df1\u5199\u8fdb\u6765\uff0c" +
+            "\u4e0b\u6b21\u5f00\u53e3\u524d\u4f1a\u5e26\u4e0a\u8fd9\u4e9b\u5185\u5bb9\u3002\n" +
+            "\u5171 " + arr.length() + " \u6761\uff0c\u6700\u591a\u4fdd\u7559 " + MemDb.MAX_ENTRIES + " \u6761\uff0c" +
+            "\u8d85\u51fa\u65f6\u4e22\u6700\u65e7\u7684\u3002\u6570\u636e\u53ea\u5728\u8fd9\u53f0\u8bbe\u5907\u4e0a\u3002"
         box.addView(note)
 
         val sc = ScrollView(ctx)

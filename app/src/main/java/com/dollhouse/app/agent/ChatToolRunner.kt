@@ -39,11 +39,10 @@ object ChatToolRunner {
             val fn = if (call == null) null else call.optJSONObject("function")
             val name = if (fn == null) "" else fn.optString("name", "")
             val args = if (fn == null) "{}" else fn.optString("arguments", "{}")
-            val output: String
-            try {
-                output = if (name.isEmpty()) "（工具调用缺少函数名）" else ChatToolRegistry.execute(name, args)
+            val output: String = try {
+                if (name.isEmpty()) "（工具调用缺少函数名）" else ChatToolRegistry.execute(name, args)
             } catch (t: Throwable) {
-                output = "（工具执行异常：" + t.javaClass.simpleName + "）"
+                "（工具执行异常：" + t.javaClass.simpleName + "）"
             }
             try {
                 val msg = JSONObject()
