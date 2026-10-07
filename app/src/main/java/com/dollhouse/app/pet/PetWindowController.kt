@@ -75,7 +75,7 @@ class PetWindowController(private val host: PetService) {
             host.petView!!.setBubbleHeight(0)
             host.bubbleUp = false
         }
-        var pivotX = host.lp!!.x + host.petView!!.pivotLocalX()
+        var pivotX: Float = host.lp!!.x + host.petView!!.pivotLocalX()
         val pivotY = host.lp!!.y + host.petView!!.pivotLocalY()
         if (host.edgePeek) {
             exitEdgePeek()
@@ -88,7 +88,7 @@ class PetWindowController(private val host: PetService) {
         val screenW = host.resources.displayMetrics.widthPixels
         val half = host.petView!!.petWidth() / 2
         if (!host.edgePeek) {
-            pivotX = Math.max(half, Math.min(screenW - half, pivotX))
+            pivotX = Math.max(half.toFloat(), Math.min((screenW - half).toFloat(), pivotX))
         }
         host.placeByPivot(Math.round(pivotX), Math.round(pivotY))
         host.rememberPivot()
@@ -483,7 +483,7 @@ class PetWindowController(private val host: PetService) {
         val baseHeight = petView.baseHeight()
         // 搭接量按比例走：写死 8dp 在放大后显得几乎不重叠，头与聊天框之间会露出缝隙。
         val round = Math.max(Math.round(8.0f * f), Math.round(petView.petWidth() * PetView.PEEK_OVERLAP_RATIO))
-        host.setPetShown(true)
+        host.applyPetShown(true)
         // 【不再隐藏】聊天窗顶边已被 topLimit 夹在人偶下方，正常不会再撞到屏顶；
         // 但首帧 / 键盘竞态 / topLimit 过期等瞬时仍可能越界，此时把窗口夹进屏幕内保持可见，
         // 而不是 setPetShown(false) 让它「从上方消失」（隐藏后 peek 仍为真且无自动恢复）。
@@ -527,7 +527,7 @@ class PetWindowController(private val host: PetService) {
     fun exitPeek() {
         if (host.peek) {
             host.peek = false
-            host.setPetShown(true)
+            host.applyPetShown(true)
             if (host.petView == null || host.lp == null || !host.added) {
                 return
             }

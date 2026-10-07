@@ -19,6 +19,7 @@ import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewParent
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
@@ -192,6 +193,11 @@ object UiKit {
         return Math.round(v * c.resources.displayMetrics.density)
     }
 
+    /** 整数字面量的旧调用点（Java 原 dp(Context,int) 的隐式转换在 Kotlin 不存在）。 */
+    fun dp(c: Context, v: Int): Int {
+        return dp(c, v.toFloat())
+    }
+
     /**
      * 系统状态栏高度（px）。取不到时按 24dp 兜底。
      * 【为什么要它】本应用的状态栏是透明的，内容要自己让出这一条高度，
@@ -303,6 +309,9 @@ object UiKit {
     }
 
     // 生成纯色圆角背景。
+    @JvmStatic
+    fun round(color: Int, c: Context, radiusDp: Int): GradientDrawable = round(color, c, radiusDp.toFloat())
+
     @JvmStatic
     fun round(color: Int, c: Context, radiusDp: Float): GradientDrawable {
         val g = GradientDrawable()
@@ -1253,7 +1262,7 @@ object UiKit {
         if (content == null || page == null) {
             return
         }
-        val old = if (tag == null) null else content.findViewWithTag(tag)
+        val old = if (tag == null) null else content.findViewWithTag<View>(tag)
         if (old != null) {
             content.removeView(old)
         }
@@ -1271,15 +1280,16 @@ object UiKit {
         if (content == null || page == null) {
             return
         }
-        val old = if (tag == null) null else content.findViewWithTag(tag)
+        val old = if (tag == null) null else content.findViewWithTag<View>(tag)
         page.setTag(tag)
         page.alpha = 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
         page.animate().alpha(1f).setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL)
             .withEndAction {
                 // 挂在新页（一直在树上）的结束回调上，比挂旧页可靠。
-                if (old != null && old.parent is ViewGroup) {
-                    (old.parent as ViewGroup).removeView(old)
+                val oldParent: ViewParent? = if (old == null) null else old.parent
+                if (oldParent is ViewGroup) {
+                    oldParent.removeView(old)
                 }
             }.start()
     }

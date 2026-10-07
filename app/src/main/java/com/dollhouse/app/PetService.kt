@@ -744,7 +744,7 @@ class PetService : Service() {
         win.updateTouchable()
     }
 
-    internal fun setPetShown(z: Boolean) {
+    internal fun applyPetShown(z: Boolean) {
         win.setPetShown(z)
     }
 

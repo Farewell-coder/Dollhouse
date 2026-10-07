@@ -122,7 +122,7 @@ object LamdaPage {
             "服务掉了或手机重启后，自动把它拉回来",
             PetPrefs.lamdaAutoStart(ctx))
         auto.setOnClickListener {
-            val now = !auto.isOn
+            val now = !auto.isOn()
             auto.setOn(now, true)
             PetPrefs.setLamdaAutoStart(ctx, now)
             if (now) {
@@ -193,8 +193,8 @@ object LamdaPage {
     private fun confirmDelete(ctx: Context, host: LinearLayout) {
         val act = ApiPageKit.findActivity(ctx) ?: return
         val msg = TextView(ctx)
-        msg.text = "会先停掉 lamda 服务，然后删除 /data/local/tmp 下解包出来的文件"
-            + "和下载的服务器包（约 204 MB）。\n这个操作不能撤销，删完想再用需要重新下载并解包。"
+        msg.text = "会先停掉 lamda 服务，然后删除 /data/local/tmp 下解包出来的文件" +
+            "和下载的服务器包（约 204 MB）。\n这个操作不能撤销，删完想再用需要重新下载并解包。"
         msg.setTextSize(UiKit.FS_TINY)
         msg.setTextColor(UiKit.TITLE)
         msg.setLineSpacing(ApiPageKit.dp(ctx, 3).toFloat(), 1.0f)
@@ -237,11 +237,10 @@ object LamdaPage {
     private fun runAsync(ctx: Context, host: LinearLayout, busy: String, job: Job) {
         setStatus(host, busy, UiKit.SUB)
         Thread(Runnable {
-            val detail: String
-            try {
-                detail = job.run()
+            val detail: String = try {
+                job.run()
             } catch (t: Throwable) {
-                detail = "（执行失败：" + t.message + "）"
+                "（执行失败：" + t.message + "）"
             }
             val fdetail = detail
             Handler(Looper.getMainLooper()).post {

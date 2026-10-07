@@ -170,10 +170,10 @@ object WebSearch {
                     if (substring.startsWith("#x") || substring.startsWith("#X")) {
                         valueOf = Integer.parseInt(substring.substring(2), 16).toChar().toString()
                     } else if (substring.startsWith("#")) {
-                        try {
-                            valueOf = Integer.parseInt(substring.substring(1)).toChar().toString()
+                        valueOf = try {
+                            Integer.parseInt(substring.substring(1)).toChar().toString()
                         } catch (unused: Throwable) {
-                            valueOf = null
+                            null
                         }
                     } else {
                         valueOf = named(substring)

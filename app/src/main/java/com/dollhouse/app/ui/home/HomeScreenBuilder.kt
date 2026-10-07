@@ -116,34 +116,38 @@ object HomeScreenBuilder {
         petLp.gravity = Gravity.CENTER
         box.addView(pet, petLp)
 
-        act.status = TextView(act)
-        act.status.setTextSize(UiKit.FS_SUB)
-        act.status.setTextColor(UiKit.TITLE)
-        act.status.gravity = Gravity.CENTER
-        act.status.setPadding(0, Math.round(act.dp(12.0f)), 0, Math.round(act.dp(12.0f)))
-        box.addView(act.status)
+        val status = TextView(act)
+        act.status = status
+        status.setTextSize(UiKit.FS_SUB)
+        status.setTextColor(UiKit.TITLE)
+        status.gravity = Gravity.CENTER
+        status.setPadding(0, Math.round(act.dp(12.0f)), 0, Math.round(act.dp(12.0f)))
+        box.addView(status)
     }
 
     /** 旧版入口按钮：悬浮窗权限 / 启动桌宠 / 停止桌宠 / 打开聊天（由 HomeUi 拆除并复用）。 */
     private fun buildLegacyButtons(act: MainActivity, box: LinearLayout) {
         // 1. 悬浮窗权限
-        act.overlayBtn = mkButton(act, "1. \u6388\u4e88\u300c\u663e\u793a\u5728\u5176\u4ed6\u5e94\u7528\u4e0a\u5c42\u300d")
-        act.overlayBtn.setOnClickListener {
+        val overlayBtn = mkButton(act, "1. \u6388\u4e88\u300c\u663e\u793a\u5728\u5176\u4ed6\u5e94\u7528\u4e0a\u5c42\u300d")
+        act.overlayBtn = overlayBtn
+        overlayBtn.setOnClickListener {
             act.requestOverlay()
         }
-        UiKit.primary(act.overlayBtn, act)
-        box.addView(act.overlayBtn)
+        UiKit.primary(overlayBtn, act)
+        box.addView(overlayBtn)
 
         // 2. 启动桌宠
-        act.startBtn = mkButton(act, "2. \u542f\u52a8\u684c\u5ba0")
-        act.startBtn.setOnClickListener {
+        val startBtn = mkButton(act, "2. \u542f\u52a8\u684c\u5ba0")
+        act.startBtn = startBtn
+        startBtn.setOnClickListener {
             act.onStartClicked()
         }
-        box.addView(act.startBtn)
+        box.addView(startBtn)
 
         // 停止桌宠
-        act.stopBtn = mkButton(act, "\u505c\u6b62\u684c\u5ba0")
-        act.stopBtn.setOnClickListener {
+        val stopBtn = mkButton(act, "\u505c\u6b62\u684c\u5ba0")
+        act.stopBtn = stopBtn
+        stopBtn.setOnClickListener {
             val intent = Intent(act, PetService::class.java)
             intent.action = PetService.ACTION_STOP
             act.startService(intent)
@@ -154,7 +158,7 @@ object HomeScreenBuilder {
                 act.refresh()
             }, 300L)
         }
-        box.addView(act.stopBtn)
+        box.addView(stopBtn)
 
         // 打开聊天
         val openChat = mkButton(act, "\u6253\u5f00\u804a\u5929\uff08\u70b9\u684c\u5ba0\u4e5f\u80fd\u8fdb\uff09")
@@ -207,13 +211,14 @@ object HomeScreenBuilder {
         buttonBar.addView(test)
         box.addView(buttonBar)
 
-        act.testResult = TextView(act)
-        act.testResult.setTextSize(UiKit.FS_SUB)
-        act.testResult.setTextColor(UiKit.TITLE)
-        act.testResult.setPadding(0, Math.round(act.dp(10.0f)), 0, 0)
+        val testResult = TextView(act)
+        act.testResult = testResult
+        testResult.setTextSize(UiKit.FS_SUB)
+        testResult.setTextColor(UiKit.TITLE)
+        testResult.setPadding(0, Math.round(act.dp(10.0f)), 0, 0)
         // 打标签：SettingsProfilePanel 据此把它从卡片尾部摘出来紧贴「测试连接」下方（修复结果看不见）。
-        act.testResult.tag = SettingsPage.TAG_TEST_RESULT
-        box.addView(act.testResult)
+        testResult.tag = SettingsPage.TAG_TEST_RESULT
+        box.addView(testResult)
     }
 
     /** 操作方式说明 + 聊天背景选图/清除/透明度。 */
@@ -227,9 +232,10 @@ object HomeScreenBuilder {
 
         // 聊天背景
         box.addView(sectionTitle(act, "\u804a\u5929\u80cc\u666f"))
-        act.bgBtn = mkButton(act, "")
-        act.bgBtn.tag = HomeCards.TAG_BG_PICK
-        act.bgBtn.setOnClickListener {
+        val bgBtn = mkButton(act, "")
+        act.bgBtn = bgBtn
+        bgBtn.tag = HomeCards.TAG_BG_PICK
+        bgBtn.setOnClickListener {
             // 【背景裁剪】原先进 PickFileActivity 选图后直接铺满聊天页，比例不对就被拉伸；
             //   现在跳裁剪页：选图 → 框选预览 → 按框落盘，聊天页拿到的永远不变形。
             try {
@@ -238,7 +244,7 @@ object HomeScreenBuilder {
                 Logs.w("DollhouseHome", "ignored", t)
             }
         }
-        box.addView(act.bgBtn)
+        box.addView(bgBtn)
 
         val clearBg = mkButton(act, "\u6e05\u9664\u80cc\u666f")
         clearBg.tag = HomeCards.TAG_BG_CLEAR
@@ -250,11 +256,12 @@ object HomeScreenBuilder {
         box.addView(clearBg)
 
         // 【需求】原「选一张图当聊天页的背景…」两段说明文字整段删除（用户定案）。
-        act.bgAlphaLabel = TextView(act)
-        act.bgAlphaLabel.setTextSize(UiKit.FS_SUB)
-        act.bgAlphaLabel.setTextColor(UiKit.TITLE)
-        act.bgAlphaLabel.setPadding(0, Math.round(act.dp(10.0f)), 0, 0)
-        box.addView(act.bgAlphaLabel)
+        val bgAlphaLabel = TextView(act)
+        act.bgAlphaLabel = bgAlphaLabel
+        bgAlphaLabel.setTextSize(UiKit.FS_SUB)
+        bgAlphaLabel.setTextColor(UiKit.TITLE)
+        bgAlphaLabel.setPadding(0, Math.round(act.dp(10.0f)), 0, 0)
+        box.addView(bgAlphaLabel)
 
         val alpha = UiKit.Slider(act)
         alpha.setMax(100)

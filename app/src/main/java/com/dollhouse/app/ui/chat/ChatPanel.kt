@@ -821,9 +821,10 @@ class ChatPanel(
             return
         }
         UiKit.reveal(linearLayout)
-        if (pendingImage != null) {
+        val snapImg = pendingImage
+        if (snapImg != null) {
             UiKit.reveal(attachThumb)
-            attachThumb.setImageBitmap(ImageStore.loadScaled(context, pendingImage, 160))
+            attachThumb.setImageBitmap(ImageStore.loadScaled(context, snapImg, 160))
             // 【OCR】已发出、正在后台扫字：给她一句进度，避免用户以为卡死了。
             attachLabel.text = if (sendPending && waiting)
                 "正在识别图片文字…（后台处理，稍等）"
@@ -867,7 +868,7 @@ class ChatPanel(
             if (p is FrameLayout) {
                 return p
             }
-            p = p.parent
+            p = (p as View).parent
         }
         return if (p is ViewGroup) p else null
     }
@@ -1252,7 +1253,7 @@ class ChatPanel(
 
     /** 工具分发的宿主侧入口：入参原样透传给注册表，由各工具自己解析（search 取 query、remember 取 title/text）。 */
     private fun runTool(str: String?, str2: String?): String {
-        return ChatToolRegistry.execute(str, str2)
+        return ChatToolRegistry.execute(str!!, str2)
     }
 
     fun finishWithError(str: String?) {

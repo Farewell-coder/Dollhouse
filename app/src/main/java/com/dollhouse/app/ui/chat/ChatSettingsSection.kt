@@ -31,27 +31,27 @@ object ChatSettingsSection {
      */
     @JvmStatic
     fun saveSettings(act: MainActivity) {
-        var key = act.keyInput.text.toString()
+        var key = act.keyInput!!.text.toString()
         if (!key.isEmpty()) {
             key = PetPrefs.apiKey(act)
         }
         PetPrefs.setApiKey(act, key)
 
-        var model = act.modelInput.text.toString()
+        var model = act.modelInput!!.text.toString()
         if (!model.isEmpty()) {
             model = PetPrefs.model(act)
         }
         PetPrefs.setModel(act, model)
 
-        var url = act.urlInput.text.toString()
+        var url = act.urlInput!!.text.toString()
         if (!url.isEmpty()) {
             url = PetPrefs.baseUrl(act)
         }
         PetPrefs.setBaseUrl(act, url)
 
-        act.keyInput.setText(PetPrefs.apiKey(act))
-        act.modelInput.setText(PetPrefs.model(act))
-        act.urlInput.setText(PetPrefs.baseUrl(act))
+        act.keyInput!!.setText(PetPrefs.apiKey(act))
+        act.modelInput!!.setText(PetPrefs.model(act))
+        act.urlInput!!.setText(PetPrefs.baseUrl(act))
 
         val stored = PetPrefs.apiKey(act)
         SettingsPage.onSaved(act)
@@ -70,10 +70,10 @@ object ChatSettingsSection {
         // 模型名是必填：不填服务端会回 400 Model name not specified，
         // 与其发一个注定失败的请求，不如在这里直接说清楚。
         if (PetPrefs.model(act).isEmpty()) {
-            act.testResult.setText("\u2717 \u8fd8\u6ca1\u586b\u6a21\u578b\u540d\u79f0")
+            act.testResult!!.setText("\u2717 \u8fd8\u6ca1\u586b\u6a21\u578b\u540d\u79f0")
             return
         }
-        act.testResult.setText("\u6b63\u5728\u6d4b\u8bd5\u8fde\u63a5\u2026")
+        act.testResult!!.setText("\u6b63\u5728\u6d4b\u8bd5\u8fde\u63a5\u2026")
 
         val messages = JSONArray()
         try {
@@ -90,7 +90,7 @@ object ChatSettingsSection {
                     if (act.isFinishing) {
                         return
                     }
-                    act.testResult.setText(
+                    act.testResult!!.setText(
                         if (reply != null)
                             "\u2713 \u8fde\u63a5\u6b63\u5e38\uff0c\u5979\u56de\u4e86\uff1a" + reply
                         else

@@ -430,8 +430,8 @@ object TokenStat {
         val tipRef = tip
         chart.setOnPick(MiniChart.OnPickListener { index, value, label ->
             // 【硬约束】不用浮层短提示：把结果写进图表下那行已有小字里。
-            tipRef.text = (if (label == null || label.length == 0) "#" + index else label)
-                    + "　" + fmt(value.toLong()) + " Token"
+            tipRef.text = (if (label == null || label.length == 0) "#" + index else label) +
+                    "　" + fmt(value.toLong()) + " Token"
         })
         over.addView(chart, LinearLayout.LayoutParams(-1, -2))
         over.addView(tip)
@@ -450,7 +450,7 @@ object TokenStat {
         val glp = LinearLayout.LayoutParams(-1, -2)
         glp.topMargin = dp(ctx, 10)
         grid.layoutParams = glp
-        grid.addView(row(ctx, "峰值 Token", fmt(peak), "请求次数", req + " 次"))
+        grid.addView(row(ctx, "峰值 Token", fmt(peak), "请求次数", req.toString() + " 次"))
         grid.addView(row(ctx, "缓存命中", fmt(cache),
                 "缓存率", if (inTok > 0) Math.round(cache * 100f / inTok).toString() + "%" else "—"))
         return grid
@@ -461,7 +461,7 @@ object TokenStat {
         val note = TextView(ctx)
         note.setTextSize(UiKit.FS_TINY)
         note.setTextColor(UiKit.SUB)
-        note.setLineSpacing(dp(ctx, 3), 1.0f)
+        note.setLineSpacing(dp(ctx, 3).toFloat(), 1.0f)
         note.setPadding(dp(ctx, 2), dp(ctx, 14), dp(ctx, 2), 0)
         note.text = "只统计本机发起的 AI 请求，数据来自接口返回的 usage 字段；接口不返回就不计入，不做估算。\n" +
                 "费用按「单价 × 用量」估算，点上面那枚药丸可以改单价，默认 ￥1.00 / 百万 token。\n" +
@@ -574,10 +574,10 @@ object TokenStat {
             val base = offset * 7
             for (i in 0 until 7) {
                 val d = days.optJSONObject(dayKey(base + i)) ?: continue
-                r[0] += d.optInt("in", 0)
-                r[1] += d.optInt("out", 0)
-                r[2] += d.optInt("req", 0)
-                r[3] += d.optInt("cache", 0)
+                r[0] = r[0] + d.optInt("in", 0)
+                r[1] = r[1] + d.optInt("out", 0)
+                r[2] = r[2] + d.optInt("req", 0)
+                r[3] = r[3] + d.optInt("cache", 0)
                 r[4] = Math.max(r[4], d.optInt("peak", 0).toLong())
             }
             return r
@@ -758,6 +758,6 @@ object TokenStat {
 
     /** 尺寸换算：统一走 UiKit，避免多处重复实现。 */
     private fun dp(ctx: Context, v: Int): Int {
-        return UiKit.dp(ctx, v)
+        return UiKit.dp(ctx, v.toFloat())
     }
 }

@@ -291,7 +291,7 @@ object DeepSeekClient {
         if (!(extraBody != null && extraBody.has("max_tokens"))) {
             body.put("max_tokens", 500)
         }
-        body.put("temperature", 1.2d)
+        body.put("temperature", 1.2)
         body.put("stream", false)
         if (tools != null && tools.length() > 0) {
             body.put("tools", tools)
