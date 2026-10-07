@@ -1,5 +1,25 @@
 # 更新记录
 
+## v0.0.5
+
+### 代码与结构
+
+- 源码全面迁移至 Kotlin：87 个 Java 文件改写为等价 Kotlin，工程内已无 `.java` 源文件。
+- 按职责重整包结构：`ui/`（theme、widget、home、settings、chat、provider）、`pet/`、`ai/`、`data/`、`agent/`、`device/`、`keepalive/`、`core/`、`anim/`。
+- Manifest 与文件名引用的组件类保留在根包，组件名与清单属性未变。
+
+### 兼容性
+
+- 行为、界面、动画与数据格式与本版本之前一致，未删除或新增功能。
+- 对外契约全部保持原值：SharedPreferences 名与键、通知渠道与常量、广播与 Intent 标识、文件路径与文件名、包名、签名配置、反射字符串。
+- 最低 Android 7.0（API 24），targetSdk 34。
+
+### 发布信息
+
+- versionName 0.0.5 / versionCode 5。
+- Release APK 已构建、校验签名并在 OPPO / ColorOS 14 覆盖安装。
+- 本次为等价迁移，未进行全机型或全部界面人工验收。
+
 ## v0.0.4
 
 ### 界面与交互
