@@ -3,7 +3,7 @@ package com.dollhouse.app;
 /**
  * 【职责】进程内的单例事件总线：把桌宠的状态变化广播给聊天面板。
  *
- * 【交互】PetService / PetView 发事件，ChatPanel / ChatWindow 订阅。
+ * 【交互】PetService / PetView 发事件，ChatPanel 订阅。
  *
  * 【坑】listener 是单个静态引用（同一时刻只允许一个订阅者），注册新监听会顶掉旧的。
  *

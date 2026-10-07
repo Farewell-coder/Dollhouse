@@ -112,17 +112,31 @@ final class SettingsRegistry {
         }
         @Override
         public void decorate(Context ctx, LinearLayout body, List<View> all, int from, int to) {
-            // 【改造】卡片下只留两行入口；多套配置 / 三个输入框 / 测试连接 / 模型清单
-            // 全部搬进「配置 API」独立页。原控件对象仍在 all 里，字段引用不会失效。
+            // 【改造】卡片下只留入口行；多套配置 / 三个输入框 / 测试连接 / 模型清单
+            // 全部搬进「提供商」独立页。原控件对象仍在 all 里，字段引用不会失效。
             body.removeAllViews();
-            body.addView(ApiConfigPage.entryRow(ctx, ApiConfigPage.TAG_ENTRY_CFG, "配置 API",
-                    "", new View.OnClickListener() {
+            body.addView(ApiPageKit.entryRow(ctx, ApiPageKit.TAG_ENTRY_CFG, "提供商",
+                    null, new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
-                            ApiConfigPage.open(v.getContext());
+                            ProviderNav.open(v.getContext());
                         }
                     }));
-            body.addView(ApiConfigPage.entryRow(ctx, ApiConfigPage.TAG_ENTRY_TOKEN, "查看 Token",
+            body.addView(ApiPageKit.entryRow(ctx, "feiyu_entry_behavior", "对话行为",
+                    null, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            ProviderNav.openAt(v.getContext(), ProviderNav.R_BEHAVIOR);
+                        }
+                    }));
+            body.addView(ApiPageKit.entryRow(ctx, "feiyu_entry_lamda", "lamda 设备控制",
+                    null, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            ProviderNav.openAt(v.getContext(), ProviderNav.R_LAMDA);
+                        }
+                    }));
+            body.addView(ApiPageKit.entryRow(ctx, ApiPageKit.TAG_ENTRY_TOKEN, "查看 Token",
                     null, new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {

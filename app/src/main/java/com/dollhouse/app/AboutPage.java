@@ -100,7 +100,8 @@ final class AboutPage {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(UiKit.BG);
         int pad = dp(ctx, 16);
-        box.setPadding(pad, dp(ctx, 10), pad, dp(ctx, 24));
+        // 【顶部不再留白】同 TokenStat：紧随其后的 UiKit.topBar 已自带 statusBarPad。
+        box.setPadding(pad, 0, pad, dp(ctx, 24));
 
         // 顶栏：统一走 UiKit.topBar（左上返回箭头 + 主标题 + 副标题）
         box.addView(UiKit.topBar(ctx, "关于", "关于本软件", new View.OnClickListener() {

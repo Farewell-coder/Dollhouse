@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * 【扩展】再加一个分区（比如收藏）只需在 buildContent 里多 add 一段，不用动挂载逻辑。
  *
- * 【坑】本类不自建 Activity，也不用系统 Dialog —— 桌宠模式（ChatWindow 宿主 PetService）
+ * 【坑】本类不自建 Activity，也不用系统 Dialog —— 桌宠模式（宿主 PetService，走迷你输入框）
  *        的 Context 链里没有 Activity，系统弹窗拿不到 window token。所以遮罩、确认框、输入框
  *        全部是叠在 layer（浮窗 root / Activity 的 content）上的普通 View。
  *        挂载层是从 ChatPanel 的父链里往上找的第一个 FrameLayout，ChatPanel 自身的
@@ -115,7 +115,11 @@ final class ChatDrawer {
         // 【v0.0.1】人偶专属入口：固定顶格在标题行下方。
         //   点一下切到「人偶」会话 —— 以后这个会话里说的话就是直接跟人偶说；
         //   其他会话的回复不再往人偶头顶气泡上送（闸门见 ChatPanel 的 PetBus.say）。
-        Button petEntry = flatButton(ctx, ChatSessions.isPet(ctx) ? "● 与人偶的对话" : "与人偶的对话");
+        Button petEntry = flatButton(ctx, "与人偶的对话");
+        // 【图标语义】用星标区分「当前在这个池里」：实心亮星 = 已切到人偶池，空心灰星 = 还在自聊池。
+        //   比裸 ● 更能一眼分辨，也与聊天抽屉整体的 Lucide 描边风格一致。
+        Icons.stateIcon(petEntry, ChatSessions.isPet(ctx) ? Icons.IC_STAR : Icons.IC_STAR_OFF,
+                ChatSessions.isPet(ctx) ? UiKit.ACC : UiKit.SUB, 14.0f, 5);
         LinearLayout.LayoutParams pelp = new LinearLayout.LayoutParams(-1, -2);
         pelp.topMargin = dp(8.0f);
         petEntry.setLayoutParams(pelp);
@@ -132,7 +136,11 @@ final class ChatDrawer {
                 }
                 host.reloadHistory();
                 refresh();
-                petEntry.setText(ChatSessions.isPet(ctx) ? "● 与人偶的对话" : "与人偶的对话");
+                // 【同步图标】池切换后星标要跟着变（实心 / 空心），只改文字会留下过期的旧状态。
+                boolean petOn = ChatSessions.isPet(ctx);
+                petEntry.setText("与人偶的对话");
+                Icons.stateIcon(petEntry, petOn ? Icons.IC_STAR : Icons.IC_STAR_OFF,
+                        petOn ? UiKit.ACC : UiKit.SUB, 14.0f, 5);
             }
         });
         panel.addView(petEntry);
@@ -238,12 +246,15 @@ final class ChatDrawer {
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setGravity(Gravity.CENTER_VERTICAL);
         TextView name = new TextView(ctx);
-        name.setText(active ? "● " + title : title);
+        name.setText(title);
         name.setTextSize(UiKit.FS_BTN);
         name.setTextColor(UiKit.TITLE);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         name.setSingleLine(true);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        // 【图标语义】当前会话不再靠裸 ● 表示，改用实心 / 空心星标（与顶部「与人偶的对话」同一套口径）。
+        Icons.stateIcon(name, active ? Icons.IC_STAR : Icons.IC_STAR_OFF,
+                active ? UiKit.ACC : UiKit.SUB, 13.0f, 5);
         line.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView edit = smallButton(ctx, "改名");
         edit.setOnClickListener(new View.OnClickListener() {
@@ -333,23 +344,7 @@ final class ChatDrawer {
             return;
         }
         Context ctx = this.host.getContext();
-        final FrameLayout overlay = new FrameLayout(ctx);
-        overlay.setBackgroundColor(UiKit.SCRIM);
-        overlay.setClickable(true);
-
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackground(UiKit.round(UiKit.CARD, ctx, 16));
-        int pad = dp(18.0f);
-        box.setPadding(pad, pad, pad, dp(14.0f));
-        box.setClickable(true);
-
-        TextView t1 = new TextView(ctx);
-        t1.setText(title);
-        t1.setTextSize(UiKit.FS_TITLE);
-        t1.setTextColor(UiKit.TITLE);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        box.addView(t1);
+        DialogShell sh = newDialogShell(ctx, title);
 
         TextView t2 = new TextView(ctx);
         t2.setText(message);
@@ -357,62 +352,12 @@ final class ChatDrawer {
         t2.setTextColor(UiKit.SUB);
         t2.setLineSpacing(dp(3.0f), 1.0f);
         t2.setPadding(0, dp(10.0f), 0, 0);
-        box.addView(t2);
+        sh.box.addView(t2);
 
-        LinearLayout bar = new LinearLayout(ctx);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.END);
-        bar.setPadding(0, dp(16.0f), 0, 0);
-        Button cancel = UiKit.dialogButton(ctx, "取消", false);
-        cancel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                UiKit.fadeOutRemove(overlay);
-            }
-        });
-        bar.addView(cancel);
-        Button ok = UiKit.dialogButton(ctx, okText, true);
-        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-2, -2);
-        olp.leftMargin = dp(10.0f);
-        ok.setLayoutParams(olp);
-        ok.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                UiKit.fadeOutRemove(overlay);
-                if (onOk != null) {
-                    onOk.run();
-                }
-            }
-        });
-        bar.addView(ok);
-        box.addView(bar);
+        addCancel(sh, ctx);
+        addOk(sh, ctx, okText, onOk);
+        mountDialog(parent, sh);
 
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
-                (int) (parent.getResources().getDisplayMetrics().widthPixels * 0.86f), -2);
-        blp.gravity = Gravity.CENTER;
-        overlay.addView(box, blp);
-        parent.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
-        // 【丝滑】弹层淡入 + 卡片轻微放大，不再瞬现。
-        overlay.setAlpha(0f);
-        box.setScaleX(0.94f);
-        box.setScaleY(0.94f);
-        overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
-        // 【弹簧】卡片放大走 snappy（ζ=0.73），与 overlay 淡入同帧开始；
-        //   overlay 的 alpha 保持线性淡入不动（透明度过冲会穿帮）。
-        Springs.drive(Springs.snappy(), new Springs.Listener() {
-            @Override
-            public void onUpdate(float p) {
-                float s = Springs.lerp(0.94f, 1.0f, p);
-                box.setScaleX(s);
-                box.setScaleY(s);
-            }
-
-            @Override
-            public void onEnd() {
-                box.setScaleX(1f);
-                box.setScaleY(1f);
-            }
-        });
     }
 
     /** 叠一层输入框（用于重命名）。 */
@@ -422,23 +367,7 @@ final class ChatDrawer {
             return;
         }
         Context ctx = this.host.getContext();
-        final FrameLayout overlay = new FrameLayout(ctx);
-        overlay.setBackgroundColor(UiKit.SCRIM);
-        overlay.setClickable(true);
-
-        LinearLayout box = new LinearLayout(ctx);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackground(UiKit.round(UiKit.CARD, ctx, 16));
-        int pad = dp(18.0f);
-        box.setPadding(pad, pad, pad, dp(14.0f));
-        box.setClickable(true);
-
-        TextView t1 = new TextView(ctx);
-        t1.setText(title);
-        t1.setTextSize(UiKit.FS_TITLE);
-        t1.setTextColor(UiKit.TITLE);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        box.addView(t1);
+        DialogShell sh = newDialogShell(ctx, title);
 
         final EditText input = new EditText(ctx);
         input.setText(initial == null ? "" : initial);
@@ -447,20 +376,9 @@ final class ChatDrawer {
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-1, -2);
         ilp.topMargin = dp(12.0f);
         input.setLayoutParams(ilp);
-        box.addView(input);
+        sh.box.addView(input);
 
-        LinearLayout bar = new LinearLayout(ctx);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.END);
-        bar.setPadding(0, dp(16.0f), 0, 0);
-        Button cancel = UiKit.dialogButton(ctx, "取消", false);
-        cancel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                UiKit.fadeOutRemove(overlay);
-            }
-        });
-        bar.addView(cancel);
+        addCancel(sh, ctx);
         Button ok = UiKit.dialogButton(ctx, "确定", true);
         LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-2, -2);
         olp.leftMargin = dp(10.0f);
@@ -469,43 +387,109 @@ final class ChatDrawer {
             @Override
             public void onClick(View v) {
                 String value = input.getText() == null ? "" : input.getText().toString().trim();
-                UiKit.fadeOutRemove(overlay);
+                UiKit.fadeOutRemove(sh.overlay);
                 if (onText != null) {
                     onText.onText(value);
                 }
             }
         });
-        bar.addView(ok);
-        box.addView(bar);
+        sh.bar.addView(ok);
+        mountDialog(parent, sh);
 
+    }
+
+
+    /** 弹层骨架的句柄：遮罩、卡片、按钮条。 */
+    private static final class DialogShell {
+        FrameLayout overlay;
+        LinearLayout box;
+        LinearLayout bar;
+    }
+
+    /** 建一个弹层骨架：遮罩（拦点击）+ 卡片（圆角、内边距）+ 加粗标题 + 空按钮条。 */
+    private DialogShell newDialogShell(Context ctx, String title) {
+        DialogShell sh = new DialogShell();
+        sh.overlay = new FrameLayout(ctx);
+        sh.overlay.setBackgroundColor(UiKit.SCRIM);
+        sh.overlay.setClickable(true);
+        sh.box = new LinearLayout(ctx);
+        sh.box.setOrientation(LinearLayout.VERTICAL);
+        sh.box.setBackground(UiKit.round(UiKit.CARD, ctx, 16));
+        int pad = dp(18.0f);
+        sh.box.setPadding(pad, pad, pad, dp(14.0f));
+        sh.box.setClickable(true);
+        TextView t1 = new TextView(ctx);
+        t1.setText(title);
+        t1.setTextSize(UiKit.FS_TITLE);
+        t1.setTextColor(UiKit.TITLE);
+        t1.setTypeface(Typeface.DEFAULT_BOLD);
+        sh.box.addView(t1);
+        sh.bar = new LinearLayout(ctx);
+        sh.bar.setOrientation(LinearLayout.HORIZONTAL);
+        sh.bar.setGravity(Gravity.END);
+        sh.bar.setPadding(0, dp(16.0f), 0, 0);
+        return sh;
+    }
+
+    /** 取消键：仅淡出移除遮罩。 */
+    private void addCancel(DialogShell sh, Context ctx) {
+        Button cancel = UiKit.dialogButton(ctx, "取消", false);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                UiKit.fadeOutRemove(sh.overlay);
+            }
+        });
+        sh.bar.addView(cancel);
+    }
+
+    /** 确认键：先淡出移除遮罩，再跑回调。 */
+    private void addOk(DialogShell sh, Context ctx, String okText, final Runnable onOk) {
+        Button ok = UiKit.dialogButton(ctx, okText, true);
+        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-2, -2);
+        olp.leftMargin = dp(10.0f);
+        ok.setLayoutParams(olp);
+        ok.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                UiKit.fadeOutRemove(sh.overlay);
+                if (onOk != null) {
+                    onOk.run();
+                }
+            }
+        });
+        sh.bar.addView(ok);
+    }
+
+    /** 挂载弹层：按钮条入卡片、固定屏宽 86% 居中、遮罩淡入 + 卡片弹簧放大。 */
+    private void mountDialog(ViewGroup parent, DialogShell sh) {
+        sh.box.addView(sh.bar);
         FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
                 (int) (parent.getResources().getDisplayMetrics().widthPixels * 0.86f), -2);
         blp.gravity = Gravity.CENTER;
-        overlay.addView(box, blp);
-        parent.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        sh.overlay.addView(sh.box, blp);
+        parent.addView(sh.overlay, new FrameLayout.LayoutParams(-1, -1));
         // 【丝滑】弹层淡入 + 卡片轻微放大，不再瞬现。
-        overlay.setAlpha(0f);
-        box.setScaleX(0.94f);
-        box.setScaleY(0.94f);
-        overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
+        sh.overlay.setAlpha(0f);
+        sh.box.setScaleX(0.94f);
+        sh.box.setScaleY(0.94f);
+        sh.overlay.animate().alpha(1f).setDuration(UiKit.D_LAYER).setInterpolator(UiKit.EASE_DECEL).start();
         // 【弹簧】卡片放大走 snappy（ζ=0.73），与 overlay 淡入同帧开始；
         //   overlay 的 alpha 保持线性淡入不动（透明度过冲会穿帮）。
         Springs.drive(Springs.snappy(), new Springs.Listener() {
             @Override
             public void onUpdate(float p) {
                 float s = Springs.lerp(0.94f, 1.0f, p);
-                box.setScaleX(s);
-                box.setScaleY(s);
+                sh.box.setScaleX(s);
+                sh.box.setScaleY(s);
             }
-
             @Override
             public void onEnd() {
-                box.setScaleX(1f);
-                box.setScaleY(1f);
+                sh.box.setScaleX(1f);
+                sh.box.setScaleY(1f);
             }
         });
     }
-
     private static String fmtTime(long ts) {
         if (ts <= 0L) {
             return "—";

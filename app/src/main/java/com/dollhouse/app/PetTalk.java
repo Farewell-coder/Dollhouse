@@ -161,7 +161,19 @@ final class PetTalk {
         this.host.setBubbleLines(PetBubble.LINES_TRUNC);
         this.host.saySticky(LOADING_TEXT);
         this.host.onBusy(true);
-        request();
+        // 【OCR】发请求前先把历史里还没扫过的图在后台扫成文字（扫完才真正发）；
+        //   请求正文里的图片文字就来自这份缓存。扫描期间气泡停在「思考中…」。
+        final int mine = this.generation;
+        OcrEngine.recognizePending(this.ctx, this.history, new Runnable() {
+            @Override
+            public void run() {
+                // 【守卫】扫描期间用户取消 / 又发了一条：代号变了就作废，不再发请求。
+                if (PetTalk.this.generation != mine || PetTalk.this.task != null) {
+                    return;
+                }
+                PetTalk.this.request();
+            }
+        });
     }
     /**
      * 点了一下气泡：按相位推进，返回 true 表示已消费这一下点击（不要再触发单击跳）。
@@ -221,6 +233,7 @@ final class PetTalk {
         this.toolRound = 0;
         // 取消即作废当前轮次：在途的工具线程回来时会被代号校验挡掉。
         this.generation++;
+        // 【OCR】扫描中的那一轮（task 还没建）同样靠 generation 作废，这里不用额外处理。
     }
     /** 服务销毁：取消请求 + 摘掉所有回调，避免 Handler 泄漏。 */
     void release() {
@@ -260,15 +273,16 @@ final class PetTalk {
         }
     }
     private void doRequest() {
-        boolean[] hasImage = new boolean[1];
-        JSONArray body = ChatHistoryStore.buildRequest(this.ctx, this.history, hasImage);
+        // 【OCR】图片已在 talk() 里先扫成文字，这里按纯文本组装即可，不再需要「本次是否带图」。
+        JSONArray body = ChatHistoryStore.buildRequest(this.ctx, this.history);
         // 【Shizuku】上一轮工具执行产出的追加消息（assistant(tool_calls) + role=tool）挂回请求体，
         //   否则服务端会因为没有与 tool 消息配对的 tool_calls 而判非法。
         if (this.toolFollowUp != null) {
             appendAll(body, this.toolFollowUp);
         }
         JSONObject params = samplingParams();
-        String model = hasImage[0] ? PetPrefs.visionModel(this.ctx) : PetPrefs.model(this.ctx);
+        // 【OCR】不再有「带图就切视觉模型」这一步：图片已经变成文字，普通文本模型即可。
+        String model = PetPrefs.model(this.ctx);
         // 【Shizuku】工具轮数未用尽才下发 tools；用尽后强制只走文本回复。
         //   buildSchema 内部已按 Shizuku 授权状态对 shell 工具做门控：未授权就不会出现。
         JSONArray tools = null;
@@ -289,7 +303,8 @@ final class PetTalk {
         // 【坑·真 bug】chatRaw 的形参顺序是 (apiKey, baseUrl, model, ...)：
         //   写反了不报编译错，只会在运行时把 URL 拼成 https://<Key>/chat/completions，
         //   于是「全屏聊天正常、只有迷你框报服务器错误」。
-        DeepSeekClient.chatRaw(PetPrefs.apiKey(this.ctx), PetPrefs.baseUrl(this.ctx), model,
+        DeepSeekClient.chatRaw(ProviderStore.activeProvider(this.ctx), PetPrefs.apiKey(this.ctx),
+                PetPrefs.baseUrl(this.ctx), model,
                 body, tools, params, mine, new DeepSeekClient.RawCallback() {
             @Override
             public void onMessage(JSONObject jSONObject, String str) {

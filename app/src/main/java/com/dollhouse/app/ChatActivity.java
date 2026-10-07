@@ -8,9 +8,8 @@ import android.os.Bundle;
  *
  * 【交互】只负责建一个 ChatPanel 并把它铺满内容视图；所有对话逻辑都在 ChatPanel 里。
  *
- * 【坑】桌宠场景下用的是常驻浮窗（ChatWindow），不是这个 Activity；两条路径共用 ChatPanel。
- *       悬浮窗里点顶栏的上下文环时，由 ChatWindow 带着 extra 跳到这里再开统计页——
- *       因为悬浮窗的 Context 链里没有 Activity，TokenStat.open 找不到宿主。
+ * 【坑】桌宠侧走的是迷你输入框（PetTalkInput）+ 气泡，另有一条独立的全屏页路径；
+ *       两条路径共用 ChatPanel。
  *
  * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
  */
@@ -31,10 +30,6 @@ public class ChatActivity extends Activity {
             }
 
             @Override
-            public void onOpenFullScreen() {
-            }
-
-            @Override
             public void onOpenTokenStat() {
                 TokenStat.open(ChatActivity.this);
             }
@@ -48,6 +43,8 @@ public class ChatActivity extends Activity {
         }, true);
         this.panel = chatPanel;
         setContentView(chatPanel);
+        // 【状态栏嵌入】聊天页同样铺满 + 状态栏透明；ChatPanel 顶栏自己让出高度。
+        UiKit.applyEdgeToEdge(this);
         this.panel.refreshHint();
         // 从悬浮窗带 extra 跳进来时，落地就顺手把统计页叠上（延后一拍，等内容视图量完）。
         if (PAGE_TOKEN.equals(pageExtra())) {

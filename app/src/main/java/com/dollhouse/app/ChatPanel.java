@@ -3,7 +3,6 @@ package com.dollhouse.app;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -23,7 +22,7 @@ import org.json.JSONObject;
 /**
  * 【职责】聊天气泡面板本体：消息列表、输入行、附件条、AI 请求与流式回填。
  *
- * 【交互】对外通过 Controller 回调把「拖动 / 关闭」交给宿主（ChatActivity 或 ChatWindow）；模型请求走 DeepSeekClient，联网工具走 WebSearch，图片附件走 ImageStore。
+ * 【交互】对外通过 Controller 回调把「拖动 / 关闭」交给宿主（全屏聊天页 ChatActivity）；模型请求走 DeepSeekClient，联网工具走 WebSearch，图片附件走 ImageStore。
  *
  * 【坑】history 是整段对话上下文，每次请求都会带上；MAX_TOOL_ROUNDS 限制联网工具的最大轮次，防止 AI 反复查资料不收敛。改这里要小心 token 统计（TokenStat）与好感度解析的联动。
  *
@@ -45,8 +44,11 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     private String pendingImage;
     private String pendingText;
     private String pendingTextName;
-    boolean requestHasImage;
+    /** 【OCR】「等 OCR 扫完再发」的闸门是否仍然有效（用户中途停止 / 新一轮发送会置假）。 */
+    private boolean sendPending;
     ScrollView scroller;
+    /** 【裁剪】上次回填的聊天区宽高比：用来避免每次 applyBackground 都写盘。 */
+    private float lastBgRatio;
     private ImageView sendBtn;
     /** 【v2.8】工具条右侧的「记忆总结中」：仅在总结在途时可见，结束后消失。 */
     private TextView memoBusy;
@@ -88,9 +90,7 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
     public interface Controller {
         void onClose();
         void onDrag(float f, float f2);
-        void onOpenFullScreen();
-        /** 点顶栏的上下文环：打开「令牌消耗统计」页。
-         *  【坑】悬浮窗场景的 Context 链里没有 Activity，宿主必须自己想办法（见 ChatWindow）。 */
+        /** 点顶栏的上下文环：打开「令牌消耗统计」页。 */
         void onOpenTokenStat();
     }
     // 构造：搭骨架 → 载入历史 → 刷新输入行 → 套用聊天背景。
@@ -99,7 +99,6 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         this.history = new JSONArray();
         this.waiting = false;
         this.browsingArchives = false;
-        this.requestHasImage = false;
         this.thinkDegraded = false;
         this.controller = controller;
         setOrientation(1);
@@ -148,12 +147,30 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
 
     // 一次性搭出消息区 / 输入行 / 附件条三层结构。
     private void build(boolean z) {
+        buildTopBar();
+        buildScroller();
+        buildToolBar();
+        buildInputRow();
+
+    }
+    /** 顶栏：返回 / 抽屉 / 标题 / 上下文占用环 + 提示条（整条面板可拖动）。 */
+    private void buildTopBar() {
+        LinearLayout barRow = buildTopBarRow();
+        buildCtxRing(barRow);
+        buildHintBar();
+    }
+
+    /** 顶栏行：拖动区 + 返回键 + 抽屉键 + 标题（标题 weight=1 吃剩余宽度）。 */
+    private LinearLayout buildTopBarRow() {
         LinearLayout linearLayout = new LinearLayout(getContext());
         linearLayout.setOrientation(0);
         linearLayout.setGravity(16);
         // 【观感】左内边距收到 6dp：图标自带 38dp 命中区，视觉重心本就已经贴角，
         // 再留 14dp 整条顶栏会显得往右下偏移。
-        linearLayout.setPadding(dp(6.0f), dp(8.0f), dp(6.0f), dp(8.0f));
+        // 【状态栏嵌入】本面板只在 ChatActivity（铺满 + 状态栏透明）里使用，
+        // 顶部额外让出状态栏高度，否则标题会被状态栏文字压住。
+        linearLayout.setPadding(dp(6.0f), UiKit.statusBarPad(getContext()) + dp(8.0f),
+                dp(6.0f), dp(8.0f));
         addView(linearLayout, new LinearLayout.LayoutParams(-1, -2));
         TextView textView = new TextView(getContext());
         textView.setText("Dollhouse");
@@ -209,7 +226,11 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         linearLayout.addView(drawerIcon, iconLp(dp(2.0f)));
         // 标题放在返回键之后：先加两个图标保证返回键贴在最左侧。
         linearLayout.addView(textView, new LinearLayout.LayoutParams(0, -2, 1.0f));
-        // 上下文占用环：环形 = 已用/剩余，中心数字 = 占用百分比；点开现有「令牌消耗统计」页。
+        return linearLayout;
+    }
+
+    /** 上下文占用环：环形 = 已用/剩余，中心数字 = 占用百分比；点开令牌消耗统计页。 */
+    private void buildCtxRing(LinearLayout linearLayout) {
         CtxRing ring = new CtxRing(getContext());
         this.ctxRing = ring;
         ring.setOnClickListener(new View.OnClickListener() {            @Override
@@ -223,6 +244,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         ringLp.leftMargin = dp(2.0f);
         ringLp.rightMargin = dp(2.0f);
         linearLayout.addView(ring, ringLp);
+    }
+
+    /** 顶部提示条：圆角色块、左右留边，点击跳主界面。 */
+    private void buildHintBar() {
         TextView textView2 = new TextView(getContext());
         this.hint = textView2;
         textView2.setTextSize(UiKit.FS_SUB);
@@ -243,6 +268,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         hintLp.rightMargin = dp(10.0f);
         hintLp.topMargin = dp(6.0f);
         addView(this.hint, hintLp);
+    }
+
+    /** 消息滚动区：消息容器挂进 ScrollView，并接上「滚远自动收回展开态」。 */
+    private void buildScroller() {
         ScrollView scrollView = new ScrollView(getContext());
         this.scroller = scrollView;
         scrollView.setFillViewport(true);
@@ -260,6 +289,22 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         this.messages.setPadding(dp(12.0f), dp(8.0f), dp(12.0f), dp(8.0f));
         this.scroller.addView(this.messages, new ViewGroup.LayoutParams(-1, -2));
         addView(this.scroller, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+    }
+
+    /** 输入行上方的工具条（模型 / 思考 / 加号）+ 附件预览条。 */
+    private void buildToolBar() {
+        buildToolRow();
+        buildAttachStrip();
+        LinearLayout.LayoutParams toolLp = new LinearLayout.LayoutParams(-1, -2);
+        toolLp.leftMargin = dp(10.0f);
+        toolLp.rightMargin = dp(10.0f);
+        toolLp.bottomMargin = dp(2.0f);
+        addView(this.attachStrip);
+        addView(this.toolRow, toolLp);
+    }
+
+    /** 工具条主体：模型配置 / 思考程度 / 记忆 三图标 + 右侧「记忆总结中」提示。 */
+    private void buildToolRow() {
         // 【三件套】输入行上方的工具条：🐳 模型配置 / 💡 思考程度 / ＋ 记忆。
         // 【坑】三个图标要自己撑出 38dp 命中区（flatIcon 只画字，不量宽高），
         //       与顶栏返回键同一套尺寸，点起来才不会漏。
@@ -304,10 +349,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         busy.setPadding(dp(6.0f), 0, dp(2.0f), 0);
         UiKit.collapse(busy);
         toolWrap.addView(busy, new LinearLayout.LayoutParams(0, -2, 1.0f));
-        LinearLayout.LayoutParams toolLp = new LinearLayout.LayoutParams(-1, -2);
-        toolLp.leftMargin = dp(10.0f);
-        toolLp.rightMargin = dp(10.0f);
-        toolLp.bottomMargin = dp(2.0f);
+    }
+
+    /** 附件预览条：缩略图 + 说明 + 移除按钮，初始收起。 */
+    private void buildAttachStrip() {
         // 【修·附件断链】附件预览条：缩略图 + 说明 + 移除按钮。
         //   原先 attachStrip / attachThumb / attachLabel 三个字段只有读取方，从来没有创建代码，
         //   refreshAttachStrip() 里 `attachStrip == null` 直接 return —— 选了图也看不到、去不掉。
@@ -343,8 +388,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         // 初始收起（仍占据布局，由 alpha/显隐控制）。
         this.attachStrip.setVisibility(View.GONE);
         this.attachStrip.setAlpha(0f);
-        addView(this.attachStrip);
-        addView(this.toolRow, toolLp);
+    }
+
+    /** 底部输入行：输入框 + 圆形发送键（等待回复时同一按钮变「停止」）。 */
+    private void buildInputRow() {
         LinearLayout linearLayout3 = new LinearLayout(getContext());
         this.inputRow = linearLayout3;
         linearLayout3.setOrientation(0);
@@ -384,8 +431,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             }
         });
         this.inputRow.addView(this.sendBtn, sendLp());
-
     }
+
 
     /** 输入行右侧的圆形发送键：固定 38dp 方形，靠 sendButton 的 999dp 圆角成圆。 */
     private LinearLayout.LayoutParams sendLp() {
@@ -422,6 +469,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
 
     /** 用户点「停止」：断掉在途连接，静默收尾（不报网络错误）。 */
     public void stopGenerating() {
+        // 【OCR】若还在等 OCR 扫图，撕掉闸门，扫描回来直接作废（不再发请求）。
+        this.sendPending = false;
         DeepSeekClient.Task t = this.task;
         if (t != null) {
             t.cancel();
@@ -438,10 +487,6 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             this.hint.setText("还没填 API key，点这里去设置 →");
             UiKit.reveal(this.hint);
         }
-    }
-    // 从偏好里取出接口地址与密钥（缺任一就算没配好）。
-    private String[] endpoint() {
-        return new String[]{PetPrefs.baseUrl(getContext()), PetPrefs.apiKey(getContext()), PetPrefs.model(getContext())};
     }
     // 能否发消息：必须有配置且当前不在等待回复。
     private boolean canChat() {
@@ -710,22 +755,55 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         }
     }
     // 套用用户选的聊天背景图与透明度。
+    // 【裁剪】改走 ChatBgDrawable 做 center-crop：等比铺满、超出裁边，绝不拉伸变形。
     public void applyBackground() {
         if (this.scroller == null) {
             return;
         }
+        recordChatBgRatio();
         String chatBackground = PetPrefs.chatBackground(getContext());
         Bitmap loadScaled = (chatBackground == null || chatBackground.isEmpty()) ? null : ImageStore.loadScaled(getContext(), chatBackground, 1080);
         if (loadScaled == null) {
             this.scroller.setBackground(null);
             return;
         }
-        BitmapDrawable bitmapDrawable = new BitmapDrawable(getResources(), loadScaled);
-        bitmapDrawable.setGravity(119);
-        bitmapDrawable.setAlpha((PetPrefs.chatBgAlpha(getContext()) * 255) / 100);
-        this.scroller.setBackground(bitmapDrawable);
+        ChatBgDrawable chatBgDrawable = new ChatBgDrawable(loadScaled);
+        chatBgDrawable.setAlpha((PetPrefs.chatBgAlpha(getContext()) * 255) / 100);
+        this.scroller.setBackground(chatBgDrawable);
         this.scroller.setAlpha(0.6f);
         this.scroller.animate().alpha(1f).setDuration(UiKit.D_MICRO).setInterpolator(UiKit.EASE_DECEL).start();
+    }
+    /**
+     * 【裁剪】把聊天区实际宽高比回填到偏好，供裁剪页据此出框（所见即所得）。
+     * 【坑】构造期 scroller 还没量到尺寸，首帧要 post 一次；比例没变就不再写盘。
+     */
+    private void recordChatBgRatio() {
+        if (this.scroller.getWidth() > 0 && this.scroller.getHeight() > 0) {
+            writeChatBgRatio(this.scroller.getWidth(), this.scroller.getHeight());
+            return;
+        }
+        this.scroller.post(new Runnable() {
+            @Override
+            public void run() {
+                if (ChatPanel.this.scroller == null) {
+                    return;
+                }
+                if (ChatPanel.this.scroller.getWidth() > 0 && ChatPanel.this.scroller.getHeight() > 0) {
+                    ChatPanel.this.writeChatBgRatio(ChatPanel.this.scroller.getWidth(), ChatPanel.this.scroller.getHeight());
+                }
+            }
+        });
+    }
+    private void writeChatBgRatio(int i, int i2) {
+        if (i <= 0 || i2 <= 0) {
+            return;
+        }
+        float f = (float) i / (float) i2;
+        if (Math.abs(f - this.lastBgRatio) < 0.001f) {
+            return;
+        }
+        this.lastBgRatio = f;
+        PetPrefs.setChatBgRatio(getContext(), f);
     }
     public void openPicker() {
         if (this.browsingArchives) {
@@ -770,7 +848,10 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         if (this.pendingImage != null) {
             UiKit.reveal(this.attachThumb);
             this.attachThumb.setImageBitmap(ImageStore.loadScaled(getContext(), this.pendingImage, 160));
-            this.attachLabel.setText("已选图片，会一起发给她");
+            // 【OCR】已发出、正在后台扫字：给她一句进度，避免用户以为卡死了。
+            this.attachLabel.setText(this.sendPending && this.waiting
+                    ? "正在识别图片文字…（后台处理，稍等）"
+                    : "已选图片，会一起发给她");
             return;
         }
         UiKit.collapse(this.attachThumb);
@@ -790,8 +871,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
 
     /**
      * 打开左侧抽屉。
-     * 【坑】挂载层是「父链里第一个 FrameLayout」——ChatActivity 里是 android.R.id.content，
-     *       悬浮窗里是 ChatWindow.root。找不到就退回自己的父容器，至少不会崩。
+     * 【坑】挂载层是「父链里第一个 FrameLayout」——ChatActivity 里是 android.R.id.content。
+     *       找不到就退回自己的父容器，至少不会崩。
      */
     public void openDrawer() {
         if (this.drawer == null) {
@@ -1006,6 +1087,8 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         if (this.browsingArchives) {
             return;
         }
+        // 【坑】上一轮的「等 OCR」闸门可能还挂着（请求已回、闸门未清），先作废，避免串到这一轮。
+        this.sendPending = false;
         String trim = this.input.getText().toString().trim();
         String str2 = this.pendingImage;
         String str3 = this.pendingText;
@@ -1030,7 +1113,6 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
             trim = "看看这张图。";
         }
         this.input.setText("");
-        clearAttachment();
         addBubble(trim, true, -1, str2);
         ChatHistoryStore.push(this, "user", trim, str2);
         if (ChatSessions.isPet(getContext())) {
@@ -1038,10 +1120,34 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         }
         setWaiting(true);
         addThinking(str2 != null ? "正在看图…" : "正在思考…");
-        askModel(ChatHistoryStore.buildRequest(this), 0, true);
+        // 【OCR】先把还没扫过的图在后台补扫成文字，扫完再真正发请求。
+        ensureOcrThenSend();
+    }
+    /**
+     * 【OCR】发请求前的闸门：历史里还没扫过的图先补扫成文字，扫完才发。
+     * 【为什么要有这一步】请求正文里的图片文字是发请求那一刻从缓存取的，没扫过就会漏；
+     *   这里保证「点发送 → 后台花几秒扫图 → 带着文字发出去」，界面上只看到「正在看图…」。
+     * 【坑】OCR 期间用户可能删了消息、切到归档页或自己按了停止：回来先查等待态再发。
+     */
+    private void ensureOcrThenSend() {
+        this.sendPending = true;
+        // 立刻把附件条文案切成「正在识别」，让人知道后台在干活（不是卡住了）。
+        refreshAttachStrip();
+        OcrEngine.recognizePending(getContext(), this.history, new Runnable() {
+            @Override
+            public void run() {
+                if (!ChatPanel.this.sendPending || !ChatPanel.this.waiting) {
+                    return;
+                }
+                ChatPanel.this.sendPending = false;
+                // 【OCR】扫完了，现在才真正收掉附件条（发送瞬间挂起，避免抢在 OCR 前清空）。
+                ChatPanel.this.clearAttachment();
+                // 【OCR】扫完再组装请求：这时图片文字已在缓存里，正文才带得上。
+                ChatPanel.this.askModel(ChatHistoryStore.buildRequest(ChatPanel.this.getContext(), ChatPanel.this.history), 0, true);
+            }
+        });
     }
     public void askModel(final JSONArray jSONArray, final int i, final boolean z) {
-        String[] endpoint = endpoint();
         // 【交互】记忆工具始终可用（AI 自己决定记什么）；联网工具按用户开关决定。
         JSONArray buildTools = z ? buildTools() : null;
         // 【思考框】计时起点：这一刻算「模型开始思考」。
@@ -1049,7 +1155,14 @@ public class ChatPanel extends LinearLayout implements PickFileActivity.Listener
         //       工具轮里每次重发 askModel 都会重置，所以显示的是「最后一轮」的耗时。
         this.askStartMs = System.currentTimeMillis();
         this.task = new DeepSeekClient.Task();
-        DeepSeekClient.chatRaw(endpoint[1], endpoint[0], (0 == 0 && this.requestHasImage) ? PetPrefs.visionModel(getContext()) : endpoint[2], jSONArray, buildTools, samplingParams(false), this.task, new DeepSeekClient.RawCallback() {            @Override
+        // 【规格书】请求按「供应商 + 模型」组装：地址与协议头全走 ApiClient。
+        //   取值用 PetPrefs 三件套：配了供应商时它们转发到 ProviderStore（拿的就是当前选中项），
+        //   没配供应商时回退旧键，保证升级后老配置也照常能用（pv 为 null 时走裸 baseUrl + Bearer）。
+        Provider pv = ProviderStore.activeProvider(getContext());
+        String key = PetPrefs.apiKey(getContext());
+        String baseUrl = PetPrefs.baseUrl(getContext());
+        String modelId = PetPrefs.model(getContext());
+        DeepSeekClient.chatRaw(pv, key, baseUrl, modelId, jSONArray, buildTools, samplingParams(false), this.task, new DeepSeekClient.RawCallback() {            @Override
             public void onMessage(JSONObject jSONObject, String str) {
                 int i2;
                 // 用户主动停止：静默收尾，不要当故障报出来。

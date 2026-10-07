@@ -31,13 +31,6 @@ final class PetWindowController {
     /** 【v2.10.2】上一次已知的屏幕宽高（-1 = 尚未记录）。旋转 / 折叠屏 / 分屏靠它察觉。 */
     private int screenW = -1;
     private int screenH = -1;
-    /**
-     * 聊天窗顶部让位里，除人头高外额外的余量。
-     * 【必须与 ChatWindow.topReserve 的注释口径一致】原先是两处各写一个 16.0f 的字面量，
-     * 改一处漏一处就会让人偶被聊天窗盖住；这里收口成常量，值的语义是「头肩高 + 16dp 不互相压」。
-     */
-    private static final float TOP_RESERVE_EXTRA_DP = 16.0f;
-
     PetWindowController(PetService host) {
         this.host = host;
     }
@@ -71,20 +64,12 @@ final class PetWindowController {
         if (valueAnimator != null && valueAnimator.isRunning()) {
             valueAnimator.cancel();
         }
-        // peek 态：聊天窗开着就重新贴回框顶；窗已不在才退回全身。
+        // peek 态：迷你输入框开着就重排「人偶 + 框」整组，保住趴姿与人偶脚底位置。
         if (host.peek) {
             host.petView.setBubbleHeight(0);
             host.bubbleUp = false;
             host.petView.setScaleFactor(target);
-            int[] g = host.chatWindow == null ? null : host.chatWindow.currentGeometry();
-            if (g != null) {
-                // 输入法弹出时聊天窗按 topReserve 让位；它含 perchHeight()，缩放后必须跟着刷新。
-                host.chatWindow.setTopReserve(host.petView.perchHeight()
-                        + Math.round(host.getResources().getDisplayMetrics().density * TOP_RESERVE_EXTRA_DP));
-                layoutPeek(g[0], g[1], g[2], g[3]);
-                return;
-            }
-            exitPeek();
+            host.layoutMiniTalk(host.talkIme);
             return;
         }
         boolean wasBubbleUp = host.bubbleUp;
@@ -207,11 +192,6 @@ final class PetWindowController {
         this.screenW = w;
         this.screenH = h;
         relayoutForScreen();
-        // 聊天悬浮窗的位置也是按旧屏幕存的，同步夹回来，否则旋转后聊天框会落到屏外。
-        ChatWindow chatWindow = host.chatWindow;
-        if (chatWindow != null) {
-            chatWindow.onScreenChanged();
-        }
     }
 
     /**
@@ -228,8 +208,8 @@ final class PetWindowController {
         if (anim != null && anim.isRunning()) {
             anim.cancel();
         }
-        // 聊天窗开着时人是趴姿、窗口跟着聊天窗走：退掉趴姿最省事，
-        // 聊天窗自己会按新屏幕重算并重新通知几何（见 ChatWindow.onScreenChanged）。
+        // 聊天态（迷你输入框开着）人是趴姿、窗口跟着整组走：退掉趴姿最省事，
+        // 退掉后由 layoutMiniTalk 按新屏幕重排。
         if (host.peek) {
             host.exitPeek();
             return;

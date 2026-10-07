@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.BitmapFactory;
+import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -40,7 +41,6 @@ public class PetService extends Service {
      */
     static final String[] LINES_TAP = {"你好呀～", "我一直都在哦。", "有什么想聊的吗？"};
     static final float SNAP_ZONE_RATIO = 0.25f;
-    ChatWindow chatWindow;
     float curPivotX;
     float curPivotY;
     float downPivotX;
@@ -143,10 +143,54 @@ public class PetService extends Service {
             // n == 2：双击聊天已取消，不产生任何动作。
         }
     };
+    /**
+     * 【无感保活】返回本地 Binder，让「服务是否活着」可被同进程探测。
+     *
+     * 【为什么必须改成这样】getRunningServices 自 API 26 起只能看到本进程内的服务，
+     *   唯一能区分「服务活着」与「进程活着」的手段是 bindService 并看回调是否到达；
+     *   探测侧用 flags=0（不创建服务），只有这里返回了 Binder，回调才会来。
+     * 【影响面】本 Binder 不出进程（组件 exported=false），全工程无其它 onBind 调用方，
+     *   属纯加法改动，不改变任何既有行为。
+     */
     @Override
     public IBinder onBind(Intent intent) {
-        return null;
+        return new LocalBinder();
     }
+
+    /**
+     * 进程内 Binder 句柄：只用于存活探测，不承载业务调用。
+     *
+     * 【为什么是非静态内部类】静态嵌套类里没有外围实例，写 `PetService.this` 会直接
+     *   编译失败（non-static variable this cannot be referenced from a static context）；
+     *   而探测侧只关心「onBind 有没有被调到」，返回一个实心 Binder 就够了。
+     */
+    public final class LocalBinder extends Binder {
+    }
+    /** lamda 设备服务巡检周期（毫秒）。 */
+    static final long LAMDA_GUARD_MS = 60000L;
+    /** 人偶刚起时的首次巡检延迟：等服务自己摆稳再干活，别在冷启高峰期抢资源。 */
+    static final long LAMDA_GUARD_FIRST_MS = 15000L;
+    /**
+     * 【lamda 自动保活】巡检任务。
+     *
+     * 【为什么挂在这里】lamda 是 shell 进程，被系统回收时不会有任何通知；本服务是前台服务、
+     *   活着是常态，借它的心跳做巡检是最省的做法 —— 不新开 Service、不新注册常驻组件、
+     *   不动 Manifest。人偶本身掉了由 keepalive 那套拉回来，这里只负责 lamda。
+     * 【为什么用 ui Handler】与 onDestroy 共用同一个 Handler，销毁时会被
+     *   removeCallbacksAndMessages(null) 一并清掉，无需额外注销逻辑。
+     * 【开销】60 秒一次读缓存判定，几乎为零；只有探测到没活着才起线程去真拉起。
+     */
+    final Runnable lamdaGuard = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                LamdaManager.guardTick(PetService.this);
+            } catch (Throwable ignored) {
+                Logs.w("Dollhouse", "ignored", ignored);
+            }
+            PetService.this.ui.postDelayed(this, LAMDA_GUARD_MS);
+        }
+    };
     @Override
     public void onCreate() {
         super.onCreate();
@@ -154,19 +198,7 @@ public class PetService extends Service {
         this.wm = (WindowManager) getSystemService("window");
         this.touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         this.win = new PetWindowController(this);
-        this.chatWindow = new ChatWindow(this, new ChatWindow.Host() {            @Override
-            public void onOpenFullScreen() {
-                ChatWindow.openFullScreen(PetService.this);
-            }
-            @Override
-            public void onClosed() {
-                PetService.this.exitPeek();
-            }
-            @Override
-            public void onGeometry(int i, int i2, int i3, int i4) {
-                PetService.this.layoutPeek(i, i2, i3, i4);
-            }
-        });
+        this.ui.postDelayed(this.lamdaGuard, LAMDA_GUARD_FIRST_MS);
     }
     @Override
     public int onStartCommand(Intent intent, int i, int i2) {
@@ -184,10 +216,6 @@ public class PetService extends Service {
             if (pv != null) {
                 pv.applyTheme();
                 this.win.applyScale();
-            }
-            ChatWindow chatWindow = this.chatWindow;
-            if (chatWindow != null) {
-                chatWindow.refreshBackground();
             }
             // 【v2.10.2】顺带做一次屏幕尺寸自检：REFRESH 是 MainActivity 每次回到前台都会发的动作，
             // 拿它当「旋转后必然经过的一个点」用，比只等系统回调更稳。
@@ -251,11 +279,6 @@ public class PetService extends Service {
         ValueAnimator valueAnimator = this.snapAnim;
         if (valueAnimator != null) {
             valueAnimator.cancel();
-        }
-        ChatWindow chatWindow = this.chatWindow;
-        if (chatWindow != null) {
-            // 销毁中：不要再回调宿主（宿主正在拆自己）。
-            chatWindow.hide(false);
         }
         PetTalkInput input = this.talkInput;
         if (input != null) {
@@ -426,11 +449,6 @@ public class PetService extends Service {
     }
     /** 三击召唤：挂出迷你输入框，人偶趴到框顶。 */
     void openMiniTalk() {
-        ChatWindow chatWindow = this.chatWindow;
-        if (chatWindow != null && chatWindow.isShowing()) {
-            // 老悬浮聊天窗还开着就先收掉：两套窗同时存在会让 peek 语义打架。
-            chatWindow.hide();
-        }
         if (this.petView == null || this.lp == null || !this.added) {
             return;
         }
@@ -441,95 +459,105 @@ public class PetService extends Service {
     /** 首次使用时组装逻辑层与输入框（之后常驻复用，不反复建窗）。 */
     private void ensureMiniTalk() {
         if (this.talk == null) {
-            this.talk = new PetTalk(this, new PetTalk.Host() {
-                @Override
-                public void saySticky(String str) {
-                    PetService.this.saySticky(str);
-                }
-                @Override
-                public void sayTemp(String str, long j) {
-                    PetService.this.say(str, j);
-                }
-                @Override
-                public void clearBubble() {
-                    PetService.this.hideBubbleNow();
-                }
-                @Override
-                public int showBubblePaged(String str, int i) {
-                    PetView petView = PetService.this.petView;
-                    if (petView == null) {
-                        return 0;
-                    }
-                    int pages = petView.showBubblePaged(str, i);
-                    // 【v2.7】分页后气泡高度跟着变（一片最多 PAGE_MAX_LINES 行）：
-                    //   必须重排一次，否则首屏还按「思考中…」的旧窗高画，多出一行被裁。
-                    if (PetService.this.peek && PetService.this.bubbleUp) {
-                        PetService.this.layoutMiniTalk(PetService.this.talkIme);
-                    } else {
-                        PetService.this.expandBubble(petView.neededBubbleSpace());
-                    }
-                    return pages;
-                }
-                @Override
-                public String bubblePage(int i) {
-                    PetView petView = PetService.this.petView;
-                    return petView == null ? null : petView.bubblePage(i);
-                }
-                @Override
-                public void setBubbleLines(int i) {
-                    PetView petView = PetService.this.petView;
-                    if (petView == null) {
-                        return;
-                    }
-                    petView.setBubbleMaxLines(i);
-                    // 行数变了气泡高度就变，必须重排整组，否则窗高对不上文字。
-                    if (PetService.this.peek && PetService.this.bubbleUp) {
-                        PetService.this.layoutMiniTalk(PetService.this.talkIme);
-                    }
-                }
-                @Override
-                public void onBusy(boolean z) {
-                    if (PetService.this.talkInput != null) {
-                        PetService.this.talkInput.setBusy(z);
-                    }
-                }
-                @Override
-                public boolean bubbleHasOverflow() {
-                    return PetService.this.petView != null && PetService.this.petView.bubbleHasOverflow();
-                }
-            });
+            this.talk = new PetTalk(this, newTalkHost());
         }
         if (this.talkInput == null) {
-            this.talkInput = new PetTalkInput(this, new PetTalkInput.Host() {
-                @Override
-                public void onClosed() {
-                    // 收起输入框：人偶站起来（含气泡复位）。
-                    PetService.this.exitPeek();
-                }
-                @Override
-                public void onSend(String str) {
-                    // 【约定·用户定案】发完消息：收输入框 + 人偶从趴姿站回原位，
-                    //   回复走头顶普通气泡展示。（旧行为只重排不退出趴姿，
-                    //   于是「框收了、人偶还是半个头」。）
-                    // 【顺序要紧】exitPeek() 内部会 clearBubble()，必须先退趴姿再发请求，
-                    //   反过来会把刚点亮的「思考中…」一起清掉。
-                    PetService.this.talkIme = 0;
-                    PetService.this.talkInputWanted = false;
-                    PetService.this.talkOnSend = true;
-                    PetService.this.exitPeek();
-                    if (PetService.this.talk != null) {
-                        PetService.this.talk.talk(str);
-                    }
-                }
-                @Override
-                public void onIme(int i) {
-                    PetService.this.talkIme = i;
-                    if (PetService.this.peek) {
-                        PetService.this.layoutMiniTalk(i);
-                    }
-                }
-            });
+            this.talkInput = new PetTalkInput(this, newTalkInputHost());
         }
+    }
+
+    /** PetTalk 的宿主回调：气泡分页 / 行数变化后的整组重排、气泡读回、忙碌态透传。 */
+    private PetTalk.Host newTalkHost() {
+        return new PetTalk.Host() {
+            @Override
+            public void saySticky(String str) {
+                PetService.this.saySticky(str);
+            }
+            @Override
+            public void sayTemp(String str, long j) {
+                PetService.this.say(str, j);
+            }
+            @Override
+            public void clearBubble() {
+                PetService.this.hideBubbleNow();
+            }
+            @Override
+            public int showBubblePaged(String str, int i) {
+                PetView petView = PetService.this.petView;
+                if (petView == null) {
+                    return 0;
+                }
+                int pages = petView.showBubblePaged(str, i);
+                // 【v2.7】分页后气泡高度跟着变（一片最多 PAGE_MAX_LINES 行）：
+                //   必须重排一次，否则首屏还按「思考中…」的旧窗高画，多出一行被裁。
+                if (PetService.this.peek && PetService.this.bubbleUp) {
+                    PetService.this.layoutMiniTalk(PetService.this.talkIme);
+                } else {
+                    PetService.this.expandBubble(petView.neededBubbleSpace());
+                }
+                return pages;
+            }
+            @Override
+            public String bubblePage(int i) {
+                PetView petView = PetService.this.petView;
+                return petView == null ? null : petView.bubblePage(i);
+            }
+            @Override
+            public void setBubbleLines(int i) {
+                PetView petView = PetService.this.petView;
+                if (petView == null) {
+                    return;
+                }
+                petView.setBubbleMaxLines(i);
+                // 行数变了气泡高度就变，必须重排整组，否则窗高对不上文字。
+                if (PetService.this.peek && PetService.this.bubbleUp) {
+                    PetService.this.layoutMiniTalk(PetService.this.talkIme);
+                }
+            }
+            @Override
+            public void onBusy(boolean z) {
+                if (PetService.this.talkInput != null) {
+                    PetService.this.talkInput.setBusy(z);
+                }
+            }
+            @Override
+            public boolean bubbleHasOverflow() {
+                return PetService.this.petView != null && PetService.this.petView.bubbleHasOverflow();
+            }
+        };
+    }
+
+    /** PetTalkInput 的宿主回调：输入框收起 / 发送 / 输入法高度变化时的整组重排。 */
+    private PetTalkInput.Host newTalkInputHost() {
+        return new PetTalkInput.Host() {
+            @Override
+            public void onClosed() {
+                // 收起输入框：人偶站起来（含气泡复位）。
+                PetService.this.exitPeek();
+            }
+            @Override
+            public void onSend(String str) {
+                // 【约定·用户定案】发完消息：收输入框 + 人偶从趴姿站回原位，
+                //   回复走头顶普通气泡展示。（旧行为只重排不退出趴姿，
+                //   于是「框收了、人偶还是半个头」。）
+                // 【顺序要紧】exitPeek() 内部会 clearBubble()，必须先退趴姿再发请求，
+                //   反过来会把刚点亮的「思考中…」一起清掉。
+                PetService.this.talkIme = 0;
+                PetService.this.talkInputWanted = false;
+                PetService.this.talkOnSend = true;
+                PetService.this.exitPeek();
+                if (PetService.this.talk != null) {
+                    PetService.this.talk.talk(str);
+                }
+            }
+            @Override
+            public void onIme(int i) {
+                PetService.this.talkIme = i;
+                if (PetService.this.peek) {
+                    PetService.this.layoutMiniTalk(i);
+                }
+            }
+        };
     }
     /**
      * 迷你聊天的整组摆位：人偶完整悬浮在框上方，输入框紧贴人偶下方。
@@ -537,30 +565,20 @@ public class PetService extends Service {
      *   输入框 = 独立 overlay。整组以人偶脚底为锥点，不得越出屏幕可用区。
      * 【键盘】可用底边扣掉输入法高度，整组不够放就整体上移，人偶与框不会分家。
      */
-    private void layoutMiniTalk(int imeBottom) {
+    /** 三击召唤 / 改人偶比例后重排：把「人偶 + 迷你输入框」整组按当前锚点重新摆位。 */
+    void layoutMiniTalk(int imeBottom) {
         PetView petView = this.petView;
         if (petView == null || this.lp == null || !this.added) {
             return;
         }
-        if (!this.peek) {
-            this.talkFeetY = this.lp.y + this.lp.height;
-            // 【v2.7】此刻 lp.width 还是人偶宽、人偶画在窗内居中，中心就是人偶视觉中心。
-            this.talkAnchorX = this.lp.x + Math.max(1, this.lp.width) / 2;
-            this.peek = true;
-            this.ui.removeCallbacks(this.hideBubble);
-            petView.clearBubble();
-            petView.setBubbleHeight(0);
-            this.bubbleUp = false;
-            petView.setEdgePeek(false, false);
-            petView.setPeek(true);
-        }
+        enterPeek(petView);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         // 【定案 v2.6】不再「搭接」：人偶完整悬浮在输入框上方，中间留一条固定间隙。
         //   旧值 3dp 负搭接（框顶高于脚3dp）会让框盖住人偶下沿；
         //   用户要求「小人以完整形态悬浮在对话框上面」，故改为正间隙。
         int gap = Math.round(PET_HOVER_GAP_DP * dm.density);
         int barH = UiKit.dp(this, PetTalkInput.HEIGHT_DP);
-        int edge = UiKit.dp(this, 8.0f);
+            int edge = UiKit.dp(this, 8.0f);
         // 【定案 v2.5】框宽 = 「界面最大比例」时的宽度（petMaxWidth，默认 225dp），
         //   与人偶比例无关 —— 人偶调小后输入框照样宽，好打字（用户指正）。
         //   【但】人偶本身不跟着放大：onDraw 按当前比例绘制，在窗内水平居中，
@@ -613,6 +631,25 @@ public class PetService extends Service {
         this.lp.height = perch + bubble;
         this.lp.y = top;
         safeUpdate();
+        placeTalkInput(talkY, width);
+    }
+
+    /** 首次进 peek：锁死锚点（脚底 Y / 水平中心），清气泡、关贴边、切趴姿。 */
+    private void enterPeek(PetView petView) {
+        this.talkFeetY = this.lp.y + this.lp.height;
+        // 【v2.7】此刻 lp.width 还是人偶宽、人偶画在窗内居中，中心就是人偶视觉中心。
+        this.talkAnchorX = this.lp.x + Math.max(1, this.lp.width) / 2;
+        this.peek = true;
+        this.ui.removeCallbacks(this.hideBubble);
+        petView.clearBubble();
+        petView.setBubbleHeight(0);
+        this.bubbleUp = false;
+        petView.setEdgePeek(false, false);
+        petView.setPeek(true);
+    }
+
+    /** 输入框摆放：发完消息 / 退出趴姿时只收起；否则按当前位置显示或移动。 */
+    private void placeTalkInput(int talkY, int width) {
         PetTalkInput input = this.talkInput;
         if (input == null) {
             return;
@@ -706,7 +743,6 @@ public class PetService extends Service {
     void snapToEdge(boolean z, int i) { this.win.snapToEdge(z, i); }
     void enterEdgePeek(boolean z) { this.win.enterEdgePeek(z); }
     void exitEdgePeek() { this.win.exitEdgePeek(); }
-    public void layoutPeek(int i, int i2, int i3, int i4) { this.win.layoutPeek(i, i2, i3, i4); }
     void updateTouchable() { this.win.updateTouchable(); }
     void setPetShown(boolean z) { this.win.setPetShown(z); }
     /**

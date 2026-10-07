@@ -81,6 +81,10 @@ public final class HomeUi {
     private static final String T_GUIDE_BG_POWER_NAME = "\u540e\u53f0\u8017\u7535\u7ba1\u7406";
     private static final String T_GUIDE_AUTOSTART_NAME = "\u5141\u8bb8\u81ea\u542f\u52a8";
     private static final String T_GUIDE_BG_ACTIVITY_NAME = "\u5141\u8bb8\u540e\u53f0\u6d3b\u52a8";
+    /** 【无感保活】总开关行的 View tag（保活分组首行）。状态存 feiyu_keepalive 文件。 */
+    private static final String TAG_KEEPALIVE = "feiyu_keepalive";
+    /** 【无感保活】开关标题。 */
+    private static final String T_KEEPALIVE_NAME = "无感保活";
     /** 保活子项的 View tag，供 syncPerm 定位与点击分发。 */
     private static final String TAG_PERM_BATTERY = "feiyu_perm_battery";
     private static final String TAG_GUIDE_BG_POWER = "feiyu_guide_bg_power";
@@ -114,6 +118,11 @@ public final class HomeUi {
     private static final String TAG_MEM_AUTO = "feiyu_mem_auto";
     private static final String TAG_MEM_THRESHOLD = "feiyu_mem_threshold";
     private static final String TAG_MEM_LIB = "feiyu_mem_lib";
+    /** 【d19】从加号面板移植来的两个开关：自动保存记忆 / 自动精简记忆。 */
+    private static final String T_MEM_SAVE = "\u81ea\u52a8\u4fdd\u5b58\u8bb0\u5fc6";
+    private static final String T_MEM_MERGE = "\u81ea\u52a8\u7cbe\u7b80\u8bb0\u5fc6";
+    private static final String TAG_MEM_SAVE = "feiyu_mem_save";
+    private static final String TAG_MEM_MERGE = "feiyu_mem_merge";
     /** 卡片右侧状态文案。 */
     /** 主题相关文案（「外观」卡片下级）。 */
     private static final String T_THEME_MODE = "\u4e3b\u9898\u6a21\u5f0f";
@@ -174,32 +183,14 @@ public final class HomeUi {
                 return;
             }
 
-            // ---- 设置页要删掉的三个按钮 + 首页复用的控件实例 ----
-            Button bStart = null;
-            Button bStop = null;
-            Button bChat = null;
-            for (int i = 0; i < box.getChildCount(); i++) {
-                View v = box.getChildAt(i);
-                if (!(v instanceof Button)) {
-                    continue;
-                }
-                String t = UiKit.textOf(v);
-                if (t == null) {
-                    continue;
-                }
-                // 注意：按钮文本带序号前缀（如「2. 启动桌宠」），只能用 contains 匹配。
-                if (t.contains("\u542f\u52a8\u684c\u5ba0")) {
-                    bStart = (Button) v;
-                } else if (t.contains("\u505c\u6b62\u684c\u5ba0")) {
-                    bStop = (Button) v;
-                } else if (t.contains("\u6253\u5f00\u804a\u5929")) {
-                    bChat = (Button) v;
-                }
-            }
-            if (bStart == null || bStop == null || bChat == null) {
+            final Button[] legacy = findLegacyButtons(box);
+            if (legacy == null) {
                 // 结构不符，整体放弃，保持原样可用。
                 return;
             }
+            final Button bStart = legacy[0];
+            final Button bStop = legacy[1];
+            final Button bChat = legacy[2];
             // 两个图片功能的入口按钮：留在「聊天背景」卡片的正文里即可。
             // 【改】不再把它们搬进「外观」——改为在「外观」里新建两行 valueRow 做入口，
             //   原按钮控件随卡片壳一起弃用（跳过搬运即可，不必摘除，控件实例仍留在原 body）。
@@ -211,383 +202,13 @@ public final class HomeUi {
                 box.removeView(vOverlay);
             }
 
-            // ---- 设置页：摘旧卡片、留新卡片 ----
-            View cardChat = null;
-            View cardOp = null;
-            LinearLayout cardBg = null;
-            List<View> kill = new ArrayList<View>();
-            for (int i = 0; i < box.getChildCount(); i++) {
-                View v = box.getChildAt(i);
-                String t = HomeCards.cardTitle(v);
-                if (t == null) {
-                    if (v instanceof TextView) {
-                        String s = UiKit.textOf(v);
-                        if (s != null && s.startsWith(T_FOOTER)) {
-                            kill.add(v);
-                        }
-                    }
-                    continue;
-                }
-                if (T_CHAT_OLD.equals(t)) {
-                    cardChat = v;
-                } else if (T_OP_OLD.equals(t)) {
-                    cardOp = v;
-                } else if (T_BG.equals(t)) {
-                    // 【修】原来整张「聊天背景」卡片都被摘掉，可卡里除了两个已搬到「外观」的
-                    //   按钮，还留着「背景透明度」的说明、标签与滑条 —— 摘卡片等于把透明度
-                    //   调节整个弄没了（全工程没有第二处重建滑条的代码）。改成保留这张卡片，
-                    //   稍后把它的正文整体并进「外观」。
-                    if (v instanceof LinearLayout) {
-                        cardBg = (LinearLayout) v;
-                    }
-                } else if (T_WEB.equals(t) || T_LEARN.equals(t) || T_ICON.equals(t)) {
-                    // 联网搜索 / 学习 = 功能取消；应用图标 = 功能入口已提到「外观」里
-                    // 做成按钮，卡片本体（只剩说明文字）不再需要。
-                    kill.add(v);
-                }
-            }
-            for (int i = 0; i < kill.size(); i++) {
-                box.removeView(kill.get(i));
-            }
-            HomeCards.setCardTitle(cardChat, T_CHAT_NEW);
-            HomeCards.setCardTitle(cardOp, T_OP_NEW);
-
-            // ---- 首页 ----
-            // 【v2.10.0】副标题（标题下的引导小字）与状态行（人偶下的小字）整行移除：
-            //   只是不挂进新容器，控件本身与 HomeScreenBuilder 里的索引顺序都不动，
-            //   HomeUi.apply 开头基于 childCount / 索引的结构契约因此依旧成立。
-            box.removeView(vTitle);
-            box.removeView(vSub);
-            box.removeView(vPet);
-            box.removeView(vStatus);
-
-            LinearLayout petHolder = new LinearLayout(ctx);
-            petHolder.setOrientation(LinearLayout.VERTICAL);
-            // 【v2.10.1】人偶贴上半区底部：整组垂直居中会让人偶与下方的按钮隔出大片空白，
-            //   改成横向居中 + 纵向靠底，再用底部 padding 垫出与按钮区的呼吸距离。
-            petHolder.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM);
-            petHolder.setPadding(0, 0, 0, UiKit.dp(ctx, 26));
-            petHolder.setTag(TAG_PETS);
-            petHolder.addView(vPet, new LinearLayout.LayoutParams(-2, -2));
-
-            final Button toggle = HomeCards.mkButton(ctx, "\u542f\u52a8\u4eba\u5076", true);
-            Button open = HomeCards.mkButton(ctx, "\u6253\u5f00\u804a\u5929", false);
-            Button setting = HomeCards.mkButton(ctx, "\u8bbe\u7f6e", false);
-
-            // 【v2.10.1】按钮组贴下半区顶部（同理：居中会在人偶与按钮间留出大片空白）。
-            //   顶部 padding 与 petHolder 的底部 padding 相加，就是人偶脚底到第一颗按钮的净间距。
-            LinearLayout buttonsBox = new LinearLayout(ctx);
-            buttonsBox.setOrientation(LinearLayout.VERTICAL);
-            buttonsBox.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.TOP);
-            buttonsBox.setPadding(0, UiKit.dp(ctx, 26), 0, 0);
-            buttonsBox.addView(toggle);
-            buttonsBox.addView(open);
-            buttonsBox.addView(setting);
-
-            final LinearLayout homeBox = new LinearLayout(ctx);
-            homeBox.setOrientation(LinearLayout.VERTICAL);
-            int pad = UiKit.dp(ctx, 20);
-            homeBox.setPadding(pad, pad, pad, pad);
-            homeBox.addView(vTitle);
-            // 【v2.10.0】人偶区与按钮区各占剩余空间的一半：人偶自然落在上半区、
-            //   三按钮落在下半区，中间留白由 weight 撑满（ScrollView 已开 fillViewport）。
-            homeBox.addView(petHolder, new LinearLayout.LayoutParams(-1, 0, 1.0f));
-            homeBox.addView(buttonsBox, new LinearLayout.LayoutParams(-1, 0, 1.0f));
-            // 首页入场：标题→人偶→按钮依次淡入上移。
-            // 换主题触发的重建跳过入场动画：否则整页会重新淡入一次，
-            // 看起来就像按钮集体消失、再一个个冒出来。用户手动进页面时照旧播动画。
-            if (!PetPrefs.themeRestore(ctx)) {
-                UiKit.enter(vTitle, 0);
-                UiKit.enter(petHolder, 80);
-                UiKit.enter(toggle, 160);
-                UiKit.enter(open, 200);
-                UiKit.enter(setting, 240);
-            }
-            toggle.setTag(TAG_TOGGLE);
-
-            final ScrollView homeScroll = new ScrollView(ctx);
-            homeScroll.setBackgroundColor(UiKit.BG);
-            // 【v2.10.0】让内容不足一屏时也撑满：上面的 weight 才会真的生效。
-            homeScroll.setFillViewport(true);
-            // 关掉滑动到头部的拉伸辉光：那是系统默认装饰，与本 App 的卡片质感不搭。
-            homeScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-            homeScroll.addView(homeBox);
-            homeScroll.setTag(TAG_HOME);
-
-            syncToggle(ctx);
-            final Button fStart = bStart;
-            final Button fStop = bStop;
-            final Button fChat = bChat;
-            toggle.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    boolean now = !running;
-                    syncToggle(v.getContext());
-                    if (now) {
-                        fStart.performClick();
-                    } else {
-                        fStop.performClick();
-                    }
-                    toggle.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            syncToggle(v.getContext());
-                            toggle.setText(running ? "\u5173\u95ed\u4eba\u5076" : "\u542f\u52a8\u4eba\u5076");
-                        }
-                    }, 600L);
-                }
-            });
-            open.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    fChat.performClick();
-                }
-            });
-            setting.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    show(activity, false);
-                }
-            });
-            // 【改动】人偶本身不再点进全屏聊天页；聊天的合法入口只剩上方「打开聊天」。
-            //   人偶的三击行为在桌宠悬浮窗里（PetService.triple_tap），与本页无关。
-
-            // ---- 设置页重排 ----
-            LinearLayout header = HomeCards.buildHeader(activity, ctx);
-
-            LinearLayout cardPerm = HomeCards.buildCard(ctx, T_PERM);
-            LinearLayout permBody = (LinearLayout) cardPerm.getChildAt(1);
-            // ---- 权限卡片下级第一项：Shizuku 授权（四态：已授权 / 未授权 / 服务未运行 / 未安装）----
-            // 【为什么放最前】它是本应用与 AI 拿到 shell 级能力的总开关，其余权限只影响人偶本身。
-            //   文案与可点性由 ShizukuBridge.state 决定，走 bindShizukuRow 绑定（不是两态 bindPermRow）。
-            permBody.addView(HomeCards.permRow(ctx, T_PERM_SHIZUKU_NAME, TAG_PERM_SHIZUKU));
-            // 【需求】权限子项重排：两颗开关（快捷设置磁贴 / 隐藏后台卡片）集中到卡片末尾相邻两行，
-            //   「开关指令」作为复制入口独占最后一行；其余行照旧「左名称 + 右状态」。
-            permBody.addView(HomeCards.permRow(ctx, T_PERM_OVERLAY_NAME, HomeCards.TAG_PERM_OVERLAY));
-            permBody.addView(HomeCards.permRow(ctx, T_PERM_NOTIF_NAME, TAG_PERM_NOTIF));
-            // ---- 保活分组（「权限」卡片的下级）：让桌宠被划掉 / 冻结 / 重启后还能自己回来 ----
-            // 电池优化白名单：可查状态（isIgnoringBatteryOptimizations），红绿字 + 可点。
-            permBody.addView(HomeCards.permRow(ctx, T_PERM_BATTERY_NAME, TAG_PERM_BATTERY));
-            // 【v2.10.0】以下三项系统查不到授权状态：一律「去设置 ›」，
-            //  点击各自直达对应系统页（分发逻辑见 guideClicked）；
-            //  其中「后台耗电管理」就是 ColorOS 冻结本 App 的开关页。
-            permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_BG_POWER_NAME, TAG_GUIDE_BG_POWER));
-            permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_AUTOSTART_NAME, TAG_GUIDE_AUTOSTART));
-            permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_BG_ACTIVITY_NAME, TAG_GUIDE_BG_ACTIVITY));
-            // ---- 【需求】开关通道（「权限」卡片下级）：磁贴开关 + 开关指令，两者是同一条启停通道的两种入口 ----
-            // 磁贴开关：右侧是自绘开关，开=请系统把磁贴放进快捷面板，关=打开面板让你长按移除；
-            //  真实状态由 TileService 的 onTileAdded / onTileRemoved 回写 PetPrefs.tileAdded。
-            UiKit.Switch tileSw = new UiKit.Switch(ctx);
-            tileSw.setTag(TAG_TILE_SWITCH);
-            tileSw.setOn(PetPrefs.tileAdded(ctx), false);
-            permBody.addView(HomeCards.switchRow(ctx, T_TILE, tileSw, new HomeCards.OnChanged() {
-                @Override
-                public void onChanged(boolean on, Context c) {
-                    onTileSwitchChanged(on, c);
-                }
-            }));
-            // 隐藏后台卡片：与「快捷设置磁贴」紧邻，两颗开关并排落在卡片倒数第二、倒数第三行。
-            UiKit.Switch hideRecents = new UiKit.Switch(ctx);
-            hideRecents.setTag(TAG_HIDE_RECENTS);
-            hideRecents.setOn(PetPrefs.hideRecents(ctx));
-            permBody.addView(HomeCards.switchRow(ctx, T_HIDE_RECENTS, hideRecents));
-            // 开关指令：整行可点，右侧是「复制 ›」；点一下把同一条链接复制走（开与关共用）。
-            LinearLayout cmdRow = HomeCards.valueRow(ctx, T_CMD, TAG_CMD_ROW);
-            HomeCards.setRowValue(cmdRow, T_CMD_COPY);
-            cmdRow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    copyToggleLink(v.getContext());
-                }
-            });
-            permBody.addView(cmdRow);
-            permBody.setVisibility(View.VISIBLE);
-            // 首帧就按真实授权状态渲染两行，不等 onResume。
-            syncPerm(activity);
-            syncHideRecents(activity);
-
-            // 「外观」：聊天背景（选图 / 清除）+ 主题模式 + 莫奈主题色。
-            //   原先是两颗整宽大按钮，与卡片里其余行样式割裂；用户已定案统一成行样式。
-            LinearLayout cardLook = HomeCards.buildCard(ctx, T_LOOK_NEW);
-            LinearLayout lookBody = (LinearLayout) cardLook.getChildAt(1);
-            // 聊天背景：整行可点，拉起系统选择器（复用 PickFileActivity 一次性选图通道）。
-            final LinearLayout bgRow = HomeCards.valueRow(ctx, T_LOOK_BG, TAG_LOOK_BG);
-            bgRow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Context c = v.getContext();
-                    if (!(c instanceof MainActivity)) {
-                        return;
-                    }
-                    MainActivity m = (MainActivity) c;
-                    m.pickPurpose = 1;
-                    PickFileActivity.setListener(m);
-                    PickFileActivity.setPurpose(PetPrefs.BG_DIR);
-                    PickFileActivity.start(m);
-                }
-            });
-            lookBody.addView(bgRow);
-            // 清除背景：整行可点，抹掉已设的聊天背景图。
-            LinearLayout bgClearRow = HomeCards.valueRow(ctx, T_LOOK_BG_CLEAR, TAG_LOOK_BG_CLEAR);
-            HomeCards.setRowValue(bgClearRow, T_LOOK_BG_GO);
-            bgClearRow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Context c = v.getContext();
-                    if (!(c instanceof MainActivity)) {
-                        return;
-                    }
-                    MainActivity m = (MainActivity) c;
-                    PetPrefs.setChatBackground(m, "");
-                    m.notifyPetService();
-                    m.refreshLocalUi();
-                    syncLookBg(m);
-                }
-            });
-            lookBody.addView(bgClearRow);
-            // 主题模式：整行可点，右侧显示当前档位名；点击弹单选面板，选完立即重建界面。
-            LinearLayout themeRow = HomeCards.valueRow(ctx, T_THEME_MODE, TAG_THEME_MODE);
-            themeRow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (v.getContext() instanceof Activity) {
-                        pickThemeMode((Activity) v.getContext());
-                    }
-                }
-            });
-            lookBody.addView(themeRow);
-            // 莫奈主题色：跟随壁纸主色派生整套配色；取不到壁纸时提示并自动关掉。
-            UiKit.Switch monetSw = new UiKit.Switch(ctx);
-            monetSw.setTag(TAG_THEME_MONET);
-            monetSw.setOn(ThemeManager.monet(ctx), false);
-            lookBody.addView(HomeCards.switchRow(ctx, T_THEME_MONET, monetSw,
-                    new HomeCards.OnChanged() {
-                        @Override
-                        public void onChanged(boolean on, Context c) {
-                            onMonetChanged(on, c);
-                        }
-                    }));
-            // 「聊天背景」卡片正文（透明度说明 / 标签 / 滑条）并进「外观」。
-            //   【修】这张卡片原来被整张 kill 掉，透明度调节就此消失；本轮两个入口已改成
-            //   「外观」里的行，卡片正文里那两颗废弃大按钮跳过不搬，其余（说明 / 标签 / 滑条）整体搬过来。
-            if (cardBg != null) {
-                LinearLayout bgBody = (LinearLayout) cardBg.getChildAt(1);
-                List<View> bgChildren = new ArrayList<View>();
-                for (int i = 0; i < bgBody.getChildCount(); i++) {
-                    bgChildren.add(bgBody.getChildAt(i));
-                }
-                for (int i = 0; i < bgChildren.size(); i++) {
-                    View c = bgChildren.get(i);
-                    // 跳过原两个按钮：入口已在「外观」里改用行样式，这两颗控件连同卡片壳一起弃用。
-                    Object tag = c.getTag();
-                    if (tag != null && (HomeCards.TAG_BG_PICK.equals(tag)
-                            || HomeCards.TAG_BG_CLEAR.equals(tag))) {
-                        continue;
-                    }
-                    bgBody.removeView(c);
-                    // 顶部间距由「外观」卡片内既有行给出，这里抹掉原有的 10dp 上边距。
-                    LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
-                    clp.topMargin = 0;
-                    lookBody.addView(c, clp);
-                }
-            }
-            syncTheme(activity);
-            syncLookBg(activity);
-
-            // 「人偶」：目前为空位，后续加人偶时往这里塞。
-            LinearLayout cardDoll = HomeCards.buildCard(ctx, T_DOLL_NEW);
-            LinearLayout dollBody = (LinearLayout) cardDoll.getChildAt(1);
-            HomeCards.addHint(ctx, dollBody, T_EMPTY_HINT);
-            final Activity dollAct = activity;
-            LinearLayout scaleRow = HomeCards.stepperRow(ctx, T_SCALE, TAG_DOLL_SCALE,
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            stepPetScale(dollAct, -1);
-                        }
-                    },
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            stepPetScale(dollAct, 1);
-                        }
-                    });
-            dollBody.addView(scaleRow);
-            HomeCards.setStepperValue(scaleRow, PetPrefs.petScaleDisplay(PetPrefs.petScale(activity)) + "%");
-            HomeCards.addHint(ctx, dollBody, T_SCALE_HINT);
-
-            box.removeAllViews();
-            box.addView(header);
-            box.addView(cardPerm);
-            if (cardChat != null) {
-                box.addView(cardChat);
-            }
-            box.addView(cardDoll);
-            box.addView(cardLook);
-            if (cardOp != null) {
-                box.addView(cardOp);
-            }
-            // 「记忆」：自动总结开关 + 触发阈值 + 记忆库入口。
-            // 开关与阈值是「上下文总结 / 压缩」的两个旋钮；记忆库是 AI 自主写下的长期记忆，独立于压缩。
-            LinearLayout cardMem = HomeCards.buildCard(ctx, T_EMPTY[1]);
-            LinearLayout memBody = (LinearLayout) cardMem.getChildAt(1);
-            final Context memCtx = ctx;
-            UiKit.Switch memSw = new UiKit.Switch(ctx);
-            memSw.setTag(TAG_MEM_AUTO);
-            memSw.setOn(PetPrefs.memAuto(ctx), false);
-            memBody.addView(HomeCards.switchRow(ctx, T_MEM_AUTO, memSw,
-                    new HomeCards.OnChanged() {
-                        @Override
-                        public void onChanged(boolean on, Context c) {
-                            PetPrefs.setMemAuto(c, on);
-                            syncMem(c);
-                        }
-                    }));
-            final LinearLayout memBodyRef = memBody;
-            LinearLayout thresholdRow = HomeCards.stepperRow(ctx, T_MEM_THRESHOLD, TAG_MEM_THRESHOLD,
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            PetPrefs.setMemThresholdIndex(memCtx, PetPrefs.memThresholdIndex(memCtx) - 1);
-                            syncMem(memCtx);
-                        }
-                    },
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            PetPrefs.setMemThresholdIndex(memCtx, PetPrefs.memThresholdIndex(memCtx) + 1);
-                            syncMem(memCtx);
-                        }
-                    });
-            memBodyRef.addView(thresholdRow);
-            // 【需求】「打开记忆库」由整宽白底描边按钮改成卡片内既有行样式（与「主题模式」一致）。
-            LinearLayout memLibRow = HomeCards.valueRow(ctx, T_MEM_LIB, TAG_MEM_LIB);
-            HomeCards.setRowValue(memLibRow, T_LOOK_BG_GO);
-            memLibRow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    MemPage.open(v.getContext());
-                }
-            });
-            memBodyRef.addView(memLibRow);
-            syncMem(activity);
-            box.addView(cardMem);
-            // 「关于」：原来是展开式卡片，v2.10.0 改成一行入口，点击进整页（AboutPage）。
-            //   卡片外壳与标题「关于」保留不动 —— SettingsPage 按标题文本分组，改了会整体错位。
-            LinearLayout cardAbout = HomeCards.buildCard(ctx, T_EMPTY[2], true);
-            LinearLayout aboutBody = (LinearLayout) cardAbout.getChildAt(1);
-            // 【需求】「关于本软件」同样由整宽按钮改成行样式，与卡片内其余行观感统一。
-            LinearLayout aboutRow = HomeCards.valueRow(ctx, "关于本软件", TAG_ABOUT_ENTRY);
-            HomeCards.setRowValue(aboutRow, T_LOOK_BG_GO);
-            aboutRow.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    AboutPage.open(v.getContext());
-                }
-            });
-            aboutBody.addView(aboutRow);
-            box.addView(cardAbout);
-
+            CardRefs refs = scanCards(box);
+            final View cardChat = refs.chat;
+            final View cardOp = refs.op;
+            final LinearLayout cardBg = refs.bg;
+            ScrollView homeScroll = buildHomePage(activity, ctx, box,
+                    vTitle, vSub, vPet, vStatus, bStart, bStop, bChat);
+            buildSettingsPage(activity, ctx, box, cardChat, cardOp, cardBg);
             // 两页共用同一底色，切页不再跳色。
             sv.setBackgroundColor(UiKit.BG);
             sv.setTag(TAG_SET);
@@ -644,6 +265,32 @@ public final class HomeUi {
         if (tileRow instanceof UiKit.Switch) {
             ((UiKit.Switch) tileRow).setOn(PetPrefs.tileAdded(ctx), false);
         }
+        // 无感保活开关：按落盘状态回填（状态存 feiyu_keepalive，与桌宠偏好解耦）。
+        View keepAliveRow = find(act, TAG_KEEPALIVE);
+        if (keepAliveRow instanceof UiKit.Switch) {
+            ((UiKit.Switch) keepAliveRow).setOn(KeepAliveBridge.isEnabled(ctx), false);
+        }
+    }
+
+    /**
+     * 【无感保活】开关落地：写盘 + 注册 / 注销调度 + 起停常驻服务，全部交给保活门面。
+     *
+     * 【为什么不在 UI 层自己注册 Job】注册与注销必须严格对称，且要被 Application 启动、
+     *   开机、覆盖安装等多条路径复用；逻辑集中在 KeepAliveFacade 一处，UI 只转发意图。
+     * 【失败回滚】门面出错时会把状态落回「关」，这里同步把开关视觉拨回去，
+     *   避免出现「界面显示开、实际没生效」。
+     */
+    static void onKeepAliveChanged(boolean on, Context ctx) {
+        boolean actual = KeepAliveBridge.setEnabled(ctx, on);
+        if (ctx instanceof Activity) {
+            Activity act = (Activity) ctx;
+            if (actual != on) {
+                View row = find(act, TAG_KEEPALIVE);
+                if (row instanceof UiKit.Switch) {
+                    ((UiKit.Switch) row).setOn(actual, true);
+                }
+            }
+        }
     }
 
     /**
@@ -683,7 +330,7 @@ public final class HomeUi {
             sbm.requestAddTileService(
                     new ComponentName(ctx, PetTileService.class),
                     ctx.getString(R.string.app_name),
-                    Icon.createWithResource(ctx, R.drawable.ic_tile_pet),
+                    Icon.createWithResource(ctx, Icons.IC_TILE_PET),
                     ctx.getMainExecutor(),
                     // 这个回调系统要求非 null：传 null 会在系统回结果时 NPE，必须给空实现。
                     new java.util.function.Consumer<Integer>() {
@@ -732,18 +379,10 @@ public final class HomeUi {
     }
 
     // 是否已加入电池优化白名单（无需权限即可查询）。查询异常一律当作「未加入」。
+    //  【无感保活】判定统一由 KeepAlivePermissions 提供，此处只转发（原实现是同一套
+    //   逻辑的第二份拷贝；两份并存迟早会漂移）。语义完全一致：<23 视为已豁免。
     private static boolean ignoringBattery(Context ctx) {
-        try {
-            if (Build.VERSION.SDK_INT < 23) {
-                return true;
-            }
-            android.os.PowerManager pm =
-                    (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
-            return pm != null && pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
-        } catch (Throwable ignored) {
-            Logs.w(LOG_TAG, "ignored", ignored);
-            return false;
-        }
+        return KeepAliveBridge.isIgnoringBatteryOptimizations(ctx);
     }
 
     /**
@@ -823,21 +462,30 @@ public final class HomeUi {
      * 硬约束：绝不使用 am start 抢用户前台，全部走标准 Settings Intent。
      */
     static void guideClicked(String tag, Context ctx) {
-        // 【v2.9.6】按 tag 精确分发到各自的详细页面（用户要求「跳转到详细位置一点」）。
-        //  每一支都先试「直达页」，失败再退到应用详情页 —— 各厂商 ROM 改过组件名是常态，
-        //  硬编码直达页不能作为唯一路径，否则在别家机器上会点了没反应。
-        if (TAG_GUIDE_BG_POWER.equals(tag)) {
-            // 后台耗电管理：ColorOS 冻结后台应用（OplusHansManager freeze）的开关页。
-            //  本 App 「记忆总结中卡住」的根因就在这一页（本机实测该组件可 resolve）。
-            if (!openComponent(ctx, "com.oplus.battery",
-                    "com.oplus.powermanager.fuelgaue.PowerAppsBgSetting")) {
-                requestAppDetails(ctx);
+        // 【无感保活】改走厂商候选链：VendorNavigator 三级降级
+        //   （直达私有页 -> 厂商备用页 -> 应用详情页，每级先 resolveActivity 探测再启动）。
+        //  【为什么必须换掉硬编码】原实现只认 ColorOS 的单一组件名，换到小米 / 华为 / 荣耀 /
+        //   一加 / 三星上「点了没反应」；候选表 + 逐个探测是唯一稳健路径。
+        //  【ColorOS 行为不变】候选表里 OPPO 的首条就是原来硬编码的
+        //   com.oplus.powermanager.fuelgaue.PowerAppsBgSetting，解析失败则与本机原来的
+        //   兜底一致，退到应用详情页。
+        if (TAG_GUIDE_AUTOSTART.equals(tag)) {
+            if (KeepAliveBridge.openAutostartPage(ctx)) {
+                return;
             }
-        } else {
-            // 自启动 / 后台活动：ColorOS 上无公开组件（已全机扫描确认无 Startup*Activity），
-            //  只能退到本应用详情页，用户在那里完成设置。
             requestAppDetails(ctx);
+            return;
         }
+        if (TAG_GUIDE_BG_POWER.equals(tag)) {
+            if (KeepAliveBridge.openBatteryPage(ctx)) {
+                return;
+            }
+            requestAppDetails(ctx);
+            return;
+        }
+        // 后台活动：厂商候选表里没有对应目标（ColorOS 该开关只在应用详情页内），
+        //  保持原有兜底路径不动。
+        requestAppDetails(ctx);
     }
 
     /**
@@ -920,6 +568,11 @@ public final class HomeUi {
         if (last instanceof TextView) {
             ((TextView) last).setText(granted ? HomeCards.S_OK : HomeCards.S_NO);
             UiKit.setTextColorAnimated((TextView) last, granted ? UiKit.OK : UiKit.ERR);
+            // 【图标语义】已授权打勾、未授权打叉 —— 除了红绿字，再给一层形状区分，
+            //   色盲 / 强光下也能一眼分清（用户 #8 需求）。
+            Icons.stateIcon((TextView) last,
+                    granted ? Icons.IC_CHECK_CIRCLE : Icons.IC_X_CIRCLE,
+                    granted ? UiKit.OK : UiKit.ERR, 13.0f, 4);
         }
         r.setClickable(!granted);
     }
@@ -941,6 +594,10 @@ public final class HomeUi {
         if (last instanceof TextView) {
             ((TextView) last).setText(ShizukuBridge.stateText(state));
             UiKit.setTextColorAnimated((TextView) last, granted ? UiKit.OK : UiKit.ERR);
+            // 【图标语义】已授权 = 盾牌（特权已到手）；其余三态都是待处理，用警示三角。
+            Icons.stateIcon((TextView) last,
+                    granted ? Icons.IC_SHIELD : Icons.IC_WARNING,
+                    granted ? UiKit.OK : UiKit.ERR, 13.0f, 4);
         }
         r.setClickable(!granted);
     }
@@ -1037,6 +694,15 @@ public final class HomeUi {
             if (sw instanceof UiKit.Switch) {
                 ((UiKit.Switch) sw).setOn(PetPrefs.memAuto(ctx), false);
             }
+            // 【d19】移植来的两个开关同样按落盘值回填（它们也可能被外部入口改，例如「对话行为」页）。
+            View swSave = find(activity, TAG_MEM_SAVE);
+            if (swSave instanceof UiKit.Switch) {
+                ((UiKit.Switch) swSave).setOn(PetPrefs.memAutoSave(ctx), false);
+            }
+            View swMerge = find(activity, TAG_MEM_MERGE);
+            if (swMerge instanceof UiKit.Switch) {
+                ((UiKit.Switch) swMerge).setOn(PetPrefs.memAutoMerge(ctx), false);
+            }
             View row = find(activity, TAG_MEM_THRESHOLD);
             if (row != null) {
                 int idx = PetPrefs.memThresholdIndex(ctx);
@@ -1116,8 +782,10 @@ public final class HomeUi {
         }
         View row = find((Activity) ctx, TAG_LOOK_BG);
         if (row != null) {
-            HomeCards.setRowValue(row, PetPrefs.chatBackground(ctx).isEmpty()
-                    ? T_LOOK_BG_OFF : T_LOOK_BG_ON);
+            boolean bgOn = !PetPrefs.chatBackground(ctx).isEmpty();
+            // 【状态色】「已设置 / 未设置」是状态而非值，右侧文本按语义上绿 / 红。
+            HomeCards.setRowValue(row, bgOn ? T_LOOK_BG_ON : T_LOOK_BG_OFF,
+                    bgOn ? UiKit.OK : UiKit.ERR);
         }
     }
     // 主题模式选择面板：四档单选，选完写偏好并立即重建当前界面。
@@ -1312,7 +980,7 @@ public final class HomeUi {
         return home != null && home.getVisibility() == View.VISIBLE;
     }
     // 主题切换后让常驻桌宠重读颜色（服务没在跑时静默忽略）。
-    private static void notifyPetRefresh(Context ctx) {
+    static void notifyPetRefresh(Context ctx) {
         try {
             if (!isServiceRunning(ctx)) {
                 return;
@@ -1373,6 +1041,502 @@ public final class HomeUi {
     }
 
     // 首页 / 设置页二选一切换：只改可见性 + 淡入位移，不重建任何视图。
+
+    /**
+     * 首页页：标题 + 人偶 + 三按钮（启动/打开聊天/设置）。
+     * 【v2.10.0】副标题与状态行整行移除，控件本身与 HomeScreenBuilder 的索引顺序不动。
+     */
+    /** 首页/设置页共用的三张卡片引用。 */
+    private static final class CardRefs {
+        View chat;
+        View op;
+        LinearLayout bg;
+    }
+
+    /**
+     * 在设置页根容器里找出「启动桌宠 / 停止桌宠 / 打开聊天」三个旧按钮。
+     * 任一缺失返回 null，调用方整体放弃。
+     */
+    private static Button[] findLegacyButtons(LinearLayout box) {
+        Button bStart = null;
+        Button bStop = null;
+        Button bChat = null;
+        for (int i = 0; i < box.getChildCount(); i++) {
+            View v = box.getChildAt(i);
+            if (!(v instanceof Button)) {
+                continue;
+            }
+            String t = UiKit.textOf(v);
+            if (t == null) {
+                continue;
+            }
+            // 注意：按钮文本带序号前缀（如「2. 启动桌宠」），只能用 contains 匹配。
+            if (t.contains("\u542f\u52a8\u684c\u5ba0")) {
+                bStart = (Button) v;
+            } else if (t.contains("\u505c\u6b62\u684c\u5ba0")) {
+                bStop = (Button) v;
+            } else if (t.contains("\u6253\u5f00\u804a\u5929")) {
+                bChat = (Button) v;
+            }
+        }
+        if (bStart == null || bStop == null || bChat == null) {
+            // 结构不符，整体放弃，保持原样可用。
+            return null;
+        }
+        return new Button[] { bStart, bStop, bChat };
+    }
+
+    /**
+     * 扫一遍设置页根容器：摘掉废弃卡片，并把「聊天设置 / 操作方式 / 聊天背景」三张卡片接出来。
+     * 聊天背景卡片保留：卡内的背景透明度滑条稍后整体并进「外观」。
+     */
+    private static CardRefs scanCards(LinearLayout box) {
+        CardRefs out = new CardRefs();
+        View cardChat = null;
+        View cardOp = null;
+        LinearLayout cardBg = null;
+        List<View> kill = new ArrayList<View>();
+        for (int i = 0; i < box.getChildCount(); i++) {
+            View v = box.getChildAt(i);
+            String t = HomeCards.cardTitle(v);
+            if (t == null) {
+                if (v instanceof TextView) {
+                    String s = UiKit.textOf(v);
+                    if (s != null && s.startsWith(T_FOOTER)) {
+                        kill.add(v);
+                    }
+                }
+                continue;
+            }
+            if (T_CHAT_OLD.equals(t)) {
+                cardChat = v;
+            } else if (T_OP_OLD.equals(t)) {
+                cardOp = v;
+            } else if (T_BG.equals(t)) {
+                // 【修】原来整张「聊天背景」卡片都被摘掉，可卡里除了两个已搬到「外观」的
+                //   按钮，还留着「背景透明度」的说明、标签与滑条 —— 摘卡片等于把透明度
+                //   调节整个弄没了（全工程没有第二处重建滑条的代码）。改成保留这张卡片，
+                //   稍后把它的正文整体并进「外观」。
+                if (v instanceof LinearLayout) {
+                    cardBg = (LinearLayout) v;
+                }
+            } else if (T_WEB.equals(t) || T_LEARN.equals(t) || T_ICON.equals(t)) {
+                // 联网搜索 / 学习 = 功能取消；应用图标 = 功能入口已提到「外观」里
+                // 做成按钮，卡片本体（只剩说明文字）不再需要。
+                kill.add(v);
+            }
+        }
+        for (int i = 0; i < kill.size(); i++) {
+            box.removeView(kill.get(i));
+        }
+        HomeCards.setCardTitle(cardChat, T_CHAT_NEW);
+        HomeCards.setCardTitle(cardOp, T_OP_NEW);
+
+        out.chat = cardChat;
+        out.op = cardOp;
+        out.bg = cardBg;
+        return out;
+    }
+
+    private static ScrollView buildHomePage(final Activity activity, final Context ctx,
+            final LinearLayout box, final View vTitle, final View vSub,
+            final View vPet, final View vStatus,
+            final Button bStart, final Button bStop, final Button bChat) {
+            // ---- 首页 ----
+            // 【v2.10.0】副标题（标题下的引导小字）与状态行（人偶下的小字）整行移除：
+            //   只是不挂进新容器，控件本身与 HomeScreenBuilder 里的索引顺序都不动，
+            //   HomeUi.apply 开头基于 childCount / 索引的结构契约因此依旧成立。
+            box.removeView(vTitle);
+            box.removeView(vSub);
+            box.removeView(vPet);
+            box.removeView(vStatus);
+
+            LinearLayout petHolder = new LinearLayout(ctx);
+            petHolder.setOrientation(LinearLayout.VERTICAL);
+            // 【v2.10.1】人偶贴上半区底部：整组垂直居中会让人偶与下方的按钮隔出大片空白，
+            //   改成横向居中 + 纵向靠底，再用底部 padding 垫出与按钮区的呼吸距离。
+            petHolder.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM);
+            petHolder.setPadding(0, 0, 0, UiKit.dp(ctx, 26));
+            petHolder.setTag(TAG_PETS);
+            petHolder.addView(vPet, new LinearLayout.LayoutParams(-2, -2));
+
+            final Button toggle = HomeCards.mkButton(ctx, "\u542f\u52a8\u4eba\u5076", true);
+            Button open = HomeCards.mkButton(ctx, "\u6253\u5f00\u804a\u5929", false);
+            Button setting = HomeCards.mkButton(ctx, "\u8bbe\u7f6e", false);
+
+            // 【v2.10.1】按钮组贴下半区顶部（同理：居中会在人偶与按钮间留出大片空白）。
+            //   顶部 padding 与 petHolder 的底部 padding 相加，就是人偶脚底到第一颗按钮的净间距。
+            LinearLayout buttonsBox = new LinearLayout(ctx);
+            buttonsBox.setOrientation(LinearLayout.VERTICAL);
+            buttonsBox.setGravity(Gravity.CENTER_HORIZONTAL | Gravity.TOP);
+            buttonsBox.setPadding(0, UiKit.dp(ctx, 26), 0, 0);
+            buttonsBox.addView(toggle);
+            buttonsBox.addView(open);
+            buttonsBox.addView(setting);
+
+            final LinearLayout homeBox = new LinearLayout(ctx);
+            homeBox.setOrientation(LinearLayout.VERTICAL);
+            int pad = UiKit.dp(ctx, 20);
+            // 【状态栏嵌入】首页是新容器（原 box 被改作设置页），状态栏留白要在这里补。
+            homeBox.setPadding(pad, pad + UiKit.statusBarPad(ctx), pad, pad);
+            homeBox.addView(vTitle);
+            // 【v2.10.0】人偶区与按钮区各占剩余空间的一半：人偶自然落在上半区、
+            //   三按钮落在下半区，中间留白由 weight 撑满（ScrollView 已开 fillViewport）。
+            homeBox.addView(petHolder, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+            homeBox.addView(buttonsBox, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+            // 首页入场：标题→人偶→按钮依次淡入上移。
+            // 换主题触发的重建跳过入场动画：否则整页会重新淡入一次，
+            // 看起来就像按钮集体消失、再一个个冒出来。用户手动进页面时照旧播动画。
+            if (!PetPrefs.themeRestore(ctx)) {
+                UiKit.enter(vTitle, 0);
+                UiKit.enter(petHolder, 80);
+                UiKit.enter(toggle, 160);
+                UiKit.enter(open, 200);
+                UiKit.enter(setting, 240);
+            }
+            toggle.setTag(TAG_TOGGLE);
+
+            final ScrollView homeScroll = new ScrollView(ctx);
+            homeScroll.setBackgroundColor(UiKit.BG);
+            // 【v2.10.0】让内容不足一屏时也撑满：上面的 weight 才会真的生效。
+            homeScroll.setFillViewport(true);
+            // 关掉滑动到头部的拉伸辉光：那是系统默认装饰，与本 App 的卡片质感不搭。
+            homeScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+            homeScroll.addView(homeBox);
+            homeScroll.setTag(TAG_HOME);
+
+            syncToggle(ctx);
+            final Button fStart = bStart;
+            final Button fStop = bStop;
+            final Button fChat = bChat;
+            toggle.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    boolean now = !running;
+                    syncToggle(v.getContext());
+                    if (now) {
+                        fStart.performClick();
+                    } else {
+                        fStop.performClick();
+                    }
+                    toggle.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            syncToggle(v.getContext());
+                            toggle.setText(running ? "\u5173\u95ed\u4eba\u5076" : "\u542f\u52a8\u4eba\u5076");
+                        }
+                    }, 600L);
+                }
+            });
+            open.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    fChat.performClick();
+                }
+            });
+            setting.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    show(activity, false);
+                }
+            });
+            // 【改动】人偶本身不再点进全屏聊天页；聊天的合法入口只剩上方「打开聊天」。
+            //   人偶的三击行为在桌宠悬浮窗里（PetService.triple_tap），与本页无关。
+
+            return homeScroll;
+    }
+
+    /**
+     * 设置页重排：权限 / 外观 / 人偶 / 记忆 / 关于 五张卡片按新顺序装进原 box。
+     * cardBg 为原「聊天背景」卡片：保留卡片、把正文（说明/标签/滑条）并进「外观」。
+     */
+    private static void buildSettingsPage(final Activity activity, final Context ctx,
+            final LinearLayout box, final View cardChat, final View cardOp,
+            final LinearLayout cardBg) {
+            // ---- 设置页重排 ----
+            LinearLayout header = HomeCards.buildHeader(activity, ctx);
+
+            LinearLayout cardPerm = HomeCards.buildCard(ctx, T_PERM);
+            LinearLayout permBody = (LinearLayout) cardPerm.getChildAt(1);
+            // ---- 权限卡片下级第一项：Shizuku 授权（四态：已授权 / 未授权 / 服务未运行 / 未安装）----
+            // 【为什么放最前】它是本应用与 AI 拿到 shell 级能力的总开关，其余权限只影响人偶本身。
+            //   文案与可点性由 ShizukuBridge.state 决定，走 bindShizukuRow 绑定（不是两态 bindPermRow）。
+            permBody.addView(HomeCards.permRow(ctx, T_PERM_SHIZUKU_NAME, TAG_PERM_SHIZUKU));
+            // 【需求】权限子项重排：两颗开关（快捷设置磁贴 / 隐藏后台卡片）集中到卡片末尾相邻两行，
+            //   「开关指令」作为复制入口独占最后一行；其余行照旧「左名称 + 右状态」。
+            permBody.addView(HomeCards.permRow(ctx, T_PERM_OVERLAY_NAME, HomeCards.TAG_PERM_OVERLAY));
+            permBody.addView(HomeCards.permRow(ctx, T_PERM_NOTIF_NAME, TAG_PERM_NOTIF));
+            // ---- 保活分组（「权限」卡片的下级）：让本应用进程被划掉 / 冻结 / 重启后还能自己回来 ----
+            // 【无感保活】总开关：保活分组首行。拨开即拉起常驻前台服务（1×1 透明窗常驻）
+            //   + 注册系统级周期自检与恢复调度。语义只覆盖「软件进程要不要常驻」，
+            //   不启停人偶（关掉开关她仍在，关人偶也不影响保活）。
+            UiKit.Switch keepAliveSw = new UiKit.Switch(ctx);
+            keepAliveSw.setTag(TAG_KEEPALIVE);
+            keepAliveSw.setOn(KeepAliveBridge.isEnabled(ctx), false);
+            permBody.addView(HomeCards.switchRow(ctx, T_KEEPALIVE_NAME, keepAliveSw,
+                    new HomeCards.OnChanged() {
+                        @Override
+                        public void onChanged(boolean on, Context c) {
+                            onKeepAliveChanged(on, c);
+                        }
+                    }));
+            // 电池优化白名单：可查状态（isIgnoringBatteryOptimizations），红绿字 + 可点。
+            permBody.addView(HomeCards.permRow(ctx, T_PERM_BATTERY_NAME, TAG_PERM_BATTERY));
+            // 【v2.10.0】以下三项系统查不到授权状态：一律「去设置 ›」，
+            //  点击各自直达对应系统页（分发逻辑见 guideClicked）；
+            //  其中「后台耗电管理」就是 ColorOS 冻结本 App 的开关页。
+            permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_BG_POWER_NAME, TAG_GUIDE_BG_POWER));
+            permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_AUTOSTART_NAME, TAG_GUIDE_AUTOSTART));
+            permBody.addView(HomeCards.guideRow(ctx, T_GUIDE_BG_ACTIVITY_NAME, TAG_GUIDE_BG_ACTIVITY));
+            // ---- 【需求】开关通道（「权限」卡片下级）：磁贴开关 + 开关指令，两者是同一条启停通道的两种入口 ----
+            // 磁贴开关：右侧是自绘开关，开=请系统把磁贴放进快捷面板，关=打开面板让你长按移除；
+            //  真实状态由 TileService 的 onTileAdded / onTileRemoved 回写 PetPrefs.tileAdded。
+            UiKit.Switch tileSw = new UiKit.Switch(ctx);
+            tileSw.setTag(TAG_TILE_SWITCH);
+            tileSw.setOn(PetPrefs.tileAdded(ctx), false);
+            permBody.addView(HomeCards.switchRow(ctx, T_TILE, tileSw, new HomeCards.OnChanged() {
+                @Override
+                public void onChanged(boolean on, Context c) {
+                    onTileSwitchChanged(on, c);
+                }
+            }));
+            // 隐藏后台卡片：与「快捷设置磁贴」紧邻，两颗开关并排落在卡片倒数第二、倒数第三行。
+            UiKit.Switch hideRecents = new UiKit.Switch(ctx);
+            hideRecents.setTag(TAG_HIDE_RECENTS);
+            hideRecents.setOn(PetPrefs.hideRecents(ctx));
+            permBody.addView(HomeCards.switchRow(ctx, T_HIDE_RECENTS, hideRecents));
+            // 开关指令：整行可点，右侧是「复制 ›」；点一下把同一条链接复制走（开与关共用）。
+            LinearLayout cmdRow = HomeCards.valueRow(ctx, T_CMD, TAG_CMD_ROW);
+            HomeCards.setRowValue(cmdRow, T_CMD_COPY);
+            cmdRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    copyToggleLink(v.getContext());
+                }
+            });
+            permBody.addView(cmdRow);
+            permBody.setVisibility(View.VISIBLE);
+            // 首帧就按真实授权状态渲染两行，不等 onResume。
+            syncPerm(activity);
+            syncHideRecents(activity);
+
+            // 「外观」：聊天背景（选图 / 清除）+ 主题模式 + 莫奈主题色。
+            //   原先是两颗整宽大按钮，与卡片里其余行样式割裂；用户已定案统一成行样式。
+            LinearLayout cardLook = HomeCards.buildCard(ctx, T_LOOK_NEW);
+            LinearLayout lookBody = (LinearLayout) cardLook.getChildAt(1);
+            // 聊天背景：整行可点，跳去裁剪页（选图 → 裁剪预览 → 保存）。
+            //   【为什么不再走 PickFileActivity】选完直接把原图铺满聊天页，比例不对就被拉伸；
+            //   现在先让用户框出想要的那一块，落盘时按框裁好，聊天页拿到的永远不变形。
+            final LinearLayout bgRow = HomeCards.valueRow(ctx, T_LOOK_BG, TAG_LOOK_BG);
+            bgRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Context c = v.getContext();
+                    if (!(c instanceof MainActivity)) {
+                        return;
+                    }
+                    MainActivity m = (MainActivity) c;
+                    try {
+                        m.startActivity(new Intent(m, BackgroundCropActivity.class));
+                    } catch (Throwable t) {
+                        Logs.w(LOG_TAG, "ignored", t);
+                    }
+                }
+            });
+            lookBody.addView(bgRow);
+            // 清除背景：整行可点，抹掉已设的聊天背景图。
+            LinearLayout bgClearRow = HomeCards.valueRow(ctx, T_LOOK_BG_CLEAR, TAG_LOOK_BG_CLEAR);
+            HomeCards.setRowValue(bgClearRow, T_LOOK_BG_GO);
+            bgClearRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Context c = v.getContext();
+                    if (!(c instanceof MainActivity)) {
+                        return;
+                    }
+                    MainActivity m = (MainActivity) c;
+                    PetPrefs.setChatBackground(m, "");
+                    m.notifyPetService();
+                    m.refreshLocalUi();
+                    syncLookBg(m);
+                }
+            });
+            lookBody.addView(bgClearRow);
+            // 主题模式：整行可点，右侧显示当前档位名；点击弹单选面板，选完立即重建界面。
+            LinearLayout themeRow = HomeCards.valueRow(ctx, T_THEME_MODE, TAG_THEME_MODE);
+            themeRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (v.getContext() instanceof Activity) {
+                        pickThemeMode((Activity) v.getContext());
+                    }
+                }
+            });
+            lookBody.addView(themeRow);
+            // 莫奈主题色：跟随壁纸主色派生整套配色；取不到壁纸时提示并自动关掉。
+            UiKit.Switch monetSw = new UiKit.Switch(ctx);
+            monetSw.setTag(TAG_THEME_MONET);
+            monetSw.setOn(ThemeManager.monet(ctx), false);
+            lookBody.addView(HomeCards.switchRow(ctx, T_THEME_MONET, monetSw,
+                    new HomeCards.OnChanged() {
+                        @Override
+                        public void onChanged(boolean on, Context c) {
+                            onMonetChanged(on, c);
+                        }
+                    }));
+            // 「聊天背景」卡片正文（透明度说明 / 标签 / 滑条）并进「外观」。
+            //   【修】这张卡片原来被整张 kill 掉，透明度调节就此消失；本轮两个入口已改成
+            //   「外观」里的行，卡片正文里那两颗废弃大按钮跳过不搬，其余（说明 / 标签 / 滑条）整体搬过来。
+            if (cardBg != null) {
+                LinearLayout bgBody = (LinearLayout) cardBg.getChildAt(1);
+                List<View> bgChildren = new ArrayList<View>();
+                for (int i = 0; i < bgBody.getChildCount(); i++) {
+                    bgChildren.add(bgBody.getChildAt(i));
+                }
+                for (int i = 0; i < bgChildren.size(); i++) {
+                    View c = bgChildren.get(i);
+                    // 跳过原两个按钮：入口已在「外观」里改用行样式，这两颗控件连同卡片壳一起弃用。
+                    Object tag = c.getTag();
+                    if (tag != null && (HomeCards.TAG_BG_PICK.equals(tag)
+                            || HomeCards.TAG_BG_CLEAR.equals(tag))) {
+                        continue;
+                    }
+                    bgBody.removeView(c);
+                    // 顶部间距由「外观」卡片内既有行给出，这里抹掉原有的 10dp 上边距。
+                    LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
+                    clp.topMargin = 0;
+                    lookBody.addView(c, clp);
+                }
+            }
+            syncTheme(activity);
+            syncLookBg(activity);
+
+            // 「人偶」：目前为空位，后续加人偶时往这里塞。
+            LinearLayout cardDoll = HomeCards.buildCard(ctx, T_DOLL_NEW);
+            LinearLayout dollBody = (LinearLayout) cardDoll.getChildAt(1);
+            HomeCards.addHint(ctx, dollBody, T_EMPTY_HINT);
+            final Activity dollAct = activity;
+            LinearLayout scaleRow = HomeCards.stepperRow(ctx, T_SCALE, TAG_DOLL_SCALE,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            stepPetScale(dollAct, -1);
+                        }
+                    },
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            stepPetScale(dollAct, 1);
+                        }
+                    });
+            dollBody.addView(scaleRow);
+            HomeCards.setStepperValue(scaleRow, PetPrefs.petScaleDisplay(PetPrefs.petScale(activity)) + "%");
+            HomeCards.addHint(ctx, dollBody, T_SCALE_HINT);
+
+            box.removeAllViews();
+            box.addView(header);
+            box.addView(cardPerm);
+            if (cardChat != null) {
+                box.addView(cardChat);
+            }
+            box.addView(cardDoll);
+            box.addView(cardLook);
+            if (cardOp != null) {
+                box.addView(cardOp);
+            }
+            // 「记忆」：自动总结开关 + 触发阈值 + 记忆库入口。
+            // 开关与阈值是「上下文总结 / 压缩」的两个旋钮；记忆库是 AI 自主写下的长期记忆，独立于压缩。
+            LinearLayout cardMem = HomeCards.buildCard(ctx, T_EMPTY[1]);
+            LinearLayout memBody = (LinearLayout) cardMem.getChildAt(1);
+            final Context memCtx = ctx;
+            UiKit.Switch memSw = new UiKit.Switch(ctx);
+            memSw.setTag(TAG_MEM_AUTO);
+            memSw.setOn(PetPrefs.memAuto(ctx), false);
+            memBody.addView(HomeCards.switchRow(ctx, T_MEM_AUTO, memSw,
+                    new HomeCards.OnChanged() {
+                        @Override
+                        public void onChanged(boolean on, Context c) {
+                            PetPrefs.setMemAuto(c, on);
+                            syncMem(c);
+                        }
+                    }));
+            // 【d19 移植】原加号面板里的两个开关搬到本卡片下级，与「自动总结」同样式、同间距；
+            //   不带副标题小字（用户要求），三行开关因此在视觉上连成一片。
+            UiKit.Switch memSaveSw = new UiKit.Switch(ctx);
+            memSaveSw.setTag(TAG_MEM_SAVE);
+            memSaveSw.setOn(PetPrefs.memAutoSave(ctx), false);
+            memBody.addView(HomeCards.switchRow(ctx, T_MEM_SAVE, memSaveSw,
+                    new HomeCards.OnChanged() {
+                        @Override
+                        public void onChanged(boolean on, Context c) {
+                            PetPrefs.setMemAutoSave(c, on);
+                            syncMem(c);
+                        }
+                    }));
+            UiKit.Switch memMergeSw = new UiKit.Switch(ctx);
+            memMergeSw.setTag(TAG_MEM_MERGE);
+            memMergeSw.setOn(PetPrefs.memAutoMerge(ctx), false);
+            memBody.addView(HomeCards.switchRow(ctx, T_MEM_MERGE, memMergeSw,
+                    new HomeCards.OnChanged() {
+                        @Override
+                        public void onChanged(boolean on, Context c) {
+                            PetPrefs.setMemAutoMerge(c, on);
+                            syncMem(c);
+                        }
+                    }));
+            final LinearLayout memBodyRef = memBody;
+            LinearLayout thresholdRow = HomeCards.stepperRow(ctx, T_MEM_THRESHOLD, TAG_MEM_THRESHOLD,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            PetPrefs.setMemThresholdIndex(memCtx, PetPrefs.memThresholdIndex(memCtx) - 1);
+                            syncMem(memCtx);
+                        }
+                    },
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            PetPrefs.setMemThresholdIndex(memCtx, PetPrefs.memThresholdIndex(memCtx) + 1);
+                            syncMem(memCtx);
+                        }
+                    });
+            memBodyRef.addView(thresholdRow);
+            // 【需求】「打开记忆库」由整宽白底描边按钮改成卡片内既有行样式（与「主题模式」一致）。
+            LinearLayout memLibRow = HomeCards.valueRow(ctx, T_MEM_LIB, TAG_MEM_LIB);
+            HomeCards.setRowValue(memLibRow, T_LOOK_BG_GO);
+            memLibRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    MemPage.open(v.getContext());
+                }
+            });
+            memBodyRef.addView(memLibRow);
+            syncMem(activity);
+            box.addView(cardMem);
+            // 「关于」：原来是展开式卡片，v2.10.0 改成一行入口，点击进整页（AboutPage）。
+            //   卡片外壳与标题「关于」保留不动 —— SettingsPage 按标题文本分组，改了会整体错位。
+            LinearLayout cardAbout = HomeCards.buildCard(ctx, T_EMPTY[2], true);
+            LinearLayout aboutBody = (LinearLayout) cardAbout.getChildAt(1);
+            // 【需求】「关于本软件」同样由整宽按钮改成行样式，与卡片内其余行观感统一。
+            LinearLayout aboutRow = HomeCards.valueRow(ctx, "关于本软件", TAG_ABOUT_ENTRY);
+            HomeCards.setRowValue(aboutRow, T_LOOK_BG_GO);
+            aboutRow.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    AboutPage.open(v.getContext());
+                }
+            });
+            aboutBody.addView(aboutRow);
+            box.addView(cardAbout);
+
+            // 【d17】整页错峰入场：此前设置页是「啪」地一次性全出现，而首页是逐项入场，两页手感不一致。
+            //   这里对设置页外层容器统一错峰（在所有 addView 完成之后调用，卡片顺序即入场顺序）。
+            if (!PetPrefs.themeRestore(ctx)) {
+                UiKit.enterList(box, 6);
+            }
+
+    }
+
     static void show(Activity activity, boolean home) {
         try {
             View settings = find(activity, TAG_SET);

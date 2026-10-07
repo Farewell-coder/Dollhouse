@@ -97,7 +97,9 @@ final class MemPage {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(UiKit.BG);
         int pad = dp(ctx, 16);
-        box.setPadding(pad, dp(ctx, 10), pad, dp(ctx, 20));
+        // 【顶部不再留白】同 TokenStat：紧随其后的 UiKit.topBar 已自带 statusBarPad，
+        //   页盒顶部再留 10dp 就是二次叠加。顶部归零。
+        box.setPadding(pad, 0, pad, dp(ctx, 20));
 
         // 顶栏：统一走 UiKit.topBar
         LinearLayout bar = UiKit.topBar(ctx, "记忆库", "她记下的事", new View.OnClickListener() {

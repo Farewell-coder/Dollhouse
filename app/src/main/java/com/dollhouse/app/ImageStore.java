@@ -29,6 +29,89 @@ public final class ImageStore {
 
     private ImageStore() {
     }
+    /** 【背景裁剪】读原图的长宽，失败返回 null；只读尺寸，不解码像素。 */
+    public static int[] size(Context context, Uri uri) {
+        try {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            InputStream in = context.getContentResolver().openInputStream(uri);
+            if (in == null) {
+                return null;
+            }
+            BitmapFactory.decodeStream(in, null, o);
+            in.close();
+            return (o.outWidth <= 0 || o.outHeight <= 0) ? null : new int[]{o.outWidth, o.outHeight};
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+    /**
+     * 【背景裁剪】把选区裁出来、按目标比例缩放后存成聊天背景。
+     * 【入参与出参】src 是相册回传的 Uri；框内坐标为源图像素；ratio = 宽/高。
+     * 【为什么在这里落盘】与 saveFromUri 同一条通道，落盘后返回「chat_bg/img_xxx.jpg」相对路径，
+     *   背景行读到的还是同一个相对路径，下游（ChatPanel.applyBackground / PetService）无需改动。
+     */
+    public static String saveCrop(Context context, Uri src, int left, int top, int width, int height,
+                                 float ratio, int outW) throws Exception {
+        Bitmap full = null;
+        try {
+            InputStream in = context.getContentResolver().openInputStream(src);
+            if (in == null) {
+                throw new IllegalStateException("读不到这张图");
+            }
+            full = BitmapFactory.decodeStream(in, null, null);
+            in.close();
+            if (full == null) {
+                throw new IllegalStateException("这张图解不开");
+            }
+            return saveCropFrom(context, full, left, top, width, height, ratio, outW);
+        } finally {
+            if (full != null) {
+                full.recycle();
+            }
+        }
+    }
+    /**
+     * 【背景裁剪·位图版】直接吃一张已经解好的图，不再二次解码（裁剪页就是这么调的）。
+     * 【注意】不回收传入的 full —— 它归调用方所有（裁剪页在 onDestroy 里自己释放）。
+     */
+    public static String saveCropFrom(Context context, Bitmap full, int left, int top, int width, int height,
+                                      float ratio, int outW) throws Exception {
+        if (full == null || full.isRecycled()) {
+            throw new IllegalStateException("这张图解不开");
+        }
+        Bitmap crop = null;
+        Bitmap scaled = null;
+        FileOutputStream out = null;
+        try {
+            int l = Math.max(0, left);
+            int t = Math.max(0, top);
+            int w = Math.max(1, Math.min(width, full.getWidth() - l));
+            int h = Math.max(1, Math.min(height, full.getHeight() - t));
+            crop = Bitmap.createBitmap(full, l, t, w, h);
+            int tw = Math.max(1, Math.min(1080, outW));
+            int th = Math.max(1, Math.round(tw / Math.max(0.01f, ratio)));
+            scaled = Bitmap.createScaledBitmap(crop, tw, th, true);
+            File file = new File(dir(context, PetPrefs.BG_DIR), "img_" + System.currentTimeMillis() + ".jpg");
+            out = new FileOutputStream(file);
+            scaled.compress(Bitmap.CompressFormat.JPEG, 90, out);
+            out.flush();
+            return PetPrefs.BG_DIR + "/" + file.getName();
+        } finally {
+            try {
+                if (out != null) {
+                    out.close();
+                }
+            } catch (Throwable ignored) {
+            }
+            if (scaled != null && scaled != crop) {
+                scaled.recycle();
+            }
+            if (crop != null && crop != full) {
+                crop.recycle();
+            }
+        }
+    }
 
     public static File dir(Context context) {
         return dir(context, DIR);
@@ -177,96 +260,86 @@ public final class ImageStore {
         }
     }
 
+    /* ------------------------- 文件签名常量（按魔数含义命名） ------------------------- */
+    /** JPEG 起始两字节 FF D8。 */
+    private static final int SIG_JPG_0 = 0xFF;
+    private static final int SIG_JPG_1 = 0xD8;
+    /** PNG 前四字节 89 50 4E 47。 */
+    private static final int SIG_PNG_0 = 0x89;
+    private static final int SIG_PNG_1 = 0x50;
+    private static final int SIG_PNG_2 = 0x4E;
+    private static final int SIG_PNG_3 = 0x47;
+    /** GIF 前三字节 47 49 46。 */
+    private static final int SIG_GIF_0 = 0x47;
+    private static final int SIG_GIF_1 = 0x49;
+    private static final int SIG_GIF_2 = 0x46;
+    /** BMP 前两字节 42 4D。 */
+    private static final int SIG_BMP_0 = 0x42;
+    private static final int SIG_BMP_1 = 0x4D;
+    /** WEBP：0-3 字节 RIFF，8-11 字节 WEBP。 */
+    private static final int SIG_RIFF_0 = 0x52;
+    private static final int SIG_RIFF_1 = 0x49;
+    private static final int SIG_RIFF_2 = 0x46;
+    private static final int SIG_WEBP_3 = 0x50;
+    private static final int SIG_WEBP_8 = 0x57;
+    private static final int SIG_WEBP_9 = 0x45;
+    private static final int SIG_WEBP_10 = 0x42;
+    /** 签名探测所需的头部字节数。 */
+    private static final int HEAD_PROBE_BYTES = 12;
+
+    /** 安静关流：失败无所谓，调用点原先各自抄了一遍「try/catch 吞掉」。 */
+    private static void closeQuietly(InputStream in) {
+        if (in != null) {
+            try {
+                in.close();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * 按文件头魔数判断是否图片。
+     * 【重写说明】原实现把 9 段关闭逻辑抄了 9 遍，且魔数被反编译工具误替成
+     *   MAX_FILES / MAX_DIM（数值巧合相等但语义错位）。
+     *   本次只做等价改写：判定顺序、比较值、短路行为与原来完全一致。
+     */
     public static boolean looksLikeImage(Context context, Uri uri) {
-        InputStream inputStream = null;
+        InputStream in = null;
         try {
-            InputStream openInputStream = context.getContentResolver().openInputStream(uri);
-            if (openInputStream == null) {
-                if (openInputStream != null) {
-                    try {
-                        openInputStream.close();
-                    } catch (Throwable unused) {
-                    }
-                }
+            in = context.getContentResolver().openInputStream(uri);
+            if (in == null) {
                 return false;
             }
-            byte[] bArr = new byte[12];
-            int read = openInputStream.read(bArr);
+            byte[] head = new byte[HEAD_PROBE_BYTES];
+            int read = in.read(head);
             if (read < 4) {
-                if (openInputStream != null) {
-                    try {
-                        openInputStream.close();
-                    } catch (Throwable unused2) {
-                    }
-                }
                 return false;
             }
-            byte b = bArr[0];
-            int i = b & 255;
-            byte b2 = bArr[1];
-            int i2 = b2 & 255;
-            if (i == 255 && i2 == 216) {
-                if (openInputStream != null) {
-                    try {
-                        openInputStream.close();
-                    } catch (Throwable unused3) {
-                    }
-                }
+            int b0 = head[0] & 0xFF;
+            int b1 = head[1] & 0xFF;
+            if (b0 == SIG_JPG_0 && b1 == SIG_JPG_1) {
                 return true;
             }
-            if (i == 137 && b2 == MAX_FILES && bArr[2] == 78 && bArr[3] == 71) {
-                if (openInputStream != null) {
-                    try {
-                        openInputStream.close();
-                    } catch (Throwable unused4) {
-                    }
-                }
+            if (b0 == SIG_PNG_0 && b1 == SIG_PNG_1 && head[2] == SIG_PNG_2 && head[3] == SIG_PNG_3) {
                 return true;
             }
-            if (b == 71 && b2 == 73 && bArr[2] == 70) {
-                if (openInputStream != null) {
-                    try {
-                        openInputStream.close();
-                    } catch (Throwable unused5) {
-                    }
-                }
+            if (b0 == SIG_GIF_0 && b1 == SIG_GIF_1 && head[2] == SIG_GIF_2) {
                 return true;
             }
-            if (b == 66 && b2 == 77) {
-                if (openInputStream != null) {
-                    try {
-                        openInputStream.close();
-                    } catch (Throwable unused6) {
-                    }
-                }
+            if (b0 == SIG_BMP_0 && b1 == SIG_BMP_1) {
                 return true;
             }
-            if (read >= 12 && b == 82 && b2 == 73 && bArr[2] == 70 && bArr[3] == 70 && bArr[8] == 87 && bArr[9] == 69 && bArr[10] == 66) {
-                if (bArr[11] == MAX_FILES) {
-                    if (openInputStream != null) {
-                        try {
-                            openInputStream.close();
-                        } catch (Throwable unused7) {
-                        }
-                    }
-                    return true;
-                }
-            }
-            if (openInputStream != null) {
-                try {
-                    openInputStream.close();
-                } catch (Throwable unused8) {
-                }
+            if (read >= HEAD_PROBE_BYTES && b0 == SIG_RIFF_0 && b1 == SIG_RIFF_1
+                    && head[2] == SIG_RIFF_2 && head[3] == SIG_RIFF_2
+                    && head[8] == SIG_WEBP_8 && head[9] == SIG_WEBP_9 && head[10] == SIG_WEBP_10
+                    && head[11] == SIG_WEBP_3) {
+                return true;
             }
             return false;
-        } catch (Throwable unused9) {
-            if (0 != 0) {
-                try {
-                    inputStream.close();
-                } catch (Throwable unused10) {
-                }
-            }
+        } catch (Throwable ignored) {
             return false;
+        } finally {
+            closeQuietly(in);
         }
     }
 

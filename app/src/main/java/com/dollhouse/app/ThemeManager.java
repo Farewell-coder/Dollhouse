@@ -344,6 +344,19 @@ public final class ThemeManager {
 
     /** 兜底：把壁纸缩略图解码成 64×64，按色相分 12 桶、以「饱和度 × 明度」加权，取最重的桶做圆均值。 */
     private static float extractHueByDecode(Context c) {
+        Bitmap small = thumbFromWallpaper(c);
+        if (small == null) {
+            return Float.NaN;
+        }
+        try {
+            return hueFromThumb(small);
+        } finally {
+            small.recycle();
+        }
+    }
+
+    /** 取壁纸并缩到 64×64 缩略图；取不到（无权限 / 异常）返回 null。 */
+    private static Bitmap thumbFromWallpaper(Context c) {
         Bitmap small = null;
         try {
             WallpaperManager wm = WallpaperManager.getInstance(c);
@@ -354,7 +367,7 @@ public final class ThemeManager {
                 Logs.w(LOG_TAG, "ignored", ignored);
             }
             if (d == null) {
-                return Float.NaN;
+                return null;
             }
             int w = d.getIntrinsicWidth();
             int h = d.getIntrinsicHeight();
@@ -372,63 +385,61 @@ public final class ThemeManager {
             if (small != null) {
                 small.recycle();
             }
+            return null;
+        }
+        return small;
+    }
+
+    /** 从缩略图统计 12 段色相直方图，返回加权峰值角度；无有效色返回 NaN。 */
+    private static float hueFromThumb(Bitmap small) {
+        int n = 64 * 64;
+        int[] px = new int[n];
+        small.getPixels(px, 0, 64, 0, 0, 64, 64);
+        double[] sx = new double[12];
+        double[] sy = new double[12];
+        double[] sw = new double[12];
+        float[] hsv = new float[3];
+        for (int i = 0; i < n; i++) {
+            int p = px[i];
+            if ((p >>> 24) < 128) {
+                continue;
+            }
+            Color.colorToHSV(p, hsv);
+            // 跳过灰、黑、近白：它们不能代表主题色。
+            if (hsv[1] < 0.18f || hsv[2] < 0.12f) {
+                continue;
+            }
+            if (hsv[2] > 0.96f && hsv[1] < 0.45f) {
+                continue;
+            }
+            int b = (int) (hsv[0] / 30.0f);
+            if (b < 0) {
+                b = 0;
+            } else if (b > 11) {
+                b = 11;
+            }
+            double rad = hsv[0] * Math.PI / 180.0;
+            double wgt = hsv[1] * hsv[2];
+            sx[b] += Math.cos(rad) * wgt;
+            sy[b] += Math.sin(rad) * wgt;
+            sw[b] += wgt;
+        }
+        int best = -1;
+        double bestW = 0.0;
+        for (int i = 0; i < 12; i++) {
+            if (sw[i] > bestW) {
+                bestW = sw[i];
+                best = i;
+            }
+        }
+        if (best < 0 || bestW < 0.5) {
             return Float.NaN;
         }
-        try {
-            int n = 64 * 64;
-            int[] px = new int[n];
-            small.getPixels(px, 0, 64, 0, 0, 64, 64);
-            double[] sx = new double[12];
-            double[] sy = new double[12];
-            double[] sw = new double[12];
-            float[] hsv = new float[3];
-            for (int i = 0; i < n; i++) {
-                int p = px[i];
-                if ((p >>> 24) < 128) {
-                    continue;
-                }
-                Color.colorToHSV(p, hsv);
-                // 跳过灰、黑、近白：它们不能代表主题色。
-                if (hsv[1] < 0.18f || hsv[2] < 0.12f) {
-                    continue;
-                }
-                if (hsv[2] > 0.96f && hsv[1] < 0.45f) {
-                    continue;
-                }
-                int b = (int) (hsv[0] / 30.0f);
-                if (b < 0) {
-                    b = 0;
-                } else if (b > 11) {
-                    b = 11;
-                }
-                double rad = hsv[0] * Math.PI / 180.0;
-                double wgt = hsv[1] * hsv[2];
-                sx[b] += Math.cos(rad) * wgt;
-                sy[b] += Math.sin(rad) * wgt;
-                sw[b] += wgt;
-            }
-            int best = -1;
-            double bestW = 0.0;
-            for (int i = 0; i < 12; i++) {
-                if (sw[i] > bestW) {
-                    bestW = sw[i];
-                    best = i;
-                }
-            }
-            if (best < 0 || bestW < 0.5) {
-                return Float.NaN;
-            }
-            double ang = Math.atan2(sy[best], sx[best]);
-            if (ang < 0.0) {
-                ang += Math.PI * 2.0;
-            }
-            return (float) (ang * 180.0 / Math.PI);
-        } catch (Throwable t) {
-            Logs.w(LOG_TAG, "ignored", t);
-            return Float.NaN;
-        } finally {
-            small.recycle();
+        double ang = Math.atan2(sy[best], sx[best]);
+        if (ang < 0.0) {
+            ang += Math.PI * 2.0;
         }
+        return (float) (ang * 180.0 / Math.PI);
     }
 
     private static int hsv(float hue, float s, float v) {
@@ -472,13 +483,49 @@ public final class ThemeManager {
         return hsv(hue, s, 0.06f);
     }
 
+    /**
+     * 【莫奈统筹】把「语义色相」朝主色相靠 amount（0~1），只挪色相，不动饱和度 / 明度。
+     *
+     * 【为什么需要】成功绿 / 错误红 / 提示黄 / 表情色都有既定语义，色相不能直接跟着主色跑，
+     *   否则「已授权 / 未授权」就分不出来了。但完全写死又会让莫奈模式下这些颜色纹丝不动 ——
+     *   用户看到的正是「有些地方颜色根本没变」。折中：保留本色相为主，掺一点主色相。
+     *
+     * 【为什么不是直接混色】HSV 的色相是环形的，必须先算最短弧差（±180° 内），
+     *   否则 350° 与 10° 会被算成差 340° 而绕远路，颜色直接跑飞。
+     */
+    private static float tintBy(float baseHue, float hue, float amount) {
+        float d = hue - baseHue;
+        while (d > 180f) {
+            d -= 360f;
+        }
+        while (d < -180f) {
+            d += 360f;
+        }
+        float h = baseHue + d * amount;
+        if (h < 0f) {
+            h += 360f;
+        }
+        if (h >= 360f) {
+            h -= 360f;
+        }
+        return h;
+    }
+
+    /** 保留 RGB，只换 alpha（0~255）。 */
+    private static int withAlpha(int c, int alpha) {
+        return (c & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
+
     /** 由主色相派生整套配色；明度/饱和度逐项夹紧，保证亮底暗底上的字都读得清。 */
     private static int[] fromHue(float hue, boolean dark, boolean black) {
         if (dark) {
+            // 状态色的对比度基准：与 CARD 同值，保证「绿字 / 红字」压在卡片上一定达标。
+            int dCard = black ? 0xFF000000 : hsv(hue, 0.10f, 0.13f);
+            int dHint = hsv(tintBy(42f, hue, 0.22f), 0.28f, 0.20f);
             return new int[]{
                     hsv(hue, 0.55f, 0.92f),
                     hsv(hue, 0.45f, 1.00f),
-                    black ? 0xFF000000 : hsv(hue, 0.10f, 0.13f),
+                    dCard,
                     black ? 0xFF000000 : hsv(hue, 0.12f, 0.07f),
                     hsv(hue, 0.10f, 0.92f),
                     hsv(hue, 0.10f, 0.66f),
@@ -486,8 +533,11 @@ public final class ThemeManager {
                     black ? 0xFF0D0D0D : hsv(hue, 0.12f, 0.16f),
                     black ? 0xFF101010 : hsv(hue, 0.10f, 0.15f),
                     hsv(hue, 0.16f, 0.18f),
-                    0xFF5FD07E,
-                    0xFFFF6B60,
+                    // 【莫奈统筹】成功色原写死 0xFF5FD07E、错误色原写死 0xFFFF6B60，莫奈下纹丝不动。
+                    //   现在色相各朝主色相靠 18%（保住「绿 = 已授权 / 红 = 未授权」），饱和度下调，
+                    //   明度交给 inkOn 按卡片底色实测对比度回调 —— 会变，而且更柔和。
+                    inkOn(tintBy(142f, hue, 0.18f), 0.50f, 0.90f, dCard),
+                    inkOn(tintBy(4f, hue, 0.18f), 0.58f, 0.92f, dCard),
                     hsv(hue, 0.55f, 0.14f),
                     hsv(hue, 0.45f, 0.85f),
                     hsv(hue, 0.14f, 0.26f),
@@ -497,21 +547,30 @@ public final class ThemeManager {
                     hsv(hue, 0.12f, 0.16f),
                     hsv(hue, 0.10f, 0.60f),
                     hsv(hue, 0.20f, 0.22f),
-                    0xFFF0C674,
-                    hsv(hue, 0.30f, 0.22f),
+                    // 【莫奈统筹】提示字色原写死 0xFFF0C674（底色本来就跟随，只有字色没跟）。
+                    inkOn(tintBy(42f, hue, 0.22f), 0.50f, 0.92f, dHint),
+                    dHint,
                     hsv(hue, 0.08f, 0.35f),
-                    0xFFFF8A5C, 0xFFFF8FB8, 0xFF8AA6FF,
-                    black ? 0x26FFFFFF : 0x1AFFFFFF,
+                    // 【莫奈统筹】桌宠表情三色原写死；色相语义保留（惊叹 / 开心 / 眩晕），各朝主色相靠 20%。
+                    hsv(tintBy(16f, hue, 0.20f), 0.58f, 0.90f),
+                    hsv(tintBy(335f, hue, 0.20f), 0.50f, 0.88f),
+                    hsv(tintBy(224f, hue, 0.20f), 0.50f, 0.88f),
+                    // 【莫奈统筹】描边不再是纯白，带一点主色相，暗底上更贴合。
+                    withAlpha(hsv(hue, 0.20f, 0.92f), black ? 0x26 : 0x1A),
                     // 【修·莫奈失效根因】末位 SCRIM 原缺失，导致本数组仅 28 个元素，
                     //   cachedMonetPalette() 的 p.length == PAL_SIZE(29) 恒为 false，
                     //   取色结果永远被丢弃、永远回退内置调色板（表现为开关能开、配色不变）。
-                    black ? 0xB3000000 : 0xA6000000
+                    // 【莫奈统筹】同时由纯黑改成带主色相的深色压暗层。
+                    withAlpha(hsv(hue, 0.35f, 0.07f), black ? 0xB3 : 0xA6)
             };
         }
         // 浅色档底色近白，字色必须压暗到对比度达标 —— 否则黄/青/绿壁纸下会白字白底、看不清。
         // 强调色（ACC/ACC2/气泡）要压暗到白字可读；正文/标签色要压暗到近白底上可读。
         int soft = hsv(hue, 0.06f, 0.96f);
         int chipBg = hsv(hue, 0.15f, 0.96f);
+        // 状态色的对比度基准：白卡片。与 I_CARD 同为 0xFFFFFFFF。
+        int lCard = 0xFFFFFFFF;
+        int lHintBg = hsv(tintBy(42f, hue, 0.22f), 0.30f, 0.96f);
         return new int[]{
                 inkOn(hue, 0.62f, 0.85f, 0xFFFFFFFF),
                 inkOn(hue, 0.58f, 0.95f, 0xFFFFFFFF),
@@ -523,8 +582,11 @@ public final class ThemeManager {
                 hsv(hue, 0.10f, 0.98f),
                 soft,
                 hsv(hue, 0.12f, 0.97f),
-                0xFF1B8A3A,
-                0xFFB3261E,
+                // 【莫奈统筹】成功色原写死 0xFF1B8A3A、错误色原写死 0xFFB3261E，莫奈下纹丝不动。
+                //   色相各朝主色相靠 18%（保住「绿 = 已授权 / 红 = 未授权」），饱和度下调，
+                //   明度交给 inkOn 按白卡片实测对比度回调 —— 会变，而且更柔和。
+                inkOn(tintBy(142f, hue, 0.18f), 0.55f, 0.34f, lCard),
+                inkOn(tintBy(4f, hue, 0.18f), 0.62f, 0.40f, lCard),
                 0xFFFFFFFF,
                 inkOn(hue, 0.50f, 0.87f, 0xFFFFFFFF),
                 hsv(hue, 0.18f, 0.92f),
@@ -534,13 +596,19 @@ public final class ThemeManager {
                 hsv(hue, 0.06f, 0.97f),
                 inkOn(hue, 0.15f, 0.68f, chipBg),
                 hsv(hue, 0.14f, 0.97f),
-                0xFF8A5A00,
-                0xFFFFF4D6,
+                // 【莫奈统筹】提示字色原写死 0xFF8A5A00、底色原写死 0xFFFFF4D6（唯一一处底色也没跟主色相走的地方）。
+                inkOn(tintBy(42f, hue, 0.22f), 0.62f, 0.32f, lHintBg),
+                lHintBg,
                 hsv(hue, 0.08f, 0.82f),
-                0xFFF2603C, 0xFFE8608F, 0xFF5A7BD8,
-                0x1422315B,
+                // 【莫奈统筹】桌宠表情三色原写死；色相语义保留（惊叹 / 开心 / 眩晕），各朝主色相靠 20%。
+                hsv(tintBy(16f, hue, 0.20f), 0.62f, 0.86f),
+                hsv(tintBy(335f, hue, 0.20f), 0.52f, 0.82f),
+                hsv(tintBy(224f, hue, 0.20f), 0.52f, 0.78f),
+                // 【莫奈统筹】描边由写死的深蓝灰 0x1422315B 改成主色相深色微透明 —— 白卡片上更贴。
+                withAlpha(hsv(hue, 0.30f, 0.25f), 0x14),
                 // 【修·莫奈失效根因】同上：末位 SCRIM 原缺失使数组只有 28 个元素。
-                0x8A000000
+                // 【莫奈统筹】压暗层由纯黑改成带主色相的深色，浮层不再「脏黑」。
+                withAlpha(hsv(hue, 0.40f, 0.10f), 0x8A)
         };
     }
 }

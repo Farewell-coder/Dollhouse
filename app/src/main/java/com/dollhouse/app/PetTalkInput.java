@@ -31,7 +31,7 @@ import android.widget.TextView;
  * 【收起规则】框里有未发送的内容时永不自动收起（TextWatcher + scheduleAutoHide 双重保证），
  *             空框 60 秒无操作才收。这样长文本输入不会再被中途吞掉。
  *
- * 【坑】窗口 flags 必须与 ChatWindow 一致（不含 FLAG_NOT_FOCUSABLE），
+ * 【坑】窗口 flags 不能含 FLAG_NOT_FOCUSABLE，
  *        EditText 才拿得到焦点、键盘才弹得出来；摘窗之前要先 hideSoftInputFromWindow。
  */
 public class PetTalkInput {
@@ -186,84 +186,99 @@ public class PetTalkInput {
         bar.setPadding(pad, pad, pad, pad);
         bar.setBackground(UiKit.roundStroke(UiKit.CARD, UiKit.CHAT_BORDER, this.ctx, 14.0f));
         bar.setElevation(UiKit.dp(this.ctx, 6.0f));
-        EditText editText = new EditText(this.ctx);
-        editText.setSingleLine(true);
-        editText.setHint("说点什么…");
-        editText.setHintTextColor(UiKit.SUB);
-        editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        editText.setImeOptions(EditorInfo.IME_ACTION_SEND);
-        editText.setBackgroundColor(Color.TRANSPARENT);
-        editText.setTextSize(UiKit.FS_BTN);
-        editText.setTextColor(UiKit.TITLE);
-        editText.setPadding(UiKit.dp(this.ctx, 8.0f), 0, UiKit.dp(this.ctx, 8.0f), 0);
-        editText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView textView, int i, KeyEvent keyEvent) {
-                if (i == 4) {
-                    PetTalkInput.this.submit();
-                    return true;
-                }
-                if (keyEvent == null || keyEvent.getKeyCode() != 66) {
-                    return false;
-                }
+        buildInput(bar);
+        buildSendButton(bar);
+        attachImeListener(bar);
+        this.root = bar;
+    }
+
+    /** 输入框本体：单行、回车发送；内容变化与触摸都重置自动收起计时。 */
+    private void buildInput(LinearLayout bar) {
+    EditText editText = new EditText(this.ctx);
+    editText.setSingleLine(true);
+    editText.setHint("说点什么…");
+    editText.setHintTextColor(UiKit.SUB);
+    editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+    editText.setImeOptions(EditorInfo.IME_ACTION_SEND);
+    editText.setBackgroundColor(Color.TRANSPARENT);
+    editText.setTextSize(UiKit.FS_BTN);
+    editText.setTextColor(UiKit.TITLE);
+    editText.setPadding(UiKit.dp(this.ctx, 8.0f), 0, UiKit.dp(this.ctx, 8.0f), 0);
+    editText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+        @Override
+        public boolean onEditorAction(TextView textView, int i, KeyEvent keyEvent) {
+            if (i == 4) {
                 PetTalkInput.this.submit();
                 return true;
             }
-        });
-        // 【核心修复】原来只有 ACTION_DOWN 会重置计时，软键盘是另一个窗口、点它不算，
-        //   于是「打满 15 秒」必然被收窗，已输入的文字一起丢。这里补 TextWatcher，
-        //   每次内容变化都重新计时；再配合 scheduleAutoHide 的「有内容不排计时」，
-        //   只要框里还有字就永远不会自动收起。
-        editText.addTextChangedListener(new android.text.TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence charSequence, int i, int i2, int i3) {
-            }
-            @Override
-            public void onTextChanged(CharSequence charSequence, int i, int i2, int i3) {
-            }
-            @Override
-            public void afterTextChanged(android.text.Editable editable) {
-                PetTalkInput.this.scheduleAutoHide();
-            }
-        });
-        editText.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View view, MotionEvent motionEvent) {
-                if (motionEvent.getActionMasked() == 0) {
-                    PetTalkInput.this.scheduleAutoHide();
-                }
+            if (keyEvent == null || keyEvent.getKeyCode() != 66) {
                 return false;
             }
-        });
-        this.input = editText;
-        bar.addView(editText, new LinearLayout.LayoutParams(0, -1, 1.0f));
-        ImageView textView = new ImageView(this.ctx);
-        textView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                PetTalkInput.this.submit();
+            PetTalkInput.this.submit();
+            return true;
+        }
+    });
+    // 【核心修复】原来只有 ACTION_DOWN 会重置计时，软键盘是另一个窗口、点它不算，
+    //   于是「打满 15 秒」必然被收窗，已输入的文字一起丢。这里补 TextWatcher，
+    //   每次内容变化都重新计时；再配合 scheduleAutoHide 的「有内容不排计时」，
+    //   只要框里还有字就永远不会自动收起。
+    editText.addTextChangedListener(new android.text.TextWatcher() {
+        @Override
+        public void beforeTextChanged(CharSequence charSequence, int i, int i2, int i3) {
+        }
+        @Override
+        public void onTextChanged(CharSequence charSequence, int i, int i2, int i3) {
+        }
+        @Override
+        public void afterTextChanged(android.text.Editable editable) {
+            PetTalkInput.this.scheduleAutoHide();
+        }
+    });
+    editText.setOnTouchListener(new View.OnTouchListener() {
+        @Override
+        public boolean onTouch(View view, MotionEvent motionEvent) {
+            if (motionEvent.getActionMasked() == 0) {
+                PetTalkInput.this.scheduleAutoHide();
             }
-        });
-        this.button = textView;
-        UiKit.sendButton(textView, this.ctx);
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(UiKit.dp(this.ctx, 62.0f), -1);
-        btnLp.leftMargin = UiKit.dp(this.ctx, 6.0f);
-        bar.addView(textView, btnLp);
-        // 输入法让位：键盘弹起时把整条栏顶到键盘上方（与 ChatWindow 同款处理）。
-        bar.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
-            @Override
-            public WindowInsets onApplyWindowInsets(View view, WindowInsets windowInsets) {
-                int bottom;
-                if (Build.VERSION.SDK_INT >= 30) {
-                    bottom = windowInsets.getInsets(WindowInsets.Type.ime()).bottom;
-                } else {
-                    bottom = windowInsets.getSystemWindowInsetBottom();
-                }
-                PetTalkInput.this.onIme(bottom);
-                return windowInsets;
+            return false;
+        }
+    });
+    this.input = editText;
+    bar.addView(editText, new LinearLayout.LayoutParams(0, -1, 1.0f));
+    }
+
+    /** 发送键：圆形按钮，点击即提交。 */
+    private void buildSendButton(LinearLayout bar) {
+    ImageView textView = new ImageView(this.ctx);
+    textView.setOnClickListener(new View.OnClickListener() {
+        @Override
+        public void onClick(View view) {
+            PetTalkInput.this.submit();
+        }
+    });
+    this.button = textView;
+    UiKit.sendButton(textView, this.ctx);
+    LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(UiKit.dp(this.ctx, 62.0f), -1);
+    btnLp.leftMargin = UiKit.dp(this.ctx, 6.0f);
+    bar.addView(textView, btnLp);
+    }
+
+    /** 输入法让位：键盘弹起时把整条栏顶到键盘上方。 */
+    private void attachImeListener(LinearLayout bar) {
+    // 输入法让位：键盘弹起时把整条栏顶到键盘上方。
+    bar.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+        @Override
+        public WindowInsets onApplyWindowInsets(View view, WindowInsets windowInsets) {
+            int bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                bottom = windowInsets.getInsets(WindowInsets.Type.ime()).bottom;
+            } else {
+                bottom = windowInsets.getSystemWindowInsetBottom();
             }
-        });
-        this.root = bar;
+            PetTalkInput.this.onIme(bottom);
+            return windowInsets;
+        }
+    });
     }
     /**
      * 键盘高度变化：自己不摆位，转给宿主。

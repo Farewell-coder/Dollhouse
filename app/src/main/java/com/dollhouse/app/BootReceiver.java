@@ -8,7 +8,7 @@ import android.os.Build;
 /**
  * 【职责】开机自启：系统启动完成后把桌宠服务拉回来。
  *
- * 【入口】AndroidManifest 注册 RECEIVE_BOOT_COMPLETED 广播，只认 BOOT_COMPLETED。
+ * 【入口】AndroidManifest 注册 RECEIVE_BOOT_COMPLETED 广播，认 BOOT_COMPLETED 与 MY_PACKAGE_REPLACED。
  *
  * 【交互】只做一件事——在用户没有主动关闭人偶时，向 PetService 发 ACTION_START；
  *         不建任务栈、不跳 Activity，绝不抢用户前台。
@@ -23,7 +23,15 @@ public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         try {
-            if (intent == null || !Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            if (intent == null) {
+                return;
+            }
+            // 【无感保活】除开机外，覆盖安装（MY_PACKAGE_REPLACED）同样要恢复：
+            //   JobScheduler 的 persisted 任务在包被替换时会被系统清掉，而该广播不会
+            //   派发给旧进程，只能靠新进程冷启时收到这一次。
+            final String action = intent.getAction();
+            if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
+                    && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
                 return;
             }
             // 用户主动关过就不打扰；下次他自己点「启动人偶」会清掉这个标志。

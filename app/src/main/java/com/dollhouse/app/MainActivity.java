@@ -22,10 +22,8 @@ import rikka.shizuku.Shizuku;
  * 【坑】部分控件字段是包级可见，供 HomeScreenBuilder / ChatSettingsSection 直接读写；
  *       不要改回 private，否则那两个类编译不过。
  */
-public class MainActivity extends Activity implements PickFileActivity.Listener {
+public class MainActivity extends Activity {
 
-    /** 选图请求码。 */
-    private static final int PICK_BG = 1;
     /** 通知权限请求码。 */
     private static final int REQ_NOTIF = 101;
 
@@ -40,9 +38,6 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
     EditText keyInput;
     EditText modelInput;
     EditText urlInput;
-    /** 选图用途：1 = 选聊天背景。 */
-    int pickPurpose = 0;
-
     /** 每秒刷新一次权限与状态。 */
     private final Handler ticker = new Handler(Looper.getMainLooper());
     /**
@@ -102,6 +97,9 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
             });
         }
         setContentView(HomeScreenBuilder.build(this));
+        // 【状态栏嵌入】状态栏透明 + 铺满，消除顶部那条系统灰。
+        //   放在 setContentView 之后：需要 decorView 已存在才好刷图标反色。
+        UiKit.applyEdgeToEdge(this);
         SettingsPage.apply(this);
         HomeUi.apply(this);
         // 换主题重建的话，把滚动位置滚回原处（冷启动时这个标志是关的，不会乱跳）。
@@ -143,7 +141,7 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
 
     @Override
     public void onBackPressed() {
-        if (ApiConfigPage.handleBack(this) || TokenStat.closeIfOpen(this)
+        if (ProviderNav.handleBack(this) || TokenStat.closeIfOpen(this)
                 || MemPage.closeIfOpen(this) || AboutPage.closeIfOpen(this)
                 || HomeUi.handleBack(this)) {
             return;
@@ -155,13 +153,18 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
     float dp(float value) {
         return UiKit.dpf(this, value);
     }
-
-    /** 背景透明度文案：按区间给出可读性提示。 */
+    /**
+     * 滑块上方标题行文案：只给「这是什么」+ 区间可读性提示。
+     *
+     * 【为何不再带百分比】百分比现在由 UiKit.Slider 自己画在轨道右侧（跟随拖动实时变），
+     *   两处都写数值会重复，而且标题行里的数字拖动时并不刷新，看着像卡住。
+     */
     void updateBgAlphaLabel(int percent) {
         if (bgAlphaLabel == null) {
             return;
         }
-        bgAlphaLabel.setText("\u80cc\u666f\u56fe\u900f\u660e\u5ea6\uff1a" + percent + "%   "
+
+        bgAlphaLabel.setText("\u80cc\u666f\u56fe\u900f\u660e\u5ea6\u00a0\u00a0"
                 + (percent <= 8 ? "\uff08\u51e0\u4e4e\u770b\u4e0d\u89c1\u4e86\uff09"
                 : percent <= 45 ? "\uff08\u63a8\u8350\uff0c\u5b57\u6700\u6e05\u695a\uff09"
                 : percent <= 75 ? "\uff08\u56fe\u66f4\u660e\u663e\uff0c\u6ce8\u610f\u770b\u5b57\uff09"
@@ -236,26 +239,10 @@ public class MainActivity extends Activity implements PickFileActivity.Listener 
         }
     }
 
-    /* ------------------------- PickFileActivity.Listener ------------------------- */
-    @Override
-    public void onPicked(String path, String name) {
-        if (pickPurpose == PICK_BG) {
-            if (path == null) {
-                return;
-            }
-            PetPrefs.setChatBackground(this, path);
-            notifyPetService();
-            Logs.i("DollhousePick", "[背景] 已写入 " + path);
-        }
-        pickPurpose = 0;
-        refreshLocalUi();
-        // 【修·行状态不刷新】onPicked 是选择器回传的异步结果，onResume 里的 HomeUi.sync
-        //   可能早于它执行，于是「外观 → 聊天背景」行会停在「未设置」。这里补一次即时刷新。
-        HomeUi.sync(this);
-    }
-
-    @Override
-    public void onFailed(String reason) {
-        // 读文件失败静默：不产生任何浮层反馈。
-    }
+    /* ------------------------- 类尾 ------------------------- */
+    /*
+     * 【为什么不再实现 PickFileActivity.Listener】聊天背景改走 BackgroundCropActivity
+     *   （选图 → 裁剪预览 → 按框落盘），结果由那一页自己写进 PetPrefs 并刷新桌宠服务；
+     *   发图走 ChatPanel 自己的回调。宿主这边已无任何「等选图结果」的入口。
+     */
 }

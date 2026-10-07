@@ -10,8 +10,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import java.util.List;
 
 /**
  * 【职责】输入行工具条上三个按钮共用的底部弹出面板基座 + 模型配置选择面板。
@@ -19,7 +18,7 @@ import org.json.JSONObject;
  * 【入口】ChatPanel 的工具条按钮（鲸鱼 = 模型配置、灯泡 = 思考程度、加号 = 功能）。
  *
  * 【交互】遮罩与面板都叠在「父链里第一个 FrameLayout」（与 ChatDrawer 同一套挂载逻辑）；
- *         模型配置的读写全走 SettingsProfiles，点一下等于执行一次 switchTo。
+ *         模型配置的读写全走 ProviderStore，点一下等于把当前供应商与模型切过去。
  *
  * 【扩展】再加一个工具条按钮 = 加一个 showXxx 静态方法，复用 open/close 两处即可。
  *
@@ -185,11 +184,15 @@ final class SheetPanel {
     /* ------------------------------ 1. 模型配置 ------------------------------ */
 
     /**
-     * 弹「模型配置」列表：点一条 = 选中它 + 原地展开该配置的模型清单，再点一个模型就换模型。
-     * 【交互】行本身可展开：展开时从「接口端点」实拉 {base}/models，列出真实可用模型。
-     *        行右侧的 · 只负责选这套配置（整套换掉端点 + 密钥 + 模型）。
-     * 【坑】SettingsProfiles.switchTo 在 inputs 为 null 时走空实现，必须传 null
-     *        （聊天面板里没有设置页那三个输入框）。
+     * 弹「模型配置」面板：供应商 → 模型两级分组。点第一级展开它启用的模型，点模型即选中。
+     *
+     * 【数据来源】ProviderStore + ModelRules.enabledGroups：供应商禁用则整组不出现，
+     *        模型禁用则不列。这里不再维护任何「收藏」概念 —— 启用的模型本来就该可见。
+     *
+     * 【交互】同一时刻只展开一组，展开下一组时把上一组收干净（此前两组同开，谁是谁的下级看着就糊）。
+     *
+     * 【为什么不能懒加载】本方法在桌宠浮窗场景调用，Context 链里没有 Activity，
+     *        弹系统对话框和起 Activity 都不可靠；所以列表在弹出时一次性建完。
      */
     static void showModels(Context ctx, ViewGroup layer) {
         FrameLayout shade = open(layer, TAG_MODEL, ctx, 0);
@@ -198,108 +201,26 @@ final class SheetPanel {
             return;
         }
         body.addView(title(ctx, "模型配置"));
-        JSONArray arr = SettingsProfiles.loadProfiles(ctx);
-        String cur = SettingsProfiles.readPref(ctx, SettingsProfiles.KEY_CURRENT);
-        final String current = cur == null ? "" : cur;
-        body.addView(sub(ctx, "共 " + arr.length() + " 套配置。点一下选中它，并展开这套配置可用的模型清单 —— "
-                + "每套配置各存一份自己的收藏，展开时只列这一套收藏过的模型。\n想增删配置、收藏模型去设置页的「模型配置」卡片。"));
+        final List<ModelRules.ModelGroup> groups = ModelRules.enabledGroups(
+                ProviderStore.providers(ctx), ModelStore.models(ctx));
+        final ProviderStore.Selection sel = ProviderStore.current(ctx);
+        body.addView(sub(ctx, "点供应商展开它的模型，再点一个模型就切过去。共 "
+                + groups.size() + " 个启用中的供应商。\n供应商或模型被禁用时不在这里出现，"
+                + "要增删改去设置页「聊天设置（云端 API）」的「提供商」里操作。"));
         ScrollView sc = new ScrollView(ctx);
-        // 【归属】同一时刻只展开一套配置；展开下一套时把上一套收干净。
         final OpenRow open = new OpenRow();
         final LinearLayout list = new LinearLayout(ctx);
         list.setOrientation(LinearLayout.VERTICAL);
         sc.addView(list, new ViewGroup.LayoutParams(-1, -2));
-
-        for (int i = 0; i < arr.length(); i++) {
-            final JSONObject o = arr.optJSONObject(i);
-            if (o == null) {
-                continue;
-            }
-            final String name = o.optString("n", "");
-            boolean active = name.equals(current);
-            String model = o.optString("m", "");
-            String right = model.isEmpty() ? "未填模型" : model;
-
-            // 每一行外面套一个竖向容器：上面是配置行，下面挂模型清单（展开时才长出来）。
-            LinearLayout slot = new LinearLayout(ctx);
-            slot.setOrientation(LinearLayout.VERTICAL);
-            slot.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
-
-            final LinearLayout models = new LinearLayout(ctx);
-            models.setOrientation(LinearLayout.VERTICAL);
-            models.setVisibility(8);
-
-            final boolean[] opened = {false};
-            final String rowName = name;
-
-            // 【坑】row() 是纯工厂，不会自己挂上去 —— 必须接住返回值 addView，
-            //       否则配置行压根不进布局（面板看着是空的）。
-            LinearLayout head = row(ctx, (active ? "● " : "") + name, right, active,
-                    new View.OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            // 展开即代表选中这套配置（整套切掉端点 + 密钥 + 模型）。
-                            SettingsProfiles.switchTo(ctx, rowName, null, null);
-                            // 【归属】先把上一套收干净：两套的模型清单同时挂着，
-                            //   「谁是下级」在观感上就糊了 —— 用户报的正是这个。
-                            if (open.models != null && open.models != models) {
-                                UiKit.collapse(open.models);
-                                open.models.removeAllViews();
-                                if (open.opened != null) {
-                                    open.opened[0] = false;
-                                }
-                                open.models = null;
-                                open.opened = null;
-                            }
-                            if (opened[0]) {
-                                opened[0] = false;
-                                open.models = null;
-                                open.opened = null;
-                                // 【丝滑】模型清单收起用淡出，不再一下消失。
-                                UiKit.collapse(models);
-                                models.removeAllViews();
-                                return;
-                            }
-                            opened[0] = true;
-                            open.models = models;
-                            open.opened = opened;
-                            // 【丝滑】模型清单展开用淡入，不再一下冒出来。
-                            UiKit.reveal(models);
-                            // 【交互】只列「这套配置自己收藏过」的模型 —— 收藏入口在设置页的模型清单里（每行右侧的星）。
-                            //         收藏按配置各存一份，换一套配置能不能看到，取决于它自己收没收藏。
-                            //         不联网、不拉服务端清单，所以没有 loading 竞态。
-                            models.removeAllViews();
-                            JSONArray stars = SettingsProfiles.loadStars(ctx, rowName);
-                            if (stars.length() == 0) {
-                                models.addView(labelOf(ctx, "这套配置还没有收藏模型。去设置页「聊天设置（云端 API）」的模型清单里，"
-                                        + "点模型右侧的 ☆ 收藏，收藏过的才会出现在它下面。"));
-                                return;
-                            }
-                            // 【归属】勾选态看这套配置自己的模型，不是全局活跃值。
-                            final String curModel = o.optString("m", "");
-                            for (int k = 0; k < stars.length(); k++) {
-                                final String mn = stars.optString(k, "").trim();
-                                if (mn.length() == 0) {
-                                    continue;
-                                }
-                                models.addView(modelRow(ctx, mn, mn.equals(curModel),
-                                        new View.OnClickListener() {
-                                            @Override
-                                            public void onClick(View x) {
-                                                SettingsProfiles.setProfileModel(ctx, rowName, mn);
-                                                closeAll(layer);
-                                            }
-                                        }));
-                            }
-                        }
-                    });
-
-            slot.addView(head);
-            slot.addView(models);
-            list.addView(slot);
+        for (int i = 0; i < groups.size(); i++) {
+            final ModelRules.ModelGroup g = groups.get(i);
+            boolean activeGroup = sel.provider != null && g.providerId.equals(sel.providerId);
+            String right = g.models.size() + " 个模型";
+            list.addView(buildProviderSlot(ctx, open, g, sel, activeGroup, right, layer));
         }
-        if (arr.length() == 0) {
-            list.addView(row(ctx, "还没有配置", null, false, null));
+        if (groups.isEmpty()) {
+            list.addView(labelOf(ctx, "还没有可用的供应商。去设置页「聊天设置（云端 API）」的「提供商」里"
+                    + "添加一个，并在它下面启用至少一个聊天模型。"));
         }
         // 【坑】这里必须用 wrap_content，不能用 (0, weight=1)：
         //       面板是 wrap_content 弹上来的，权重子在 wrap_content 父容器里会被量成 0 高，
@@ -308,10 +229,73 @@ final class SheetPanel {
         body.addView(sc, new LinearLayout.LayoutParams(-1, -2));
     }
 
+    /** 构建一行「供应商 + 可展开模型清单」：点供应商切换展开，点模型切到该模型。 */
+    private static LinearLayout buildProviderSlot(Context ctx, final OpenRow open,
+                                                  final ModelRules.ModelGroup g,
+                                                  final ProviderStore.Selection sel,
+                                                  boolean activeGroup, String right, final ViewGroup layer) {
+        // 每一行外面套一个竖向容器：上面是供应商行，下面挂模型清单（展开时才长出来）。
+        LinearLayout slot = new LinearLayout(ctx);
+        slot.setOrientation(LinearLayout.VERTICAL);
+        slot.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
+        final LinearLayout models = new LinearLayout(ctx);
+        models.setOrientation(LinearLayout.VERTICAL);
+        models.setVisibility(8);
+        final boolean[] opened = {false};
+        // 【坑】row() 是纯工厂，不会自己挂上去 —— 必须接住返回值 addView，
+        //       否则供应商行压根不进布局（面板看着是空的）。
+        LinearLayout head = row(ctx, (activeGroup ? "● " : "") + g.providerName, right, activeGroup,
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        // 【归属】先把上一组收干净：两组同时挂着，
+                        //   「谁是下级」在观感上就糊了 —— 用户报的正是这个。
+                        if (open.models != null && open.models != models) {
+                            UiKit.collapse(open.models);
+                            open.models.removeAllViews();
+                            if (open.opened != null) {
+                                open.opened[0] = false;
+                            }
+                            open.models = null;
+                            open.opened = null;
+                        }
+                        if (opened[0]) {
+                            opened[0] = false;
+                            open.models = null;
+                            open.opened = null;
+                            // 【丝滑】模型清单收起用淡出，不再一下消失。
+                            UiKit.collapse(models);
+                            models.removeAllViews();
+                            return;
+                        }
+                        opened[0] = true;
+                        open.models = models;
+                        open.opened = opened;
+                        // 【丝滑】模型清单展开用淡入，不再一下冒出来。
+                        UiKit.reveal(models);
+                        models.removeAllViews();
+                        for (int k = 0; k < g.models.size(); k++) {
+                            final AiModel m = g.models.get(k);
+                            boolean on = sel.modelId != null && sel.modelId.equals(m.id);
+                            models.addView(modelRow(ctx, m.displayName, on,
+                                    new View.OnClickListener() {
+                                        @Override
+                                        public void onClick(View x) {
+                                            ProviderStore.setCurrent(ctx, g.providerId, m.id);
+                                            closeAll(layer);
+                                        }
+                                    }));
+                        }
+                    }
+                });
+        slot.addView(head);
+        slot.addView(models);
+        return slot;
+    }
     /**
-     * 「当前展开的那一套」的句柄：只记容器和它自己的开关标志。
-     * 【为什么需要】展开前要先把它收干净，否则两套的模型清单会同时挂在面板上，
-     *   看着就像「不是这套配置的下级也被列出来了」。
+     * 「当前展开的那一组」的句柄：只记容器和它自己的开关标志。
+     * 【为什么需要】展开前要先把它收干净，否则两组的模型清单会同时挂在面板上，
+     *   看着就像「不是这个供应商的下级也被列出来了」。
      */
     private static final class OpenRow {
         LinearLayout models;
@@ -321,9 +305,13 @@ final class SheetPanel {
     private static TextView modelRow(Context ctx, String name, boolean active,
                                      View.OnClickListener onClick) {
         TextView t = new TextView(ctx);
-        t.setText((active ? "✓ " : "· ") + name);
+        // 【图标语义】选中项用实心勾图标代替裸「✓ 」字符；未选中不再占位（原先的「· 」是视觉噪声）。
+        t.setText(name);
         t.setTextSize(UiKit.FS_SUB);
         t.setTextColor(active ? UiKit.CHAT_CHIP_FG : UiKit.TITLE);
+        if (active) {
+            Icons.stateIcon(t, Icons.IC_CHECK, t.getCurrentTextColor(), 13.0f, 5);
+        }
         t.setSingleLine(true);
         t.setEllipsize(android.text.TextUtils.TruncateAt.END);
         t.setBackground(UiKit.round(active ? UiKit.CHAT_CHIP_ON : UiKit.CARD, ctx, 8));
@@ -474,8 +462,11 @@ final class SheetPanel {
     /* ------------------------------ 3. 记忆（加号） ------------------------------ */
 
     /**
-     * 弹「记忆」功能面板：自动保存记忆 / 自动精简记忆 / 立即总结 / 打开记忆库。
+     * 弹「记忆」功能面板：发图 / 立即总结 / 打开记忆库。
      * 【入口】工具条上的加号。
+     *
+     * 【d19】原「自动保存记忆」「自动精简记忆」两个开关已移植到设置页「记忆」卡片下级；
+     *   本面板因此只剩三个可点项，顶部标题与说明行也一并删掉，间距相应收紧。
      */
     static void showMemory(Context ctx, ViewGroup layer, final ChatPanel host) {
         FrameLayout shade = open(layer, TAG_MEM, ctx, 0);
@@ -483,10 +474,15 @@ final class SheetPanel {
         if (body == null) {
             return;
         }
-        body.addView(title(ctx, "记忆"));
-        // 【需求】「发图」并入本面板（原工具条上的独立「图片」按钮已撤掉）：
-        //   点它先收起面板，再拉起系统相册；选完的图挂在输入栏上方的附件条里，随下一条消息发出。
-        body.addView(entryRow(ctx, Icons.IC_IMAGE, "发图", "选一张图片发给她", new Runnable() {
+        // 【需求】收紧：少了标题与两行开关说明后，公共 open() 的 14/18dp 内边距显得上下都空，
+        //   本面板单独压到 10/12dp。（只改本面板，不动 open()，避免波及模型配置 / 思考程度两个面板。）
+        int memPad = UiKit.dp(ctx, 16);
+        body.setPadding(memPad, UiKit.dp(ctx, 10), memPad, UiKit.dp(ctx, 12));
+        // 【需求】本面板只留三个可点项：发图 / 立即总结 / 打开记忆库。
+        //   · 原「记忆」标题已删（面板本身不需要再自报家门）；
+        //   · 「自动保存记忆」「自动精简记忆」两个开关已移植到设置页「记忆」卡片下级；
+        //   · 「发图」行不再带副标题 —— 图标 + 「发图」二字已足够说明它是什么。
+        body.addView(entryRow(ctx, Icons.IC_IMAGE, "发图", null, new Runnable() {
             @Override
             public void run() {
                 closeAll(layer);
@@ -495,29 +491,12 @@ final class SheetPanel {
                 }
             }
         }));
-        body.addView(sub(ctx, "她在聊天里觉得值得长期记住的事，会自己写进记忆库，下次开口前带上。"));
-
-        // 一行开关：左侧标题 + 说明，右侧滑动开关。
-        body.addView(switchRow(ctx, "自动保存记忆", "关掉后她不再自己往记忆库写东西",
-                PetPrefs.memAutoSave(ctx), new Toggle() {
-                    @Override
-                    public void onSet(boolean on) {
-                        PetPrefs.setMemAutoSave(ctx, on);
-                    }
-                }));
-        body.addView(switchRow(ctx, "自动精简记忆", "记忆到 " + PetPrefs.MEM_MERGE_TRIGGER
-                        + " 条（上限的一半）时，让 AI 把旧记忆归并同类项、只留关键",
-                PetPrefs.memAutoMerge(ctx), new Toggle() {
-                    @Override
-                    public void onSet(boolean on) {
-                        PetPrefs.setMemAutoMerge(ctx, on);
-                    }
-                }));
 
         LinearLayout acts = new LinearLayout(ctx);
         acts.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
-        alp.topMargin = UiKit.dp(ctx, 14);
+        // 【需求】收紧：原先 14dp 的顶间距在少了标题与说明行之后显得空，收到 10dp。
+        alp.topMargin = UiKit.dp(ctx, 10);
         acts.setLayoutParams(alp);
 
         // 【v2.3】原「立即整理记忆」入口按需求删除（记忆归并保留自动档）；
@@ -551,59 +530,10 @@ final class SheetPanel {
         body.addView(acts);
     }
 
-    interface Toggle {
-        void onSet(boolean on);
-    }
-
-    /** 面板里的一行开关（自带状态同步，点一下就翻转）。 */
-    private static LinearLayout switchRow(Context ctx, String name, String hint,
-                                          boolean on, final Toggle toggle) {
-        LinearLayout r = new LinearLayout(ctx);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setBackground(UiKit.round(UiKit.SOFT, ctx, 10));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = UiKit.dp(ctx, 8);
-        r.setLayoutParams(lp);
-        int pad = UiKit.dp(ctx, 12);
-        r.setPadding(pad, UiKit.dp(ctx, 10), pad, UiKit.dp(ctx, 10));
-
-        LinearLayout texts = new LinearLayout(ctx);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView t = new TextView(ctx);
-        t.setText(name);
-        t.setTextSize(UiKit.FS_BTN);
-        t.setTextColor(UiKit.TITLE);
-        texts.addView(t);
-        TextView h = new TextView(ctx);
-        h.setText(hint);
-        h.setTextSize(UiKit.FS_TINY);
-        h.setTextColor(UiKit.SUB);
-        h.setPadding(0, UiKit.dp(ctx, 2), 0, 0);
-        texts.addView(h);
-        r.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
-
-        final UiKit.Switch sw = new UiKit.Switch(ctx);
-        sw.setOn(on, false);
-        // 【坑】Switch 自己是可点的（setOn 内部会更新显示），这里再包一层点击改值 +
-        //       刷新开关外观，两边不能打架：所以外层只处理点击，开关本体设成不可点。
-        sw.setClickable(false);
-        r.addView(sw);
-        r.setClickable(true);
-        UiKit.press(r);
-        r.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                boolean now = !sw.isOn();
-                sw.setOn(now, true);
-                toggle.onSet(now);
-            }
-        });
-        return r;
-    }
     /**
      * 面板里的一行「图标 + 名称/说明 + ›」入口。
-     * 样式对齐 switchRow：SOFT 圆角底 + 12dp 横向内边距 + 8dp 上间距，点一下先收面板再执行动作。
+     * 样式：SOFT 圆角底 + 12dp 横向内边距 + 8dp 上间距，点一下先收面板再执行动作。
+     * hint 传 null 或空串则不显示副标题行（与 ApiPageKit.entryRow 同一口径）。
      */
     private static LinearLayout entryRow(Context ctx, int icon, String name, String hint, final Runnable action) {
         LinearLayout r = new LinearLayout(ctx);
@@ -627,12 +557,14 @@ final class SheetPanel {
         t.setTextSize(UiKit.FS_BTN);
         t.setTextColor(UiKit.TITLE);
         texts.addView(t);
-        TextView s = new TextView(ctx);
-        s.setText(hint);
-        s.setTextSize(UiKit.FS_TINY);
-        s.setTextColor(UiKit.SUB);
-        s.setPadding(0, UiKit.dp(ctx, 2), 0, 0);
-        texts.addView(s);
+        if (hint != null && hint.length() > 0) {
+            TextView s = new TextView(ctx);
+            s.setText(hint);
+            s.setTextSize(UiKit.FS_TINY);
+            s.setTextColor(UiKit.SUB);
+            s.setPadding(0, UiKit.dp(ctx, 2), 0, 0);
+            texts.addView(s);
+        }
         r.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView go = new TextView(ctx);
         go.setText("\u203a");
