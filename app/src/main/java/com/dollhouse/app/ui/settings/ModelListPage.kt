@@ -1,25 +1,40 @@
 package com.dollhouse.app.ui.settings
 
 import android.app.Activity
-import android.content.Context
-import android.graphics.Typeface
-import android.text.Editable
-import android.text.TextUtils
-import android.text.TextWatcher
-import android.view.Gravity
 import android.view.View
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ai.AiModel
-import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.ProviderStore
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
-import com.dollhouse.app.ui.widget.ApiPageKit
 
 /**
  * 【职责】可用模型列表页：拉本供应商的模型清单 → 搜索筛选 → 「全选 (N)」批量导入 → 单条添加。
@@ -27,214 +42,184 @@ import com.dollhouse.app.ui.widget.ApiPageKit
  * 【口径】「全选」只作用于当前筛选结果，被搜索过滤掉的项不动（规格书明确要求）。
  *        已添加的模型不重复添加：「+」换成勾选态且不可点。
  *
+ * 【迁移】r7 起正文改为 Jetpack Compose。**对外契约一字未动**：
+ *   仍是 `object` + `@JvmStatic build(act, providerId): View`，仍由 [ProviderNav] 分派。
+ *
+ * 【为什么页根还是 View】`ProviderNav.render` 收的是 `View`，且
+ *   [com.dollhouse.app.ui.theme.GlobalBackground] 要把背景图铺在**页根的 background** 上。
+ *   这里用 [ComposeHost.createView] 产出 `ComposeView` 当「页」，内部 100% Compose。
+ *
  * 【不做什么】本页只管「把服务端返回的名字变成模型记录」，能力字段一律按默认值创建
  *        （文本聊天模型），用户想改去模型编辑页逐个调。
  */
 object ModelListPage {
 
-    /** 页面可变状态。 */
-    private class St {
-        lateinit var act: Activity
-        var pv: Provider? = null
-        lateinit var rows: LinearLayout
-        lateinit var status: TextView
-        lateinit var selectAll: TextView
-        lateinit var search: EditText
-        var loaded: MutableList<String>? = null
-        var added: MutableList<String>? = null
-        var busy: Boolean = false
-    }
+    private const val LOG_TAG = "Dollhouse"
 
     @JvmStatic
     fun build(act: Activity, providerId: String): View {
-        val ctx: Context = act
-        val st = St()
-        st.act = act
-        st.pv = ProviderStore.findProvider(ctx, providerId)
-        if (st.pv == null) {
-            val root = ApiPageKit.pageRoot(ctx)
-            root.addView(UiKit.topBar(ctx, "模型", "供应商已不存在", View.OnClickListener {
-                ProviderNav.back(act)
-            }))
-            root.addView(ApiPageKit.note(ctx, "这个供应商已经被删除了。"))
-            return root
-        }
-
-        val root = ApiPageKit.pageRoot(ctx)
-        st.selectAll = TextView(ctx)
-        st.selectAll.text = "全选 (0)"
-        st.selectAll.setTextSize(UiKit.FS_BTN)
-        st.selectAll.setTextColor(UiKit.ACC)
-        st.selectAll.typeface = Typeface.DEFAULT_BOLD
-        st.selectAll.setPadding(ApiPageKit.dp(ctx, 8), ApiPageKit.dp(ctx, 8),
-            ApiPageKit.dp(ctx, 8), ApiPageKit.dp(ctx, 8))
-        st.selectAll.isClickable = true
-        val bar = UiKit.topBar(ctx, st.pv!!.name, "可用模型列表", View.OnClickListener {
-            ProviderNav.back(act)
-        })
-        bar.addView(st.selectAll, LinearLayout.LayoutParams(-2, -2))
-        root.addView(bar)
-
-        st.search = EditText(ctx)
-        st.search.hint = "按名称筛选"
-        st.search.isSingleLine = true
-        st.search.setTextSize(UiKit.FS_BTN)
-        UiKit.field(st.search, ctx)
-        val sbox = ApiPageKit.contentHost(ctx)
-        sbox.setPadding(ApiPageKit.dp(ctx, 16), 0, ApiPageKit.dp(ctx, 16), 0)
-        sbox.addView(st.search, LinearLayout.LayoutParams(-1, -2))
-        root.addView(sbox)
-
-        val host = ApiPageKit.contentHost(ctx)
-        st.status = ApiPageKit.note(ctx, "正在拉取模型列表…")
-        st.status.setTextColor(UiKit.SUB)
-        host.addView(st.status)
-        st.rows = LinearLayout(ctx)
-        st.rows.orientation = LinearLayout.VERTICAL
-        host.addView(st.rows)
-        root.addView(ApiPageKit.scrollWrap(ctx, host), LinearLayout.LayoutParams(-1, 0, 1.0f))
-        root.addView(ApiPageKit.note(ctx, "点 + 立即加入本供应商；已加入的显示为勾选。"))
-        st.search.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
-            }
-
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
-            }
-
-            override fun afterTextChanged(e: Editable?) {
-                render(st)
-            }
-        })
-        // 视图树挂好后再发网络：构造期就请求会让失败回调找不到宿主行容器。
-        st.rows.post { load(st) }
-        return root
+        ComposeHost.installForActivity(act)
+        return ComposeHost.createView(act) { ModelListContent(act, providerId) }
     }
 
-    /** 进入页面后拉一次（由 Nav 在渲染后回调触发，避免构造期就发网络）。 */
-    private fun load(st: St) {
-        if (st.busy) {
+    /** 页面正文（Compose）。 */
+    @Composable
+    private fun ModelListContent(act: Activity, providerId: String) {
+        val c = DhTokens.colors
+        val pv = remember(providerId) { ProviderStore.findProvider(act, providerId) }
+        if (pv == null) {
+            DhKit.Page(
+                title = "模型",
+                sub = "供应商已不存在",
+                onBack = { ProviderNav.back(act) }
+            ) {
+                DhForm.Note("这个供应商已经被删除了。")
+            }
             return
         }
-        st.busy = true
-        ProviderNav.fetchModels(st.act, st.pv, object : ProviderNav.ModelsCallback {
-            override fun onDone(models: MutableList<String>?, error: String?) {
-                st.busy = false
-                st.status.setTextColor(UiKit.SUB)
-                if (error != null) {
-                    st.status.text = error
-                    st.rows.removeAllViews()
-                    return
+
+        // loaded / added 都放 remember：本页是「拉网络 → 展示 → 批量加」，不跨页共享。
+        var loaded by remember { mutableStateOf<List<String>?>(null) }
+        var added by remember { mutableStateOf<List<String>>(emptyList()) }
+        var status by remember { mutableStateOf("正在拉取模型列表…") }
+        var query by remember { mutableStateOf("") }
+
+        // 视图挂好后再发网络：构造期就请求会让失败回调找不到宿主（与 View 版同口径）。
+        LaunchedEffect(providerId) {
+            ProviderNav.fetchModels(act, pv, object : ProviderNav.ModelsCallback {
+                override fun onDone(models: MutableList<String>?, error: String?) {
+                    if (error != null) {
+                        status = error
+                        loaded = null
+                        return
+                    }
+                    loaded = models ?: emptyList()
+                    added = ModelStore.namesOf(act, pv.id)
+                    status = "检测到 " + (models?.size ?: 0) + " 个可用模型"
                 }
-                st.loaded = models
-                st.added = ModelStore.namesOf(st.act, st.pv!!.id)
-                st.status.text = "检测到 " + models!!.size + " 个可用模型"
-                render(st)
-            }
-        })
-    }
+            })
+        }
 
-    /** 按当前筛选词重建结果。 */
-    private fun render(st: St) {
-        val ctx: Context = st.act
-        st.rows.removeAllViews()
-        val q = st.search.text?.toString()?.trim()?.lowercase() ?: ""
-        var shown = 0
-        val loaded = st.loaded
-        if (loaded != null) {
-            for (i in loaded.indices) {
-                val name = loaded[i]
-                if (q.length > 0 && !name.lowercase().contains(q)) {
-                    continue
+        val shown = remember(loaded, query) {
+            val q = query.trim().lowercase()
+            (loaded ?: emptyList()).filter { q.isEmpty() || it.lowercase().contains(q) }
+        }
+
+        DhKit.Page(
+            title = pv.name,
+            sub = "可用模型列表",
+            onBack = { ProviderNav.back(act) },
+            actions = {
+                Text(
+                    text = "全选 (" + shown.size + ")",
+                    modifier = Modifier
+                        .pressable {
+                            val q = query.trim().lowercase()
+                            val names = ModelStore.namesOf(act, pv.id)
+                            val batch = ArrayList<AiModel>()
+                            (loaded ?: emptyList()).forEach { name ->
+                                if (q.isNotEmpty() && !name.lowercase().contains(q)) {
+                                    return@forEach
+                                }
+                                if (names.contains(name)) {
+                                    return@forEach
+                                }
+                                batch.add(newModel(pv.id, name))
+                            }
+                            if (batch.isNotEmpty()) {
+                                ModelStore.saveModels(act, batch)
+                            }
+                            added = ModelStore.namesOf(act, pv.id)
+                        }
+                        .padding(8.dp),
+                    color = c.acc,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        ) {
+            DhForm.Input(
+                value = query,
+                onValueChange = { query = it },
+                hint = "按名称筛选"
+            )
+            Text(
+                text = status,
+                modifier = Modifier.padding(start = 2.dp, top = 8.dp),
+                color = c.sub,
+                fontSize = UiKit.FS_TINY.sp,
+                fontFamily = DhTokens.fonts
+            )
+            (loaded ?: emptyList()).forEach { name ->
+                val q = query.trim().lowercase()
+                if (q.isNotEmpty() && !name.lowercase().contains(q)) {
+                    return@forEach
                 }
-                st.rows.addView(row(st, name))
-                shown++
+                ModelRow(
+                    name = name,
+                    has = added.contains(name),
+                    onAdd = {
+                        ModelStore.saveModel(act, newModel(pv.id, name))
+                        added = ModelStore.namesOf(act, pv.id)
+                    }
+                )
             }
-        }
-        st.selectAll.text = "全选 (" + shown + ")"
-        st.selectAll.setOnClickListener {
-            addAllFiltered(st)
+            DhForm.Note("点 + 立即加入本供应商；已加入的显示为勾选。")
         }
     }
 
-    /** 「全选」：把当前筛选结果里还没添加的全部加进去。 */
-    private fun addAllFiltered(st: St) {
-        val loaded = st.loaded ?: return
-        val q = st.search.text?.toString()?.trim()?.lowercase() ?: ""
-        val pvId = st.pv!!.id
-        val added = ModelStore.namesOf(st.act, pvId)
-        val batch = ArrayList<AiModel>()
-        for (i in loaded.indices) {
-            val name = loaded[i]
-            if (q.length > 0 && !name.lowercase().contains(q)) {
-                continue
+    /** 一条：模型名 + 能力徽标行（默认值）+ 右侧 + / 勾选。← `ModelListPage.row`。 */
+    @Composable
+    private fun ModelRow(name: String, has: Boolean, onAdd: () -> Unit) {
+        val c = DhTokens.colors
+        DhKit.Card {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = name,
+                        color = c.title,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fonts,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        DhForm.Badge(
+                            text = "文本 > 文本",
+                            fg = c.chatChipFg,
+                            bg = c.chatChipBg
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        DhForm.Badge(text = "流式", fg = c.sub, bg = c.soft)
+                    }
+                }
+                if (has) {
+                    Box(
+                        modifier = Modifier.size(36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DhKit.Icon(iconRes = Icons.IC_CHECK, sizeDp = UiKit.FS_ICON, color = c.ok)
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .pressable(onAdd),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DhKit.Icon(iconRes = Icons.IC_PLUS, sizeDp = UiKit.FS_ICON, color = c.acc)
+                    }
+                }
             }
-            if (added.contains(name)) {
-                continue
-            }
-            batch.add(newModel(pvId, name))
         }
-        if (!batch.isEmpty()) {
-            ModelStore.saveModels(st.act, batch)
-        }
-        st.added = ModelStore.namesOf(st.act, pvId)
-        render(st)
-    }
-
-    /** 一条：模型名 + 能力徽标行（默认值）+ 右侧 + / 勾选。 */
-    private fun row(st: St, name: String): LinearLayout {
-        val ctx: Context = st.act
-        val has = st.added?.contains(name) == true
-        val r = LinearLayout(ctx)
-        r.orientation = LinearLayout.HORIZONTAL
-        r.gravity = Gravity.CENTER_VERTICAL
-        r.background = UiKit.cardBg(ctx)
-        r.setPadding(ApiPageKit.dp(ctx, 12), ApiPageKit.dp(ctx, 10),
-            ApiPageKit.dp(ctx, 10), ApiPageKit.dp(ctx, 10))
-        val lp = LinearLayout.LayoutParams(-1, -2)
-        lp.topMargin = ApiPageKit.dp(ctx, 8)
-        r.layoutParams = lp
-
-        val col = LinearLayout(ctx)
-        col.orientation = LinearLayout.VERTICAL
-        val nm = TextView(ctx)
-        nm.text = name
-        nm.setTextSize(UiKit.FS_BTN)
-        nm.setTextColor(UiKit.TITLE)
-        nm.isSingleLine = true
-        nm.ellipsize = TextUtils.TruncateAt.END
-        col.addView(nm)
-        val tags = LinearLayout(ctx)
-        tags.orientation = LinearLayout.HORIZONTAL
-        tags.gravity = Gravity.CENTER_VERTICAL
-        tags.setPadding(0, ApiPageKit.dp(ctx, 5), 0, 0)
-        tags.addView(UiKit.badge(ctx, "文本 > 文本", UiKit.CHAT_CHIP_FG, UiKit.CHAT_CHIP_BG))
-        tags.addView(badge(ctx, "流式", false))
-        col.addView(tags)
-        r.addView(col, LinearLayout.LayoutParams(0, -2, 1.0f))
-
-        if (has) {
-            val done = UiKit.iconView(ctx, Icons.IC_CHECK, UiKit.FS_ICON, UiKit.OK)
-            r.addView(done, LinearLayout.LayoutParams(ApiPageKit.dp(ctx, 36), ApiPageKit.dp(ctx, 36)))
-        } else {
-            val add = UiKit.iconView(ctx, Icons.IC_PLUS, UiKit.FS_ICON, UiKit.ACC)
-            add.setOnClickListener {
-                val m = newModel(st.pv!!.id, name)
-                ModelStore.saveModel(st.act, m)
-                st.added = ModelStore.namesOf(st.act, st.pv!!.id)
-                render(st)
-            }
-            r.addView(add, LinearLayout.LayoutParams(ApiPageKit.dp(ctx, 36), ApiPageKit.dp(ctx, 36)))
-        }
-        return r
-    }
-
-    /** 能力小徽标（无 emoji、纯文字 chip）。 */
-    private fun badge(ctx: Context, text: String, on: Boolean): TextView {
-        val t = UiKit.badge(ctx, text, if (on) UiKit.ON_ACC else UiKit.SUB, if (on) UiKit.ACC else UiKit.SOFT)
-        val lp = LinearLayout.LayoutParams(-2, -2)
-        lp.leftMargin = ApiPageKit.dp(ctx, 6)
-        t.layoutParams = lp
-        return t
     }
 
     /** 拉回来的模型一律按「文本聊天 + 流式」建成默认记录，用户可再逐个调。 */

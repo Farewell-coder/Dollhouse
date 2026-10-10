@@ -4,17 +4,35 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
-import android.graphics.Typeface
-import android.text.InputType
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.widget.MiniChart
@@ -28,17 +46,23 @@ import org.json.JSONObject
 /**
  * 【职责】本机 AI 请求用量的本地统计：记录 token、维护按天 / 按小时历史、渲染统计页。
  *
- * 【入口】ChatPanel 每次收到模型响应后调 recordFrom()；聊天页顶栏圆圈 / 设置页「查看 Token」调 open()。
+ * 【入口】ChatPanel 每次收到模型响应后调 [recordFrom]；聊天页顶栏圆圈 / 设置页「查看 Token」调 [open]。
  *
- * 【交互】数据全部落在本地 SharedPreferences，不联网、不上传、不估算；统计页全部代码构建，无 layout。
+ * 【交互】数据全部落在本地 SharedPreferences，不联网、不上传、不估算。
  *
  * 【坑】① 「今日」计数按自然日翻篇，跨天首次写入时才归零；
  *       ② 累计计数只增不减，想清零只能清 App 数据；
- *       ③ 按天历史最多留 KEEP_DAYS 天，超出丢最旧的；
- *       ④ 页面靠 TAG_PAGE 认领，切分段 / 翻日期都是整页重建（open() 里先摘旧再挂新）。
+ *       ③ 按天历史最多留 [KEEP_DAYS] 天，超出丢最旧的；
+ *       ④ 页面靠 [TAG_PAGE] 认领，切分段 / 翻日期在 Compose 里改为状态驱动（不再整页重建）。
  *
- * 四件事：1. recordFrom() 从响应 usage 累加；2. 翻篇归零今日；3. 维护按天 / 按小时历史；
- *          4. open() 打开统计页（每日 / 每周 / 累计三档 + 折线图 + 费用估算）。
+ * 【迁移】r7 起页面正文改为 Jetpack Compose（规格书主线），**对外契约一字未动**：
+ *   仍是 `object` + `@JvmStatic recordFrom/closeIfOpen/open`，仍挂 `android.R.id.content`
+ *   且打同一个 [TAG_PAGE]，仍走 `UiKit.swapPage/closePage` 的页面栈与转场。
+ *   调用方（`MainActivity` / `ChatActivity` / `ChatPanel` / `SettingsScreen`）零改动。
+ *
+ * 【为什么页根还是 View】`UiKit.swapPage(content, page, tag)` 收的是 `View`，
+ *   且 `GlobalBackground.installPage` 要把背景图铺在**页根的 background** 上。
+ *   所以用 [ComposeHost.createView] 产出一个 `ComposeView` 当「页」，内部 100% Compose。
  */
 object TokenStat {
     private const val LOG_TAG = "Dollhouse"
@@ -55,7 +79,7 @@ object TokenStat {
     private const val K_ALL_REQ = "tk_all_req"
     private const val K_ALL_CACHE = "tk_all_cache"
 
-    /** 【v2.10.0】按天历史：{"2026-10-04":{"in":1,"out":2,"req":1,"cache":0,"peak":3}}，最多 KEEP_DAYS 天。 */
+    /** 【v2.10.0】按天历史：{"2026-10-04":{"in":1,"out":2,"req":1,"cache":0,"peak":3}}，最多 [KEEP_DAYS] 天。 */
     private const val K_DAYS = "tk_days"
 
     /** 【v2.10.0】今日 24 个整点的 token 数（JSON 数组，跨天清空），给「每日」折线图用。 */
@@ -70,7 +94,7 @@ object TokenStat {
 
     const val TAG_PAGE = "feiyu_token_page"
 
-    /** 当前分段：0 = 每日，1 = 每周，2 = 累计。静态保存，因为整页重建。 */
+    /** 当前分段：0 = 每日，1 = 每周，2 = 累计。静态保存，因为页面栈重建时要回到上次分段。 */
     private var MODE = 0
 
     /** 往前翻的偏移：每日 = 天，每周 = 周，累计 = 不用。 */
@@ -240,7 +264,7 @@ object TokenStat {
         return a.toString()
     }
 
-    /** 只保留最近 KEEP_DAYS 天（key 是 yyyy-MM-dd，可直接字典序排）。 */
+    /** 只保留最近 [KEEP_DAYS] 天（key 是 yyyy-MM-dd，可直接字典序排）。 */
     private fun trimDays(days: JSONObject): JSONObject {
         try {
             if (days.length() <= KEEP_DAYS) {
@@ -266,25 +290,19 @@ object TokenStat {
     }
 
     /** 费用估算：tokens / 百万 × 单价。 */
-    private fun cost(tokens: Long, price: Float): Float {
-        return tokens / MILLION * price
+    private fun cost(tokens: Long, unit: Float): Float {
+        return tokens / MILLION * unit
     }
 
-    /* ----------------------------- 统计页 ----------------------------- */
+    /* ----------------------------- 页面栈 ----------------------------- */
 
     /** 返回键用：统计页开着就关掉并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context?): Boolean {
         try {
             val act = findActivity(ctx) ?: return false
-            val content = act.findViewById(android.R.id.content) as ViewGroup?
-            if (content == null) {
-                return false
-            }
-            val old = content.findViewWithTag<View>(TAG_PAGE)
-            if (old == null) {
-                return false
-            }
+            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return false
+            val old = content.findViewWithTag<View>(TAG_PAGE) ?: return false
             UiKit.closePage(old)
             return true
         } catch (t: Throwable) {
@@ -303,17 +321,14 @@ object TokenStat {
         }
     }
 
-    /** 整页重建（切分段 / 翻日期都走这里，不重建 Activity）。 */
     private fun show(ctx: Context?) {
         val act = findActivity(ctx) ?: return
-        val content = act.findViewById(android.R.id.content) as ViewGroup?
-        if (content == null) {
-            return
-        }
-        val old = content.findViewWithTag<View>(TAG_PAGE)
-        val page = buildPage(act, content)
-        // 切分段 / 翻日期是同层刷新：用交叉淡入，不做位移（位移会诱导用户以为页面在横向跳）。
-        UiKit.swapPage(content, page, TAG_PAGE)
+        val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
+        // Compose 运行所需 owner（原生 Activity 不自动装），幂等。
+        ComposeHost.installForActivity(act)
+        val page = ComposeHost.createView(act) { TokenContent(act) }
+        // 打开统计页：走 openPage 的右侧滑入（与其它一级页一致），不是 swapPage。
+        UiKit.openPage(content, page, TAG_PAGE)
     }
 
     private fun findActivity(ctx: Context?): Activity? {
@@ -333,224 +348,266 @@ object TokenStat {
         return null
     }
 
-    private fun buildPage(act: Activity, content: ViewGroup): View {
-        val ctx: Context = act
+    /* ----------------------------- Compose 页面 ----------------------------- */
 
-        val box = LinearLayout(ctx)
-        box.orientation = LinearLayout.VERTICAL
-        box.setBackgroundColor(UiKit.BG)
-        val pad = dp(ctx, 16)
-        // 【顶部不再留白】窗口未铺满时，页盒顶上还有一层容器让位，这里的 10dp 是
-        //   内容与状态栏之间的额外呼吸；窗口铺满后它就直接顶在状态栏下沿，
-        //   而紧随其后的 UiKit.topBar 已经自带 statusBarPad，两处叠加会多出 10dp。
-        //   顶部归零，让位统一交给 topBar。
-        box.setPadding(pad, 0, pad, dp(ctx, 20))
+    @Composable
+    private fun TokenContent(act: Activity) {
+        var mode by remember { mutableStateOf(MODE) }
+        var offset by remember { mutableStateOf(OFFSET) }
+        var revision by remember { mutableStateOf(0) }
+        var editing by remember { mutableStateOf(false) }
+        val p = remember(act) { prefs(act) }
+        // 跨天翻篇：轻量、幂等，进页面时对齐一次。
+        LaunchedEffect(act) { rollDay(p) }
 
-        // 顶栏：统一走 UiKit.topBar
-        val bar = UiKit.topBar(ctx, "令牌消耗统计", "本机 AI 请求用量", View.OnClickListener {
-            closeIfOpen(act)
-        })
-        box.addView(bar)
-
-        val p = prefs(ctx)
-        rollDay(p)
-
-        // 分段：每日 / 每周 / 累计
-        box.addView(segRow(ctx))
-
-        // 日期条：累计模式没有时间维度，不显示
-        if (MODE != 2) {
-            box.addView(dateRow(ctx))
+        DhKit.Page(
+            title = "令牌消耗统计",
+            sub = "本机 AI 请求用量",
+            onBack = { closeIfOpen(act) }
+        ) {
+            SegRow(mode = mode) { idx ->
+                if (idx != mode) {
+                    MODE = idx
+                    OFFSET = 0
+                    mode = idx
+                    offset = 0
+                }
+            }
+            if (mode != 2) {
+                DateRow(mode = mode, offset = offset) { next ->
+                    OFFSET = next
+                    offset = next
+                }
+            }
+            OverviewCard(p = p, mode = mode, offset = offset, revision = revision) { editing = true }
+            MetricsGrid(p = p, mode = mode, offset = offset, revision = revision)
         }
 
-        box.addView(buildOverviewCard(ctx, p))
-        // ---- 2x2 指标网格 ----
-        box.addView(buildMetricsGrid(ctx, p))
-        // ---- 说明 ----
-        box.addView(buildNote(ctx))
-        val sc = ScrollView(ctx)
-        sc.setBackgroundColor(UiKit.BG)
-        sc.addView(box, ViewGroup.LayoutParams(-1, -2))
-        return sc
+        if (editing) {
+            var text by remember { mutableStateOf(String.format(Locale.US, "%.2f", price(p))) }
+            DhForm.Alert(
+                title = "单价（元 / 百万 token）",
+                onDismiss = { editing = false },
+                posText = "保存",
+                negText = "取消",
+                onPos = {
+                    try {
+                        var f = text.trim().toFloat()
+                        if (f < 0f) {
+                            f = 0f
+                        }
+                        p.edit().putFloat(K_PRICE, f).apply()
+                    } catch (ignored: Throwable) {
+                    }
+                    revision++
+                }
+            ) {
+                DhForm.Input(
+                    value = text,
+                    onValueChange = { text = it },
+                    hint = "0.00",
+                    keyboard = KeyboardType.Decimal
+                )
+            }
+        }
+    }
+
+    /** 分段：每日 / 每周 / 累计。选中实色、未选描边（与 View 版 primaryChip / outlineChip 同口径）。 */
+    @Composable
+    private fun SegRow(mode: Int, onPick: (Int) -> Unit) {
+        val names = arrayOf("每日", "每周", "累计")
+        Row(
+            modifier = Modifier.padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (i in names.indices) {
+                if (i == mode) {
+                    DhForm.PrimaryChip(text = names[i], onClick = { onPick(i) })
+                } else {
+                    DhForm.OutlineChip(text = names[i], onClick = { onPick(i) })
+                }
+                if (i != names.size - 1) {
+                    Spacer(Modifier.width(8.dp))
+                }
+            }
+        }
+    }
+
+    /** 日期条：左翻 / 周期名 / 右翻；已经在最近一段时右翻降透明度且不可点。 */
+    @Composable
+    private fun DateRow(mode: Int, offset: Int, onOffset: (Int) -> Unit) {
+        val c = DhTokens.colors
+        val canBack = offset > 0
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DhKit.IconButton(
+                iconRes = Icons.IC_CHEVRON_LEFT,
+                sizeDp = UiKit.FS_ICON,
+                color = c.title
+            ) { onOffset(offset + 1) }
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(
+                    text = periodLabel(mode, offset),
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (canBack) {
+                DhKit.IconButton(
+                    iconRes = Icons.IC_CHEVRON_RIGHT,
+                    sizeDp = UiKit.FS_ICON,
+                    color = c.title
+                ) { onOffset(offset - 1) }
+            } else {
+                Box(
+                    modifier = Modifier.size(DhKit.HIT.dp).alpha(0.3f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    DhKit.Icon(iconRes = Icons.IC_CHEVRON_RIGHT, sizeDp = UiKit.FS_ICON, color = c.title)
+                }
+            }
+        }
     }
 
     /** 周期总览大卡：总数 / 费用 / 药丸 + 折线图 + 图下小字。 */
-    private fun buildOverviewCard(ctx: Context, p: SharedPreferences): View {
-        val st = stats(p, MODE, OFFSET)
+    @Composable
+    private fun OverviewCard(
+        p: SharedPreferences,
+        mode: Int,
+        offset: Int,
+        revision: Int,
+        onEditPrice: () -> Unit
+    ) {
+        val c = DhTokens.colors
+        val st = remember(mode, offset, revision) { stats(p, mode, offset) }
+        val unit = remember(revision) { price(p) }
         val inTok = st[0]
         val outTok = st[1]
         val req = st[2]
-        val cache = st[3]
-        val peak = st[4]
-        val unit = price(p)
-        val over = card(ctx)
-        val cap = TextView(ctx)
-        cap.text = if (MODE == 0) "当日总览" else (if (MODE == 1) "本周总览" else "累计总览")
-        cap.setTextSize(UiKit.FS_BTN)
-        cap.setTextColor(UiKit.TITLE)
-        cap.typeface = Typeface.DEFAULT_BOLD
-        over.addView(cap)
-        val big = TextView(ctx)
-        big.text = fmt(inTok + outTok) + " Token"
-        big.setTextSize(30.0f)
-        big.setTextColor(UiKit.TITLE)
-        big.typeface = Typeface.DEFAULT_BOLD
-        big.setPadding(0, dp(ctx, 10), 0, 0)
-        over.addView(big)
-        val sub = TextView(ctx)
-        sub.text = "输入 " + fmt(inTok) + "　·　输出 " + fmt(outTok)
-        sub.setTextSize(UiKit.FS_SUB)
-        sub.setTextColor(UiKit.SUB)
-        sub.setPadding(0, dp(ctx, 2), 0, 0)
-        over.addView(sub)
-        val fee = TextView(ctx)
-        fee.text = "费用约 ￥" + money(cost(inTok + outTok, unit))
-        fee.setTextSize(UiKit.FS_BTN)
-        fee.setTextColor(UiKit.TITLE)
-        fee.typeface = Typeface.DEFAULT_BOLD
-        fee.setPadding(0, dp(ctx, 8), 0, 0)
-        over.addView(fee)
-        val chips = LinearLayout(ctx)
-        chips.orientation = LinearLayout.HORIZONTAL
-        chips.setPadding(0, dp(ctx, 8), 0, 0)
-        chips.addView(pill(ctx, "请求 " + req + " 次", null))
-        chips.addView(pill(ctx, "￥" + money(unit) + " / 百万", View.OnClickListener { v ->
-            editPrice(v.context)
-        }))
-        over.addView(chips)
-        // ---- 折线图 ----
-        val tip = TextView(ctx)
-        tip.setTextSize(UiKit.FS_TINY)
-        tip.setTextColor(UiKit.SUB)
-        tip.setPadding(0, dp(ctx, 6), 0, 0)
-        val chart = MiniChart(ctx)
-        val vals = series(p, MODE, OFFSET)
-        val labs = seriesLabels(MODE, OFFSET, vals.size)
-        chart.setPoints(vals, labs)
-        val tipRef = tip
-        chart.setOnPick(MiniChart.OnPickListener { index, value, label ->
-            // 【硬约束】不用浮层短提示：把结果写进图表下那行已有小字里。
-            tipRef.text = (if (label == null || label.length == 0) "#" + index else label) +
-                    "　" + fmt(value.toLong()) + " Token"
-        })
-        over.addView(chart, LinearLayout.LayoutParams(-1, -2))
-        over.addView(tip)
-        return over
+        val cap = if (mode == 0) "当日总览" else (if (mode == 1) "本周总览" else "累计总览")
+        var tip by remember(mode, offset) { mutableStateOf("") }
+        val vals = remember(mode, offset, revision) { series(p, mode, offset) }
+        val labs = remember(mode, offset, revision) { seriesLabels(mode, offset, vals.size) }
+
+        DhKit.Card {
+            Text(
+                text = cap,
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = fmt(inTok + outTok) + " Token",
+                modifier = Modifier.padding(top = 10.dp),
+                color = c.title,
+                fontSize = 30.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "输入 " + fmt(inTok) + "　·　输出 " + fmt(outTok),
+                modifier = Modifier.padding(top = 2.dp),
+                color = c.sub,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts
+            )
+            Text(
+                text = "费用约 ￥" + money(cost(inTok + outTok, unit)),
+                modifier = Modifier.padding(top = 8.dp),
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DhForm.Chip(text = "请求 " + req + " 次")
+                Spacer(Modifier.width(8.dp))
+                DhForm.Chip(text = "￥" + money(unit) + " / 百万", onClick = onEditPrice)
+            }
+            MiniChart(
+                values = vals,
+                labels = labs,
+                modifier = Modifier.padding(top = 6.dp),
+                onPick = { index, value, label ->
+                    // 【硬约束】不用浮层短提示：把结果写进图表下那行已有小字里。
+                    tip = (if (label == null || label.isEmpty()) "#" + index else label) +
+                            "　" + fmt(value.toLong()) + " Token"
+                }
+            )
+            Text(
+                text = tip,
+                modifier = Modifier.padding(top = 6.dp),
+                color = c.sub,
+                fontSize = UiKit.FS_TINY.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
     }
 
     /** 2x2 指标网格：峰值 / 请求次数 / 缓存命中 / 缓存率。 */
-    private fun buildMetricsGrid(ctx: Context, p: SharedPreferences): View {
-        val st = stats(p, MODE, OFFSET)
+    @Composable
+    private fun MetricsGrid(p: SharedPreferences, mode: Int, offset: Int, revision: Int) {
+        val st = remember(mode, offset, revision) { stats(p, mode, offset) }
         val inTok = st[0]
         val req = st[2]
         val cache = st[3]
         val peak = st[4]
-        val grid = LinearLayout(ctx)
-        grid.orientation = LinearLayout.VERTICAL
-        val glp = LinearLayout.LayoutParams(-1, -2)
-        glp.topMargin = dp(ctx, 10)
-        grid.layoutParams = glp
-        grid.addView(row(ctx, "峰值 Token", fmt(peak), "请求次数", req.toString() + " 次"))
-        grid.addView(row(ctx, "缓存命中", fmt(cache),
-                "缓存率", if (inTok > 0) Math.round(cache * 100f / inTok).toString() + "%" else "—"))
-        return grid
-    }
-
-    /** 页脚说明：统计口径 / 费用估算 / 保留策略。 */
-    private fun buildNote(ctx: Context): View {
-        val note = TextView(ctx)
-        note.setTextSize(UiKit.FS_TINY)
-        note.setTextColor(UiKit.SUB)
-        note.setLineSpacing(dp(ctx, 3).toFloat(), 1.0f)
-        note.setPadding(dp(ctx, 2), dp(ctx, 14), dp(ctx, 2), 0)
-        note.text = "只统计本机发起的 AI 请求，数据来自接口返回的 usage 字段；接口不返回就不计入，不做估算。\n" +
-                "费用按「单价 × 用量」估算，点上面那枚药丸可以改单价，默认 ￥1.00 / 百万 token。\n" +
-                "按天历史保留最近 " + KEEP_DAYS + " 天；累计计数只增不减，数据仅保存在这台设备上。"
-        return note
-    }
-
-    /* ----------------------------- 页面零件 ----------------------------- */
-
-    private fun segRow(ctx: Context): LinearLayout {
-        val row = LinearLayout(ctx)
-        row.orientation = LinearLayout.HORIZONTAL
-        val lp = LinearLayout.LayoutParams(-1, -2)
-        lp.topMargin = dp(ctx, 10)
-        row.layoutParams = lp
-        val names = arrayOf("每日", "每周", "累计")
-        for (i in names.indices) {
-            val t = if (i == MODE) UiKit.primaryChip(ctx, names[i]) else UiKit.outlineChip(ctx, names[i])
-            val idx = i
-            t.isClickable = true
-            UiKit.press(t)
-            t.setOnClickListener { v ->
-                if (MODE == idx) {
-                    return@setOnClickListener
-                }
-                MODE = idx
-                OFFSET = 0
-                show(v.context)
+        val rate = if (inTok > 0) Math.round(cache * 100f / inTok).toString() + "%" else "—"
+        DhKit.Card {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Cell(k = "峰值 Token", v = fmt(peak), modifier = Modifier.weight(1f))
+                Cell(k = "请求次数", v = req.toString() + " 次", modifier = Modifier.weight(1f))
             }
-            val clp = LinearLayout.LayoutParams(-2, -2)
-            clp.rightMargin = dp(ctx, 8)
-            t.layoutParams = clp
-            row.addView(t)
         }
-        return row
-    }
-
-    private fun dateRow(ctx: Context): LinearLayout {
-        val row = LinearLayout(ctx)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        val lp = LinearLayout.LayoutParams(-1, -2)
-        lp.topMargin = dp(ctx, 10)
-        row.layoutParams = lp
-
-        val prev = UiKit.iconView(ctx, Icons.IC_CHEVRON_LEFT, UiKit.FS_ICON, UiKit.TITLE)
-        prev.isClickable = true
-        UiKit.press(prev)
-        prev.setOnClickListener { v ->
-            OFFSET++
-            show(v.context)
-        }
-        row.addView(prev, LinearLayout.LayoutParams(dp(ctx, UiKit.HIT_DP), dp(ctx, UiKit.HIT_DP)))
-
-        val label = TextView(ctx)
-        label.text = periodLabel()
-        label.setTextSize(UiKit.FS_BTN)
-        label.setTextColor(UiKit.TITLE)
-        label.typeface = Typeface.DEFAULT_BOLD
-        label.gravity = Gravity.CENTER
-        label.setPadding(dp(ctx, 10), 0, dp(ctx, 10), 0)
-        row.addView(label, LinearLayout.LayoutParams(0, -2, 1.0f))
-
-        val next = UiKit.iconView(ctx, Icons.IC_CHEVRON_RIGHT, UiKit.FS_ICON, UiKit.TITLE)
-        next.isClickable = true
-        UiKit.press(next)
-        val canBack = OFFSET > 0
-        next.isEnabled = canBack
-        next.alpha = if (canBack) 1.0f else 0.3f
-        next.setOnClickListener { v ->
-            if (OFFSET <= 0) {
-                return@setOnClickListener
+        DhKit.Card {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Cell(k = "缓存命中", v = fmt(cache), modifier = Modifier.weight(1f))
+                Cell(k = "缓存率", v = rate, modifier = Modifier.weight(1f))
             }
-            OFFSET--
-            show(v.context)
         }
-        row.addView(next, LinearLayout.LayoutParams(dp(ctx, UiKit.HIT_DP), dp(ctx, UiKit.HIT_DP)))
-        return row
     }
 
-    private fun periodLabel(): String {
-        if (MODE == 0) {
-            return if (OFFSET == 0) "今天" else monthDay(OFFSET)
+    /** 网格里的一格：上小标签 + 下大数值。← `TokenStat.label/value`。 */
+    @Composable
+    private fun Cell(k: String, v: String, modifier: Modifier = Modifier) {
+        val c = DhTokens.colors
+        Column(modifier = modifier) {
+            Text(
+                text = k,
+                color = c.sub,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts
+            )
+            Text(
+                text = v,
+                modifier = Modifier.padding(top = 4.dp),
+                color = c.title,
+                fontSize = 18.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
         }
-        if (MODE == 1) {
-            if (OFFSET == 0) {
+    }
+
+    private fun periodLabel(mode: Int, offset: Int): String {
+        if (mode == 0) {
+            return if (offset == 0) "今天" else monthDay(offset)
+        }
+        if (mode == 1) {
+            if (offset == 0) {
                 return "最近 7 天"
             }
-            return monthDay(OFFSET * 7 + 6) + " – " + monthDay(OFFSET * 7)
+            return monthDay(offset * 7 + 6) + " – " + monthDay(offset * 7)
         }
         return "全部"
     }
@@ -598,7 +655,7 @@ object TokenStat {
         return r
     }
 
-    /** 折线数据：每日 = 今日 24 格；每周 = 7 天；累计 = 最近 31 天。 */
+    /** 折线数据：每日 = 今日 24 格；每周 = 7 天；累计 = 最近 [KEEP_DAYS] 天。 */
     private fun series(p: SharedPreferences, mode: Int, offset: Int): FloatArray {
         if (mode == 0) {
             val h = readHours(p)
@@ -649,93 +706,6 @@ object TokenStat {
         return s
     }
 
-    /* ----------------------------- 单价编辑 ----------------------------- */
-
-    private fun editPrice(ctx: Context) {
-        val act = findActivity(ctx) ?: return
-        val p = prefs(act)
-        val e = EditText(act)
-        e.isSingleLine = true
-        e.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        e.setText(String.format(Locale.US, "%.2f", price(p)))
-        UiKit.field(e, act)
-        UiKit.showDialog(act, "单价（元 / 百万 token）", e, "保存",
-                View.OnClickListener { v ->
-                    try {
-                        var f = e.text.toString().trim().toFloat()
-                        if (f < 0f) {
-                            f = 0f
-                        }
-                        p.edit().putFloat(K_PRICE, f).apply()
-                    } catch (ignored: Throwable) {
-                    }
-                    show(ctx)
-                },
-                "取消", null)
-    }
-
-    /* ----------------------------- 小控件 ----------------------------- */
-
-    private fun row(ctx: Context, k1: String, v1: String, k2: String, v2: String): LinearLayout {
-        val cardView = card(ctx)
-        cardView.orientation = LinearLayout.HORIZONTAL
-
-        val left = LinearLayout(ctx)
-        left.orientation = LinearLayout.VERTICAL
-        left.addView(label(ctx, k1))
-        left.addView(value(ctx, v1))
-        cardView.addView(left, LinearLayout.LayoutParams(0, -2, 1.0f))
-
-        val right = LinearLayout(ctx)
-        right.orientation = LinearLayout.VERTICAL
-        right.addView(label(ctx, k2))
-        right.addView(value(ctx, v2))
-        cardView.addView(right, LinearLayout.LayoutParams(0, -2, 1.0f))
-        return cardView
-    }
-
-    private fun label(ctx: Context, s: String): TextView {
-        val t = TextView(ctx)
-        t.text = s
-        t.setTextSize(UiKit.FS_SUB)
-        t.setTextColor(UiKit.SUB)
-        return t
-    }
-
-    private fun value(ctx: Context, s: String): TextView {
-        val t = TextView(ctx)
-        t.text = s
-        t.setTextSize(18.0f)
-        t.setTextColor(UiKit.TITLE)
-        t.typeface = Typeface.DEFAULT_BOLD
-        t.setPadding(0, dp(ctx, 4), 0, 0)
-        return t
-    }
-
-    private fun pill(ctx: Context, s: String, click: View.OnClickListener?): TextView {
-        val t = UiKit.chip(ctx, s, UiKit.CHAT_BUBBLE_USER, UiKit.CHAT_CHIP_BG)
-        val lp = LinearLayout.LayoutParams(-2, -2)
-        lp.rightMargin = dp(ctx, 8)
-        t.layoutParams = lp
-        if (click != null) {
-            t.isClickable = true
-            UiKit.press(t)
-            t.setOnClickListener(click)
-        }
-        return t
-    }
-
-    private fun card(ctx: Context): LinearLayout {
-        val c = LinearLayout(ctx)
-        c.orientation = LinearLayout.VERTICAL
-        c.background = UiKit.cardBg(ctx)
-        c.setPadding(dp(ctx, 16), dp(ctx, 14), dp(ctx, 16), dp(ctx, 14))
-        val lp = LinearLayout.LayoutParams(-1, -2)
-        lp.topMargin = dp(ctx, 10)
-        c.layoutParams = lp
-        return c
-    }
-
     /** 1234 -> 1,234 */
     private fun fmt(n: Long): String {
         val s = Math.max(n, 0L).toString()
@@ -754,10 +724,5 @@ object TokenStat {
     /** 金额保留两位。 */
     private fun money(v: Float): String {
         return String.format(Locale.US, "%.2f", v)
-    }
-
-    /** 尺寸换算：统一走 UiKit，避免多处重复实现。 */
-    private fun dp(ctx: Context, v: Int): Int {
-        return UiKit.dp(ctx, v.toFloat())
     }
 }

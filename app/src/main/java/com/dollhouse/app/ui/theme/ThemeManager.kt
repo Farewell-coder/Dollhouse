@@ -204,6 +204,10 @@ object ThemeManager {
             UiKit.EMOTE_3 = p[I_EMOTE_3]
             UiKit.STROKE = p[I_STROKE]
             UiKit.SCRIM = p[I_SCRIM]
+            // 【外观】把「卡片透明度」偏好落到 UiKit 的派生色上。放在这里是因为 apply() 是
+            //   29 个颜色字段的唯一写入处，冷启动 / 换主题 / 就地换色三条路径都必经此处，
+            //   落一次即可保证「卡片底 = CARD 按用户透明度合成」在全 App 一致。
+            UiKit.applyCardAlpha(PetPrefs.cardAlpha(c))
             // 窗口背景同步成当前主题底色：换主题走 recreate()，重建的那一瞬间会先露出
             // 窗口背景，不刷的话暗色 / 纯黑下会闪一下白。
             val act = UiKit.findActivity(c)

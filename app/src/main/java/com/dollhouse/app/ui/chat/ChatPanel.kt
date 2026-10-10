@@ -1,22 +1,16 @@
 package com.dollhouse.app.ui.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Rect
-import android.os.Looper
-import android.text.TextUtils
-import android.view.Gravity
-import android.view.MotionEvent
+import android.graphics.Outline
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.ViewParent
-import android.view.ViewTreeObserver
-import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.agent.ChatToolRegistry
@@ -32,8 +26,7 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.device.OcrEngine
 import com.dollhouse.app.pet.PetBus
-import com.dollhouse.app.ui.theme.CtxRing
-import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.widget.SheetPanel
 import java.util.regex.Pattern
@@ -41,73 +34,59 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 【职责】聊天气泡面板本体：消息列表、输入行、附件条、AI 请求与流式回填。
+ * 【职责】聊天气泡面板本体：消息列表、输入行、附件条、AI 请求与工具回填。
  *
- * 【交互】对外通过 Controller 回调把「拖动 / 关闭」交给宿主（全屏聊天页 ChatActivity）；模型请求走 DeepSeekClient，联网工具走 WebSearch，图片附件走 ImageStore。
+ * 【交互】对外通过 Controller 回调把「拖动 / 关闭」交给宿主（全屏聊天页 ChatActivity）；
+ *        模型请求走 DeepSeekClient，联网工具走 ChatToolRegistry，图片附件走 ImageStore。
  *
- * 【坑】history 是整段对话上下文，每次请求都会带上；MAX_TOOL_ROUNDS 限制联网工具的最大轮次，防止 AI 反复查资料不收敛。改这里要小心 token 统计（TokenStat）与好感度解析的联动。
+ * 【架构】r7 全量 Compose 迁移：本类只保留「逻辑 + 对外契约」，界面整体交给 [ChatUi]，
+ *        可渲染状态集中在 [ChatState]。构造签名与成员契约一字未改，
+ *        故 ChatActivity / ChatHistoryStore / MemSummarizer / SheetPanel / ChatDrawer 全部零改动。
  *
- * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
+ * 【为什么基类仍是 LinearLayout】[findLayer] 取「父链里第一个 FrameLayout」作为抽屉 / 确认框的
+ *        挂载层；若把本类改成 FrameLayout，它会命中自身，抽屉就挂到面板内部而不是页面层。
+ *
+ * 【坑】history 是整段对话上下文，每次请求都会带上；MAX_TOOL_ROUNDS 限制联网工具的最大轮次，
+ *        防止 AI 反复查资料不收敛。改这里要小心 token 统计（TokenStat）与好感度解析的联动。
  */
 class ChatPanel(
         context: Context,
-        private val controller: Controller?,
+        internal val controller: Controller?,
         z: Boolean
 ) : LinearLayout(context), PickFileActivity.Listener {
-    // 【交互】气泡构造已拆到 ChatBubbles；messages / scroller / history 因此改为包级可见。
-    private lateinit var attachLabel: TextView
-    private var attachStrip: LinearLayout? = null
-    private lateinit var attachThumb: ImageView
-    private var browsingArchives = false
-    private lateinit var hint: TextView
+
+    /** 整段对话上下文；由 [ChatHistoryStore] 读写（跨包契约，勿改可见性）。 */
     internal var history: JSONArray = JSONArray()
-    private lateinit var input: EditText
-    private var inputRow: LinearLayout? = null
-    internal lateinit var messages: LinearLayout
+
+    /** 【v2.8】最近一次补回的「更早历史」条数；0 = 当前不是展开态。跨包契约。 */
+    internal var prevCount = 0
+
+    private var browsingArchives = false
     private var pendingImage: String? = null
     private var pendingText: String? = null
-    private var pendingTextName: String? = null
     /** 【OCR】「等 OCR 扫完再发」的闸门是否仍然有效（用户中途停止 / 新一轮发送会置假）。 */
     private var sendPending = false
-    internal lateinit var scroller: ScrollView
     /** 【裁剪】上次回填的聊天区宽高比：用来避免每次 applyBackground 都写盘。 */
     private var lastBgRatio = 0f
-    private var sendBtn: ImageView? = null
-    /** 【v2.8】工具条右侧的「记忆总结中」：仅在总结在途时可见，结束后消失。 */
-    private var memoBusy: TextView? = null
-    /** 【v2.8】聊天记录里「ⓘ 历史对话摘要」那条节点，总结完成后据此滚过去。 */
-    private var summaryNode: View? = null
-    /** 【v2.8】最近一次补回的「更早历史」条数；0 = 当前不是展开态。 */
-    internal var prevCount = 0
-    /** 【v2.8】展开态下补回批的最后一个节点：它滑出视口上沿就收回去。 */
-    private var prevTailView: View? = null
     /** 【v2.8】收回过程中的重入闸：程序化滚动同样会触发滚动回调。 */
     private var collapsing = false
-    /** 【v2.8】补回「更早的历史」时的一次性重铺：期间不自动滚底，否则展开态会被判据二立刻收回。 */
-    internal var holdScroll = false
-    /** 【v2.8】在途的「滚到摘要分割线」预绘制回调：重铺前必须摘掉，否则会落到已移除的节点上。 */
-    private var pendingScroll: ViewTreeObserver.OnPreDrawListener? = null
     /** 【v2.8】「记忆总结中」的期望状态：工具条被归档页整体隐藏时用它重放。 */
     private var memoBusyOn = false
     /** 【v2.9.2】失败/中止提示显示中：期间 setMemoBusy(false) 不得隐藏它。 */
     private var flashHold = false
     /** 【v2.9.2】在途的 flash 收起计时器：新 flash 前先撤旧的，避免互踩。 */
     private var pendingFlash: Runnable? = null
-    /** 输入行上方的工具条：模型配置 / 思考程度 / 记忆。 */
-    private var toolRow: LinearLayout? = null
     /** 【三件套】思考参数被服务端拒（参数类 400）后置位：只降级重试一次，避免死循环。 */
     private var thinkDegraded = false
-    internal var thinkingLabel: TextView? = null
-    internal var thinkingView: View? = null
     private var waiting = false
-    /** 上下文占用环（顶栏右侧），按本地估算字符数刷新。 */
-    private var ctxRing: CtxRing? = null
     /** 当前在途请求的取消句柄；null 表示没有正在跑的请求。 */
     private var task: DeepSeekClient.Task? = null
     /** 【思考框】本次请求发出的时刻（毫秒），用于算「思考了 X 秒」。 */
     private var askStartMs = 0L
     /** 抽屉层：包住整块面板，不改变 ChatPanel 的构造签名与父子结构。 */
     private var drawer: ChatDrawer? = null
+    /** 摘要分割标题在 [ChatState.items] 里的下标（-1 = 本会话无摘要头）。 */
+    private var summaryIndex = -1
 
     interface Controller {
         fun onClose()
@@ -116,455 +95,136 @@ class ChatPanel(
         fun onOpenTokenStat()
     }
 
-    // 构造：搭骨架 → 载入历史 → 刷新输入行 → 套用聊天背景。
+    /** 宿主 Activity（Compose 侧安装 owner 用）；非 Activity 宿主时为 null。 */
+    internal val activity: android.app.Activity?
+        get() = context as? android.app.Activity
+
+    // 构造：铺 Compose 面板 → 载入历史 → 刷新输入行 → 套用聊天背景。
     init {
         this.waiting = false
         this.browsingArchives = false
         this.thinkDegraded = false
         orientation = LinearLayout.VERTICAL
-        setBackground(UiKit.roundStroke(UiKit.OPTION, UiKit.CHAT_BORDER, context, 16f))
-        build(z)
+        // 【圆角】面板整体 16dp 圆角：背景（含背景图）由 GlobalBackground 画在本视图上，
+        //   故必须由本视图自己把绘制裁进圆角，否则四角会溢出。
+        clipToOutline = true
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, UiKit.dp(context, 16f).toFloat())
+            }
+        }
+        addView(ChatUi.build(this), LinearLayout.LayoutParams(-1, -1))
         // 【交互】记忆工具需要 Context，在这里登记一次（幂等）；联网工具是否下发看用户开关。
         ChatToolRegistry.ensure(context.applicationContext)
         ChatHistoryStore.loadHistory(this)
         renderHistory()
         refreshInputRow()
         refreshCtxRing()
+        refreshHint()
         applyBackground()
     }
 
-    // 尺寸换算：统一走 UiKit，避免多处重复实现。
-    private fun dp(f: Float): Int {
-        return UiKit.dp(context, f)
+    /* ------------------------- 状态 → 界面 ------------------------- */
+
+    /** 往消息列表追加一条气泡；[index] >= 0 时说明它已落库（用于判定操作条位置）。 */
+    private fun appendBubble(text: String, mine: Boolean, image: String?) {
+        ChatState.items = ChatState.items + ChatItem(
+            role = if (mine) "user" else "assistant",
+            text = text,
+            image = image,
+            index = -1,
+            isPrev = false,
+            isSummary = false
+        )
+        if (!ChatState.holdScroll) {
+            ChatState.requestScrollBottom()
+        }
     }
 
-    /** 【交互】气泡与占位控件的实际实现在 ChatBubbles；以下为薄壳，保持内部调用点不变。 */
+    /** 【交互】气泡渲染已整体迁到 ChatUi / ChatState；以下为薄壳，保持内部调用点不变。 */
     fun addBubble(str: String?, z: Boolean) {
-        ChatBubbles.addBubble(this, str, z)
-    }
-
-    private fun addBubble(str: String?, z: Boolean, i: Int) {
-        ChatBubbles.addBubble(this, str, z, i)
-    }
-
-    private fun addBubble(str: String?, z: Boolean, i: Int, str2: String?) {
-        ChatBubbles.addBubble(this, str, z, i, str2)
-    }
-
-    private fun scrollToBottom() {
-        ChatBubbles.scrollToBottom(this)
+        appendBubble(str ?: "", z, null)
     }
 
     private fun addThinking(str: String?) {
-        ChatBubbles.addThinking(this, str)
+        ChatState.thinking = str
+        if (!ChatState.holdScroll) {
+            ChatState.requestScrollBottom()
+        }
     }
 
     private fun setThinkingLabel(str: String?) {
-        ChatBubbles.setThinkingLabel(this, str)
+        ChatState.thinking = str
     }
 
     private fun removeThinking() {
-        ChatBubbles.removeThinking(this)
+        ChatState.thinking = null
     }
 
-    // 一次性搭出消息区 / 输入行 / 附件条三层结构。
-    private fun build(z: Boolean) {
-        buildTopBar()
-        buildScroller()
-        buildToolBar()
-        buildInputRow()
+    /* ------------------------- 顶栏 / 工具条回调 ------------------------- */
+
+    /** 点提示条：跳主界面。 */
+    internal fun openMain() {
+        val intent = Intent(context, MainActivity::class.java)
+        intent.flags = 335544320
+        context.startActivity(intent)
     }
 
-    /** 顶栏：返回 / 抽屉 / 标题 / 上下文占用环 + 提示条（整条面板可拖动）。 */
-    private fun buildTopBar() {
-        val barRow = buildTopBarRow()
-        buildCtxRing(barRow)
-        buildHintBar()
-    }
-
-    /** 顶栏行：拖动区 + 返回键 + 抽屉键 + 标题（标题 weight=1 吃剩余宽度）。 */
-    private fun buildTopBarRow(): LinearLayout {
-        val linearLayout = LinearLayout(context)
-        linearLayout.orientation = LinearLayout.HORIZONTAL
-        linearLayout.gravity = Gravity.CENTER_VERTICAL
-        // 【观感】左内边距收到 6dp：图标自带 38dp 命中区，视觉重心本就已经贴角，
-        // 再留 14dp 整条顶栏会显得往右下偏移。
-        // 【状态栏嵌入】本面板只在 ChatActivity（铺满 + 状态栏透明）里使用，
-        // 顶部额外让出状态栏高度，否则标题会被状态栏文字压住。
-        linearLayout.setPadding(dp(6.0f), UiKit.statusBarPad(context) + dp(8.0f),
-                dp(6.0f), dp(8.0f))
-        addView(linearLayout, LinearLayout.LayoutParams(-1, -2))
-        val textView = TextView(context)
-        textView.text = "Dollhouse"
-        textView.textSize = 16.0f
-        textView.setTextColor(UiKit.TITLE)
-        textView.setPadding(0, dp(4.0f), 0, dp(4.0f))
-        // 【顺序】标题的 addView 挪到返回键之后（见下方）：标题 weight=1 会吃掉剩余宽度，
-        // 若先加标题，返回键会被挤到头部最右侧，箭头朝左「指向标题」，观感就是方向不对。
-        val onTouchListener = object : View.OnTouchListener {
-            private var lastX = 0f
-            private var lastY = 0f
-            override fun onTouch(view: View, motionEvent: MotionEvent): Boolean {
-                val actionMasked = motionEvent.actionMasked
-                if (actionMasked == MotionEvent.ACTION_DOWN) {
-                    lastX = motionEvent.rawX
-                    lastY = motionEvent.rawY
-                    return true
-                }
-                if (actionMasked != MotionEvent.ACTION_MOVE) {
-                    return false
-                }
-                val rawX = motionEvent.rawX
-                val rawY = motionEvent.rawY
-                controller?.onDrag(rawX - lastX, rawY - lastY)
-                lastX = rawX
-                lastY = rawY
-                return true
-            }
-        }
-        textView.setOnTouchListener(onTouchListener)
-        linearLayout.setOnTouchListener(onTouchListener)
-        // 【观感】返回键钉在左上角：改成无底扁平图标 + 38dp 命中区，靠 UiKit.press 的
-        // 缩放反馈表达可点。原先是白底描边胶囊，在顶栏里比标题还抢眼，所以显得突兀。
-        val backIcon = UiKit.iconView(context, Icons.IC_ARROW_LEFT, UiKit.FS_ICON, UiKit.TITLE)
-        backIcon.setOnClickListener {
-            controller?.onClose()
-        }
-        linearLayout.addView(backIcon, iconLp(0))
-        // 抽屉排第二：同样扁平，字号更小、色阶更淡，层级低于返回键。
-        val drawerIcon = UiKit.iconView(context, Icons.IC_MENU, UiKit.FS_ICON, UiKit.SUB)
-        drawerIcon.setOnClickListener {
-            openDrawer()
-        }
-        linearLayout.addView(drawerIcon, iconLp(dp(2.0f)))
-        // 标题放在返回键之后：先加两个图标保证返回键贴在最左侧。
-        linearLayout.addView(textView, LinearLayout.LayoutParams(0, -2, 1.0f))
-        return linearLayout
-    }
-
-    /** 上下文占用环：环形 = 已用/剩余，中心数字 = 占用百分比；点开令牌消耗统计页。 */
-    private fun buildCtxRing(linearLayout: LinearLayout) {
-        val ring = CtxRing(context)
-        ctxRing = ring
-        ring.setOnClickListener {
-            controller?.onOpenTokenStat()
-        }
-        val ringLp = LinearLayout.LayoutParams(dp(30.0f), dp(30.0f))
-        ringLp.leftMargin = dp(2.0f)
-        ringLp.rightMargin = dp(2.0f)
-        linearLayout.addView(ring, ringLp)
-    }
-
-    /** 顶部提示条：圆角色块、左右留边，点击跳主界面。 */
-    private fun buildHintBar() {
-        val textView2 = TextView(context)
-        hint = textView2
-        textView2.textSize = UiKit.FS_SUB
-        hint.setTextColor(UiKit.HINT_FG)
-        // 【圆角】提示条原为满宽直角背景，会把面板圆角盖成直角；改圆角色块并左右留边。
-        hint.setBackground(UiKit.round(UiKit.HINT_BG, context, 10f))
-        hint.setPadding(dp(14.0f), dp(7.0f), dp(14.0f), dp(7.0f))
-        UiKit.collapse(hint)
-        hint.setOnClickListener {
-            val intent = Intent(context, MainActivity::class.java)
-            intent.flags = 335544320
-            context.startActivity(intent)
-        }
-        val hintLp = LinearLayout.LayoutParams(-1, -2)
-        hintLp.leftMargin = dp(10.0f)
-        hintLp.rightMargin = dp(10.0f)
-        hintLp.topMargin = dp(6.0f)
-        addView(hint, hintLp)
-    }
-
-    /** 消息滚动区：消息容器挂进 ScrollView，并接上「滚远自动收回展开态」。 */
-    private fun buildScroller() {
-        val scrollView = ScrollView(context)
-        scroller = scrollView
-        scrollView.isFillViewport = true
-        scrollView.overScrollMode = View.OVER_SCROLL_NEVER
-        // 【v2.8】展开「更早的历史」后，滑到看不见那批消息时自动收回（数据不丢，入口重现）。
-        scrollView.setOnScrollChangeListener { _: View, _: Int, scrollY: Int, _: Int, _: Int ->
-            onScrolled(scrollY)
-        }
-        val linearLayout2 = LinearLayout(context)
-        messages = linearLayout2
-        linearLayout2.orientation = LinearLayout.VERTICAL
-        messages.setPadding(dp(12.0f), dp(8.0f), dp(12.0f), dp(8.0f))
-        scroller.addView(messages, ViewGroup.LayoutParams(-1, -2))
-        addView(scroller, LinearLayout.LayoutParams(-1, 0, 1.0f))
-    }
-
-    /** 输入行上方的工具条（模型 / 思考 / 加号）+ 附件预览条。 */
-    private fun buildToolBar() {
-        buildToolRow()
-        buildAttachStrip()
-        val toolLp = LinearLayout.LayoutParams(-1, -2)
-        toolLp.leftMargin = dp(10.0f)
-        toolLp.rightMargin = dp(10.0f)
-        toolLp.bottomMargin = dp(2.0f)
-        addView(attachStrip)
-        addView(toolRow, toolLp)
-    }
-
-    /** 工具条主体：模型配置 / 思考程度 / 记忆 三图标 + 右侧「记忆总结中」提示。 */
-    private fun buildToolRow() {
-        // 【三件套】输入行上方的工具条：🐳 模型配置 / 💡 思考程度 / ＋ 记忆。
-        // 【坑】三个图标要自己撑出 38dp 命中区（flatIcon 只画字，不量宽高），
-        //       与顶栏返回键同一套尺寸，点起来才不会漏。
-        val toolWrap = LinearLayout(context)
-        toolRow = toolWrap
-        toolWrap.orientation = LinearLayout.HORIZONTAL
-        toolWrap.gravity = Gravity.CENTER_VERTICAL
-        val modelIcon = UiKit.iconView(context, Icons.IC_SETTINGS, UiKit.FS_ICON, UiKit.TITLE)
-        modelIcon.setOnClickListener {
-            SheetPanel.showModels(context, findLayer())
-        }
-        toolWrap.addView(modelIcon, iconLp(0))
-        val thinkIcon = UiKit.iconView(context, Icons.IC_BRAIN, UiKit.FS_ICON, UiKit.SUB)
-        thinkIcon.setOnClickListener {
-            SheetPanel.showThink(context, findLayer(), this)
-        }
-        toolWrap.addView(thinkIcon, iconLp(dp(2.0f)))
-        val memIcon = UiKit.iconView(context, Icons.IC_PLUS, UiKit.FS_ICON, UiKit.SUB)
-        memIcon.setOnClickListener {
-            SheetPanel.showMemory(context, findLayer(), this)
-        }
-        toolWrap.addView(memIcon, iconLp(dp(2.0f)))
-        // 【需求】工具条上的独立「图片」按钮撤掉：加号同时承担「功能面板」入口并落到最右，
-        //   发图项并入加号展开的面板（SheetPanel.showMemory 顶部新增「发图」行）。
-        // 【v2.8】右侧的「记忆总结中」：weight=1 吃掉三个图标之后的全部留白，文字贴右。
-        // 【坑】只在总结在途时可见（GONE 不参与布局），所以平时三个图标的位置与之前完全一致。
-        val busy = TextView(context)
-        memoBusy = busy
-        busy.text = "记忆总结中"
-        busy.textSize = UiKit.FS_TINY
-        busy.setTextColor(UiKit.CHAT_CHIP_MUTE)
-        busy.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-        // 【观感】面板极窄时不许换行，否则会把整条工具条撑高。
-        busy.isSingleLine = true
-        busy.ellipsize = TextUtils.TruncateAt.END
-        busy.setPadding(dp(6.0f), 0, dp(2.0f), 0)
-        UiKit.collapse(busy)
-        toolWrap.addView(busy, LinearLayout.LayoutParams(0, -2, 1.0f))
-    }
-
-    /** 附件预览条：缩略图 + 说明 + 移除按钮，初始收起。 */
-    private fun buildAttachStrip() {
-        // 【修·附件断链】附件预览条：缩略图 + 说明 + 移除按钮。
-        //   原先 attachStrip / attachThumb / attachLabel 三个字段只有读取方，从来没有创建代码，
-        //   refreshAttachStrip() 里 `attachStrip == null` 直接 return —— 选了图也看不到、去不掉。
-        val strip = LinearLayout(context)
-        attachStrip = strip
-        strip.orientation = LinearLayout.HORIZONTAL
-        strip.gravity = Gravity.CENTER_VERTICAL
-        strip.setBackground(UiKit.round(UiKit.CARD, context, 16f))
-        strip.setPadding(dp(8.0f), dp(6.0f), dp(6.0f), dp(6.0f))
-        val thumb = ImageView(context)
-        attachThumb = thumb
-        thumb.scaleType = ImageView.ScaleType.CENTER_CROP
-        val thumbLp = LinearLayout.LayoutParams(dp(40.0f), dp(40.0f))
-        thumbLp.rightMargin = dp(8.0f)
-        strip.addView(thumb, thumbLp)
-        val label = TextView(context)
-        attachLabel = label
-        label.textSize = UiKit.FS_TINY
-        label.setTextColor(UiKit.SUB)
-        label.isSingleLine = true
-        label.ellipsize = TextUtils.TruncateAt.END
-        strip.addView(label, LinearLayout.LayoutParams(0, -2, 1.0f))
-        val attachClear = UiKit.iconView(context, Icons.IC_CLOSE, 14.0f, UiKit.SUB)
-        attachClear.setOnClickListener {
-            clearAttachment()
-        }
-        strip.addView(attachClear, LinearLayout.LayoutParams(-2, -2))
-        val attachLp = LinearLayout.LayoutParams(-1, -2)
-        attachLp.leftMargin = dp(10.0f)
-        attachLp.rightMargin = dp(10.0f)
-        attachLp.bottomMargin = dp(2.0f)
-        strip.layoutParams = attachLp
-        // 初始收起（仍占据布局，由 alpha/显隐控制）。
-        strip.visibility = View.GONE
-        strip.alpha = 0f
-    }
-
-    /** 底部输入行：输入框 + 圆形发送键（等待回复时同一按钮变「停止」）。 */
-    private fun buildInputRow() {
-        val linearLayout3 = LinearLayout(context)
-        inputRow = linearLayout3
-        linearLayout3.orientation = LinearLayout.HORIZONTAL
-        linearLayout3.gravity = Gravity.CENTER_VERTICAL
-        // 【圆角】输入行贴在最底部：它若用满宽直角背景，会把面板根布局的 16dp 圆角盖成直角。
-        // 改走 round() 圆角，并给底边留出与父级一致的 16dp，避免出现「外圆内方」的接缝。
-        linearLayout3.setBackground(UiKit.round(UiKit.CARD, context, 16f))
-        linearLayout3.setPadding(dp(10.0f), dp(8.0f), dp(6.0f), dp(8.0f))
-        val inputLp = LinearLayout.LayoutParams(-1, -2)
-        inputLp.leftMargin = dp(10.0f)
-        inputLp.rightMargin = dp(10.0f)
-        inputLp.bottomMargin = dp(10.0f)
-        addView(linearLayout3, inputLp)
-        val editText = EditText(context)
-        input = editText
-        editText.hint = "跟她说点什么…"
-        input.maxLines = 4
-        input.inputType = 147457
-        // 【圆角】原实现没给输入框设背景，用的是系统默认直角下划线；统一走 UiKit.field（8dp 圆角）。
-        UiKit.field(input, context)
-        // 【顺序】field() 内部会 setTextSize(14)；要保住聊天框的 15sp 必须放在它之后。
-        input.setTextSize(UiKit.FS_BTN)
-        linearLayout3.addView(input, LinearLayout.LayoutParams(0, -2, 1.0f))
-        // 【观感】发送键改成 38dp 圆形图标：原来的长条「发送」白字紫底在输入行里像块招牌，
-        // 视觉上比输入框还重。改成圆形 + 单字图标后与输入行的圆角胶囊同一套语汇。
-        val button = ImageView(context)
-        sendBtn = button
-        UiKit.sendButton(button, context)
-        button.setOnClickListener {
-            // 【交互】同一个按钮两副面孔：空闲时「发送」，等待回复时「停止」。
-            if (waiting) {
-                stopGenerating()
-            } else {
-                onSend()
-            }
-        }
-        linearLayout3.addView(button, sendLp())
-    }
-
-    /** 输入行右侧的圆形发送键：固定 38dp 方形，靠 sendButton 的 999dp 圆角成圆。 */
-    private fun sendLp(): LinearLayout.LayoutParams {
-        val lp = LinearLayout.LayoutParams(dp(UiKit.HIT_DP.toFloat()), dp(UiKit.HIT_DP.toFloat()))
-        lp.leftMargin = dp(8.0f)
-        return lp
-    }
-
-    /** 顶栏 / 工具条图标的命中区：固定边长，左外边距由调用方给。 */
-    private fun iconLp(leftMargin: Int): LinearLayout.LayoutParams {
-        val lp = LinearLayout.LayoutParams(dp(UiKit.HIT_DP.toFloat()), dp(UiKit.HIT_DP.toFloat()))
-        lp.leftMargin = leftMargin
-        return lp
-    }
-
-    /** 请求在途时把发送键切成「停止」，回来再切回「发送」。 */
-    private fun setWaiting(z: Boolean) {
-        waiting = z
-        val button = sendBtn ?: return
-        button.animate().cancel()
-        button.animate().alpha(0f).setDuration(UiKit.D_MICRO.toLong()).setInterpolator(UiKit.EASE_STD)
-                .withEndAction {
-                    button.setImageResource(if (z) Icons.IC_CLOSE else Icons.IC_SEND)
-                    Icons.tint(button, UiKit.ON_ACC)
-                    button.animate().alpha(1f).setDuration(UiKit.D_MICRO.toLong()).setInterpolator(UiKit.EASE_STD).start()
-                }.start()
-    }
-
-    /** 用户点「停止」：断掉在途连接，静默收尾（不报网络错误）。 */
-    fun stopGenerating() {
-        // 【OCR】若还在等 OCR 扫图，撕掉闸门，扫描回来直接作废（不再发请求）。
-        sendPending = false
-        val t = task
-        t?.cancel()
-        task = null
-        setWaiting(false)
-        removeThinking()
-    }
-
-    /** 请求在途时把发送键切成「停止」，回来再切回「发送」。 */
-    fun refreshHint() {
-        if (PetPrefs.hasKey(context)) {
-            UiKit.collapse(hint)
-        } else {
-            hint.text = "还没填 API key，点这里去设置 →"
-            UiKit.reveal(hint)
-        }
-    }
-
-    // 能否发消息：必须有配置且当前不在等待回复。
-    private fun canChat(): Boolean {
-        return PetPrefs.hasKey(context)
-    }
-
-    // 弹起键盘并聚焦输入框。
-    fun focusInput() {
-        input.requestFocus()
-    }
-
-    // 把历史逐条铺成气泡。
-    private fun renderHistory() {
-        // 【v2.8·P0 防护】上一次总结留下的「滚到分割线」回调必须在重铺前摘掉：
-        //        它捕获的是旧的 summaryNode，removeAllViews 后该节点已脱离 messages，
-        //        预绘制阶段再做 offsetDescendantRectToMyCoords 会直接抛异常崩进程。
-        cancelPendingScroll()
-        messages.removeAllViews()
-        // 【v2.8】重铺时旧节点引用一律作废，先清空再按当前历史重建。
-        summaryNode = null
-        prevTailView = null
-        // 【v2.8】入口放在「空历史」判断之前：自动收回后若一条正文都不剩，也得能从界面上点回来。
-        if (ChatHistoryStore.hasPrev(context)) {
-            addLoadEarlierEntry()
-        }
-        if (history.length() == 0) {
-            addBubble("我是小肥鱼～ 有什么想跟我说的吗？", false)
-            UiKit.staggerCapped(messages, 12)
+    /** 点「加载更早的历史记录」。 */
+    internal fun loadEarlier() {
+        // 【v2.8】记下补回的条数：这是「展开态」的唯一凭据，滑过分割线时按它收回去。
+        val n = ChatHistoryStore.prependPrev(this)
+        if (n <= 0) {
             return
         }
-        // 【v2.8·P3】补回批不再按下标推导（见 mergePrev 打的 _prev 标记），这里只判「有没有摘要头」。
-        for (i in 0 until history.length()) {
-            val optJSONObject = history.optJSONObject(i) ?: continue
-            // 【新增】头部摘要（kind=summary）原本被 !"system" 判据静默跳过，现在渲染成可展开的分割标题。
-            if ("summary" == optJSONObject.optString("kind")) {
-                summaryNode = ChatBubbles.addSummaryDivider(this, optJSONObject.optString("content"))
-                continue
-            }
-            val optString = optJSONObject.optString("role")
-            if ("system" != optString) {
-                addBubble(optJSONObject.optString("content"), "user" == optString, i, optJSONObject.optString("image", null))
-                // 【v2.8·P3】补回批的尾部节点按来源标记认（不再靠「头部摘要数 + prevCount」的下标推导）。
-                if (ChatHistoryStore.isPrevItem(optJSONObject)) {
-                    prevTailView = messages.getChildAt(messages.childCount - 1)
-                }
-            }
+        prevCount = n
+        // 【坑】不能走 reloadHistory：它会把刚设好的 prevCount 清零。
+        //        prependPrev 已把合并结果写进 prefs 与 host.history，直接重铺即可。
+        // 【v2.8·N3】用 try/finally 兜底：renderHistory 万一抛异常，holdScroll 必须复位，
+        //   否则自动滚底与自动收回会永久失效。
+        ChatState.holdScroll = true
+        try {
+            renderHistory()
+            ChatState.requestScrollTo(0)
+        } finally {
+            ChatState.holdScroll = false
         }
-        UiKit.staggerCapped(messages, 12)
+        post {
+            // 【坑】队列里可能还排着更早的「滚到底」请求，等它跑完再拉回补回批顶部，
+            //       用户看到的才是「刚展开的那批」。
+            ChatState.requestScrollTo(0)
+        }
     }
 
-    /** 【v2.8】聊天记录顶部的「点击加载更早的历史记录」入口（补回即清空暂存，入口随之消失）。 */
-    private fun addLoadEarlierEntry() {
-        ChatBubbles.addLoadEarlier(this, View.OnClickListener {
-            // 【v2.8】记下补回的条数：这是「展开态」的唯一凭据，滑过分割线时按它收回去。
-            val n = ChatHistoryStore.prependPrev(this)
-            if (n > 0) {
-                prevCount = n
-                // 【坑】不能走 reloadHistory：它会把刚设好的 prevCount 清零。
-                //        prependPrev 已把合并结果写进 prefs 与 host.history，直接重铺即可。
-                // 【v2.8·P1】这趟重铺压住自动滚底，并暂缓一帧收回判据：
-                //   补回批挂在顶部，一旦被排队的「滚到底」推到底部，就会立刻命中判据二，
-                //   展开态刚建立就被收回去（功能等于失效）。
-                // 【v2.8·N3】用 try/finally 兜底：renderHistory 万一抛异常，
-                //   holdScroll 必须复位，否则自动滚底与自动收回会永久失效。
-                holdScroll = true
-                try {
-                    renderHistory()
-                    UiKit.scrollToTop(scroller)
-                } finally {
-                    holdScroll = false
-                }
-                post {
-                    // 【坑】队列里可能还排着更早 addBubble 时 post 的 fullScroll，
-                    //       等它跑完再拉回补回批顶部，用户看到的才是「刚展开的那批」。
-                    UiKit.scrollToTop(scroller)
-                }
-                refreshCtxRing()
-            }
-        })
+    /** 输入框内容变化（Compose 侧单向数据流）。 */
+    internal fun onInputChange(text: String) {
+        ChatState.input = text
     }
+
+    /** 工具条：模型配置面板。 */
+    internal fun showModels() {
+        SheetPanel.showModels(context, findLayer())
+    }
+
+    /** 工具条：思考程度面板。 */
+    internal fun showThink() {
+        SheetPanel.showThink(context, findLayer(), this)
+    }
+
+    /** 工具条：功能（记忆 / 发图）面板。 */
+    internal fun showMemory() {
+        SheetPanel.showMemory(context, findLayer(), this)
+    }
+
+    /* ------------------------- 对外方法（契约不变） ------------------------- */
 
     /**
      * 【v2.8】总结在途时把工具条右侧的「记忆总结中」亮起来，结束后收起。
-     * 【坑】调用方（DeepSeekClient 回调）本就在主线程，所以直接设可见性；
+     * 【坑】调用方（DeepSeekClient 回调）本就在主线程，所以直接改状态；
      *       若换成 View.post，面板 detached 时会把任务挂到重新 attach 才执行，提示可能永久残留。
      */
     internal fun setMemoBusy(busy: Boolean) {
         memoBusyOn = busy
-        val t = memoBusy ?: return
         // 【v2.9.2】新的总结开始了：让上一次的失败提示让位，并把文字复位成进行中文案
         //（原来只改可见性不复位文字，会导致「总结中」显示的还是上次的失败文案）。
         if (busy) {
@@ -574,198 +234,87 @@ class ChatPanel(
                 removeCallbacks(pending)
                 pendingFlash = null
             }
-        }
-        // 【v2.9.2·P0】总结结束时必须避开正在显示的 flash 提示：
-        //  回调 finally 里必调 setMemoBusy(false)，若在此隐藏，flashMemo 的 setVisibility(0)
-        //  会被同一帧改回 8，不绘制中间态 —— 用户依然「点了没反应」。
-        val keepVisible = !busy && flashHold
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            if (busy) {
-                t.text = "记忆总结中"
-            }
-            if (!keepVisible) {
-                UiKit.showHide(t, busy)
-            }
+            ChatState.memoText = "记忆总结中"
             return
         }
-        post {
-            if (busy) {
-                t.text = "记忆总结中"
-            }
-            if (!keepVisible) {
-                UiKit.showHide(t, busy)
+        // 【v2.9.2·P0】总结结束时必须避开正在显示的 flash 提示：
+        //  回调 finally 里必调 setMemoBusy(false)，若在此收起，flashMemo 的显示
+        //  会被同一帧改回隐藏，不绘制中间态 —— 用户依然「点了没反应」。
+        if (!flashHold) {
+            ChatState.memoText = null
+        }
+    }
+
+    /** 【v2.9.1】在工具条右侧短暂显示一条提示（总结失败 / 被拒等），3 秒后自动收起。 */
+    internal fun flashMemo(msg: String?) {
+        if (msg == null || msg.trim().isEmpty()) {
+            return
+        }
+        // 【v2.9.2·P2-1】同一时间只允许一个计时器：旧的先撤，否则连续两次失败点击时，
+        //  较旧的计时器会在 3 秒时把较新的提示提前抹掉。
+        val pending = pendingFlash
+        if (pending != null) {
+            removeCallbacks(pending)
+            pendingFlash = null
+        }
+        // 【v2.9.2·P0】置 flashHold：让紧随其后的 setMemoBusy(false) 别把它同帧收起。
+        //  回调 finally 必调 setMemoBusy(false)，不设这个标志的话提示会被立刻抹掉，
+        //  同一帧完成、不绘制中间态 —— 用户什么都看不到。
+        flashHold = true
+        Logs.i("DollhouseMemo", "[flash] 显示提示 len=" + msg.length)
+        ChatState.memoText = msg
+        val r = Runnable {
+            pendingFlash = null
+            flashHold = false
+            // 期间若另一次总结开始了，就别把它的「记忆总结中」收掉。
+            if (!memoBusyOn) {
+                ChatState.memoText = null
             }
         }
+        pendingFlash = r
+        postDelayed(r, 3000L)
     }
 
     /**
      * 【v2.8】总结完成后把视图滚到「ⓘ 历史对话摘要」那条分割线，让「已收起」一眼可见。
-     * 【坑】必须等新视图量好再算位置：直接 post 会跑在布局之前，getTop() 拿到 0 → 滚到顶部。
-     *       跨 messages 这层包装取坐标要用 offsetDescendantRectToMyCoords，不能只信 getTop()。
+     * 【Compose】原实现要等布局完成才能算坐标（getTop 会拿到 0），现在直接按下标滚动，
+     *   列表自己会在布局就绪后落到目标项，重入与「节点已摘」两类崩溃一并消失。
      */
     internal fun scrollToSummary() {
-        val box = summaryNode ?: return
-        // 【v2.8·P0】重入保护：同一时刻只留一个在途回调，新的直接顶掉旧的。
-        cancelPendingScroll()
-        val l = object : ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                // 【v2.8·P0 防护】必须在自摘之前再验一次祖先关系：
-                // 若这期间又发生过一次重铺（reloadHistory / showChat / clearChat / 另一次收回），
-                // box 的 mParent 已被置空，它不再是 messages 的后代，
-                // 此时 offsetDescendantRectToMyCoords 会抛 IllegalArgumentException 直接崩进程。
-                // renderHistory() 已主动摘监听，这里只是兜底的第二道闸。
-                if (box.parent !== messages) {
-                    cancelPendingScroll()
-                    return true
-                }
-                cancelPendingScroll()
-                try {
-                    val r = Rect()
-                    box.getDrawingRect(r)
-                    messages.offsetDescendantRectToMyCoords(box, r)
-                    scroller.smoothScrollTo(0, Math.max(0, r.top - dp(8.0f)))
-                } catch (unused: Throwable) {
-                    // 【兜底】节点在预绘制与绘制之间被摘掉时同样会走到这里，静默放弃定位，
-                    //         不滚动总好过崩掉进程。
-                }
-                return true
-            }
-        }
-        pendingScroll = l
-        box.viewTreeObserver.addOnPreDrawListener(l)
-    }
-
-    /**
-     * 【v2.8】摘掉在途的「滚到摘要分割线」回调。
-     * 【实现】box 与 messages 同在一棵 window 视图树上，View.getViewTreeObserver() 返回的
-     *       就是同一个 mAttachInfo.mTreeObserver，所以直接对 messages 的 VTO 摘除即可。
-     *       两条登记路径（MemSummarizer 的 host.post、onScrolled 内）都在 attach 之后，
-     *       不会出现「各自 lazy 建 floating observer」对不上的情况。
-     * 【兜底】万一真摘不掉，onPreDraw 里的祖先关系检查也会挡住坐标换算，不会崩。
-     */
-    private fun cancelPendingScroll() {
-        val l = pendingScroll ?: return
-        pendingScroll = null
-        try {
-            messages.viewTreeObserver.removeOnPreDrawListener(l)
-        } catch (unused: Throwable) {
-        }
-    }
-
-    /**
-     * 【v2.8】滚动回调：展开态下补回批整批滑出视口上沿（看不到上面那批消息了），就自动收回。
-     * 【坑】程序化滚动也会触发本回调，所以收回过程中用 collapsing 挡住重入。
-     */
-    private fun onScrolled(scrollY: Int) {
-        if (collapsing || holdScroll || prevCount <= 0) {
+        if (summaryIndex < 0) {
             return
         }
-        val v = prevTailView ?: return
-        // 【v2.8】两种收口：批次整批被推到视口上沿之上；或已经滑到列表底部且滚过了头。
-        val contentH = messages.height
-        val viewH = scroller.height
-        val atBottom = scrollY > 0 && viewH > 0 && scrollY + viewH >= contentH - 1
-        if (!shouldCollapse(v.bottom, scrollY, atBottom)) {
-            return
-        }
-        val n = prevCount
-        collapsing = true
-        val ok = ChatHistoryStore.collapsePrev(this, n)
-        // 【坑】不论成败都清掉展开态：失败说明 history 结构已经在展开期间被改过，
-        //       留着 prevCount 会让每帧滚动回调都重试一次（白白构建 JSON），得不偿失；
-        //       数据一条不动，用户仍在展开态里，只是不再自动收回。
-        prevCount = 0
-        prevTailView = null
-        if (ok) {
-            reloadHistory()
-            scrollToSummary()
-        }
-        post {
-            collapsing = false
-        }
-    }
-
-    companion object {
-        // 【交互】气泡构造已拆到 ChatBubbles；messages / scroller / history 因此改为包级可见。
-        private const val MAX_TOOL_ROUNDS = 3
-
-        @JvmField
-        internal val AFFECTION_HEAD: Pattern = Pattern.compile("^\\s*[\\[【]\\s*好感度\\s*[:：]\\s*([+-]?\\d+)\\s*[\\]】]\\s*")
-
-        @JvmField
-        internal val AFFECTION_ANY: Pattern = Pattern.compile("[\\[【]\\s*好感度\\s*[:：]\\s*[+-]?\\d+\\s*[\\]】]")
-
-        /**
-         * 【v2.8】是否该把补回的历史收回去（纯函数，便于离线复算）。
-         * 【判据一】补回批最后一个节点的底边已经滚到视口上沿之上（tailBottom - scrollY <= 0），
-         *          即「上面那批消息已经看不见了」。
-         * 【判据二】已经滚到列表底部并继续拉：底部态同样算「看不到上面那批」，一并收回。
-         */
-        internal fun shouldCollapse(tailBottom: Int, scrollY: Int, atBottom: Boolean): Boolean {
-            return (tailBottom - scrollY <= 0) || atBottom
-        }
+        ChatState.requestScrollTo(summaryIndex)
     }
 
     fun refreshInputRow() {
-        val linearLayout2 = inputRow
-        if (linearLayout2 != null) {
-            UiKit.showHide(linearLayout2, !browsingArchives)
-        }
-        // 【三件套】工具条与输入行同进同退：翻看归档时一起收起，否则点了弹不出面板。
-        val toolWrap = toolRow
-        if (toolWrap != null) {
-            UiKit.showHide(toolWrap, !browsingArchives)
-            // 【v2.8】工具条被整体隐藏时子视图状态会保留，但这里显式重放一次，
-            //         避免将来改动 refreshInputRow 时把「记忆总结中」弄丢。
-            val busy = memoBusy
-            if (busy != null) {
-                // 【v2.9.2】重放时也要认 flash：否则切归档/回聊天会把失败提示提前抹掉。
-                UiKit.showHide(busy, memoBusyOn || flashHold)
-            }
-        }
-        val linearLayout = attachStrip
-        if (!browsingArchives || linearLayout == null) {
-            refreshAttachStrip()
-        } else {
-            UiKit.collapse(linearLayout)
-        }
+        ChatState.browsingArchives = browsingArchives
+        refreshAttachStrip()
     }
 
-    // 套用用户选的聊天背景图与透明度。
-    // 【裁剪】改走 ChatBgDrawable 做 center-crop：等比铺满、超出裁边，绝不拉伸变形。
+    /**
+     * 套用用户选的聊天背景图与透明度。
+     * 【异步 + 共享】解码 / 缩放 / 缓存 / 可读性遮罩统一交给 GlobalBackground：
+     *   主线程不再同步解码整张大图（原实现 loadScaled 会卡首帧），并与首页共用同一张图。
+     */
     fun applyBackground() {
-        if (!this::scroller.isInitialized) {
-            return
-        }
         recordChatBgRatio()
-        val chatBackground = PetPrefs.chatBackground(context)
-        val loadScaled = if (chatBackground.isNullOrEmpty()) null else ImageStore.loadScaled(context, chatBackground, 1080)
-        if (loadScaled == null) {
-            scroller.setBackground(null)
-            return
-        }
-        val chatBgDrawable = ChatBgDrawable(loadScaled)
-        chatBgDrawable.setAlpha((PetPrefs.chatBgAlpha(context) * 255) / 100)
-        scroller.setBackground(chatBgDrawable)
-        scroller.alpha = 0.6f
-        scroller.animate().alpha(1f).setDuration(UiKit.D_MICRO.toLong()).setInterpolator(UiKit.EASE_DECEL).start()
+        // fallback=OPTION：未设置背景时铺面板原底色；有图时铺「不透明底 + 图 + 可读性遮罩」。
+        GlobalBackground.install(this, UiKit.OPTION, false)
     }
 
     /**
      * 【裁剪】把聊天区实际宽高比回填到偏好，供裁剪页据此出框（所见即所得）。
-     * 【坑】构造期 scroller 还没量到尺寸，首帧要 post 一次；比例没变就不再写盘。
+     * 【坑】构造期还没量到尺寸，首帧要 post 一次；比例没变就不再写盘。
      */
     private fun recordChatBgRatio() {
-        if (scroller.width > 0 && scroller.height > 0) {
-            writeChatBgRatio(scroller.width, scroller.height)
+        if (width > 0 && height > 0) {
+            writeChatBgRatio(width, height)
             return
         }
-        scroller.post {
-            if (!this::scroller.isInitialized) {
-                return@post
-            }
-            if (scroller.width > 0 && scroller.height > 0) {
-                writeChatBgRatio(scroller.width, scroller.height)
+        post {
+            if (width > 0 && height > 0) {
+                writeChatBgRatio(width, height)
             }
         }
     }
@@ -814,29 +363,25 @@ class ChatPanel(
 
     // 刷新附件条显示（缩略图 + 文件名 + 清除按钮）。
     private fun refreshAttachStrip() {
-        val linearLayout = attachStrip ?: return
+        ChatState.attachImage = pendingImage
+        ChatState.attachText = pendingText
         if (pendingImage == null && pendingText == null) {
-            UiKit.collapse(linearLayout)
-            attachThumb.setImageDrawable(null)
+            ChatState.attachLabel = null
             return
         }
-        UiKit.reveal(linearLayout)
         val snapImg = pendingImage
         if (snapImg != null) {
-            UiKit.reveal(attachThumb)
-            attachThumb.setImageBitmap(ImageStore.loadScaled(context, snapImg, 160))
             // 【OCR】已发出、正在后台扫字：给她一句进度，避免用户以为卡死了。
-            attachLabel.text = if (sendPending && waiting)
+            ChatState.attachLabel = if (sendPending && waiting) {
                 "正在识别图片文字…（后台处理，稍等）"
-            else
+            } else {
                 "已选图片，会一起发给她"
+            }
             return
         }
-        UiKit.collapse(attachThumb)
-        attachThumb.setImageDrawable(null)
         val str = pendingText
         val max = Math.max(1, if (str != null) str.length / 1024 else 0)
-        attachLabel.text = "已选文本内容（约 " + max + " KB），会拼在她看到的消息里"
+        ChatState.attachLabel = "已选文本内容（约 " + max + " KB），会拼在她看到的消息里"
     }
 
     fun showChat() {
@@ -888,13 +433,11 @@ class ChatPanel(
         // 【v2.8】展开态是「当前会话这份 history」的瞬态：切了会话/重建了视图一律作废，
         //         否则旧 count 会在新会话里误把正文当成补回批摘掉。
         prevCount = 0
-        prevTailView = null
         ChatHistoryStore.loadHistory(this)
         renderHistory()
         refreshCtxRing()
     }
 
-    /** 手动触发一次上下文总结 + 压缩（真删除）。 */
     /** 手动总结：点了就总结，不设条数门槛（内容为空时才挡）。 */
     fun summarizeNow() {
         // 【v2.9.1】每个静默 return 都补一条可见提示：全工程禁用 Toast，
@@ -926,49 +469,26 @@ class ChatPanel(
         MemSummarizer.summarizeNow(this, null)
     }
 
-    /** 【v2.9.1】在工具条右侧短暂显示一条提示（总结失败 / 被拒等），3 秒后自动收起。 */
-    internal fun flashMemo(msg: String?) {
-        val t = memoBusy
-        if (t == null || msg == null || msg.trim().isEmpty()) {
-            Logs.i("DollhouseMemo", "[flash] 丢弃 t=" + (t != null)
-                    + " msgEmpty=" + (msg == null || msg.trim().isEmpty()))
-            return
-        }
-        // 【v2.9.2·P2-1】同一时间只允许一个计时器：旧的先撤，否则连续两次失败点击时，
-        //  较旧的计时器会在 3 秒时把较新的提示提前抹掉。
-        val pending = pendingFlash
-        if (pending != null) {
-            removeCallbacks(pending)
-            pendingFlash = null
-        }
-        // 【v2.9.2·P0】置 flashHold：让紧随其后的 setMemoBusy(false) 别把它同帧隐藏掉。
-        //  回调 finally 必调 setMemoBusy(false)，不设这个标志的话 setVisibility(0)
-        //  会被立刻改回 8，同一帧完成、不绘制中间态 —— 用户什么都看不到。
-        flashHold = true
-        Logs.i("DollhouseMemo", "[flash] 显示提示 len=" + msg.length)
-        t.text = msg
-        UiKit.reveal(t)
-        val r = Runnable {
-            pendingFlash = null
-            flashHold = false
-            // 期间若另一次总结开始了，就别把它的「记忆总结中」收掉。
-            if (!memoBusyOn) {
-                t.text = "记忆总结中"
-                UiKit.collapse(t)
-            }
-        }
-        pendingFlash = r
-        postDelayed(r, 3000L)
-    }
-
     /** 复制最后一条助手回复（气泡操作条的「⧉ 复制」）。 */
     fun copyLastReply() {
         for (i in history.length() - 1 downTo 0) {
             val o = history.optJSONObject(i)
             if (o != null && "assistant" == o.optString("role")) {
-                ChatBubbles.copyText(this, o.optString("content", ""))
+                copyText(o.optString("content", ""))
                 return
             }
+        }
+    }
+
+    /** 把文本塞进系统剪贴板（失败只忽略，不抛）。 */
+    private fun copyText(text: String) {
+        if (text.isEmpty()) {
+            return
+        }
+        try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cm?.setPrimaryClip(ClipData.newPlainText("Dollhouse", text))
+        } catch (unused: Throwable) {
         }
     }
 
@@ -992,7 +512,6 @@ class ChatPanel(
     fun clearChat() {
         // 【v2.8】展开态一并作废：历史已归零，留着旧 count 会在后续滚动里误摘新正文。
         prevCount = 0
-        prevTailView = null
         history = JSONArray()
         ChatHistoryStore.saveHistory(this)
         // 【新增】连「更早的历史」暂存位一起清掉，否则清空后记录顶上还挂着「加载更早」。
@@ -1022,9 +541,8 @@ class ChatPanel(
      *  ctxUsedChars() 仍保留：MemSummarizer.maybeAuto 的 byRatio 分支还在用它，不能删。
      */
     fun refreshCtxRing() {
-        val ring = ctxRing ?: return
         val threshold = Math.max(1, PetPrefs.memThreshold(context))
-        ring.setRatio(history.length() / threshold.toFloat())
+        ChatState.ctxRatio = (history.length() / threshold.toFloat()).coerceIn(0f, 1f)
     }
 
     fun regenerate() {
@@ -1059,7 +577,7 @@ class ChatPanel(
         }
         // 【坑】上一轮的「等 OCR」闸门可能还挂着（请求已回、闸门未清），先作废，避免串到这一轮。
         sendPending = false
-        var text = input.text.toString().trim()
+        var text = ChatState.input.trim()
         val str2 = pendingImage
         val str3 = pendingText
         if (text.isEmpty() && str2 == null && str3 == null) {
@@ -1077,11 +595,11 @@ class ChatPanel(
         if (str2 != null && text.isEmpty()) {
             text = "看看这张图。"
         }
-        input.setText("")
-        addBubble(text, true, -1, str2)
+        ChatState.input = ""
+        appendBubble(text, true, str2)
         ChatHistoryStore.push(this, "user", text, str2)
         if (ChatSessions.isPet(context)) {
-            PetBus.say(if (str2 != null) "让我看看…" else "让我想想…", if (0 != 0) 6000L else 2500L)
+            PetBus.say(if (str2 != null) "让我看看…" else "让我想想…", 2500L)
         }
         setWaiting(true)
         addThinking(if (str2 != null) "正在看图…" else "正在思考…")
@@ -1152,7 +670,7 @@ class ChatPanel(
                 val msg = jSONObject
                 if (msg != null) {
                     val optJSONArray = msg.optJSONArray("tool_calls")
-                    if (optJSONArray != null && optJSONArray.length() > 0 && i < 3) {
+                    if (optJSONArray != null && optJSONArray.length() > 0 && i < MAX_TOOL_ROUNDS) {
                         runTools(jSONArray, optJSONArray, msg, i)
                         return
                     }
@@ -1261,7 +779,7 @@ class ChatPanel(
         if (isAttachedToWindow) {
             setWaiting(false)
             removeThinking()
-            addBubble("（出错了：" + str + "）", false)
+            appendBubble("（出错了：" + str + "）", false, null)
         }
     }
 
@@ -1297,7 +815,7 @@ class ChatPanel(
                 body = think
                 think = ""
             } else {
-                ChatBubbles.addThinkingBox(this, think, costMs)
+                ChatState.thinkingBox = ThinkingBox(think, costMs)
                 return
             }
         }
@@ -1324,11 +842,134 @@ class ChatPanel(
         }
         ChatHistoryStore.push(this, "assistant", trim)
         if (!pet && think.isNotEmpty()) {
-            ChatBubbles.addThinkingBox(this, think, costMs)
+            ChatState.thinkingBox = ThinkingBox(think, costMs)
         }
-        addBubble(trim, false, history.length() - 1)
+        appendBubble(trim, false, null)
         if (pet) {
             PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L)
         }
+    }
+
+    /** 用户点「停止」：断掉在途连接，静默收尾（不报网络错误）。 */
+    fun stopGenerating() {
+        // 【OCR】若还在等 OCR 扫图，撕掉闸门，扫描回来直接作废（不再发请求）。
+        sendPending = false
+        val t = task
+        t?.cancel()
+        task = null
+        setWaiting(false)
+        removeThinking()
+    }
+
+    /** 按有无 API key 决定顶部提示条显隐。 */
+    fun refreshHint() {
+        ChatState.hint = if (PetPrefs.hasKey(context)) {
+            null
+        } else {
+            "还没填 API key，点这里去设置 →"
+        }
+    }
+
+    // 能否发消息：必须有配置。
+    private fun canChat(): Boolean {
+        return PetPrefs.hasKey(context)
+    }
+
+    /* ------------------------- 历史重铺 ------------------------- */
+
+    // 把 history 重铺成可渲染快照（Compose 侧按状态重组）。
+    private fun renderHistory() {
+        summaryIndex = -1
+        // 【瞬态作废】占位与思考框都只对「当前这一轮请求」有效：重铺即换了一份历史，
+        //   旧引用一律作废（等价于旧 View 版 removeAllViews 把节点整批摘掉）。
+        ChatState.thinking = null
+        ChatState.thinkingBox = null
+        var tailIndex = -1
+        val list = ArrayList<ChatItem>()
+        // 【v2.8】入口放在「空历史」判断之前：自动收回后若一条正文都不剩，也得能从界面上点回来。
+        ChatState.hasPrev = ChatHistoryStore.hasPrev(context)
+        if (history.length() == 0) {
+            list.add(ChatItem("assistant", "我是小肥鱼～ 有什么想跟我说的吗？", null, -1, false, false))
+            ChatState.items = list
+            ChatState.prevTailIndex = -1
+            if (!ChatState.holdScroll) {
+                ChatState.requestScrollBottom()
+            }
+            return
+        }
+        // 【v2.8·P3】补回批不再按下标推导（见 mergePrev 打的 _prev 标记），这里只判「有没有摘要头」。
+        for (i in 0 until history.length()) {
+            val o = history.optJSONObject(i) ?: continue
+            // 【新增】头部摘要（kind=summary）原本被 !"system" 判据静默跳过，现在渲染成可展开的分割标题。
+            if ("summary" == o.optString("kind")) {
+                list.add(ChatItem("summary", o.optString("content"), null, i, false, true))
+                summaryIndex = list.size - 1
+                continue
+            }
+            val role = o.optString("role")
+            if ("system" != role) {
+                val isPrev = ChatHistoryStore.isPrevItem(o)
+                list.add(ChatItem(role, o.optString("content"), o.optString("image", null), i, isPrev, false))
+                // 【v2.8·P3】补回批的尾部节点按来源标记认。
+                if (isPrev) {
+                    tailIndex = list.size - 1
+                }
+            }
+        }
+        ChatState.items = list
+        ChatState.prevTailIndex = tailIndex
+        if (!ChatState.holdScroll) {
+            ChatState.requestScrollBottom()
+        }
+    }
+
+    /* ------------------------- 滚动 / 收回 ------------------------- */
+
+    /**
+     * 【v2.8】滚动回调：展开态下补回批整批滑出视口上沿（看不到上面那批消息了），就自动收回。
+     * 【Compose】改由「首个可见项下标」判定：越过补回批尾节点即视为滑出；已滚到底也算。
+     */
+    internal fun onScrolled(firstVisibleIndex: Int, atBottom: Boolean) {
+        if (collapsing || ChatState.holdScroll || prevCount <= 0) {
+            return
+        }
+        val tail = ChatState.prevTailIndex
+        // 【判据一】补回批最后一个节点已被推到视口上沿之上。
+        val passed = tail >= 0 && firstVisibleIndex > tail
+        // 【判据二】已滑到列表底部并继续拉：底部态同样算「看不到上面那批」。
+        //  加 firstVisibleIndex > 0 是为了排除「内容很短、首帧就到底」的误判。
+        val bottomed = atBottom && firstVisibleIndex > 0
+        if (!passed && !bottomed) {
+            return
+        }
+        val n = prevCount
+        collapsing = true
+        val ok = ChatHistoryStore.collapsePrev(this, n)
+        // 【坑】不论成败都清掉展开态：失败说明 history 结构已经在展开期间被改过，
+        //       留着 prevCount 会让每帧滚动回调都重试一次（白白构建 JSON），得不偿失；
+        //       数据一条不动，用户仍在展开态里，只是不再自动收回。
+        prevCount = 0
+        if (ok) {
+            reloadHistory()
+            scrollToSummary()
+        }
+        post {
+            collapsing = false
+        }
+    }
+
+    private fun setWaiting(z: Boolean) {
+        waiting = z
+        ChatState.waiting = z
+    }
+
+    companion object {
+        private const val MAX_TOOL_ROUNDS = 3
+
+        @JvmField
+        internal val AFFECTION_HEAD: Pattern = Pattern.compile("^\\s*[\\[【]\\s*好感度\\s*[:：]\\s*([+-]?\\d+)\\s*[\\]】]\\s*")
+
+        @JvmField
+        internal val AFFECTION_ANY: Pattern = Pattern.compile("[\\[【]\\s*好感度\\s*[:：]\\s*[+-]?\\d+\\s*[\\]】]")
     }
 }

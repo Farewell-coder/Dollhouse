@@ -1,26 +1,43 @@
 package com.dollhouse.app.ui.widget
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.ContentValues
 import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.view.Gravity
-import android.view.View
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dollhouse.app.core.KeyVault
 import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.ProviderStore
+import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.theme.UiKit
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * 【职责】把全部供应商与模型导出成一个 JSON 文件。
@@ -33,6 +50,10 @@ import java.util.Locale
  *
  * 【为什么没有 Toast】UiKit 硬约束：全 App 禁止 Toast / Snackbar / 自实现浮层短提示。
  *        结果一律用自绘弹窗说明（路径 + 条数），保证「点了就有反馈」。
+ *
+ * 【Compose 迁移口径】弹窗内容整体换成 Compose（父页面 ProviderListPage 已是 Compose）；
+ *        「选择 → 结果」两态收在同一个弹窗里切状态，不再关一个再开一个，
+ *        避免嵌套 Dialog 的时序问题。对外入口 [show] 签名一字未动。
  */
 object ExportSheet {
 
@@ -44,48 +65,100 @@ object ExportSheet {
     @JvmStatic
     fun show(act: Activity?) {
         val activity = act ?: return
-        val ctx: Context = activity
-        val box = LinearLayout(ctx)
-        box.orientation = LinearLayout.VERTICAL
-        val msg = TextView(ctx)
-        msg.text = "导出全部供应商与模型（含禁用项）为 JSON 文件，写入「下载」目录。"
-        msg.setTextSize(UiKit.FS_BTN)
-        msg.setTextColor(UiKit.SUB)
-        msg.setLineSpacing(UiKit.dp(ctx, 3f).toFloat(), 1.0f)
-        box.addView(msg)
-
-        val row = LinearLayout(ctx)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(0, UiKit.dp(ctx, 14f), 0, 0)
-        val label = TextView(ctx)
-        label.text = "包含密钥明文"
-        label.setTextSize(UiKit.FS_BTN)
-        label.setTextColor(UiKit.TITLE)
-        row.addView(label, LinearLayout.LayoutParams(0, -2, 1.0f))
-        val withKeys = UiKit.Switch(ctx)
-        withKeys.setOn(false)
-        withKeys.isClickable = true
-        withKeys.setOnClickListener(View.OnClickListener {
-            withKeys.setOn(!withKeys.isOn(), true)
-        })
-        row.addView(withKeys)
-        box.addView(row)
-        val warn = TextView(ctx)
-        warn.text = "默认不导出密钥，导出的 Key 只保留首尾各 4 位。开启后文件里是可用的完整密钥，请自行妥善保管。"
-        warn.setTextSize(UiKit.FS_TINY)
-        warn.setTextColor(UiKit.ERR)
-        warn.setPadding(0, UiKit.dp(ctx, 6f), 0, 0)
-        warn.setLineSpacing(UiKit.dp(ctx, 3f).toFloat(), 1.0f)
-        box.addView(warn)
-
-        UiKit.showDialog(activity, "导出供应商数据", box, "导出", View.OnClickListener {
-            run(activity, withKeys.isOn())
-        }, "取消", null)
+        val ref = AtomicReference<Dialog?>()
+        // 句柄回填：content 在 dlg.show() 之后才组合，点击时一定拿得到。
+        ref.set(DhForm.show(activity, "导出供应商数据") { ExportBody(activity, ref) })
     }
 
-    /** 后台组包 + 落盘，结果回主线程弹窗。 */
-    private fun run(act: Activity, withKeys: Boolean) {
+    /* ----------------------------- Compose 弹窗内容 ----------------------------- */
+
+    @Composable
+    private fun ExportBody(act: Activity, ref: AtomicReference<Dialog?>) {
+        val c = DhTokens.colors
+        var withKeys by remember { mutableStateOf(false) }
+        var busy by remember { mutableStateOf(false) }
+        // null = 还没跑；非 null = 结果文案（failed 决定配色）。
+        var result by remember { mutableStateOf<String?>(null) }
+        var failed by remember { mutableStateOf(false) }
+
+        Column(modifier = Modifier.fillMaxWidth()) {
+            val body = result
+            if (body == null) {
+                Text(
+                    text = "导出全部供应商与模型（含禁用项）为 JSON 文件，写入「下载」目录。",
+                    color = c.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts,
+                    lineHeight = (UiKit.FS_BTN + 5f).sp
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "包含密钥明文",
+                        modifier = Modifier.weight(1f),
+                        color = c.title,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                    DhKit.Switch(checked = withKeys, onCheckedChange = { withKeys = it })
+                }
+                Text(
+                    text = "默认不导出密钥，导出的 Key 只保留首尾各 4 位。开启后文件里是可用的完整密钥，请自行妥善保管。",
+                    modifier = Modifier.padding(top = 6.dp),
+                    color = c.err,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts,
+                    lineHeight = (UiKit.FS_TINY + 5f).sp
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(Modifier.weight(1f))
+                    DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
+                    Spacer(Modifier.width(10.dp))
+                    DhForm.PrimaryChip(text = if (busy) "导出中…" else "导出") {
+                        if (!busy) {
+                            busy = true
+                            run(act, withKeys) { path, err ->
+                                busy = false
+                                failed = err != null
+                                result = err ?: (path ?: "")
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = body,
+                    color = if (failed) c.err else c.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts,
+                    lineHeight = (UiKit.FS_BTN + 5f).sp
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(Modifier.weight(1f))
+                    DhForm.PrimaryChip(text = "好") { ref.get()?.dismiss() }
+                }
+            }
+        }
+    }
+
+    /* ----------------------------- 组包与落盘 ----------------------------- */
+
+    /** 后台组包 + 落盘，结果回主线程回调（[done] 的第一个参数为路径，第二个为错误）。 */
+    private fun run(act: Activity, withKeys: Boolean, done: (String?, String?) -> Unit) {
         val ctx = act.applicationContext
         Thread({
             var path: String? = null
@@ -104,11 +177,7 @@ object ExportSheet {
                 if (act.isFinishing) {
                     return@runOnUiThread
                 }
-                if (ferr != null) {
-                    UiKit.showDialog(act, "导出失败", plain(act, ferr), "好", null, null, null)
-                } else {
-                    UiKit.showDialog(act, "导出完成", plain(act, fpath), "好", null, null, null)
-                }
+                done(fpath, ferr)
             }
         }).start()
     }
@@ -176,16 +245,5 @@ object ExportSheet {
             os.close()
         }
         return f.absolutePath + "\n共 " + data.size + " 字节"
-    }
-
-    /** 弹窗正文：一句纯文字说明。 */
-    private fun plain(ctx: Context, text: String?): TextView {
-        val t = TextView(ctx)
-        t.text = text ?: ""
-        t.setTextSize(UiKit.FS_BTN)
-        t.setTextColor(UiKit.SUB)
-        t.setLineSpacing(UiKit.dp(ctx, 3f).toFloat(), 1.0f)
-        t.setTextIsSelectable(true)
-        return t
     }
 }

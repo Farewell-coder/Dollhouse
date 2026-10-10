@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 描边图标，风格参照 Lucide（ISC）。
-     24dp 视口 / 线宽 2 / 圆角端点，strokeColor 运行期由 Icons.tint() 覆盖。 -->
+<!-- 描边图标，取自 Lucide 官方 SVG（ISC 协议）。
+     24dp 视口 / 线宽 2 / 圆角端点；strokeColor 为占位白，
+     运行期由 Icons.get() / Icons.tint() 按主题覆盖真色。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M18,15 L12,9 L6,15"
+        android:pathData="m 18 15 -6 -6 -6 6"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="2"
         android:strokeLineCap="round"

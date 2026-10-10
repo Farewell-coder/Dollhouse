@@ -105,6 +105,66 @@ object Icons {
     @JvmField
     val IC_TILE_PET = R.drawable.ic_tile_pet
 
+    /* ================= 设备控制 / 服务状态图标层（官方 Lucide 几何） =================
+     * 【为什么单独一段】这一组是本次「统一图标语言」新增的官方几何图标，
+     *   与上面历史遗留的自绘图标区分开，便于日后整体替换与核对。
+     *   资源全部来自 lucide-static 官方 SVG，24dp 视口 / 线宽 2 / 圆角端点。
+     * 【调用方式】业务代码不要直接写 R.drawable.*，走 Design.icons.* 语义映射。
+     */
+    /** 服务 / 状态。 */
+    @JvmField
+    val IC_CIRCLE_ALERT = R.drawable.ic_circle_alert
+    /* triangle-alert 在转换时已按命名表映射到既有资源 ic_warning，语义完全一致，
+       所以这里不另开常量，沿用 IC_WARNING，避免两个名字指同一个东西。 */
+    @JvmField
+    val IC_SERVER = R.drawable.ic_server
+    /** 安装 / 解包 / 下载。 */
+    @JvmField
+    val IC_DOWNLOAD = R.drawable.ic_download
+    @JvmField
+    val IC_PACKAGE_OPEN = R.drawable.ic_package_open
+    @JvmField
+    val IC_PACKAGE_PLUS = R.drawable.ic_package_plus
+    /** 启停 / 重启。 */
+    @JvmField
+    val IC_PLAY = R.drawable.ic_play
+    @JvmField
+    val IC_SQUARE = R.drawable.ic_square
+    @JvmField
+    val IC_ROTATE_CCW = R.drawable.ic_rotate_ccw
+    /** 连接 / 网络 / 终端。 */
+    @JvmField
+    val IC_PLUG = R.drawable.ic_plug
+    @JvmField
+    val IC_CABLE = R.drawable.ic_cable
+    @JvmField
+    val IC_NETWORK = R.drawable.ic_network
+    @JvmField
+    val IC_SQUARE_TERMINAL = R.drawable.ic_square_terminal
+    /** 设备控制能力。 */
+    @JvmField
+    val IC_APP_WINDOW = R.drawable.ic_app_window
+    @JvmField
+    val IC_MOUSE_POINTER_2 = R.drawable.ic_mouse_pointer_2
+    @JvmField
+    val IC_HAND = R.drawable.ic_hand
+    @JvmField
+    val IC_MOVE = R.drawable.ic_move
+    @JvmField
+    val IC_HOUSE = R.drawable.ic_house
+    @JvmField
+    val IC_SUN = R.drawable.ic_sun
+    @JvmField
+    val IC_KEYBOARD = R.drawable.ic_keyboard
+    @JvmField
+    val IC_CLIPBOARD = R.drawable.ic_clipboard
+    @JvmField
+    val IC_SCAN = R.drawable.ic_scan
+    @JvmField
+    val IC_SPARKLES = R.drawable.ic_sparkles
+    @JvmField
+    val IC_MESSAGE_CIRCLE = R.drawable.ic_message_circle
+
     /** 取图并按 color 上色。返回的 Drawable 每次都是新实例，可安全用于不同 View。 */
     @JvmStatic
     fun get(ctx: Context?, resId: Int, color: Int): Drawable? {

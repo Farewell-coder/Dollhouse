@@ -241,6 +241,23 @@ object ImageStore {
     // 按目标边长加载并缩放位图，用于列表缩略图。
     @JvmStatic
     fun loadScaled(context: Context, str: String, i: Int): Bitmap? {
+        return loadScaled(context, str, i, false)
+    }
+
+    /**
+     * 同上，但可由调用方指定「是否按不透明图解码」。
+     *
+     * 【为什么要这个开关】背景图与聊天图片附件两条链路里落盘的图**一律是 JPEG**
+     *   （见 [saveCropFrom] / [saveFromUri]），天然没有 alpha 通道。默认的 ARGB_8888
+     *   每像素 4 字节，一张 1440×1440 的背景图就是 ≈8.3MB 常驻；对这类不透明图改用
+     *   [android.graphics.Bitmap.Config.RGB_565]（每像素 2 字节）可省掉一半，约 4MB。
+     * 【默认关闭】只在明确知道图不透明时传 true。缩略图链路（160dp）与未知来源一律保持
+     *   原行为（ARGB_8888），避免给带透明通道的图丢 alpha。
+     * 【代价】RGB_565 每通道 5/6/5 bit，深色渐变可能出现极轻微色带；图上方另有半透明遮罩，
+     *   实际观感无可感差异，且不改任何功能行为。
+     */
+    @JvmStatic
+    fun loadScaled(context: Context, str: String, i: Int, preferOpaque: Boolean): Bitmap? {
         try {
             val file = fileFor(context, str)
             if (!file.isFile) {
@@ -255,6 +272,9 @@ object ImageStore {
                 if (options.outWidth / i2 <= i3 && options.outHeight / i2 <= i3) {
                     val options2 = BitmapFactory.Options()
                     options2.inSampleSize = i2
+                    if (preferOpaque) {
+                        options2.inPreferredConfig = Bitmap.Config.RGB_565
+                    }
                     return BitmapFactory.decodeFile(file.absolutePath, options2)
                 }
                 i2 *= 2

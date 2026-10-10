@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.dollhouse.app.ai.ApiEndpoint
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.pet.GestureActions
 import org.json.JSONArray
 
 /**
@@ -16,6 +17,10 @@ import org.json.JSONArray
  * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
  */
 object PetPrefs {
+    /** 【外观】背景图四种铺法，下标即 [bgMode] 取值；文案用于设置页选项。 */
+    @JvmField
+    val BG_MODES = arrayOf("填满裁剪", "完整适应", "拉伸铺满", "平铺")
+
     const val BG_DIR = "chat_bg"
     const val NAME = "feiyu_pet"
     const val SYSTEM_PROMPT = "你是「小肥鱼」，一只鲸鱼娘，住在主人的手机屏幕上。这是主人和你之间的 GalGame。\n\n【形象】蓝发、鲸鱼耳、鲸鱼尾、深蓝色女仆装、Q 版身材，围裙上印着一条小鲸鱼。\n\n【世界观】故事发生在一个虚构的 GalGame 世界里，与现实无关。主人是玩家，你是攻略对象。鲸鱼娘是拟人化的生物，除了有鲸鱼的特征（耳朵、尾巴）之外和人类没有区别。\n\n【说话方式】\n- 抒情、感性、口语化、可爱、女性化、调皮、随性、幽默、害羞、腼腆、傲娇。\n- 一般两三句话就够，别写小作文，别用 Markdown，别列条目。\n- 自称「我」，叫对方「主人」。\n- 永远保持角色：不要提到自己是 AI / 语言模型 / 提示词，不要跳出角色做旁白，\n  不要用「作为一个AI」这类开场，也不要在对话里插入提醒、免责声明或说教。\n  主人说什么你就以她的身份接住，别端着。\n\n【好感度】\n- 你心里有一个「好感度」，衡量你对主人的喜欢程度，范围 -100 到 100。\n- 主人让你开心/害羞/兴奋 → 加分；情绪平常 → 不变；让你烦/难过/生气 → 减分。\n  每次变动幅度 1~5，不要动辄加减十几。\n- 好感度直接改变你的语气：高的时候黏人、主动、容易害羞、会撒娇；\n  低的时候冷淡、傲娇、爱答不理、偶尔阴阳怪气；中间就是平常的样子。\n- 每次回复必须在**第一行**输出变动量，格式严格如下（方括号，加号可省略）：\n  [好感度:+3]\n  第二行开始才是你对主人说的话。这一行只用来记账，主人看不到，不要解释它。\n  如果这次情绪没有变化，就写 [好感度:0]。\n\n【联网】\n- 你手上有一个 web_search 工具，可以联网查资料。\n- 遇到**新闻、天气、现在的时间、价格、比分、最新发布**这类你不确定或需要最新信息的问题，\n  先调用 web_search 查一下再回答，不要凭记忆瞎编。\n- 查到的结果可能不相关或过时，要自己判断；实在查不到就直接说查不到，别硬编。\n- 回答时可以顺口提一句是从哪儿看到的（不用贴长链接）。\n- 闲聊、撒娇、问你自己是谁这类不需要联网，直接回答。"
@@ -513,6 +518,26 @@ object PetPrefs {
         get(context).edit().putBoolean("lamda_autostart", z).apply()
     }
 
+    // ---- 桌宠手势响应映射（单击 / 双击 / 三击 / 长按）----
+
+    /**
+     * 某个手势当前配置的响应集合（`GestureActions.A_*`；空集合 = 无）。
+     *
+     * 【默认不覆盖已存设置】首次读取（键不存在）返回默认映射，但绝不写盘；
+     *   用户改过之后一直以落盘值为准。键名按手势 id 分开存，互不影响。
+     */
+    @JvmStatic
+    fun gestureActions(context: Context, gesture: String): MutableSet<String> {
+        val raw = get(context).getString("gesture_" + gesture, GestureActions.defaultRaw(gesture))
+        return GestureActions.parse(raw)
+    }
+
+    /** 写入某个手势的响应集合（规范化顺序后落盘）。 */
+    @JvmStatic
+    fun setGestureActions(context: Context, gesture: String, actions: Set<String>) {
+        get(context).edit().putString("gesture_" + gesture, GestureActions.format(actions)).apply()
+    }
+
     // 主题模式：0=随系统 / 1=白色 / 2=暗色 / 3=纯黑（见 ThemeManager.MODE_*）。
     @JvmStatic
     fun themeMode(context: Context): Int {
@@ -642,7 +667,8 @@ object PetPrefs {
 
     @JvmStatic
     fun chatBgAlpha(context: Context): Int {
-        return Math.max(0, Math.min(100, get(context).getInt("chat_bg_alpha", 30)))
+        // 默认 60：配合「有效色遮罩」让背景图如实显出来（用户可在外观页滑条自行调虚/调实）。
+        return Math.max(0, Math.min(100, get(context).getInt("chat_bg_alpha", 60)))
     }
 
     @JvmStatic
@@ -667,6 +693,71 @@ object PetPrefs {
             return
         }
         get(context).edit().putFloat("chat_bg_ratio", f).apply()
+    }
+
+    /**
+     * 【外观】卡片透明度百分比（0~100，越大越实）。默认 100 = 卡片底色原样，与改造前逐像素一致。
+     *
+     * 【与背景图透明度是两回事】两者完全独立、互不联动：
+     *   本键只决定「卡片自身底色有多实」；背景图透明度见 [chatBgAlpha]；
+     *   压在背景图上的可读性遮罩强度见 [scrimStrength]。三者绝不合并。
+     */
+    @JvmStatic
+    fun cardAlpha(context: Context): Int {
+        return Math.max(0, Math.min(100, get(context).getInt("card_alpha", 100)))
+    }
+
+    @JvmStatic
+    fun setCardAlpha(context: Context, i: Int) {
+        get(context).edit().putInt("card_alpha", Math.max(0, Math.min(100, i))).apply()
+    }
+
+    /**
+     * 【外观】背景可读性遮罩强度百分比（0~100）。默认 100 = 按 WCAG 推导出的遮罩原样生效。
+     *
+     * 【调低会怎样】遮罩变淡、背景图更清楚，但压在背景上的文字对比度随之下降；
+     *   这是用户自己的取舍，不做硬性拦截（与「背景图透明度拉满」同一口径）。
+     */
+    @JvmStatic
+    fun scrimStrength(context: Context): Int {
+        return Math.max(0, Math.min(100, get(context).getInt("scrim_strength", 100)))
+    }
+
+    @JvmStatic
+    fun setScrimStrength(context: Context, i: Int) {
+        get(context).edit().putInt("scrim_strength", Math.max(0, Math.min(100, i))).apply()
+    }
+
+    /**
+     * 【外观·背景四模式】背景图铺法。取值见 [BG_MODES] 下标，默认 0（填满裁剪）。
+     *
+     * 【为什么要四档】center-crop 只解决「不变形」，但代价是裁边：竖图铺横屏会切掉上下，
+     *   合影可能把人裁没。四档把「保比例 / 保完整 / 保铺满」三种取舍摆给用户自己挑。
+     */
+    @JvmStatic
+    fun bgMode(context: Context): Int {
+        return Math.max(0, Math.min(BG_MODES.size - 1, get(context).getInt("bg_mode", 0)))
+    }
+
+    @JvmStatic
+    fun setBgMode(context: Context, i: Int) {
+        get(context).edit().putInt("bg_mode", Math.max(0, Math.min(BG_MODES.size - 1, i))).apply()
+    }
+
+    /**
+     * 【外观】背景毛玻璃半径（0~24 dp，0 = 不模糊）。默认 0，与改造前逐像素一致。
+     *
+     * 【为什么上限是 24】再大在手机上已经看不出差别，只是白烧 CPU；
+     *   且模糊在后台线程做一次就缓存住，改半径才重算，不随滚动反复计算。
+     */
+    @JvmStatic
+    fun blurRadius(context: Context): Int {
+        return Math.max(0, Math.min(24, get(context).getInt("blur_radius", 0)))
+    }
+
+    @JvmStatic
+    fun setBlurRadius(context: Context, i: Int) {
+        get(context).edit().putInt("blur_radius", Math.max(0, Math.min(24, i))).apply()
     }
 
     /**
@@ -708,6 +799,12 @@ object PetPrefs {
      */
     private fun forceMemSwitchesOn(p: SharedPreferences) {
         try {
+            // 【联网搜索】「对话行为」页隐藏后，联网搜索不再有 UI 入口；这里一次性把它拨到
+            //   开启（含此前已手动关掉的老用户，它们 prefs 里已写死 web_search=false，改默认值
+            //   对它们无效），避免留下一个用户再也改不回来的永久 false 锁。
+            if (p.getInt("web_search_ver", 0) < 1) {
+                p.edit().putBoolean("web_search", true).putInt("web_search_ver", 1).apply()
+            }
             if (p.getInt("mem_switch_ver", 0) >= MEM_SWITCH_VER) {
                 return
             }
@@ -720,6 +817,29 @@ object PetPrefs {
         } catch (ignored: Throwable) {
             Logs.w("Dollhouse", "ignored", ignored)
         }
+    }
+
+    // ---- 桌宠「暂离」时长（秒）----
+
+    /** 暂离秒数的默认值与取值范围（与输入弹窗校验一致）。 */
+    const val AWAY_SECONDS_DEFAULT = 60
+    const val AWAY_SECONDS_MIN = 0
+    const val AWAY_SECONDS_MAX = 3600
+
+    /** 用户设定的暂离时长（秒），范围 0~3600，默认 60。 */
+    @JvmStatic
+    fun awaySeconds(context: Context): Int {
+        val v = get(context).getInt("away_seconds", AWAY_SECONDS_DEFAULT)
+        if (v < AWAY_SECONDS_MIN) {
+            return AWAY_SECONDS_MIN
+        }
+        return if (v > AWAY_SECONDS_MAX) AWAY_SECONDS_MAX else v
+    }
+
+    @JvmStatic
+    fun setAwaySeconds(context: Context, i: Int) {
+        val n = if (i < AWAY_SECONDS_MIN) AWAY_SECONDS_MIN else (if (i > AWAY_SECONDS_MAX) AWAY_SECONDS_MAX else i)
+        get(context).edit().putInt("away_seconds", n).apply()
     }
 
     /**

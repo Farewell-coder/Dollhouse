@@ -39,7 +39,7 @@ class CtxRing(ctx: Context) : View(ctx) {
         text.isAntiAlias = true
         text.textAlign = Paint.Align.CENTER
         text.textSize = 10.0f * d
-        text.typeface = Typeface.DEFAULT_BOLD
+        text.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         text.color = UiKit.TITLE
     }
 

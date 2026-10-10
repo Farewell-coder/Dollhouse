@@ -55,6 +55,8 @@ class PetAnimator(private val host: PetView) {
     fun playJump() {
         host.jumpT = 0.0f
         host.blinkT = 0.0f
+        // blinkT 重置时必须同步清进度，否则会从上一轮的 blinkElapsed 接着走，出现半截眨眼。
+        host.blinkElapsed = 0.0f
         setExpression(2, 1100L)
     }
 
@@ -188,10 +190,15 @@ class PetAnimator(private val host: PetView) {
         val uptimeMillis = SystemClock.uptimeMillis()
         val min = Math.min(120.0f, (uptimeMillis - host.lastFrame).toFloat()) / 1000.0f
         host.lastFrame = uptimeMillis
-        val f = host.phase + (1.7f * min)
-        host.phase = f
-        if (f > 6.2831855f) {
-            host.phase = f - 6.2831855f
+        // 【贴边低耗·冻结连续相位】稳定贴在边缘且无任何动作时，本档帧率只有 4fps；
+        //   若还让 phase 按 1.7rad/s 推进，呼吸/尾巴会在两帧之间跳一大步（用户看到的「贴边抖」）。
+        //   冻结后彻底静止，消除跳动；触摸 / 吸附 / 眨眼等动起来时自动恢复推进。
+        if (!(host.lean != 0.0f && !host.frameBusy())) {
+            val f = host.phase + (1.7f * min)
+            host.phase = f
+            if (f > 6.2831855f) {
+                host.phase = f - 6.2831855f
+            }
         }
         val f2 = host.jumpT
         if (f2 >= 0.0f) {
@@ -218,29 +225,38 @@ class PetAnimator(private val host: PetView) {
         if (host.expression != 0 && SystemClock.uptimeMillis() - host.exprStartAt > host.exprDuration) {
             host.expression = 0
         }
-        val f9 = host.blinkT
-        // 【v2.10.2】贴边偷看时不眨眼：眨眼是唯一会周期性把 busy 判定顶回 60fps 的自动动作，
-        //   压掉它（以及 tickIdle 的待机小动作），贴边态才能稳定停在 EDGE_IDLE_MS 那一档。
+        // 【眨眼时间线】闭合 → 保持 → 睁开走 BlinkTimeline（纯逻辑可测），整轮约 220ms
+        //   （CLOSE 70 + HOLD 50 + OPEN 100），比原来的 140ms 正弦钟形更接近「闭上、停一下、再睁开」。
         if (host.lean != 0.0f) {
-            if (f9 >= 0.0f) {
-                host.blinkT = -1.0f
+            // 贴边偷看时不眨眼：眨眼是唯一会周期性把 busy 判定顶回 60fps 的自动动作，
+            //   压掉它（以及 tickIdle 的待机小动作），贴边态才能稳定停在 EDGE_IDLE_MS 那一档。
+            host.blinkT = -1.0f
+            host.blinkElapsed = -1.0f
+        } else if (host.blinkElapsed >= 0.0f || host.blinkT >= 0.0f) {
+            // 外部（如 playJump）可能只置 blinkT=0，这里统一按时间线推进。
+            if (host.blinkElapsed < 0.0f) {
+                host.blinkElapsed = 0.0f
             }
-        } else if (f9 >= 0.0f) {
-            val f10 = f9 + (min / 0.14f)
-            host.blinkT = f10
-            if (f10 >= 1.0f) {
+            val e = host.blinkElapsed + (min * 1000.0f)
+            val p = BlinkTimeline.phaseAt(e)
+            if (p < 0.0f) {
+                host.blinkElapsed = -1.0f
                 host.blinkT = -1.0f
                 host.blinkCountdown = nextBlinkDelay()
+            } else {
+                host.blinkElapsed = e
+                host.blinkT = p
             }
         } else {
             val f11 = host.blinkCountdown - min
             host.blinkCountdown = f11
             if (f11 <= 0.0f) {
-                host.blinkT = 0.0f
+                host.blinkElapsed = 0.0f
+                host.blinkT = BlinkTimeline.phaseAt(0.0f)
             }
         }
         tickIdle(min)
-        if (host.idleAction != 2) {
+        if (host.idleAction != 2 && !(host.lean != 0.0f && !host.frameBusy())) {
             val f12 = host.gazeCountdown - min
             host.gazeCountdown = f12
             if (f12 <= 0.0f) {

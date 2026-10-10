@@ -2,6 +2,7 @@ package com.dollhouse.app.ui.widget
 
 import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -46,8 +47,16 @@ internal class SwipeRow(
 
     init {
         val action = FrameLayout(ctx)
-        action.background = UiKit.round(UiKit.ERR, ctx, 14f)
-        val trash = Icons.view(ctx, Icons.IC_TRASH, 20.0f, UiKit.ON_ACC)
+        // 【需求】删除区只把右侧两个角做圆：左侧直角与已滑开的卡片右边缘严丝合缝，
+        //   不再出现「两块圆角之间夹一道底色」的穿模感；右侧圆角与卡片保持一致（16dp）。
+        action.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(UiKit.ERR)
+            val r = UiKit.dp(ctx, CARD_RADIUS_DP.toFloat()).toFloat()
+            cornerRadii = floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+        }
+        UiKit.press(action)
+        val trash = Icons.view(ctx, Icons.IC_TRASH, 22.0f, UiKit.ON_ACC)
         val tlp = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
         )
@@ -160,7 +169,9 @@ internal class SwipeRow(
 
     companion object {
         /** 露出的删除区宽度：够放下一个 24dp 图标 + 左右呼吸。 */
-        private const val ACTION_DP = 64
+        private const val ACTION_DP = 68
+        /** 删除区右侧圆角（dp）：与卡片圆角一致，滑开后两块拼成一片。 */
+        private const val CARD_RADIUS_DP = 16
 
         /** 滑过这个比例（相对满宽）就算「要打开」，松手后吸附过去。 */
         private const val OPEN_RATIO = 0.4f

@@ -24,6 +24,8 @@ import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.GlobalBackground
+import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】聊天背景的「选图 → 裁剪 → 预览 → 保存」一站式页面。
@@ -64,10 +66,12 @@ class BackgroundCropActivity : Activity() {
             //   照常搭出同一套界面（只是不重新拉相册），等系统把选图结果投回 onActivityResult。
             window.statusBarColor = Color.BLACK
             setContentView(buildUi())
+            UiKit.applyEdgeToEdge(this)
             return
         }
         window.statusBarColor = Color.BLACK
         setContentView(buildUi())
+        UiKit.applyEdgeToEdge(this)
         pick()
     }
 
@@ -121,6 +125,7 @@ class BackgroundCropActivity : Activity() {
         bottom.addView(tools)
 
         val save = TextView(this)
+        save.typeface = Fonts.ui(this)
         save.text = "保存背景"
         save.setTextSize(UiKit.FS_BTN)
         save.setTextColor(Color.WHITE)
@@ -152,6 +157,7 @@ class BackgroundCropActivity : Activity() {
     /** 深色底上的描边小胶囊（与截图里的「取消」同款观感）。 */
     private fun pill(text: String): TextView {
         val t = TextView(this)
+        t.typeface = Fonts.ui(this)
         t.text = text
         t.setTextSize(UiKit.FS_TINY + 2.0f)
         t.setTextColor(Color.WHITE)
@@ -166,6 +172,7 @@ class BackgroundCropActivity : Activity() {
     /** 底部工具按钮：透明底 + 白描边 + 白字。 */
     private fun tool(text: String, click: View.OnClickListener): TextView {
         val t = TextView(this)
+        t.typeface = Fonts.ui(this)
         t.text = text
         t.setTextSize(UiKit.FS_BTN)
         t.setTextColor(Color.WHITE)
@@ -282,6 +289,12 @@ class BackgroundCropActivity : Activity() {
             val path = ImageStore.saveCropFrom(this, bmp, box[0], box[1], box[2], box[3],
                     ratio, OUT_WIDTH)
             PetPrefs.setChatBackground(this, path)
+            // 【即时生效】路径变了以后，必须让全局背景重解码并重刷所有已挂载的宿主视图，
+            //   否则各页仍画着旧图（旧实现只发 REFRESH 通知，而该通知依赖桌宠服务在跑，
+            //   且不经过 refreshAll，所以表现为「选完背景要等回前台才变」）。
+            //   先 release 让缓存按新路径重建，再 refreshAll 遍历全部登记视图。
+            GlobalBackground.release()
+            GlobalBackground.refreshAll()
             // 【为什么走 HomeUi】那里已经带「服务在跑才发 REFRESH」的判断：
             //   桌宠被用户关掉时不会因为这次保存把服务又拉起来，中间态也不会多一个悬浮窗。
             HomeUi.notifyPetRefresh(this)
@@ -438,11 +451,20 @@ class BackgroundCropActivity : Activity() {
         private fun layout(keepCenter: Boolean) {
             val b = this.bmp ?: return
             val pad = UiKit.dpf(context, PAD_DP)
-            val availW = Math.max(1.0f, width - pad * 2.0f)
+            // 【安全区】横屏时刘海在左右侧：左右留白各自叠加物理安全区（API28 走 view insets），
+            //   否则裁剪框会压到侧边刘海被系统裁掉。圆角不再按整边扣除，避免留白过大。
+            val safe = UiKit.viewCutoutInsets(this)
+            val padL = pad + safe[0]
+            val padR = pad + safe[2]
+            val availW = Math.max(1.0f, width - padL - padR)
             // 【留白】上下都要让开顶栏与底栏：它们的高度是实测回填的，
             //   没量到之前先用一组保守下限，避免首帧把框排到按钮底下。
-            val top0 = Math.max(UiKit.dpf(context, 96.0f), this.insetTop.toFloat())
-            val bot0 = Math.max(UiKit.dpf(context, 150.0f), this.insetBottom.toFloat())
+            val top0 = Math.max(
+                Math.max(UiKit.dpf(context, 96.0f), this.insetTop.toFloat()), safe[1].toFloat()
+            )
+            val bot0 = Math.max(
+                Math.max(UiKit.dpf(context, 150.0f), this.insetBottom.toFloat()), safe[3].toFloat()
+            )
             val availH = Math.max(1.0f, height - top0 - bot0)
             val bw = b.width
             val bh = b.height
@@ -457,7 +479,7 @@ class BackgroundCropActivity : Activity() {
                 h = availH
                 w = h * ratio
             }
-            val left = (width - w) / 2.0f
+            val left = padL + (availW - w) / 2.0f
             val top = top0 + (availH - h) / 2.0f
             val oldCx = box.centerX()
             val oldCy = box.centerY()

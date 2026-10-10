@@ -183,6 +183,14 @@ class PetTalk(private val ctx: Context, private val host: Host) {
     }
 
     /**
+     * 当前是否有正在播的气泡（思考中 / 分页回复都算）。
+     * 【用途】拖动人偶时据此判断「是否要保留气泡与相位」，避免把回复清掉。
+     */
+    fun hasBubble(): Boolean {
+        return this.phase != PHASE_IDLE
+    }
+
+    /**
      * 迷你输入框发出一条消息。
      * 【顺序】先落档（user）再请求，保证「发出去的消息」在切到全屏页时也已经看得到。
      */
