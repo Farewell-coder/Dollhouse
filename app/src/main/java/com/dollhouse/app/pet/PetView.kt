@@ -259,7 +259,7 @@ class PetView(context: Context) : View(context) {
     private var bubbleFull: String? = null
 
     init {
-        bubblePaint.color = UiKit.CARD
+        bubblePaint.color = UiKit.card()
         bubblePaint.style = Paint.Style.FILL
         bubbleEdge.color = UiKit.TITLE
         bubbleEdge.style = Paint.Style.STROKE
@@ -284,7 +284,7 @@ class PetView(context: Context) : View(context) {
      * ThemeManager 改字段，所以桌宠已在运行时由 PetService 在 REFRESH 时回调这里。
      */
     fun applyTheme() {
-        bubblePaint.color = UiKit.CARD
+        bubblePaint.color = UiKit.card()
         bubbleEdge.color = UiKit.TITLE
         textPaint.color = UiKit.TITLE
         invalidate()
@@ -300,6 +300,67 @@ class PetView(context: Context) : View(context) {
      * 【性能】peek 不再强制 60fps：聊天窗开着时桌宠与聊天窗是两个独立 overlay 窗口，
      *         人偶每帧重建 1073 顶点会抢渲染线程，是聊天区滚动掉帧的主因。
      */
+    /** 触摸忙：手指按下期间置位，帧循环立即回到 16ms；抬手 / CANCEL 释放。 */
+    internal var touchBusy = false
+        private set
+
+    /** 本轮眨眼已进行的毫秒数（-1 = 未在眨眼）；由 PetAnimator 推进，相位交给 BlinkTimeline。 */
+    internal var blinkElapsed = -1.0f
+
+    /**
+     * 吸附弹簧运行探测，由 PetWindowController 注入（读 host.snapAnim.isRunning）。
+     * 【为何用探测而非布尔】开始 / 完成 / 取消三种结束路径都直接反映在 isRunning 上，
+     *   不必在每个 cancel() 调用点手动同步标志、也不会漏清。
+     */
+    internal var snapActiveCheck: (() -> Boolean)? = null
+
+    /** 吸附弹簧是否在跑（涵盖吸附开始 / 完成 / 取消）。 */
+    internal fun snapActive(): Boolean {
+        return snapActiveCheck?.invoke() == true
+    }
+
+    /** 当前是否有动作需要全速帧（触摸 / 吸附 / 拖拽 / 跳跃 / 落地 / 眨眼 / 待机动作 / 表情 / 收敛中）。 */
+    internal fun frameBusy(): Boolean {
+        return touchBusy
+                || snapActive()
+                || dragging
+                || jumpT >= 0.0f
+                || landT >= 0.0f
+                || blinkT >= 0.0f
+                || idleAction != 0
+                || idleT >= 0.0f
+                || expression != 0
+                || dragLift > 0.002f
+                || Math.abs(tilt) > 0.05f
+                || Math.abs(gaze - gazeTarget) > 0.004f
+    }
+
+    /** 设置触摸忙标志；由忙转闲不唤醒（让帧循环自然落回待机档）。 */
+    internal fun setTouchBusy(z: Boolean) {
+        if (touchBusy == z) {
+            return
+        }
+        touchBusy = z
+        if (z) {
+            wakeFrame()
+        }
+    }
+
+    /**
+     * 立即把帧循环拉回 16ms：先撤掉旧的排队，再补一个 —— 保证同一 Runnable 只有一个实例。
+     * 【为何不能直接再 post 一次】同一 Runnable 排队两份，之后每次执行又各自续一次，帧率永久翻倍。
+     * 【为何重置 lastFrame】从 250ms 档突然跳到 16ms 时，tick() 的 delta 上限 120ms
+     *   会让呼吸相位一次跨约 0.2rad（肉眼可见跳一下）；把时间基准挪到当下即可消除。
+     */
+    internal fun wakeFrame() {
+        if (!animating) {
+            return
+        }
+        removeCallbacks(frame)
+        lastFrame = SystemClock.uptimeMillis()
+        postDelayed(frame, 16L)
+    }
+
     internal fun nextFrameDelay(): Long {
         // 【v2.10.2】低功耗档（熄屏）：1s 心跳。不再是旧实现的 250ms —— 熄屏时既不推进动画
         //   也不重绘，250ms 纯属空转；1s 足以保证亮屏后被 checkAwake 及时发现。
@@ -312,23 +373,14 @@ class PetView(context: Context) : View(context) {
         if (!isShown || !screenOn()) {
             return 250L
         }
-        val busy = dragging
-                || jumpT >= 0.0f
-                || landT >= 0.0f
-                || blinkT >= 0.0f
-                || idleAction != 0
-                || idleT >= 0.0f
-                || expression != 0
-                || dragLift > 0.002f
-                || Math.abs(tilt) > 0.05f
-                || Math.abs(gaze - gazeTarget) > 0.004f
-        if (busy) {
+        // 触摸 / 贴边吸附期间强制全速：这两种要么起手要么落位，最怕掉帧。
+        if (frameBusy()) {
             return 16L
         }
         // 【v2.10.2】贴边偷看且无任何动作：降到最低帧率。
         //   人偶吸在屏幕边缘 = 用户正在别处操作，此时只有低频呼吸与尾巴摆动，
         //   4fps 看不出差别；眨眼与待机小动作已由 PetAnimator 在 lean != 0 时压掉，
-        //   所以本档不会被周期性动作顶回 60fps。
+        //   连续相位也在 tick() 里冻结，所以本档不会被顶回全速、也不会跳。
         if (lean != 0.0f) {
             return EDGE_IDLE_MS
         }
@@ -456,6 +508,7 @@ class PetView(context: Context) : View(context) {
         lean = f
         if (z) {
             blinkT = -1.0f
+            blinkElapsed = -1.0f
             blinkCountdown = 0.8f
         }
         invalidate()
@@ -656,6 +709,7 @@ class PetView(context: Context) : View(context) {
         peek = z
         if (z) {
             blinkT = -1.0f
+            blinkElapsed = -1.0f
             blinkCountdown = 1.2f
         }
         invalidate()
@@ -730,6 +784,20 @@ class PetView(context: Context) : View(context) {
         return bubble.hasOverflow()
     }
 
+    /** 气泡是否有可画内容（思考中 / 回复都算），供拖动时判断要不要保留窗口内气泡高度。 */
+    fun hasBubbleContent(): Boolean {
+        return bubble.hasContent()
+    }
+
+    /**
+     * 当前气泡实际占用的窗口高度（无内容时为 0）。
+     * 【用途】窗口几何在拖动 / 贴边吸附时按「实际」气泡高度换算静止锚点，
+     *   而不是用写死的 bubbleSpace()（默认 96dp），避免气泡被裁掉或人偶跳位。
+     */
+    fun bubbleHeight(): Int {
+        return if (bubble.hasContent()) bubble.height() else 0
+    }
+
     fun clearBubble() {
         bubbleFull = null
         bubble.clear()
@@ -756,7 +824,7 @@ class PetView(context: Context) : View(context) {
             return UiKit.EMOTE_2
         }
         if (i != 3) {
-            return UiKit.CARD
+            return UiKit.card()
         }
         return UiKit.EMOTE_3
     }
@@ -921,7 +989,7 @@ class PetView(context: Context) : View(context) {
             canvas.scale(f4, f4)
             emotePaint.style = Paint.Style.STROKE
             emotePaint.strokeWidth = petWidth() * EMOTE_STROKE_RATIO
-            emotePaint.color = UiKit.CARD
+            emotePaint.color = UiKit.card()
             emotePaint.alpha = Math.max(0, Math.min(255, i))
             canvas.drawText(emoteGlyph(expression), 0.0f, 0.0f, emotePaint)
             emotePaint.style = Paint.Style.FILL
@@ -949,6 +1017,9 @@ class PetView(context: Context) : View(context) {
 
     fun stopAnim() {
         lowPower = false
+        // 【释放】摘窗 / 暂离 / detach 都经由此处：清触摸忙标志，否则中途摘窗收不到 UP，
+        //   下次挂载会带着 touchBusy=true 满速空转。
+        touchBusy = false
         anim.stopAnim()
     }
 

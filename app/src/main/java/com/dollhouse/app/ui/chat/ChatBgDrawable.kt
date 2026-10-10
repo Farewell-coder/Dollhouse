@@ -17,7 +17,7 @@ import android.graphics.drawable.Drawable
  *        把图硬拉伸到容器尺寸，圆形变椭、人脸变扁。这里改为等比放大到「刚好覆盖」，
  *        多出来的部分居中裁掉，宁可裁边也绝不拉伸。
  */
-class ChatBgDrawable(private val bmp: Bitmap) : Drawable() {
+class ChatBgDrawable(private val bmp: Bitmap, private val mode: Int = MODE_CROP) : Drawable() {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val src = Rect()
     private val dst = Rect()
@@ -53,14 +53,59 @@ class ChatBgDrawable(private val bmp: Bitmap) : Drawable() {
         if (vw <= 0 || vh <= 0 || bw <= 0 || bh <= 0) {
             return
         }
-        // center-crop：取较小的缩放比，保证两边都铺满，再居中裁掉溢出部分。
-        val scale = Math.max(vw.toFloat() / bw.toFloat(), vh.toFloat() / bh.toFloat())
-        val sw = vw.toFloat() / scale
-        val sh = vh.toFloat() / scale
-        val left = (bw.toFloat() - sw) / 2.0f
-        val top = (bh.toFloat() - sh) / 2.0f
-        src.set(Math.round(left), Math.round(top), Math.round(left + sw), Math.round(top + sh))
-        dst.set(bounds)
-        canvas.drawBitmap(bmp, src, dst, paint)
+        when (mode) {
+            MODE_FIT -> {
+                // 完整适应：等比缩到「整张都看得见」，四周留空（不裁边、不拉伸）。
+                val scale = Math.min(vw.toFloat() / bw.toFloat(), vh.toFloat() / bh.toFloat())
+                val dw = Math.round(bw * scale)
+                val dh = Math.round(bh * scale)
+                val left = (vw - dw) / 2
+                val top = (vh - dh) / 2
+                dst.set(left, top, left + dw, top + dh)
+                canvas.drawBitmap(bmp, null, dst, paint)
+            }
+            MODE_STRETCH -> {
+                // 拉伸铺满：无视原图比例硬拉到容器尺寸。会变形，是用户主动选的。
+                dst.set(bounds)
+                canvas.drawBitmap(bmp, null, dst, paint)
+            }
+            MODE_TILE -> {
+                // 平铺：按原图原始像素重复铺满，适合纹理 / 图案类背景。
+                canvas.save()
+                canvas.clipRect(bounds)
+                var y = 0
+                while (y < vh) {
+                    var x = 0
+                    while (x < vw) {
+                        canvas.drawBitmap(bmp, (bounds.left + x).toFloat(), (bounds.top + y).toFloat(), paint)
+                        x += bw
+                    }
+                    y += bh
+                }
+                canvas.restore()
+            }
+            else -> {
+                // 填满裁剪：取较大的缩放比，保证两边都铺满，再居中裁掉溢出部分。
+                val scale = Math.max(vw.toFloat() / bw.toFloat(), vh.toFloat() / bh.toFloat())
+                val sw = vw.toFloat() / scale
+                val sh = vh.toFloat() / scale
+                val left = (bw.toFloat() - sw) / 2.0f
+                val top = (bh.toFloat() - sh) / 2.0f
+                src.set(Math.round(left), Math.round(top), Math.round(left + sw), Math.round(top + sh))
+                dst.set(bounds)
+                canvas.drawBitmap(bmp, src, dst, paint)
+            }
+        }
+    }
+
+    companion object {
+        /** 填满裁剪（默认，等比覆盖 + 居中裁边）。 */
+        const val MODE_CROP = 0
+        /** 完整适应（等比缩放，整张可见，四周留空）。 */
+        const val MODE_FIT = 1
+        /** 拉伸铺满（无视比例，会变形）。 */
+        const val MODE_STRETCH = 2
+        /** 平铺（按原始像素重复）。 */
+        const val MODE_TILE = 3
     }
 }

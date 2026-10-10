@@ -1,6 +1,7 @@
 package com.dollhouse.app.keepalive
 
 import android.app.Application
+import com.dollhouse.app.ui.compose.ComposeHost
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -18,12 +19,16 @@ import javax.inject.Inject
  */
 @HiltAndroidApp
 class DollhouseApp : Application() {
-
     @Inject
     lateinit var keepAlive: KeepAliveFacade
-
     override fun onCreate() {
         super.onCreate()
+        // 【Compose 生命周期桥】本工程 Activity 全部继承原生 `android.app.Activity`，
+        //   不会自动装 `ViewTreeLifecycleOwner`；而 Compose 的帧时钟只在 Lifecycle
+        //   走到 ON_START 时才恢复。这里挂一次进程级回调，把真实的前后台变化转发给
+        //   ComposeHost 装的 owner —— 否则页面会停在 CREATED 白屏（已用 javap 核实
+        //   WindowRecomposer 的 onStateChanged 分支）。
+        ComposeHost.install(this)
         // 开关未开启时 restore 内部直接返回，零开销。
         keepAlive.restore()
     }

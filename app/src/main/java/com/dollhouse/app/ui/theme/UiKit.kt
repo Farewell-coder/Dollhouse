@@ -162,6 +162,83 @@ object UiKit {
         return (ERR and 0x00FFFFFF) or 0x1E000000
     }
 
+    /**
+     * 【外观】卡片底色：把 [CARD] 按用户设的「卡片透明度」叠成半透明。
+     *
+     * 【为什么是派生色而不是新增调色板格子】沿用 [okBg] / [errBg] 的既有范式：
+     *   ThemeManager 的调色板是定长数组（PAL_SIZE=29），cachedMonetPalette() 会校验长度，
+     *   新增格子会让校验失败、莫奈配色整体被丢弃（历史上真出过这个故障）。
+     *   派生色用方法现算，数组长度不变，切主题时跟着 CARD 自动变 —— 零风险路径。
+     *
+     * 【为什么卡片底都取它】View 侧 `card()` / `round(CARD,…)` 与 Compose 侧
+     *   `DhColors.card` 都读这一个方法，于是「一处改、全 App 生效」，
+     *   不存在「首页卡片变了、聊天气泡没变」的撕裂。
+     *
+     * 【100% 时原样返回 CARD】不做任何位运算，保证默认外观与改造前逐像素一致。
+     */
+    @JvmStatic
+    fun card(): Int {
+        val p = cardAlphaApplied
+        if (p >= 100) {
+            return CARD
+        }
+        return ContrastCore.withAlpha(CARD, Math.max(0, Math.min(255, p * 255 / 100)))
+    }
+
+    /**
+     * 落一次「卡片透明度」偏好。由 [ThemeManager.apply] 与 ThemeRefresh 在需要生效时调用。
+     */
+    @JvmStatic
+    fun applyCardAlpha(percent: Int) {
+        cardAlphaApplied = Math.max(0, Math.min(100, percent))
+    }
+
+    /** 当前已应用的卡片透明度（0~100）。 */
+    @JvmField
+    var cardAlphaApplied = 100
+
+    /**
+     * 当前调色板快照，顺序与 ThemeManager.apply() 的赋值顺序严格一致（29 位）。
+     *
+     * 【用途】就地换主题时做「旧色 → 新色」逐点重映射（见 ThemeRefresh）：
+     *   必须在 ThemeManager.apply() 之前取旧快照，之后取新快照，两张表按下标对齐。
+     * 【为何不新增数组字段】不新增任何调色板格子，PAL_SIZE 仍为 29，零风险。
+     */
+    @JvmStatic
+    fun snapshotPalette(): IntArray {
+        return intArrayOf(
+            ACC, ACC2, CARD, BG, TITLE, SUB, LINE, OPTION, SOFT, FIELD,
+            OK, ERR, ON_ACC, CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG,
+            CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG, HINT_FG, HINT_BG,
+            SWITCH_OFF, EMOTE_1, EMOTE_2, EMOTE_3, STROKE, SCRIM
+        )
+    }
+
+    /**
+     * 【接收处夹紧对比度】ThemeManager 冻结不能改，所以夹紧收在 UiKit 侧：
+     *   调 ThemeManager.apply() 之后（或 [ThemeRefresh.applyInPlace]）调用本方法，
+     *   把正文 / 副标题 / 提示 / 药丸文字夹到 WCAG 4.5:1，保证莫奈 / 浅色 / 暗色 / 纯黑都读得清。
+     *
+     * 【只在「接收处」改值】不新增调色板格子、不动 PAL_SIZE，也不改 ThemeManager；
+     *   只把已经落到字段上的颜色按预期底色微调到达标，方向由 [ContrastCore] 实测决定。
+     * 【幂等】对已达标颜色原样返回，重复调用无副作用。
+     */
+    @JvmStatic
+    fun clampPaletteContrast() {
+        // 正文 / 副标题：卡片与页面两种底色上都要达标。
+        TITLE = ContrastCore.ensureContrast(TITLE, CARD, ContrastCore.AA_NORMAL)
+        TITLE = ContrastCore.ensureContrast(TITLE, BG, ContrastCore.AA_NORMAL)
+        SUB = ContrastCore.ensureContrast(SUB, CARD, ContrastCore.AA_NORMAL)
+        SUB = ContrastCore.ensureContrast(SUB, BG, ContrastCore.AA_NORMAL)
+        // 提示条：字压在提示底色上。
+        HINT_FG = ContrastCore.ensureContrast(HINT_FG, HINT_BG, ContrastCore.AA_NORMAL)
+        // 药丸 / 标签文字。
+        CHAT_CHIP_FG = ContrastCore.ensureContrast(CHAT_CHIP_FG, CHAT_CHIP_BG, ContrastCore.AA_NORMAL)
+        CHAT_CHIP_MUTE = ContrastCore.ensureContrast(CHAT_CHIP_MUTE, CHAT_ACTION_BG, ContrastCore.AA_NORMAL)
+        // 主按钮：白（或深）字压在强调色上。
+        ON_ACC = ContrastCore.ensureContrast(ON_ACC, ACC, ContrastCore.AA_NORMAL)
+    }
+
     /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 整页转场 300ms。 */
     const val D_PRESS = 90
     const val D_MICRO = 180
@@ -199,25 +276,122 @@ object UiKit {
     }
 
     /**
-     * 系统状态栏高度（px）。取不到时按 24dp 兜底。
-     * 【为什么要它】本应用的状态栏是透明的，内容要自己让出这一条高度，
-     *   否则标题会被状态栏文字压住。各 ROM 高度不同（本机 100px / density 3 ≈ 33dp），
-     *   必须读系统资源而不是写死。
+     * 沉浸安全区顶部留白（px）：只让开物理 cutout（刘海 / 挖孔）与屏幕圆角，不再固定让出状态栏高度。
+     * 见 [cutoutSafeInsets]。
      */
     @JvmStatic
     fun statusBarPad(c: Context): Int {
+        return cutoutSafeInsets(c)[1]
+    }
+
+    /**
+     * 构建期物理安全区（px）：[left, top, right, bottom]，只含 display cutout（刘海 / 挖孔）。
+     *
+     * 【与 viewCutoutInsets 的区别】本函数无 View，只能构建期读 Display.getCutout()（**API29**），
+     *   故以 29 为门槛；API28 返回 0 —— 绝不按 28 判定，否则 NoSuchMethodError。
+     *   需要 API28 也生效且跟随窗口 attached / 旋转更新时，请用 [bindCutoutPadding] / [viewCutoutInsets]。
+     *
+     * 【圆角·不再扣除】不再把 API31 getRoundedCorner 的 radius 当整边内边距 —— 四角半径远大于
+     *   实际被裁区域，按四边扣除会出现过大空条 / 内容变窄。四角遮挡由控件既有基础间距覆盖。
+     */
+    @JvmStatic
+    fun cutoutSafeInsets(c: Context): IntArray {
+        val out = intArrayOf(0, 0, 0, 0)
         try {
-            val id = c.resources.getIdentifier("status_bar_height", "dimen", "android")
-            if (id > 0) {
-                val h = c.resources.getDimensionPixelSize(id)
-                if (h > 0) {
-                    return h
+            if (Build.VERSION.SDK_INT >= 29) {
+                val wm = c.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                val cutout = wm?.defaultDisplay?.cutout
+                if (cutout != null) {
+                    out[0] = Math.max(out[0], cutout.safeInsetLeft)
+                    out[1] = Math.max(out[1], cutout.safeInsetTop)
+                    out[2] = Math.max(out[2], cutout.safeInsetRight)
+                    out[3] = Math.max(out[3], cutout.safeInsetBottom)
                 }
             }
         } catch (ignored: Throwable) {
-            // 落到兜底值。
+            // 无 cutout / 取不到：保留 0。
         }
-        return dp(c, 24f)
+        return out
+    }
+
+    /**
+     * 视图级物理安全区（px）：[left, top, right, bottom]，只含 display cutout（刘海 / 挖孔）。
+     *
+     * 【为何用视图】API28 起窗口即允许 SHORT_EDGES，但 Display.getCutout() 是 API29，
+     *   API28 调用会 NoSuchMethodError；WindowInsets.getDisplayCutout() 才是 API28 起可用，
+     *   且必须等窗口 attached 后从 View.rootWindowInsets 取到的才是真实值。本函数只读该值，不判 29。
+     * 【圆角】不取 getRoundedCorner 当整边内边距（理由见 [cutoutSafeInsets]）。
+     */
+    @JvmStatic
+    fun viewCutoutInsets(v: View?): IntArray {
+        val out = intArrayOf(0, 0, 0, 0)
+        if (v == null || Build.VERSION.SDK_INT < 28) {
+            return out
+        }
+        try {
+            val co = v.rootWindowInsets?.displayCutout ?: return out
+            out[0] = co.safeInsetLeft
+            out[1] = co.safeInsetTop
+            out[2] = co.safeInsetRight
+            out[3] = co.safeInsetBottom
+        } catch (ignored: Throwable) {
+            // 取不到：保留 0。
+        }
+        return out
+    }
+
+    /**
+     * 把 [v] 的内边距绑定为「基础间距 + 物理 cutout 安全区」：绑定当帧即生效，窗口 attached / 旋转后自动更新。
+     *
+     * 【为何不挂 insets 监听】不覆盖既有 setOnApplyWindowInsetsListener（IME / 底部由
+     *   ImmersiveStatus 统一处理），只加 OnLayoutChangeListener；同值不重复 setPadding，
+     *   避免自触发布局循环。背景仍铺到 y=0，只有该控件自身避让刘海 / 挖孔，不重复扣 cutout。
+     * 【首帧兜底】原实现只在 post / layout 里 apply，首帧没有任何 base padding。
+     *   现改为绑定即同步 apply 一次：窗口未 attached（rootWindowInsets 为空）时用构建期
+     *   [cutoutSafeInsets] 兜底，attached 后再由 layout / requestApplyInsets 校正；
+     *   三条路径共用同一个幂等 apply，取值不会互相打架。
+     */
+    @JvmStatic
+    fun bindCutoutPadding(v: View?, baseL: Int, baseT: Int, baseR: Int, baseB: Int) {
+        if (v == null) {
+            return
+        }
+        val last = intArrayOf(Int.MIN_VALUE, Int.MIN_VALUE, Int.MIN_VALUE, Int.MIN_VALUE)
+        // 窗口已 attached 时用视图级 insets（API28 起随窗口更新）；未 attached 时退回构建期 cutout。
+        fun currentInsets(): IntArray {
+            return if (v.rootWindowInsets != null) viewCutoutInsets(v) else cutoutSafeInsets(v.context)
+        }
+        val apply = Runnable {
+            val s = currentInsets()
+            val l = baseL + s[0]
+            val t = baseT + s[1]
+            val r = baseR + s[2]
+            val b = baseB + s[3]
+            if (l != last[0] || t != last[1] || r != last[2] || b != last[3]) {
+                last[0] = l
+                last[1] = t
+                last[2] = r
+                last[3] = b
+                v.setPadding(l, t, r, b)
+            }
+        }
+        // 同步首帧 + attach 后 post + 布局变化 / 主动请求 insets 校正，全部幂等。
+        apply.run()
+        v.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> apply.run() }
+        v.post(apply)
+        v.requestApplyInsets()
+    }
+
+    /** 横屏侧边刘海 / 圆角的左侧安全区（px）。 */
+    @JvmStatic
+    fun safeInsetLeft(c: Context): Int {
+        return cutoutSafeInsets(c)[0]
+    }
+
+    /** 横屏侧边刘海 / 圆角的右侧安全区（px）。 */
+    @JvmStatic
+    fun safeInsetRight(c: Context): Int {
+        return cutoutSafeInsets(c)[2]
     }
 
     /**
@@ -242,45 +416,12 @@ object UiKit {
     }
 
     /**
-     * 把窗口铺到状态栏与导航栏底下（状态栏透明、导航栏透明）。
-     *
-     * 【为什么必须显式做】本工程 Activity 用的是系统主题 Theme.Material.Light.NoActionBar，
-     *   它给 windowBackground 上了不透明的浅色（#FAFAFA），且不声明 statusBarColor，
-     *   于是状态栏区域露出系统默认色——在浅色页面上就是一条突兀的灰条（实测 #757575）。
-     *   这里把状态栏 / 导航栏都设成透明并铺满，内容与状态栏之间的接缝就彻底没有了。
-     *
-     * 【配套】内容顶部必须自己让出 statusBarPad()，见 topBar / ApiPageKit.pageRoot。
+     * 沉浸铺满：统一委托 [ImmersiveStatus]（透明栏 + 原生沉浸状态栏 + IME 让位 + cutout 适配）。
+     * 详见 ImmersiveStatus 的类型注释。
      */
     @JvmStatic
     fun applyEdgeToEdge(act: Activity?) {
-        if (act == null) {
-            return
-        }
-        try {
-            val w = act.window
-            w.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
-            w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            w.setStatusBarColor(0x00000000)
-            if (Build.VERSION.SDK_INT >= 21) {
-                w.setNavigationBarColor(0x00000000)
-            }
-            // 状态栏图标反色：底色是浅色，图标必须走深色，否则白字看不见。
-            setLightStatusBar(w.decorView, !ThemeManager.isDark(act))
-            // 【让窗口真正铺满 · 本方法第二个必须做的动作】只把状态栏设成透明是不够的：
-            //   window 内容仍被系统从状态栏下沿开始摆放，于是「window 让一次 + 内容自己再让一次」
-            //   = 状态栏高度被吃掉两遍（实测本体 107px，二次让位后标题被推到 y≈263px / 88dp）。
-            //   这里显式交出 insets 消费权：窗口铺满整屏，状态栏高度只由内容自己让一次。
-            // 【为什么不用 setDecorFitsSystemWindows(false)】那会在 API30+ 顶底同时铺满，
-            //   底部导航栏 48px 会压住各页最后一行；本 App 的页面底部只留了 16~24dp。
-            //   这里统一走 systemUiVisibility 的 LAYOUT_FULLSCREEN，只放开顶部，
-            //   底部仍由系统让位，与下面 setLightStatusBar 也是同一套机制，不会互相覆盖。
-            val decor = w.decorView
-            decor.systemUiVisibility = decor.systemUiVisibility or
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-        } catch (ignored: Throwable) {
-            // 铺不满不影响功能，最多还是一小条系统色。
-        }
+        ImmersiveStatus.applyEdgeToEdge(act)
     }
 
     /** 状态栏图标 / 文字是否走深色（浅底用 true）。 */
@@ -329,10 +470,33 @@ object UiKit {
         return g
     }
 
+    /**
+     * 主按钮渐变的「浅端」色：按当前字色 [ON_ACC] 的可读性收敛 [ACC2]。
+     *
+     * 【为什么需要】主按钮 / 发送键画的是 ACC → ACC2 的渐变，而 [clampPaletteContrast] 只按
+     *   单色 ACC 夹 [ON_ACC]，渐变浅端没被覆盖 —— 浅色主题下白字压 ACC2(0xFF8B6EF7) 只有
+     *   ≈4.15:1，低于 WCAG AA 4.5，肉眼就是「紫按钮上的白字发灰发糊」。
+     * 【怎么修】不改品牌色字段、不动冻结的 ThemeManager，只在绘制端把浅端朝「远离字色」的方向
+     *   微调到达标：深端仍是品牌主色，按钮仍是紫的，白字重新清晰。
+     * 【幂等 + 缓存】已达标时原样返回该色；按 (ACC2, ON_ACC) 记忆结果，避免每次建按钮都重算。
+     */
+    private var gradEndKey = 0L
+    private var gradEndCache = 0
+
+    @JvmStatic
+    fun gradientEnd(): Int {
+        val key = (ACC2.toLong() shl 32) or (ON_ACC.toLong() and 0xFFFFFFFFL)
+        if (key != gradEndKey) {
+            gradEndCache = ContrastCore.ensureContrast(ACC2, ON_ACC, ContrastCore.AA_NORMAL)
+            gradEndKey = key
+        }
+        return gradEndCache
+    }
+
     /** 卡片：白底 + 16dp 圆角 + 极淡描边 + 近地投影。 */
     @JvmStatic
     fun card(v: View, c: Context) {
-        val g = round(CARD, c, 16f)
+        val g = round(card(), c, 16f)
         g.setStroke(1, STROKE)
         v.background = g
         v.elevation = dp(c, 2).toFloat()
@@ -342,7 +506,7 @@ object UiKit {
     @JvmStatic
     fun primary(b: TextView, c: Context) {
         val g = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, intArrayOf(ACC, ACC2)
+            GradientDrawable.Orientation.TL_BR, intArrayOf(ACC, gradientEnd())
         )
         g.cornerRadius = dp(c, 12).toFloat()
         b.background = g
@@ -360,7 +524,7 @@ object UiKit {
     @JvmStatic
     fun sendButton(b: ImageView, c: Context) {
         val g = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, intArrayOf(ACC, ACC2)
+            GradientDrawable.Orientation.TL_BR, intArrayOf(ACC, gradientEnd())
         )
         g.cornerRadius = dp(c, 999).toFloat()
         b.background = g
@@ -382,7 +546,7 @@ object UiKit {
     /** 次按钮：白底 + 淡描边 + 深字。 */
     @JvmStatic
     fun secondary(b: TextView, c: Context) {
-        b.background = roundStroke(CARD, LINE, c, 12f)
+        b.background = roundStroke(card(), LINE, c, 12f)
         b.setTextColor(TITLE)
         b.gravity = Gravity.CENTER
         b.elevation = dp(c, 1).toFloat()
@@ -640,6 +804,15 @@ object UiKit {
             trackAnim = ta
         }
 
+        /**
+         * 【就地换主题】按当前 onState 重设轨道底色（不动画）。
+         * 开关的轨道底色是构造 / setOn 那一刻写死的 GradientDrawable 快照，
+         * 主题静态字段变了它也不会变；ThemeRefresh 递归到本控件时会调这个方法。
+         */
+        fun reapplyTheme() {
+            setBackground(UiKit.round(if (onState) UiKit.ACC else UiKit.SWITCH_OFF, context, 999f))
+        }
+
         companion object {
             private const val W_DP = 44
             private const val H_DP = 24
@@ -680,7 +853,7 @@ object UiKit {
 
         init {
             tp.textAlign = Paint.Align.RIGHT
-            tp.typeface = Typeface.DEFAULT_BOLD
+            tp.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(context)
         }
 
         fun setMax(m: Int) {
@@ -869,7 +1042,7 @@ object UiKit {
     /** 【职责】设置页卡片的白色圆角背景 + 极淡描边。原 SettingsFold.cardBackground。 */
     @JvmStatic
     fun cardBg(c: Context): GradientDrawable {
-        val g = round(CARD, c, 16f)
+        val g = round(card(), c, 16f)
         g.setStroke(1, STROKE)
         return g
     }
@@ -902,7 +1075,7 @@ object UiKit {
         t.text = text
         t.setTextSize(16.0f)
         t.setTextColor(TITLE)
-        t.typeface = Typeface.DEFAULT_BOLD
+        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         return t
     }
 
@@ -913,7 +1086,7 @@ object UiKit {
         b.text = text
         b.isAllCaps = false
         b.setTextSize(FS_BTN)
-        b.typeface = Typeface.DEFAULT_BOLD
+        b.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         val pad = dp(ctx, 12)
         b.setPadding(pad, pad, pad, pad)
         if (primary) {
@@ -930,6 +1103,7 @@ object UiKit {
     @JvmStatic
     fun dialogMessage(ctx: Context, text: String): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = text
         t.setTextSize(FS_SUB)
         t.setTextColor(SUB)
@@ -967,7 +1141,7 @@ object UiKit {
 
         val col = LinearLayout(act)
         col.orientation = LinearLayout.VERTICAL
-        col.background = round(CARD, act, 16f)
+        col.background = round(card(), act, 16f)
         val pad = dp(act, 18)
         col.setPadding(pad, pad, pad, dp(act, 14))
 
@@ -1031,6 +1205,9 @@ object UiKit {
         col.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
             .setDuration(D_MICRO.toLong()).setInterpolator(EASE_DECEL).start()
         dlg.show()
+        // 【坑·沉浸同步】必须放在 show() 之后：show 之前窗口 / decor 还没建立，controller 无宿主，
+        //   同步调用无效；放在 show 之后才能把状态栏状态同步到已建立的弹窗窗口。
+        ImmersiveStatus.syncDialog(dlg)
         return dlg
     }
 
@@ -1058,8 +1235,10 @@ object UiKit {
     /** 副标题 / 注脚字号。 */
     const val FS_SUB = 12.0f
 
-    /** 底部说明文字号（比副标题再小一档）。 */
-    const val FS_TINY = 11.0f
+    /** 底部说明文字号。
+     *  【需求】11sp 在浅底上偏小偏淡（用户实测反馈「底部小字看不清」），提到 12sp。
+     *   不再继续下探：再小一档在 1080p 上已接近可读下限。 */
+    const val FS_TINY = 12.0f
 
     /** 标准按钮字号。 */
     const val FS_BTN = 15.0f
@@ -1114,9 +1293,19 @@ object UiKit {
         val bar = LinearLayout(ctx)
         bar.orientation = LinearLayout.HORIZONTAL
         bar.gravity = Gravity.CENTER_VERTICAL
-        // 【状态栏嵌入】状态栏是透明的，顶栏自己让出这一条高度，
-        //   标题才不会与状态栏的时间 / 电量挤在一起。
-        bar.setPadding(dp(ctx, 16), statusBarPad(ctx) + dp(ctx, 12), dp(ctx, 16), 0)
+        // 【显式尺寸】横向撑满、纵向按内容；不显式给出时可能被调用方容器量成内容宽 / 塌高。
+        bar.layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        // 【不被剪】高 padding（含刘海安全区）下允许内容越过 padding 绘制，避免标题 / 返回键被裁掉。
+        bar.clipToPadding = false
+        // 【最小高度兜底】至少装得下一行图标命中区（HIT_DP）+ 顶部基础间距 + 当前物理顶部安全区；
+        //   只设下限不锁死总高度，大字号下仍可随内容撑高。
+        bar.minimumHeight = dp(ctx, HIT_DP) + dp(ctx, 12) + cutoutSafeInsets(ctx)[1]
+        // 【状态栏嵌入】状态栏透明且已隐藏，顶栏只让开物理 cutout（刘海 / 挖孔）与既有 12dp 间距，
+        //   不再按整边圆角放大顶部留白，标题也就不会与状态栏时间 / 电量挤在一起。
+        bindCutoutPadding(bar, dp(ctx, 16), dp(ctx, 12), dp(ctx, 16), 0)
 
         if (back != null) {
             val b = iconView(ctx, Icons.IC_ARROW_LEFT, FS_ICON, TITLE)
@@ -1133,10 +1322,11 @@ object UiKit {
         t1.text = title
         t1.setTextSize(FS_TITLE)
         t1.setTextColor(TITLE)
-        t1.typeface = Typeface.DEFAULT_BOLD
+        t1.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         titles.addView(t1)
         if (sub != null && sub.length > 0) {
             val t2 = TextView(ctx)
+            t2.typeface = Fonts.ui(ctx)
             t2.text = sub
             t2.setTextSize(FS_SUB)
             t2.setTextColor(SUB)
@@ -1163,6 +1353,7 @@ object UiKit {
     @JvmStatic
     fun chip(ctx: Context, text: String, fg: Int, bg: Int): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = text
         t.setTextSize(FS_CHIP)
         t.setTextColor(fg)
@@ -1176,6 +1367,7 @@ object UiKit {
     @JvmStatic
     fun badge(ctx: Context, text: String, fg: Int, bg: Int): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = text
         t.setTextSize(FS_TINY)
         t.setTextColor(fg)
@@ -1188,12 +1380,13 @@ object UiKit {
     @JvmStatic
     fun outlineChip(ctx: Context, text: String): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = text
         t.setTextSize(FS_CHIP)
         t.setTextColor(TITLE)
         t.isClickable = true
         t.gravity = Gravity.CENTER
-        t.background = roundStroke(CARD, LINE, ctx, 999f)
+        t.background = roundStroke(card(), LINE, ctx, 999f)
         t.setPadding(dp(ctx, 12), dp(ctx, 8), dp(ctx, 12), dp(ctx, 8))
         press(t)
         return t
@@ -1206,7 +1399,7 @@ object UiKit {
         t.text = text
         t.setTextSize(FS_CHIP)
         t.setTextColor(ON_ACC)
-        t.typeface = Typeface.DEFAULT_BOLD
+        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         t.isClickable = true
         t.gravity = Gravity.CENTER
         primary(t, ctx)
@@ -1222,7 +1415,7 @@ object UiKit {
         b.text = text
         b.isAllCaps = false
         b.setTextSize(FS_BTN)
-        b.typeface = Typeface.DEFAULT_BOLD
+        b.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         val pad = dp(ctx, 14)
         b.setPadding(pad, pad, pad, pad)
         if (primary) {
@@ -1270,6 +1463,9 @@ object UiKit {
         page.translationX = pageW(content) * 0.14f
         page.alpha = 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
+        // 【全局背景】覆盖页自铺一次全局背景（带不透明底，遮住下层同一张图避免叠影），
+        // 页内页面级不透明底色统一置透明，图只由页根画一次；卡片自身底色保留。
+        GlobalBackground.installPage(page)
         page.animate().translationX(0f).alpha(1f)
             .setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL).start()
     }
@@ -1284,6 +1480,8 @@ object UiKit {
         page.setTag(tag)
         page.alpha = 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
+        // 同 openPage：页根铺全局背景，页内页面级底色置透明，避免与宿主重复叠图。
+        GlobalBackground.installPage(page)
         page.animate().alpha(1f).setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL)
             .withEndAction {
                 // 挂在新页（一直在树上）的结束回调上，比挂旧页可靠。

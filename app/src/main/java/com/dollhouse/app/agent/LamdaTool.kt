@@ -23,6 +23,12 @@ class LamdaTool : ChatTool {
     /** 工具注册名：短、好记、和 shell / web_search 同风格。 */
     companion object {
         const val NAME = "device"
+
+        /** 坐标参数上限：真实屏幕坐标远小于它，超过即视为模型乱填，直接拒绝而非静默钳制。 */
+        private const val COORD_MAX = 100000
+
+        /** 长按时长上限（毫秒），与 lamda 侧约定一致。 */
+        private const val DURATION_MAX = 60000
     }
 
     override fun name(): String {
@@ -81,7 +87,9 @@ class LamdaTool : ChatTool {
             return "（参数不是合法的 JSON）"
         }
         if (!LamdaManager.alive()) {
-            return "（lamda 服务没在运行，先去设置 → 聊天设置 → lamda 设备控制 启动它）"
+            return "（设备通道当前不可用：lamda 服务未在运行或正在启动，暂时无法操作手机。" +
+                    "不要重试本工具，直接用文字告诉用户当前无法操作手机，" +
+                    "并建议用户在「设置 → 聊天设置 → lamda 设备控制」里启动 lamda 服务）"
         }
         val action = obj.optString("action", "").trim()
         if (action.isEmpty()) {
@@ -102,7 +110,7 @@ class LamdaTool : ChatTool {
                 "input_text" -> {
                     val text = obj.optString("text", "")
                     if (text.isEmpty()) {
-                        return "（没有给出要输入的文字）"
+                        return "（缺少参数 text；正确用法：{\"action\":\"input_text\",\"text\":\"要输入的文字\"}）"
                     }
                     val a = JSONObject()
                     a.put("text", text)
@@ -111,7 +119,7 @@ class LamdaTool : ChatTool {
                 "set_clipboard" -> {
                     val text = obj.optString("text", "")
                     if (text.isEmpty()) {
-                        return "（没有给出要写入剪贴板的内容）"
+                        return "（缺少参数 text；正确用法：{\"action\":\"set_clipboard\",\"text\":\"要写入剪贴板的内容\"}）"
                     }
                     val a = JSONObject()
                     a.put("text", text)
@@ -122,7 +130,7 @@ class LamdaTool : ChatTool {
             if ("open_app" == action || "close_app" == action) {
                 val pkg = obj.optString("package_name", "").trim()
                 if (pkg.isEmpty()) {
-                    return "（没有给出应用包名）"
+                    return "（缺少参数 package_name；正确用法：{\"action\":\"open_app\",\"package_name\":\"com.tencent.mm\"}）"
                 }
                 val a = JSONObject()
                 a.put("package_name", pkg)
@@ -132,41 +140,106 @@ class LamdaTool : ChatTool {
             }
             // 坐标动作。
             if ("tap" == action || "long_press" == action) {
-                val a = JSONObject()
-                a.put("x", obj.optInt("x", -1))
-                a.put("y", obj.optInt("y", -1))
-                if (a.optInt("x", -1) < 0 || a.optInt("y", -1) < 0) {
-                    return "（缺少坐标 x / y）"
+                val tapUsage = "正确用法：{\"action\":\"" + action + "\",\"x\":540,\"y\":1200}" +
+                        "；坐标未提供时请先 observe 获取界面可点元素坐标，不要凭空猜"
+                val ex = checkIntArg(obj, "x", 0, COORD_MAX)
+                if (ex != null) {
+                    return "（" + ex + "；" + tapUsage + "）"
                 }
+                val ey = checkIntArg(obj, "y", 0, COORD_MAX)
+                if (ey != null) {
+                    return "（" + ey + "；" + tapUsage + "）"
+                }
+                val a = JSONObject()
+                a.put("x", obj.getInt("x"))
+                a.put("y", obj.getInt("y"))
                 if ("long_press" == action) {
-                    val d = obj.optInt("duration", 0)
-                    if (d > 0) {
-                        a.put("duration", d)
+                    // duration 可选；一旦给出就必须是 0..60000 的整数，否则拒绝而不是静默纠正。
+                    if (obj.has("duration") && !obj.isNull("duration")) {
+                        val ed = checkIntArg(obj, "duration", 0, DURATION_MAX)
+                        if (ed != null) {
+                            return "（" + ed + "；正确用法：{\"action\":\"long_press\",\"x\":540,\"y\":1200,\"duration\":800}）"
+                        }
+                        val d = obj.getInt("duration")
+                        if (d > 0) {
+                            a.put("duration", d)
+                        }
                     }
                     return LamdaManager.mcpCall("longPress", a, 20000L)
                 }
                 return LamdaManager.mcpCall("tap", a, 15000L)
             }
             if ("swipe" == action) {
-                val a = JSONObject()
-                a.put("from_x", obj.optInt("from_x", -1))
-                a.put("from_y", obj.optInt("from_y", -1))
-                a.put("to_x", obj.optInt("to_x", -1))
-                a.put("to_y", obj.optInt("to_y", -1))
-                if (a.optInt("from_x", -1) < 0 || a.optInt("from_y", -1) < 0 ||
-                        a.optInt("to_x", -1) < 0 || a.optInt("to_y", -1) < 0) {
-                    return "（缺少滑动坐标 from_x / from_y / to_x / to_y）"
+                val swipeUsage = "正确用法：{\"action\":\"swipe\",\"from_x\":540,\"from_y\":1500," +
+                        "\"to_x\":540,\"to_y\":500}"
+                val e1 = checkIntArg(obj, "from_x", 0, COORD_MAX)
+                if (e1 != null) {
+                    return "（" + e1 + "；" + swipeUsage + "）"
                 }
-                val step = obj.optInt("step", 0)
-                if (step > 0) {
-                    a.put("step", step)
+                val e2 = checkIntArg(obj, "from_y", 0, COORD_MAX)
+                if (e2 != null) {
+                    return "（" + e2 + "；" + swipeUsage + "）"
+                }
+                val e3 = checkIntArg(obj, "to_x", 0, COORD_MAX)
+                if (e3 != null) {
+                    return "（" + e3 + "；" + swipeUsage + "）"
+                }
+                val e4 = checkIntArg(obj, "to_y", 0, COORD_MAX)
+                if (e4 != null) {
+                    return "（" + e4 + "；" + swipeUsage + "）"
+                }
+                val a = JSONObject()
+                a.put("from_x", obj.getInt("from_x"))
+                a.put("from_y", obj.getInt("from_y"))
+                a.put("to_x", obj.getInt("to_x"))
+                a.put("to_y", obj.getInt("to_y"))
+                // step 可选；它同属「optInt 静默截断」的缺陷，这里一并手写校验。
+                if (obj.has("step") && !obj.isNull("step")) {
+                    val es = checkIntArg(obj, "step", 0, COORD_MAX)
+                    if (es != null) {
+                        return "（" + es + "；" + swipeUsage + "）"
+                    }
+                    val s = obj.getInt("step")
+                    if (s > 0) {
+                        a.put("step", s)
+                    }
                 }
                 return LamdaManager.mcpCall("swipe", a, 20000L)
             }
         } catch (t: Throwable) {
-            return "（执行失败：" + t.message + "）"
+            // 【为什么兜底】t.message 可能为 null（例如某些 NPE），直接拼会得到 "null"；空值时回退类名。
+            val msg = t.message
+            return "（执行失败：" + (if (msg.isNullOrEmpty()) t.javaClass.simpleName else msg) + "）"
         }
-        return "（不认识的动作：" + action + "）"
+        return "（不认识的动作：" + action + "；合法动作：observe / tap / long_press / swipe / back / home / " +
+                "wake / open_app / close_app / input_text / clear_text / get_clipboard / set_clipboard）"
+    }
+
+    /**
+     * 校验一个「必须是整数」的数值参数，不合规返回可纠错的中文说明（合规返回 null）。
+     *
+     * 【为什么不用 optInt】optInt(key, -1) 会把三种情况合并成同一个 -1：参数缺失、显式负数、
+     *   类型不对（字符串 / 布尔）；而且它会静默截断 100.7 → 100、把字符串 "500" 也解析成功。
+     *   这种「悄悄纠正」会让模型以为自己参数没问题，继续按错误理解往下走。这里逐项显式校验：
+     *   存在 → 必须是 Number → 必须是整数（有小数就拒）→ 落在 [min, max] 内。
+     */
+    private fun checkIntArg(obj: JSONObject, key: String, min: Int, max: Int): String? {
+        if (!obj.has(key) || obj.isNull(key)) {
+            return "缺少参数 " + key
+        }
+        val v = obj.opt(key)
+        if (v !is Number) {
+            return "参数 " + key + " 必须是整数数字，当前类型是 " +
+                    (if (v == null) "null" else v.javaClass.simpleName)
+        }
+        val d = v.toDouble()
+        if (d.isNaN() || d.isInfinite() || d != Math.floor(d)) {
+            return "参数 " + key + " 必须是整数，当前为 " + v
+        }
+        if (d < min || d > max) {
+            return "参数 " + key + " 超出允许范围 [" + min + ".." + max + "]，当前为 " + v
+        }
+        return null
     }
 }
 

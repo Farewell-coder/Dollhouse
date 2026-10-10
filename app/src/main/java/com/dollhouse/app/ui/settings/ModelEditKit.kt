@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.dollhouse.app.ai.AiModel
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】模型编辑的纯规则层 + 两个页面复用的小控件。
@@ -173,12 +174,14 @@ object ModelEditKit {
         val col = LinearLayout(ctx)
         col.orientation = LinearLayout.VERTICAL
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = name
         t.setTextSize(UiKit.FS_BTN)
         t.setTextColor(UiKit.TITLE)
         col.addView(t)
         if (desc != null && desc.isNotEmpty()) {
             val d = TextView(ctx)
+            d.typeface = Fonts.ui(ctx)
             d.text = desc
             d.setTextSize(UiKit.FS_TINY)
             d.setTextColor(UiKit.SUB)

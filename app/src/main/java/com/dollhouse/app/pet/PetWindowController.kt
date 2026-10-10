@@ -104,6 +104,9 @@ class PetWindowController(private val host: PetService) {
         petView.setScaleFactor(host.petScaleApplied)
         petView.setSprite(BitmapFactory.decodeResource(host.resources, R.drawable.pet_front))
         petView.setAffection(PetPrefs.affection(host))
+        // 【吸附=忙】直接探测弹簧是否在跑：吸附开始 / 完成 / 取消三态都体现在 isRunning 上，
+        //   吸附期间帧循环强制 16ms，人偶内部动画不会停在贴边熄火档。
+        petView.snapActiveCheck = { host.snapAnim?.isRunning == true }
         val layoutParams = WindowManager.LayoutParams(petView.windowWidth(), petView.petHeight(), host.overlayType(), 776, -3)
         host.lp = layoutParams
         layoutParams.gravity = 8388659
@@ -157,6 +160,48 @@ class PetWindowController(private val host: PetService) {
             host.petView = null
         }
         host.added = false
+    }
+
+    /**
+     * 【暂离】把同一 PetView 从 WindowManager 摘掉，实例 / lp / PetBus / PetTalk 原样保留。
+     *
+     * 【为什么不用 detachPet】detachPet 会把 host.petView 置空并 unregister PetBus，PetTalk 的在途
+     *   回复回来时宿主已无 View 可写（彻底丢回复）。暂离只摘窗：petView 不置空、PetBus 不动、
+     *   PetTalk 照跑，回复写回同一气泡数据，恢复时同一实例重新 addView。
+     * 【为什么置 added=false】防止 REFRESH / onTaskRemoved 发来的 ACTION_START 走 `!added` 分支
+     *   重新 attachPet；「正在暂离」由 host.away 独占判定。added=false 同时让 safeUpdate 自然失效，
+     *   暂离期间不会有任何 updateViewLayout。
+     */
+    fun awayHide() {
+        val petView = host.petView ?: return
+        if (!host.added) {
+            return
+        }
+        petView.screenTick = null
+        petView.stopAnim()
+        try {
+            host.wm!!.removeView(petView)
+        } catch (unused: Throwable) {
+        }
+        host.added = false
+    }
+
+    /**
+     * 【暂离恢复】把同一 PetView 重新挂回原 lp 并启动动画；成功返回 true。
+     * 【边界】调用方（PetService.exitAway）已先清 host.away，这里只负责 addView 与启动帧循环。
+     */
+    fun awayShow(petView: PetView, layoutParams: WindowManager.LayoutParams): Boolean {
+        return try {
+            host.wm!!.addView(petView, layoutParams)
+            host.added = true
+            petView.screenTick = Runnable { checkScreenChanged() }
+            petView.startAnim()
+            safeUpdate()
+            true
+        } catch (unused: Throwable) {
+            host.added = false
+            false
+        }
     }
 
     /**
@@ -326,6 +371,17 @@ class PetWindowController(private val host: PetService) {
         }
     }
 
+    /**
+     * 气泡占用的窗口高度：有气泡、非 peek 且确有内容时为其实际高度，否则 0。
+     * 【为什么不用 bubbleSpace()】那是写死的 96dp 预留值，与真实排版高度不一致；
+     *   拖动 / 吸附 / 记忆锚点都必须用真实高度，气泡才不会被裁掉、人偶才不跳位。
+     */
+    private fun bubbleHeightIfUp(): Int {
+        val petView = host.petView
+        return if (host.bubbleUp && !host.peek && petView != null && petView.hasBubbleContent())
+            petView.bubbleHeight() else 0
+    }
+
     fun placeByPivot(i: Int, i2: Int) {
         val petView = host.petView
         val lp = host.lp
@@ -338,6 +394,26 @@ class PetWindowController(private val host: PetService) {
         val round3 = Math.round(i - host.geom[2])
         val round4 = Math.round(i2 - host.geom[3])
         host.petTopY = round4
+        // 【修 v0.0.5】气泡在播时（含拖动中）窗口高度必须把气泡一起算进来，
+        //   否则 placeByPivot 会把高度压回首行几何、气泡被裁掉（用户报的「拖一下就看不到回复」）。
+        //   宽度未变时 neededBubbleSpaceFor 命中缓存排版，不会逐帧重排，拖动几何因此不抖。
+        if (host.bubbleUp && !host.peek && petView.hasBubbleContent()) {
+            val space = petView.neededBubbleSpaceFor(round, round3)
+            if (space > 0) {
+                petView.setBubbleHeight(space)
+                val h = petView.baseHeight() + space
+                val y = round4 - space
+                if (lp.width == round && lp.height == h && lp.x == round3 && lp.y == y) {
+                    return
+                }
+                lp.width = round
+                lp.height = h
+                lp.x = round3
+                lp.y = y
+                host.safeUpdate()
+                return
+            }
+        }
         if (lp.width == round && lp.height == round2 && lp.x == round3 && lp.y == round4) {
             return
         }
@@ -355,7 +431,9 @@ class PetWindowController(private val host: PetService) {
             return
         }
         val pivotX = lp.x + petView.pivotLocalX()
-        val pivotY = lp.y + petView.pivotLocalY()
+        // 【气泡·静止锚点】气泡在播时窗口整体被抬高了一个气泡高度，记忆位置要换算回静止位，
+        //   否则下次启动（无气泡）人偶会整体上移一截（用户报的位置漂移）。
+        val pivotY = lp.y + petView.pivotLocalY() + bubbleHeightIfUp()
         // 【v2.10.2】同时写比例键：像素键在横竖屏互换后全部失准（1920 在横屏是屏高的 178%），
         //   比例键让位置能跟着屏幕大小走。像素键继续保留 —— 老档回退与外部排查都还在读它。
         val screenW = Math.max(1, host.resources.displayMetrics.widthPixels)
@@ -379,7 +457,9 @@ class PetWindowController(private val host: PetService) {
         val i2 = host.resources.displayMetrics.heightPixels
         val round = Math.round(host.resources.displayMetrics.density * 8.0f)
         val round2 = Math.round(host.lp!!.x + host.petView!!.pivotLocalX())
-        val clampFeetY = host.clampFeetY(Math.round(host.lp!!.y + host.petView!!.pivotLocalY()), i2, round)
+        // 【气泡·静止锚点】同上：气泡在播时锚点要换算回静止位，否则吸附 / 回夹会把人偶与气泡整体顶偏。
+        val feetY = Math.round(host.lp!!.y + host.petView!!.pivotLocalY() + bubbleHeightIfUp())
+        val clampFeetY = host.clampFeetY(feetY, i2, round)
         val round3 = Math.round(i * PetService.SNAP_ZONE_RATIO)
         if (round2 < round3) {
             host.snapToEdge(true, clampFeetY)
@@ -396,6 +476,10 @@ class PetWindowController(private val host: PetService) {
     }
 
     fun snapToEdge(z: Boolean, i: Int) {
+        // 【首帧不滞后】吸附开始时 frameBusy 还看不到弹簧（snapAnim 在本方法末尾才赋值），
+        //   此刻若帧循环仍停在 EDGE_IDLE_MS(250ms) 档，弹簧前 250ms 会被整帧吞掉。
+        //   主动唤醒到 16ms；随后 snapActiveCheck={host.snapAnim?.isRunning==true} 接管。
+        host.petView?.wakeFrame()
         val i3 = host.resources.displayMetrics.widthPixels
         val round = Math.round(host.resources.displayMetrics.density * 8.0f)
         val petView = host.petView!!
@@ -409,10 +493,17 @@ class PetWindowController(private val host: PetService) {
         }
         val round2 = Math.round(i2 - petView.pivotLocalX())
         val lp = host.lp!!
+        // 【气泡·贴边】贴边吸附不得把正在播的气泡裁掉：高度与纵向位置都按实际气泡高度一起算，
+        //   并用最终窗口 x 重排气泡（贴边后可见区变窄，行数/高度可能变化）。
+        val space = if (host.bubbleUp && !host.peek && petView.hasBubbleContent())
+            petView.neededBubbleSpaceFor(petView.windowWidth(), round2) else 0
+        if (space > 0) {
+            petView.setBubbleHeight(space)
+        }
         lp.width = petView.windowWidth()
-        lp.height = petView.baseHeight()
-        lp.y = Math.round(i - petView.pivotLocalY())
-        host.petTopY = lp.y
+        lp.height = petView.baseHeight() + space
+        lp.y = Math.round(i - petView.pivotLocalY() - space)
+        host.petTopY = lp.y + space
         host.safeUpdate()
         // 【v2.10.2】贴边位置同样写一份比例键：否则「贴边 → 旋转」时会按上一次未贴边的比例还原。
         val screenH = host.resources.displayMetrics.heightPixels
@@ -453,7 +544,8 @@ class PetWindowController(private val host: PetService) {
         }
         host.edgePeek = false
         val pivotLocalX = layoutParams.x + petView.pivotLocalX()
-        val pivotLocalY = layoutParams.y + petView.pivotLocalY()
+        // 【气泡·静止锚点】气泡在播时窗口被抬高了，退贴边重摆前先换算回静止位，人偶不跳。
+        val pivotLocalY = layoutParams.y + petView.pivotLocalY() + bubbleHeightIfUp()
         petView.setEdgePeek(false, false)
         host.placeByPivot(Math.round(pivotLocalX), Math.round(pivotLocalY))
         host.prefs!!.edit().putInt("edge_side", -1).apply()

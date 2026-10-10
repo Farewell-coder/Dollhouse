@@ -20,6 +20,7 @@ import com.dollhouse.app.ui.chat.ChatPanel
 import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】输入行工具条上三个按钮共用的底部弹出面板基座 + 模型配置选择面板。
@@ -70,7 +71,7 @@ object SheetPanel {
 
         val panel = LinearLayout(ctx)
         panel.orientation = LinearLayout.VERTICAL
-        panel.background = UiKit.round(UiKit.CARD, ctx, 18f)
+        panel.background = UiKit.round(UiKit.card(), ctx, 18f)
         panel.isClickable = true
         val pad = UiKit.dp(ctx, 16f)
         panel.setPadding(pad, UiKit.dp(ctx, 14f), pad, UiKit.dp(ctx, 18f))
@@ -124,13 +125,14 @@ object SheetPanel {
         t.text = text
         t.setTextSize(16.0f)
         t.setTextColor(UiKit.TITLE)
-        t.typeface = Typeface.DEFAULT_BOLD
+        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         t.setPadding(0, 0, 0, UiKit.dp(ctx, 4f))
         return t
     }
 
     private fun sub(ctx: Context, text: String): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = text
         t.setTextSize(UiKit.FS_TINY)
         t.setTextColor(UiKit.SUB)
@@ -153,6 +155,7 @@ object SheetPanel {
         r.setPadding(pad, UiKit.dp(ctx, 10f), pad, UiKit.dp(ctx, 10f))
 
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = name
         t.setTextSize(UiKit.FS_BTN)
         t.setTextColor(UiKit.TITLE)
@@ -162,6 +165,7 @@ object SheetPanel {
 
         if (right != null && !right.isEmpty()) {
             val v = TextView(ctx)
+            v.typeface = Fonts.ui(ctx)
             v.text = right
             v.setTextSize(UiKit.FS_SUB)
             v.setTextColor(UiKit.SUB)
@@ -302,6 +306,7 @@ object SheetPanel {
     private fun modelRow(ctx: Context, name: String, active: Boolean,
                          onClick: View.OnClickListener): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         // 【图标语义】选中项用实心勾图标代替裸「✓ 」字符；未选中不再占位（原先的「· 」是视觉噪声）。
         t.text = name
         t.setTextSize(UiKit.FS_SUB)
@@ -311,7 +316,7 @@ object SheetPanel {
         }
         t.isSingleLine = true
         t.ellipsize = TextUtils.TruncateAt.END
-        t.background = UiKit.round(if (active) UiKit.CHAT_CHIP_ON else UiKit.CARD, ctx, 8f)
+        t.background = UiKit.round(if (active) UiKit.CHAT_CHIP_ON else UiKit.card(), ctx, 8f)
         t.setPadding(UiKit.dp(ctx, 22f), UiKit.dp(ctx, 9f), UiKit.dp(ctx, 12f), UiKit.dp(ctx, 9f))
         val lp = LinearLayout.LayoutParams(-1, -2)
         lp.topMargin = UiKit.dp(ctx, 4f)
@@ -377,7 +382,7 @@ object SheetPanel {
             state.text = PetPrefs.THINK_NAMES[level]
             state.setTextSize(19.0f)
             state.setTextColor(UiKit.ACC)
-            state.typeface = Typeface.DEFAULT_BOLD
+            state.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
             box.addView(state)
 
             // 轨道：每档一个等宽格子，选中那格给主色，视觉上就是「滑块停在这一档」。
@@ -390,7 +395,8 @@ object SheetPanel {
             for (i in PetPrefs.THINK_NAMES.indices) {
                 val on = i == level
                 val dot = TextView(ctx)
-                dot.background = UiKit.round(if (on) UiKit.ACC else UiKit.LINE, ctx, 3f)
+                dot.typeface = Fonts.ui(ctx)
+                dot.background = UiKit.round(if (on) UiKit.ACC else UiKit.SWITCH_OFF, ctx, 3f)
                 val dlp = LinearLayout.LayoutParams(
                     0, UiKit.dp(ctx, if (on) 8f else 5f), 1.0f
                 )
@@ -412,7 +418,7 @@ object SheetPanel {
                 t.setTextSize(UiKit.FS_SUB)
                 t.gravity = Gravity.CENTER
                 t.setTextColor(if (on) UiKit.ON_ACC else UiKit.SUB)
-                t.typeface = Typeface.DEFAULT_BOLD
+                t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
                 t.setPadding(0, UiKit.dp(ctx, 7f), 0, UiKit.dp(ctx, 7f))
                 t.background = UiKit.round(if (on) UiKit.ACC else UiKit.SOFT, ctx, 8f)
                 val lp = LinearLayout.LayoutParams(0, -2, 1.0f)
@@ -435,6 +441,7 @@ object SheetPanel {
 
     private fun labelOf(ctx: Context, text: String): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = text
         t.setTextSize(UiKit.FS_TINY)
         t.setTextColor(UiKit.SUB)
@@ -524,6 +531,7 @@ object SheetPanel {
         val texts = LinearLayout(ctx)
         texts.orientation = LinearLayout.VERTICAL
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = name
         t.setTextSize(UiKit.FS_BTN)
         t.setTextColor(UiKit.TITLE)
@@ -541,7 +549,7 @@ object SheetPanel {
         go.text = "\u203a"
         go.setTextSize(UiKit.FS_BTN)
         go.setTextColor(UiKit.SUB)
-        go.typeface = Typeface.DEFAULT_BOLD
+        go.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         r.addView(go, LinearLayout.LayoutParams(-2, -2))
         r.isClickable = true
         UiKit.press(r)
@@ -556,7 +564,7 @@ object SheetPanel {
         val t = TextView(ctx)
         t.text = text
         t.setTextSize(UiKit.FS_SUB)
-        t.typeface = Typeface.DEFAULT_BOLD
+        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         t.setTextColor(UiKit.CHAT_CHIP_FG)
         t.gravity = Gravity.CENTER
         t.background = UiKit.round(UiKit.CHAT_CHIP_BG, ctx, 12f)

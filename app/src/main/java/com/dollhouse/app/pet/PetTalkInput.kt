@@ -17,6 +17,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】三击人偶后出现的迷你输入框：一个输入框 + 一个发送键，挂在 WindowManager 上的独立悬浮窗。
@@ -185,7 +186,7 @@ class PetTalkInput internal constructor(
         bar.gravity = 16
         val pad = UiKit.dp(ctx, 6.0f)
         bar.setPadding(pad, pad, pad, pad)
-        bar.background = UiKit.roundStroke(UiKit.CARD, UiKit.CHAT_BORDER, ctx, 14.0f)
+        bar.background = UiKit.roundStroke(UiKit.card(), UiKit.CHAT_BORDER, ctx, 14.0f)
         bar.elevation = UiKit.dp(ctx, 6.0f).toFloat()
         buildInput(bar)
         buildSendButton(bar)
@@ -196,6 +197,7 @@ class PetTalkInput internal constructor(
     /** 输入框本体：单行、回车发送；内容变化与触摸都重置自动收起计时。 */
     private fun buildInput(bar: LinearLayout) {
         val editText = EditText(ctx)
+        editText.typeface = Fonts.ui(ctx)
         editText.isSingleLine = true
         editText.hint = "说点什么…"
         editText.setHintTextColor(UiKit.SUB)

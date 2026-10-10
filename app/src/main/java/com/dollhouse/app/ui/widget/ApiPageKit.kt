@@ -15,6 +15,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】「提供商」模块各页面共用的小构建件：卡片 / 整宽行 / 备注 / 字段输入框 / 菜单项 / 滚动壳。
@@ -41,6 +42,7 @@ object ApiPageKit {
         box.addView(row(ctx, name, "\u203a", cb))
         if (desc != null && desc.length > 0) {
             val d = TextView(ctx)
+            d.typeface = Fonts.ui(ctx)
             d.text = desc
             d.setTextSize(UiKit.FS_TINY)
             d.setTextColor(UiKit.SUB)
@@ -115,6 +117,7 @@ object ApiPageKit {
         lp.topMargin = dp(ctx, 8)
         r.layoutParams = lp
         val label = TextView(ctx)
+        label.typeface = Fonts.ui(ctx)
         label.text = name
         label.setTextSize(UiKit.FS_BTN)
         label.setTextColor(UiKit.TITLE)
@@ -131,7 +134,7 @@ object ApiPageKit {
                 v.text = right
                 v.setTextSize(UiKit.FS_BTN)
                 v.setTextColor(UiKit.SUB)
-                v.typeface = Typeface.DEFAULT_BOLD
+                v.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
                 r.addView(v, LinearLayout.LayoutParams(-2, -2))
             }
         }
@@ -147,6 +150,7 @@ object ApiPageKit {
     @JvmStatic
     fun note(ctx: Context, s: String): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = s
         t.setTextSize(UiKit.FS_TINY)
         t.setTextColor(UiKit.SUB)
@@ -154,7 +158,7 @@ object ApiPageKit {
         t.setPadding(dp(ctx, 2), dp(ctx, 8), dp(ctx, 2), 0)
         // 【图标语义】备注左侧挂一枚 info 图标：二级页里「说明性文字」与「可操作内容」
         //   在视觉上要能分开，否则满屏都是字、用户分不清哪块是下一步要点的。
-        Icons.stateIcon(t, Icons.IC_INFO, UiKit.SUB, 12.0f, 4)
+        Icons.stateIcon(t, Icons.IC_INFO, UiKit.TITLE, 12.0f, 4)
         return t
     }
 
@@ -162,6 +166,7 @@ object ApiPageKit {
     @JvmStatic
     fun sectionTitle(ctx: Context, s: String): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = s
         t.setTextSize(UiKit.FS_SUB)
         t.setTextColor(UiKit.SUB)
@@ -173,6 +178,7 @@ object ApiPageKit {
     fun labeledInput(ctx: Context, dest: LinearLayout, label: String, hint: String,
                      password: Boolean): EditText {
         val lb = TextView(ctx)
+        lb.typeface = Fonts.ui(ctx)
         lb.text = label
         lb.setTextSize(UiKit.FS_SUB)
         lb.setTextColor(UiKit.SUB)
@@ -180,6 +186,7 @@ object ApiPageKit {
         dest.addView(lb)
 
         val e = EditText(ctx)
+        e.typeface = Fonts.ui(ctx)
         e.hint = hint
         e.setTextSize(UiKit.FS_BTN)
         e.isSingleLine = true
@@ -195,6 +202,7 @@ object ApiPageKit {
     @JvmStatic
     fun menuItem(ctx: Context, label: String, cb: View.OnClickListener): TextView {
         val t = TextView(ctx)
+        t.typeface = Fonts.ui(ctx)
         t.text = label
         t.setTextSize(UiKit.FS_BTN)
         t.setTextColor(UiKit.TITLE)

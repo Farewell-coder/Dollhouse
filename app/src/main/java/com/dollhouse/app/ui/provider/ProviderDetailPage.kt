@@ -8,10 +8,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import com.dollhouse.app.anim.Springs
 import com.dollhouse.app.data.ProviderStore
@@ -70,7 +68,10 @@ object ProviderDetailPage {
         // 【状态栏高度不在这里留】本页内容层走的 UiKit.topBar 已经含状态栏留白
         //   （ProviderEditPage / ProviderModelsPage 都带 topBar），这里再留会变双倍。
         val pv = ProviderStore.findProvider(ctx, providerId)
-        if (pv == null) {
+        // 【新建态】providerId 传空 = 「加号」进来的新建供应商：没有 id 可查库，
+        //   但要走**同一个壳**（底部「配置｜模型」胶囊栏），才能和点卡片进来的长相一致。
+        val isNew = providerId.isEmpty()
+        if (!isNew && pv == null) {
             val miss = ApiPageKit.pageRoot(ctx)
             miss.addView(UiKit.topBar(ctx, "供应商", "已不存在", View.OnClickListener {
                 ProviderNav.back(act)
@@ -83,18 +84,62 @@ object ProviderDetailPage {
         val cur = if (ProviderNav.TAB_MDL == tab) ProviderNav.TAB_MDL else ProviderNav.TAB_CFG
         // 安全区：手势导航下为 0，三键导航下等于导航栏高度。底栏与内容预留都要算进去。
         val safe = UiKit.navBarPad(ctx)
-        // 内容层：底部只留安全区。让位改由内部 ScrollView 的 padding 承担（见本方法末尾）。
+        // 内容层：底部不留 padding。让位改由内容页内部垫底承担（见下方 reserveDp）。
         //   【为什么不能在 slot 上留底】留了之后，胶囊所在的那条高度带上是一片空白
         //   padding，毛玻璃采样只能采到纯底色，模糊等于白做 —— 那就退化成
-        //   「一个实心 BottomBar 降低透明度」，正是本次要避免的。挪进 ScrollView 之后，
+        //   「一个实心 BottomBar 降低透明度」，正是本次要避免的。挪进内容页之后，
         //   页面铺到屏幕底，滚动时内容会从胶囊背后正常穿过。
         val slot = FrameLayout(ctx)
         slot.setPadding(0, 0, 0, 0)
-        val body = content(act, providerId, cur)
-        // 【补偿】模型 tab 的「添加模型」是浮在内容层底部的按钮，它原本靠 slot 的底部
-        //   padding 避让底栏。padding 挪进 ScrollView 之后，这里单独把它抬高，
-        //   否则它会沉到屏幕最底、被玻璃胶囊压住。
-        liftFloating(body, ApiPageKit.dp(ctx, RESERVE_DP) + safe)
+        // 【让位 dp】内容页底部要留出胶囊高度，否则最后一行被盖住。
+        //   迁移后内容页是 Compose，壳层无法再从 View 树里找到它的滚动容器
+        //   （`verticalScroll` 不是 `android.widget.ScrollView`），故这个值必须由
+        //   壳层算好、交给内容页自己去垫底（见 content() 的 bottomPadDp）。
+        val safeDp = (safe / ctx.resources.displayMetrics.density).toInt()
+        val reserveDp = RESERVE_DP + safeDp
+        // 【滚动上报的接收端】内容页创建在 pill / glass 之前，这里先用持有者占位，
+        //   等底栏装配完再把它们填进去 —— 回调是懒执行的，届时引用必然就绪。
+        val hideHost = arrayOfNulls<Any>(2)
+        val lastY = intArrayOf(0)
+        val onScroll: (Int) -> Unit = { y ->
+            val down = y > lastY[0] + 6
+            val up = y < lastY[0] - 6
+            lastY[0] = y
+            val glassV = hideHost[1] as? GlassCapsule
+            val pillV = hideHost[0] as? View
+            // 【必须显式重绘】滚动是内容层在动、玻璃自己没动 —— 不主动重绘的话，
+            //   模糊画面会定格在开始滚动的那一帧，看起来像贴了一张静态截图。
+            //   降采样后只有约 130×33 像素要处理，每帧重算的代价远小于一次列表重绘。
+            glassV?.invalidate()
+            if (down) {
+                pillV?.let { UiKit.fade(it, false) }
+                glassV?.setBlurOn(false)
+            } else if (up || y <= 0) {
+                pillV?.let { UiKit.fade(it, true) }
+                glassV?.setBlurOn(true)
+            }
+        }
+        // 【切 tab 为什么必须复用实例】切 tab 是 slot.removeAllViews() 再挂新的，
+        //   被摘下的那一页成了孤儿、状态全丢 —— 用户填到一半的表单切一下「模型」
+        //   再切回来就清空了。所以两个 tab 各留一份：配置页全程复用（它才是表单），
+        //   模型页只在 id 没变时复用（新建态保存拿到真实 id 后必须重建，否则还是占位页）。
+        var cfgPage: View? = null
+        var mdlPage: View? = null
+        var mdlPageId: String? = null
+        fun pageFor(id: String, t: String): View {
+            if (ProviderNav.TAB_MDL == t) {
+                if (mdlPage == null || mdlPageId != id) {
+                    mdlPage = content(act, id, t, reserveDp, onScroll)
+                    mdlPageId = id
+                }
+                return mdlPage!!
+            }
+            if (cfgPage == null) {
+                cfgPage = content(act, id, t, reserveDp, onScroll)
+            }
+            return cfgPage!!
+        }
+        val body = pageFor(providerId, cur)
         slot.addView(body, FrameLayout.LayoutParams(-1, -1))
         root.addView(slot, FrameLayout.LayoutParams(-1, -1))
 
@@ -165,17 +210,19 @@ object ProviderDetailPage {
         val click = View.OnClickListener { v ->
             val want = if (v === cfgBtn) ProviderNav.TAB_CFG else ProviderNav.TAB_MDL
             if (want != ProviderNav.currentDetailTab()) {
+                // 【新建态保存后要重新解析 id】新建时路由里没有 id，保存成功后
+                //   ProviderEditPage 会把栈顶换成真实 id 的详情路由；这里现解析一次，
+                //   否则会继续拿进页时那个空 id 去查库，切到「模型」栏就落到兜底页。
+                val pid = ProviderNav.currentDetailId(providerId)
                 // 先写回栈顶：之后无论从哪层返回，重新渲染都落在同一个 tab。
-                ProviderNav.setDetailTab(providerId, want)
+                ProviderNav.setDetailTab(pid, want)
                 val toMdl = ProviderNav.TAB_MDL == want
                 slot.removeAllViews()
-                val page = content(act, providerId, want)
-                liftFloating(page, ApiPageKit.dp(act, RESERVE_DP) + safe)
+                val page = pageFor(pid, want)
                 slot.addView(page, FrameLayout.LayoutParams(-1, -1))
-                // 【切 tab 必须重挂】让位 padding 与滚动监听都长在 ScrollView 对象上，
-                //   上面刚把整棵内容层换掉，这里不重挂就是「切一次 tab 后底栏不再淡出、
-                //   最后一行还会被胶囊盖住」。
-                syncSlot(slot, pill, glass)
+                // 【为什么不再重挂滚动监听】让位与滚动上报现在长在内容页自己身上
+                //   （Compose 的 [DhKit.Page] 收 bottomPadDp / onScroll），换内容层
+                //   不影响壳层这边的回调引用，故切 tab 无需再做任何补偿。
                 markerAnim[0]?.cancel()
                 val from = sel.translationX
                 val to = if (toMdl) travel else 0f
@@ -211,112 +258,40 @@ object ProviderDetailPage {
         // 适配安全区：距底再让开导航栏高度（手势导航下为 0）。
         plp.bottomMargin = shellMargin + safe
         root.addView(pill, plp)
+        // 【把回调接收端填上】onScroll 在内容页创建时已经交出去，那时 pill / glass 还不存在，
+        //   故用持有者占位；这里底栏装配完毕，正式接线。
+        hideHost[0] = pill
+        hideHost[1] = glass
         // 采样源 = 内容层：胶囊背后要有真实内容可透，模糊才有意义。
         glass.setSource(slot)
-        // 让位 + 滚动淡出：与切 tab 走同一个入口，避免两处逻辑漂移。
-        syncSlot(slot, pill, glass)
         return root
     }
 
-    /**
-     * 把内容层里「贴底悬浮」的按钮整体抬高 bottomPx。
-     *
-     * 【为什么要这么绕】那些按钮挂在内容页自己的 FrameLayout 上、走 gravity=BOTTOM，
-     *   按设计本应由外层的底部留白把它们顶上去。本轮把留白从 slot 挪进了 ScrollView
-     *   （目的：让内容能铺到屏幕底、从玻璃胶囊背后穿过），于是这里必须补一次抬高。
-     *
-     * 【为什么用精确相等判 gravity】FrameLayout.LayoutParams 未设 gravity 时值是 -1，
-     *   而 -1 & Gravity.BOTTOM 恰好也等于 Gravity.BOTTOM，用位与判断会把整页内容层
-     *   一起误伤。所以逐字比对 BOTTOM|CENTER_HORIZONTAL。
-     */
-    private fun liftFloating(body: View, bottomPx: Int) {
-        if (body !is FrameLayout) {
-            return
-        }
-        for (i in 0 until body.childCount) {
-            val c = body.getChildAt(i)
-            val lp = c.layoutParams
-            if (lp !is FrameLayout.LayoutParams) {
-                continue
-            }
-            if (lp.gravity == (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)) {
-                lp.bottomMargin = bottomPx
-                c.layoutParams = lp
-            }
-        }
-    }
-
-    /**
-     * 把「底部让位」落到内容层的 ScrollView 上，并接好滚动淡出。
-     *
-     * 【为什么必须单独抽出来、并且在每次切 tab 之后重调】让位与监听都是绑在
-     *   ScrollView 这个对象上的，而切 tab 会把整棵内容层换掉（slot.removeAllViews），
-     *   新 ScrollView 既没有 padding 也没人在听它滚 —— 只在进页时挂一次，
-     *   切一次 tab 就全丢。所以初始装配与切 tab 走同一个入口。
-     */
-    private fun syncSlot(slot: View, pill: View, glass: GlassCapsule) {
-        val sc = findScroll(slot)
-        if (sc != null) {
-            sc.clipToPadding = false
-            sc.setPadding(0, 0, 0, ApiPageKit.dp(sc.context, RESERVE_DP) + UiKit.navBarPad(sc.context))
-        }
-        bindAutoHide(slot, pill, glass)
-    }
-
-    /** 底栏随内容滚动自动淡出 / 淡回。淡出期间关掉模糊：省算力，也避免拿过期内容去模糊。 */
-    private fun bindAutoHide(slot: View, pill: View, glass: GlassCapsule) {
-        val sc = findScroll(slot)
-        if (sc == null) {
-            return
-        }
-        sc.setOnScrollChangeListener(object : View.OnScrollChangeListener {
-            private var lastY = 0
-
-            override fun onScrollChange(v: View, x: Int, y: Int, oldX: Int, oldY: Int) {
-                val down = y > lastY + 6
-                val up = y < lastY - 6
-                lastY = y
-                // 【必须显式重绘】View 只在自己 invalidate 时才会重画，滚动是内容层在动、
-                //   玻璃自己没动 —— 不主动重绘的话，模糊画面会定格在开始滚动的那一帧，
-                //   看起来就像贴了一张静态截图。降采样后只有约 130×33 像素要处理，
-                //   每帧重算的代价远小于一次普通列表重绘。
-                glass.invalidate()
-                if (down) {
-                    UiKit.fade(pill, false)
-                    glass.setBlurOn(false)
-                } else if (up || y <= 0) {
-                    UiKit.fade(pill, true)
-                    glass.setBlurOn(true)
-                }
-            }
-        })
-    }
-
-    /** 在内容层里深度优先找第一个 ScrollView（内容页的滚动壳）。 */
-    private fun findScroll(v: View?): ScrollView? {
-        if (v == null) {
-            return null
-        }
-        if (v is ScrollView) {
-            return v
-        }
-        if (v is ViewGroup) {
-            for (i in 0 until v.childCount) {
-                val found = findScroll(v.getChildAt(i))
-                if (found != null) {
-                    return found
-                }
-            }
-        }
-        return null
-    }
-
     /** 按 tab 产内容页。配置 = 供应商编辑页（嵌入式）；模型 = 已添加模型列表。 */
-    private fun content(act: Activity, providerId: String, tab: String): View {
+    private fun content(
+        act: Activity,
+        providerId: String,
+        tab: String,
+        bottomPadDp: Int,
+        onScroll: ((y: Int) -> Unit)?
+    ): View {
         if (ProviderNav.TAB_MDL == tab) {
-            return ProviderModelsPage.build(act, providerId)
+            // 【新建态】还没保存就没有 id，查库必然查空，会落到「供应商已不存在」兜底页
+            //   —— 那对刚点加号进来的人是无意义的惊吓。这里给一句说明性占位，保存后
+            //   栈顶换成真实 id、本页会被重建（见 pageFor 的 mdlPageId 判定）成真列表。
+            if (providerId.isEmpty()) {
+                val root = FrameLayout(act)
+                val miss = ApiPageKit.pageRoot(act)
+                miss.addView(UiKit.topBar(act, "模型", "尚未保存", View.OnClickListener {
+                    ProviderNav.back(act)
+                }))
+                miss.addView(ApiPageKit.note(act, "这个供应商还没保存，保存之后就能在这里添加模型了。"))
+                root.addView(miss, FrameLayout.LayoutParams(-1, -1))
+                return root
+            }
+            return ProviderModelsPage.build(act, providerId, bottomPadDp, onScroll)
         }
-        return ProviderEditPage.buildEmbedded(act, providerId)
+        return ProviderEditPage.buildEmbedded(act, providerId, bottomPadDp, onScroll)
     }
 
     /**
@@ -335,7 +310,7 @@ object ProviderDetailPage {
         t.tag = text
         t.text = text
         t.setTextSize(UiKit.FS_CHIP)
-        t.typeface = Typeface.DEFAULT_BOLD
+        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         t.gravity = Gravity.CENTER
         // 图标用复合 drawable 上下排：比嵌套 LinearLayout 少一层，命中区也更完整。
         // 【坑】复合 drawable 按资源的固有尺寸（24dp）绘制，图标 + 文字会撑破 44dp 的按钮，

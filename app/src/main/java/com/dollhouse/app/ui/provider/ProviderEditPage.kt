@@ -1,29 +1,42 @@
 package com.dollhouse.app.ui.provider
 
 import android.app.Activity
-import android.content.Context
-import android.graphics.Typeface
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
-import android.view.Gravity
 import android.view.View
-import android.widget.EditText
-import android.widget.HorizontalScrollView
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ai.ApiClient
 import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.KeyVault
 import com.dollhouse.app.data.ProviderStore
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.UiKit
-import com.dollhouse.app.ui.widget.ApiPageKit
 
 /**
  * 【职责】添加 / 编辑供应商页。
  *
- * 【表单】名称 / API Key（密码态 + 眼睛）/ Base Url / 路径 → 三个开关 → 取消 / 保存。
+ * 【表单】名称 / API Key（密码态 + 显示切换）/ Base Url / 路径 → 三个开关 → 取消 / 保存。
  *        协议统一为「自定义（OpenAI 兼容）」：中转站与各家官网都按它对接，不再有协议页签。
  *
  * 【交互铁律】① 名称 / Key / BaseUrl 全由用户填，程序绝不覆盖；
@@ -31,6 +44,9 @@ import com.dollhouse.app.ui.widget.ApiPageKit
  *        ③ 保存成功后自动跑一次连通性测试，失败只提示、不回滚保存（规格书要求）。
  *
  * 【隐私】Key 输入框默认密码态；写盘走 KeyVault 加密，页面本身不落明文。
+ *
+ * 【迁移】r7 起正文改为 Jetpack Compose。**对外契约一字未动**：
+ *   仍是 `object` + `internal build / buildEmbedded(act, id): View`，仍由 [ProviderNav] 分派。
  */
 object ProviderEditPage {
 
@@ -55,27 +71,10 @@ object ProviderEditPage {
         arrayOf("OpenRouter", "https://openrouter.ai/api/v1"),
     )
 
-    /** 当前编辑中的表单状态（每次进页重建一份，不存静态，避免多实例串味）。 */
-    private class Form {
-        var id: String = ""
-        var protocol: String = Provider.PROTO_OPENAI
-        var created: Boolean = false
-        var name: EditText? = null
-        var key: EditText? = null
-        var base: EditText? = null
-        var path: EditText? = null
-        var enabled: UiKit.Switch? = null
-        var respApi: UiKit.Switch? = null
-        var resendReason: UiKit.Switch? = null
-        var hint: TextView? = null
-        var preview: TextView? = null
-    }
-
     /** 独立页形态：从设置页直接进（不带胶囊底栏）。 */
     internal fun build(act: Activity, providerId: String?): View {
-        return build(act, providerId, false)
+        return build(act, providerId, false, 0, null)
     }
-
     /**
      * 嵌入式形态：作为供应商详情页「配置」tab 的内容。
      * 【与独立页的差别只有一处】底部左键文案「取消」→「返回列表」。
@@ -83,191 +82,264 @@ object ProviderEditPage {
      * 【为什么不复制一份页】复制会让「供应商编辑」出现两套样式，改一处必漏一处。
      */
     internal fun buildEmbedded(act: Activity, providerId: String?): View {
-        return build(act, providerId, true)
+        return build(act, providerId, true, 0, null)
+    }
+    /**
+     * 嵌入式形态（带让位与滚动上报）。
+     *
+     * 【为什么需要这两个参数】壳层（[ProviderDetailPage]）的悬浮玻璃底栏要两件事：
+     *   ① 内容底部留出胶囊的高度，否则最后一行被盖住；
+     *   ② 内容滚动时把底栏淡出 / 淡回。
+     *   壳层是 View 树，拿不到 Compose 的 `scrollState`，也无法从 View 树里找到
+     *   Compose 的滚动容器（`verticalScroll` 不是 `android.widget.ScrollView`）。
+     *   故由本页把「让位 dp」与「滚动回调」交给 [DhKit.Page]，桥接不泄漏到壳层。
+     */
+    internal fun buildEmbedded(
+        act: Activity,
+        providerId: String?,
+        bottomPadDp: Int,
+        onScroll: ((y: Int) -> Unit)?
+    ): View {
+        return build(act, providerId, true, bottomPadDp, onScroll)
+    }
+    private fun build(
+        act: Activity,
+        providerId: String?,
+        embedded: Boolean,
+        bottomPadDp: Int,
+        onScroll: ((y: Int) -> Unit)?
+    ): View {
+        ComposeHost.installForActivity(act)
+        return ComposeHost.createView(act) {
+            EditContent(act, providerId, embedded, bottomPadDp, onScroll)
+        }
+    }
+    /**
+     * 页面正文（Compose）。
+     *
+     * 【为什么状态全用 remember 而不是 View 句柄】View 版靠 `EditText` / `Switch` 句柄读值，
+     *   Compose 侧表单状态就是一组 `mutableStateOf` —— 保存时直接读，不再有「句柄为空」的分支。
+     */
+    @Composable
+    private fun EditContent(
+        act: Activity,
+        providerId: String?,
+        embedded: Boolean,
+        bottomPadDp: Int = 0,
+        onScroll: ((y: Int) -> Unit)? = null
+    ) {
+        val c = DhTokens.colors
+        val src = remember(providerId) {
+            if (providerId == null || providerId.isEmpty()) null
+            else ProviderStore.findProvider(act, providerId)
+        }
+        val created = src != null
+
+        var name by remember(src?.id) { mutableStateOf(src?.name ?: "") }
+        var key by remember(src?.id) { mutableStateOf(if (src == null) "" else ProviderStore.keyOf(act, src)) }
+        var base by remember(src?.id) { mutableStateOf(src?.baseUrl ?: "") }
+        var path by remember(src?.id) {
+            // 新建页自动带上通用默认值；编辑页不动用户已存的值。
+            mutableStateOf(if (src == null) ModelRules.defaultChatPath(Provider.PROTO_OPENAI) else src.chatPath)
+        }
+        var enabled by remember(src?.id) { mutableStateOf(src == null || src.enabled) }
+        var respApi by remember(src?.id) { mutableStateOf(src != null && src.useResponseApi) }
+        var resendReason by remember(src?.id) { mutableStateOf(src != null && src.resendHistoryReasoning) }
+        var keyPlain by remember { mutableStateOf(false) }
+        var hintText by remember { mutableStateOf<String?>(null) }
+        var hintOk by remember { mutableStateOf(false) }
+        // 【保存后必须留住 id】新建态保存成功才拿到真实 id；开关的即时写盘要用它，
+        //   不能继续读 providerId（那还是进页时的空串，写盘会造出一条孤儿记录）。
+        var pid by remember(src?.id) { mutableStateOf(src?.id ?: providerId ?: "") }
+        var saved by remember { mutableStateOf(created) }
+
+        // 新建态补上通用默认 Base Url（编辑态不动用户已存值）。
+        if (!created && base.isEmpty()) {
+            base = ModelRules.defaultBaseUrl(Provider.PROTO_OPENAI)
+        }
+
+        DhKit.Page(
+            title = if (saved) "编辑供应商" else "添加供应商",
+            sub = "自定义（OpenAI 兼容）",
+            onBack = { ProviderNav.back(act) },
+            bottomPadDp = bottomPadDp,
+            onScroll = onScroll
+        ) {
+            // —— 主表单 ——
+            DhKit.Card {
+                DhForm.Input(name, { name = it }, label = "名称", hint = "例如：001")
+                DhForm.Input(
+                    value = key,
+                    onValueChange = { key = it },
+                    label = "API Key",
+                    hint = "输入 API 密钥",
+                    password = !keyPlain,
+                    trailing = {
+                        Text(
+                            text = if (keyPlain) "隐藏" else "显示",
+                            modifier = Modifier.pressable { keyPlain = !keyPlain },
+                            color = c.acc,
+                            fontSize = UiKit.FS_SUB.sp,
+                            fontFamily = DhTokens.fontsBold
+                        )
+                    }
+                )
+                DhForm.Input(base, { base = it }, label = "API Base Url", hint = "例如：https://api.deepseek.com/v1")
+                DhForm.Input(path, { path = it }, label = "API 路径", hint = "默认 /chat/completions")
+            }
+
+            // —— 常用端点（一键填入，省得手抄漏 /v1） ——
+            DhKit.Card {
+                DhKit.SectionLabel("常用端点（点一下填进上面的 API Base Url）")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(top = 8.dp)
+                ) {
+                    for (p in PRESETS) {
+                        DhForm.Chip(text = p[0], modifier = Modifier.padding(end = 6.dp)) {
+                            base = p[1]
+                        }
+                    }
+                }
+            }
+
+            // —— 地址预览：下单前先看清究竟会请求哪个 URL ——
+            DhForm.Note(previewOf(base, path))
+
+            // —— 开关组 ——
+            DhKit.Card {
+                DhKit.SectionLabel("开关")
+                SwitchRow("启用", "关掉后它名下的模型不会出现在聊天页选择器里（数据保留）", enabled) { v ->
+                    enabled = v
+                    // 【响应性】供应商一被停用，它名下的模型全部退出可用集，可能直接让「打开聊天」入口失去条件；
+                    //   与模型开关同样即时落盘 + 立刻重算，不依赖返回主页触发 onResume。
+                    //   仅对已存在的供应商写盘：新增态还没落过盘，此时写盘会凭空造出一条记录。
+                    if (saved && pid.isNotEmpty()) {
+                        ProviderStore.setProviderEnabled(act, pid, v)
+                    }
+                    HomeUi.syncChatEntryNow(act)
+                }
+                SwitchRow("Response API", "开启后对话走 /responses 而不是 chat completions", respApi) { respApi = it }
+                SwitchRow(
+                    "回传历史思考过程",
+                    "把历史消息里的思考内容再次随请求发出；关掉则剥离",
+                    resendReason
+                ) { resendReason = it }
+            }
+
+            if (hintText != null) {
+                DhForm.Note(hintText!!, color = if (hintOk) c.ok else c.err)
+            }
+
+            // —— 底部：取消 / 测试连接 / 保存 ——
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DhForm.OutlineChip(if (embedded) "返回列表" else "取消") { ProviderNav.back(act) }
+                Spacer(Modifier.weight(1f))
+                DhForm.OutlineChip("测试连接") {
+                    // 只测试不保存：用当前表单值直接打一次 /models，结果就地回显。
+                    val raw = key.trim()
+                    if (raw.isEmpty()) {
+                        hintOk = false
+                        hintText = "请填写 API Key"
+                    } else {
+                        val probe = buildProvider(pid, name, base, path, enabled, respApi, resendReason)
+                        probe.apiKey = KeyVault.encrypt(raw)
+                        if (probe.apiKey.isEmpty()) {
+                            hintOk = false
+                            hintText = "密钥加密失败，无法测试，请重试或重启应用后重填"
+                        } else {
+                            hintOk = true
+                            hintText = "正在测试连接…"
+                            ProviderNav.testConnection(act, probe, object : ProviderNav.TestCallback {
+                                override fun onDone(ok: Boolean, detail: String?) {
+                                    hintOk = ok
+                                    hintText = detail
+                                }
+                            })
+                        }
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                DhForm.PrimaryChip("保存") {
+                    val r = save(act, src, pid, name, key, base, path, enabled, respApi, resendReason)
+                    if (r.id != null) {
+                        // 新建态保存成功后页面标题要变；栈顶路由也要换成真实 id，
+                        // 否则切「模型」栏时详情页解析不出 id，会落到「供应商已不存在」兜底页。
+                        pid = r.id
+                        saved = true
+                    }
+                    hintOk = true
+                    hintText = r.text
+                    if (r.id != null) {
+                        // 保存成功后自动跑一次连通性测试（规格书要求）：失败只提示，不回滚已存数据。
+                        val savedPv = ProviderStore.findProvider(act, r.id)
+                        if (savedPv != null) {
+                            ProviderNav.testConnection(act, savedPv, object : ProviderNav.TestCallback {
+                                override fun onDone(ok: Boolean, detail: String?) {
+                                    hintOk = ok
+                                    hintText = if (ok) "已保存 · " + detail else "已保存，但连接没通过：" + detail
+                                }
+                            })
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    private fun build(act: Activity, providerId: String?, embedded: Boolean): View {
-        val ctx: Context = act
-        val f = Form()
-        val src = if (providerId == null || providerId.isEmpty())
-            null else ProviderStore.findProvider(ctx, providerId)
-        if (src != null) {
-            f.id = src.id
-            f.protocol = src.protocol
-            f.created = true
+    /** 一行开关（左标题 + 可选说明，右开关）。 */
+    @Composable
+    private fun SwitchRow(name: String, desc: String?, on: Boolean, onToggle: (Boolean) -> Unit) {
+        val c = DhTokens.colors
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = name, color = c.title, fontSize = UiKit.FS_BTN.sp, fontFamily = DhTokens.fonts)
+                if (desc != null && desc.isNotEmpty()) {
+                    Text(
+                        text = desc,
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = c.sub,
+                        fontSize = UiKit.FS_TINY.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                }
+            }
+            DhKit.Switch(checked = on, onCheckedChange = onToggle)
         }
-
-        val root = ApiPageKit.pageRoot(ctx)
-        root.addView(
-            UiKit.topBar(ctx, if (f.created) "编辑供应商" else "添加供应商",
-                "自定义（OpenAI 兼容）", View.OnClickListener {
-                    ProviderNav.back(act)
-                })
-        )
-
-        val host = ApiPageKit.contentHost(ctx)
-
-
-        // —— 主表单 ——
-        val box = ApiPageKit.card(ctx)
-        val nameField = ApiPageKit.labeledInput(ctx, box, "名称", "例如：001", false)
-        f.name = nameField
-        val keyField = ApiPageKit.labeledInput(ctx, box, "API Key", "输入 API 密钥", true)
-        f.key = keyField
-        addEye(ctx, box, keyField)
-        val baseField = ApiPageKit.labeledInput(ctx, box, "API Base Url", "例如：https://api.deepseek.com/v1", false)
-        f.base = baseField
-        val pathField = ApiPageKit.labeledInput(ctx, box, "API 路径", "默认 /chat/completions", false)
-        f.path = pathField
-        if (src != null) {
-            nameField.setText(src.name)
-            keyField.setText(ProviderStore.keyOf(ctx, src))
-            baseField.setText(src.baseUrl)
-            pathField.setText(src.chatPath)
-        }
-        host.addView(box)
-
-        // —— 常用端点（一键填入，省得手抄漏 /v1） ——
-        val pre = ApiPageKit.card(ctx)
-        pre.addView(ApiPageKit.sectionTitle(ctx, "常用端点（点一下填进上面的 API Base Url）"))
-        pre.addView(presetRow(ctx, baseField))
-        host.addView(pre)
-
-        // —— 地址预览：下单前先看清究竟会请求哪个 URL ——
-        val preview = ApiPageKit.note(ctx, "")
-        f.preview = preview
-        host.addView(preview)
-        bindPreview(f)
-        refreshPreview(f)
-
-        // —— 开关组 ——
-        val sw = ApiPageKit.card(ctx)
-        sw.addView(ApiPageKit.sectionTitle(ctx, "开关"))
-        f.enabled = switchRow(ctx, sw, "启用", "关掉后它名下的模型不会出现在聊天页选择器里（数据保留）",
-            src == null || src.enabled)
-        f.respApi = switchRow(ctx, sw, "Response API",
-            "开启后对话走 /responses 而不是 chat completions", src != null && src.useResponseApi)
-        f.resendReason = switchRow(ctx, sw, "回传历史思考过程",
-            "把历史消息里的思考内容再次随请求发出；关掉则剥离", src != null && src.resendHistoryReasoning)
-        host.addView(sw)
-
-
-        val hint = ApiPageKit.note(ctx, "")
-        f.hint = hint
-        hint.visibility = View.GONE
-        host.addView(hint)
-
-        // —— 底部：取消 / 保存 ——
-        val bar = LinearLayout(ctx)
-        bar.orientation = LinearLayout.HORIZONTAL
-        bar.gravity = Gravity.CENTER_VERTICAL
-        bar.setPadding(0, ApiPageKit.dp(ctx, 14), 0, ApiPageKit.dp(ctx, 8))
-        val cancel = UiKit.outlineChip(ctx, if (embedded) "返回列表" else "取消")
-        cancel.setOnClickListener {
-            ProviderNav.back(act)
-        }
-        bar.addView(cancel)
-        bar.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1.0f))
-        val test = UiKit.outlineChip(ctx, "测试连接")
-        test.setOnClickListener {
-            runTest(ctx, f, false)
-        }
-        val tlp2 = LinearLayout.LayoutParams(-2, -2)
-        tlp2.rightMargin = ApiPageKit.dp(ctx, 8)
-        bar.addView(test, tlp2)
-        val save = UiKit.primaryChip(ctx, "保存")
-        save.setOnClickListener {
-            runTest(ctx, f, true)
-        }
-        bar.addView(save)
-        host.addView(bar)
-
-        root.addView(ApiPageKit.scrollWrap(ctx, host), LinearLayout.LayoutParams(-1, 0, 1.0f))
-        // 新建页自动带上通用默认值；编辑页不动用户已存的值。
-        if (src == null) {
-            baseField.setText(ModelRules.defaultBaseUrl(f.protocol))
-            pathField.setText(ModelRules.defaultChatPath(f.protocol))
-        }
-        return root
     }
 
-    /** 密码框的「显示 / 隐藏」切换。 */
-    private fun addEye(ctx: Context, box: LinearLayout, field: EditText) {
-        val eye = TextView(ctx)
-        eye.text = "显示"
-        eye.setTextSize(UiKit.FS_SUB)
-        eye.setTextColor(UiKit.ACC)
-        eye.typeface = Typeface.DEFAULT_BOLD
-        eye.isClickable = true
-        eye.gravity = Gravity.RIGHT
-        eye.setPadding(ApiPageKit.dp(ctx, 2), ApiPageKit.dp(ctx, 6), ApiPageKit.dp(ctx, 2), 0)
-        eye.setOnClickListener {
-            val now = field.inputType
-            val plain = (now and InputType.TYPE_TEXT_VARIATION_PASSWORD) != 0
-            // 【修·必须】切换密码态会重排文字并把光标甩到末尾，
-            //   用户接着敲的字符就会跑到已经填好的 Key 后面（输入被改写）。
-            //   这里先存下原选区，改完再放回去。
-            val cs = field.text
-            val len = cs?.length ?: 0
-            var selStart = Math.min(field.selectionStart, len)
-            var selEnd = Math.min(field.selectionEnd, len)
-            if (selStart < 0) {
-                selStart = len
-            }
-            if (selEnd < 0) {
-                selEnd = len
-            }
-            field.inputType = InputType.TYPE_CLASS_TEXT or
-                (if (plain) InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                 else InputType.TYPE_TEXT_VARIATION_PASSWORD)
-            field.setSelection(Math.min(selStart, selEnd), Math.max(selStart, selEnd))
-            eye.text = if (plain) "隐藏" else "显示"
-        }
-        box.addView(eye)
-    }
-
-    /** 常用端点横向条：每项点一下把地址填进 Base Url 并把光标放到末尾。 */
-    private fun presetRow(ctx: Context, base: EditText): View {
-        val hs = HorizontalScrollView(ctx)
-        hs.isHorizontalScrollBarEnabled = false
-        val row = LinearLayout(ctx)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(0, ApiPageKit.dp(ctx, 8), 0, 0)
-        for (i in PRESETS.indices) {
-            val url = PRESETS[i][1]
-            val c = UiKit.chip(ctx, PRESETS[i][0])
-            c.setOnClickListener {
-                base.setText(url)
-                val ed = base.text
-                base.setSelection(if (ed == null) 0 else ed.length)
-            }
-            val lp = LinearLayout.LayoutParams(-2, -2)
-            lp.rightMargin = ApiPageKit.dp(ctx, 6)
-            row.addView(c, lp)
-        }
-        hs.addView(row)
-        return hs
-    }
-
-    /** 监听 Base Url / 路径，实时刷新地址预览。 */
-    private fun bindPreview(f: Form) {
-        val w = object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
-            }
-
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
-            }
-
-            override fun afterTextChanged(e: Editable?) {
-                refreshPreview(f)
-            }
-        }
-        if (f.base != null) {
-            f.base?.addTextChangedListener(w)
-        }
-        if (f.path != null) {
-            f.path?.addTextChangedListener(w)
-        }
+    /** 按当前表单值装配一个 Provider（不写盘）。 */
+    private fun buildProvider(
+        id: String,
+        name: String,
+        base: String,
+        path: String,
+        enabled: Boolean,
+        respApi: Boolean,
+        resendReason: Boolean
+    ): Provider {
+        val p = Provider()
+        p.id = id
+        p.name = name.trim()
+        p.protocol = Provider.PROTO_OPENAI
+        p.baseUrl = ModelRules.normalizeBaseUrl(base.trim())
+        p.chatPath = path.trim()
+        p.enabled = enabled
+        p.useResponseApi = respApi
+        p.resendHistoryReasoning = resendReason
+        return p
     }
 
     /**
@@ -275,154 +347,72 @@ object ProviderEditPage {
      * 【口径】与真正发请求时同一套代码（ApiClient -> ModelRules/ApiEndpoint），
      *   页面上看到什么，请求就打向什么，不再有两个口径。
      */
-    private fun refreshPreview(f: Form?) {
-        val preview = f?.preview
-        if (f == null || preview == null || preview.parent == null) {
-            return
-        }
+    private fun previewOf(base: String, path: String): String {
         val p = Provider()
-        p.protocol = f.protocol
-        p.baseUrl = ModelRules.normalizeBaseUrl(text(f.base))
-        p.chatPath = text(f.path)
+        p.protocol = Provider.PROTO_OPENAI
+        p.baseUrl = ModelRules.normalizeBaseUrl(base.trim())
+        p.chatPath = path.trim()
         val chat = ApiClient.chatUrl(p, "")
         if (chat.isEmpty()) {
-            preview.setText("对话地址：还没填 API Base Url")
-            return
+            return "对话地址：还没填 API Base Url"
         }
-        preview.setText("对话地址：" + chat + "\n模型列表：" + ApiClient.modelsUrl(p))
+        return "对话地址：" + chat + "\n模型列表：" + ApiClient.modelsUrl(p)
     }
 
-    /** 一行开关，返回句柄供保存时读值。 */
-    private fun switchRow(ctx: Context, dest: LinearLayout, name: String,
-                          desc: String?, on: Boolean): UiKit.Switch {
-        val r = LinearLayout(ctx)
-        r.orientation = LinearLayout.HORIZONTAL
-        r.gravity = Gravity.CENTER_VERTICAL
-        r.setPadding(0, ApiPageKit.dp(ctx, 10), 0, ApiPageKit.dp(ctx, 10))
-        val col = LinearLayout(ctx)
-        col.orientation = LinearLayout.VERTICAL
-        val t = TextView(ctx)
-        t.text = name
-        t.setTextSize(UiKit.FS_BTN)
-        t.setTextColor(UiKit.TITLE)
-        col.addView(t)
-        if (desc != null && desc.length > 0) {
-            val d = TextView(ctx)
-            d.text = desc
-            d.setTextSize(UiKit.FS_TINY)
-            d.setTextColor(UiKit.SUB)
-            d.setPadding(0, ApiPageKit.dp(ctx, 2), 0, 0)
-            col.addView(d)
-        }
-        r.addView(col, LinearLayout.LayoutParams(0, -2, 1.0f))
-        val sw = UiKit.Switch(ctx)
-        sw.setOn(on)
-        sw.isClickable = true
-        sw.setOnClickListener {
-            sw.setOn(!sw.isOn(), true)
-        }
-        r.addView(sw)
-        dest.addView(r)
-        return sw
-    }
-
-    private fun text(e: EditText?): String {
-        return if (e == null || e.text == null) "" else e.text.toString().trim()
-    }
+    /** 保存结果：id 非空 = 已写盘。 */
+    private class Saved(val id: String?, val text: String)
 
     /**
-     * 保存 + 连通性测试。
-     * 【顺序】先校验（不过就只提示、不写盘）→ 写盘 → 再跑测试（失败不影响已保存的数据）。
+     * 保存。
+     * 【顺序】先校验（不过就只提示、不写盘）→ 写盘 → 由调用方再跑连通性测试。
      */
-    private fun runTest(ctx: Context, f: Form, save: Boolean) {
-        val p = Provider()
-        p.id = f.id
-        p.name = text(f.name)
-        p.protocol = f.protocol
-        p.baseUrl = ModelRules.normalizeBaseUrl(text(f.base))
-        p.chatPath = text(f.path)
-        p.enabled = f.enabled == null || f.enabled!!.isOn()
-        p.useResponseApi = f.respApi != null && f.respApi!!.isOn()
-        p.resendHistoryReasoning = f.resendReason != null && f.resendReason!!.isOn()
-        val rawKey = text(f.key)
+    private fun save(
+        act: Activity,
+        src: Provider?,
+        pid: String,
+        name: String,
+        key: String,
+        base: String,
+        path: String,
+        enabled: Boolean,
+        respApi: Boolean,
+        resendReason: Boolean
+    ): Saved {
+        val created = src != null
+        val p = buildProvider(pid, name, base, path, enabled, respApi, resendReason)
+        val rawKey = key.trim()
 
-        if (save) {
-            val err = ModelRules.validate(p)
-            if (err.length > 0) {
-                hint(ctx, f, false, err)
-                return
-            }
-            // 用户漏写协议头时自动补上，并在提示里说清。
-            val rawBase = text(f.base)
-            val patched = rawBase.length > 0 && !rawBase.startsWith("http://") &&
-                !rawBase.startsWith("https://")
-            if (rawKey.length == 0) {
-                hint(ctx, f, false, "请填写 API Key")
-                return
-            }
-            val all = ProviderStore.providers(ctx)
-            if (ModelRules.nameExists(all, p.name, p.id)) {
-                hint(ctx, f, false, "已有同名供应商，换一个名字")
-                return
-            }
-            val keep = if (f.created) ProviderStore.keyOf(ctx, ProviderStore.findProvider(ctx, p.id)) else ""
-            p.apiKey = KeyVault.encrypt(rawKey)
-            if (p.apiKey.isEmpty()) {
-                if (f.created && rawKey == keep) {
-                    // 用户没改 Key（读回的就是明文），加密失败时保留原密文，不写空。
-                    val old = ProviderStore.findProvider(ctx, p.id)
-                    p.apiKey = if (old == null) "" else old.apiKey
-                }
-                if (p.apiKey.isEmpty()) {
-                    // 【修·必须】不再静默写空：否则存下去的就是「无密钥」，下次请求必 401。
-                    hint(ctx, f, false, "密钥加密失败，未能保存，请重试或重启应用后重填")
-                    return
-                }
-            }
-            if (p.id.isEmpty()) {
-                p.id = ProviderStore.newId()
-            }
-            ProviderStore.saveProvider(ctx, p)
-            f.id = p.id
-            f.created = true
-            if (patched) {
-                f.base?.setText(p.baseUrl)
-            }
-            // 保存成功后自动跑一次连通性测试（规格书要求）：失败只提示，不回滚已存数据。
-            // 页面不重建 —— 重建会把这条提示一起清掉，用户就看不到测试结果了。
-            hint(ctx, f, true, "已保存，正在测试连接…")
-            ProviderNav.testConnection(ctx, p, object : ProviderNav.TestCallback {
-                override fun onDone(ok: Boolean, detail: String?) {
-                    hint(ctx, f, ok, if (ok) "已保存 · " + detail else "已保存，但连接没通过：" + detail)
-                }
-            })
-            return
+        val err = ModelRules.validate(p)
+        if (err.isNotEmpty()) {
+            return Saved(null, err)
         }
-        // 只测试不保存：用当前表单值直接打一次 /models。
-        if (rawKey.length == 0) {
-            hint(ctx, f, false, "请填写 API Key")
-            return
+        val rawBase = base.trim()
+        val patched = rawBase.isNotEmpty() && !rawBase.startsWith("http://") && !rawBase.startsWith("https://")
+        if (rawKey.isEmpty()) {
+            return Saved(null, "请填写 API Key")
         }
+        val all = ProviderStore.providers(act)
+        if (ModelRules.nameExists(all, p.name, p.id)) {
+            return Saved(null, "已有同名供应商，换一个名字")
+        }
+        val keep = if (created) ProviderStore.keyOf(act, ProviderStore.findProvider(act, p.id)) else ""
         p.apiKey = KeyVault.encrypt(rawKey)
         if (p.apiKey.isEmpty()) {
-            hint(ctx, f, false, "密钥加密失败，无法测试，请重试或重启应用后重填")
-            return
-        }
-        hint(ctx, f, true, "正在测试连接…")
-        ProviderNav.testConnection(ctx, p, object : ProviderNav.TestCallback {
-            override fun onDone(ok: Boolean, detail: String?) {
-                hint(ctx, f, ok, detail)
+            if (created && rawKey == keep) {
+                // 用户没改 Key（读回的就是明文），加密失败时保留原密文，不写空。
+                val old = ProviderStore.findProvider(act, p.id)
+                p.apiKey = if (old == null) "" else old.apiKey
             }
-        })
-    }
-
-    private fun hint(ctx: Context, f: Form, ok: Boolean, detail: String?) {
-        val h = f.hint
-        if (h == null || h.parent == null) {
-            return
+            if (p.apiKey.isEmpty()) {
+                // 【修·必须】不再静默写空：否则存下去的就是「无密钥」，下次请求必 401。
+                return Saved(null, "密钥加密失败，未能保存，请重试或重启应用后重填")
+            }
         }
-        h.setText(if (detail == null) "" else detail)
-        h.setTextColor(if (ok) UiKit.OK else UiKit.ERR)
-        UiKit.reveal(h)
+        if (p.id.isEmpty()) {
+            p.id = ProviderStore.newId()
+        }
+        ProviderStore.saveProvider(act, p)
+        val text = if (patched) "已保存（地址已补 https://），正在测试连接…" else "已保存，正在测试连接…"
+        return Saved(p.id, text)
     }
 }

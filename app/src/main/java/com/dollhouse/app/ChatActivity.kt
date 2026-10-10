@@ -5,6 +5,7 @@ import android.os.Bundle
 import com.dollhouse.app.ai.TokenStat
 import com.dollhouse.app.ui.chat.ChatPanel
 import com.dollhouse.app.ui.theme.ThemeManager
+import com.dollhouse.app.ui.theme.ThemeRefresh
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -24,6 +25,9 @@ class ChatActivity : Activity() {
         super.onCreate(bundle)
         // 先按当前主题档位把配色刷进 UiKit，再建界面。
         ThemeManager.apply(this)
+        // 【接收处夹紧】apply 后立刻夹紧正文/副标题/提示对比度，并记基线供就地换主题重映射。
+        UiKit.clampPaletteContrast()
+        ThemeRefresh.rememberPalette()
         val chatPanel = ChatPanel(this, object : ChatPanel.Controller {
             override fun onDrag(f: Float, f2: Float) {
             }
@@ -43,12 +47,37 @@ class ChatActivity : Activity() {
         // 【状态栏嵌入】聊天页同样铺满 + 状态栏透明；ChatPanel 顶栏自己让出高度。
         UiKit.applyEdgeToEdge(this)
         this.panel!!.refreshHint()
+        // 【状态恢复】系统日夜切换触发的重建：把滚动位置回填回去（本类未登记任何输入框，
+        //   Bundle 通道不含任何明文文本）。滚动仍走既有对齐机制，行为不变。
+        ThemeRefresh.restoreState(window?.decorView, bundle)
+        // 【纯内存草稿】在途输入（含 API Key / 地址 / 模型名 / 聊天正文）只经
+        //   onRetainNonConfigurationInstance 跨重建传递：不进 Bundle / 文件 / 日志；
+        //   在界面构建完成后回填，回填即清空。（getLastNonConfigurationInstance 仅 onCreate 内有效）
+        ThemeRefresh.restoreInputs(window?.decorView,
+                lastNonConfigurationInstance as? ThemeRefresh.InputDraft)
         // 从悬浮窗带 extra 跳进来时，落地就顺手把统计页叠上（延后一拍，等内容视图量完）。
         if (PAGE_TOKEN == pageExtra()) {
             chatPanel.post {
                 TokenStat.open(this@ChatActivity)
             }
         }
+    }
+
+    /** 重建保命：存下滚动位置与页面路由，供 [ThemeRefresh.restoreState] 回填。 */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        try {
+            outState.putAll(ThemeRefresh.saveState(window?.decorView))
+        } catch (ignored: Throwable) {
+        }
+    }
+
+    /**
+     * 【重建保命·纯内存】配置变更重建时，把当前树上全部在途输入采集为纯内存草稿跨实例传递；
+     *   刻意不用 Bundle：隐私文本绝不落盘、不进日志。回填后由 [ThemeRefresh.restoreInputs] 清空。
+     */
+    override fun onRetainNonConfigurationInstance(): Any? {
+        return ThemeRefresh.captureInputs(window?.decorView)
     }
 
     /** 本次启动要顺带打开的页面标识；没有就返回 null。 */

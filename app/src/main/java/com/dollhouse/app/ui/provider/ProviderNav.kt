@@ -14,7 +14,7 @@ import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.KeyVault
 import com.dollhouse.app.data.ProviderStore
-import com.dollhouse.app.ui.settings.BehaviorPage
+import com.dollhouse.app.ui.settings.ExperimentPage
 import com.dollhouse.app.ui.settings.LamdaPage
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.widget.ApiPageKit
@@ -41,12 +41,22 @@ object ProviderNav {
     const val R_BEHAVIOR = "behavior"
     /** lamda 设备控制页：从设置页进入，同样是独立子页。 */
     const val R_LAMDA = "lamda"
+    /** 实验页：从设置页「实验」卡片进入，当前仅收纳 lamda 设备控制。 */
+    const val R_EXPERIMENT = "experiment"
     private const val R_EDIT = "edit:"
     private const val R_MODELS = "models:"
     private const val R_MNEW = "mnew:"
     private const val R_MEDIT = "medit:"
     /** 供应商详情页：detail:<providerId>:<tab>。tab 只有 cfg / mdl 两种。 */
     private const val R_DETAIL = "detail:"
+    /**
+     * 新建供应商态：同样是「详情页壳」，只是里面那层配置表单是空表。
+     * 【为什么单独一条路由】它必须能与「已存在供应商的详情页」区分开（没有 id 可查库），
+     *   但又要走同一个壳（底部「配置｜模型」胶囊栏），否则加号进去与点卡片进去长相不同。
+     * 【为什么不用 detail: 前缀】占用了就会让 detailId() 把空 id 当成真实 id，
+     *   于是新建态会掉进「供应商已不存在」的兜底分支。
+     */
+    private const val R_DETAIL_NEW = "detail-new"
     /** 详情页的「配置」tab：该供应商的名称 / 密钥 / 地址 / 开关。 */
     const val TAB_CFG = "cfg"
     /** 详情页的「模型」tab：该供应商已添加的模型列表。 */
@@ -125,6 +135,39 @@ object ProviderNav {
         }
     }
 
+    /** 保存当前整条路由栈（全为稳定标识，跨系统重建可原样恢复）。未开页时为空表。 */
+    @JvmStatic
+    fun saveRoutes(): ArrayList<String> {
+        return try {
+            ArrayList(STACK)
+        } catch (ignored: Throwable) {
+            ArrayList()
+        }
+    }
+
+    /**
+     * 用 [saveRoutes] 存下的稳定栈列表重建当前覆盖页。
+     * 【为什么认路由而不是视图】系统重建后视图全没了，只有路由字符串还认得出来。
+     * 空表 / null 视为「没开过页」，原地不动，避免把首页盖住。
+     */
+    @JvmStatic
+    fun restoreRoutes(act: Activity?, routes: List<String>?) {
+        if (act == null || routes == null || routes.isEmpty()) {
+            return
+        }
+        try {
+            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
+            STACK.clear()
+            STACK.addAll(routes)
+            val old = content.findViewWithTag<View>(TAG_PAGE)
+            if (old != null) {
+                content.removeView(old)
+            }
+            UiKit.openPage(content, render(act), TAG_PAGE)
+        } catch (ignored: Throwable) {
+        }
+    }
+
     /* ------------------------------ 栈操作 ------------------------------ */
 
     /** 前进一层：新页自右侧滑入。 */
@@ -171,6 +214,10 @@ object ProviderNav {
         if (top.startsWith(R_DETAIL)) {
             return ProviderDetailPage.build(act, detailId(top), detailTabOf(top))
         }
+        if (R_DETAIL_NEW == top) {
+            // 新建态：同一个详情壳，providerId 传空串 —— 表单按「新建」渲染（标题「添加供应商」）。
+            return ProviderDetailPage.build(act, "", TAB_CFG)
+        }
         if (top.startsWith(R_MODELS)) {
             return ModelListPage.build(act, idAfter(top, R_MODELS))
         }
@@ -183,11 +230,11 @@ object ProviderNav {
         if (R_NEW == top) {
             return ProviderEditPage.build(act, null)
         }
-        if (R_BEHAVIOR == top) {
-            return BehaviorPage.build(act)
-        }
         if (R_LAMDA == top) {
             return LamdaPage.build(act)
+        }
+        if (R_EXPERIMENT == top) {
+            return ExperimentPage.build(act)
         }
         return ProviderListPage.build(act)
     }
@@ -223,6 +270,42 @@ object ProviderNav {
         STACK[STACK.size - 1] = R_DETAIL + providerId + ":" + tabOf(tab)
     }
 
+    /**
+     * 栈顶详情页当前对应的供应商 id；取不到（新建态 / 不在详情页）时回落到 [fallback]。
+     * 【为什么不能直接用进页时那个参数】新建态进页时 id 是空的，保存成功后栈顶被
+     *   [replaceDetailNew] 换成了真实 id —— 页面本身不重建，闭包里那个空串也就不会更新，
+     *   所以每次切 tab 都要现从栈顶解析一次。
+     */
+    @JvmStatic
+    fun currentDetailId(fallback: String?): String {
+        val byRoute = if (STACK.isEmpty()) "" else detailId(STACK[STACK.size - 1])
+        if (byRoute.length > 0) {
+            return byRoute
+        }
+        return if (fallback == null) "" else fallback
+    }
+    /**
+     * 新建供应商保存成功后调用：把栈顶的新建态路由换成真实 id 的详情路由。
+     * 【为什么不 refresh】refresh 会重建整页，把刚写进表单的「已保存，正在测试连接…」
+     *   与随后的连通性测试结果一起清掉。这里只改栈顶字符串，画面原地不动。
+     * 【不换会怎样】新建态路由没有 id，切到「模型」栏会查不到供应商、落到兜底页。
+     */
+    @JvmStatic
+    fun replaceDetailNew(providerId: String?) {
+        if (STACK.isEmpty()) {
+            return
+        }
+        // 【新建态有两种栈顶写法】没切过 tab 时是 R_DETAIL_NEW；切过一次 tab 之后，
+        //   详情页会把栈顶改写成「空 id 的详情路由」（detail::cfg / detail::mdl）——
+        //   两种都代表「这个详情页还没保存」，都要换掉，不能只认前者。
+        val top = STACK[STACK.size - 1]
+        val isNewTop = R_DETAIL_NEW == top ||
+            (top.startsWith(R_DETAIL) && detailId(top).isEmpty())
+        if (!isNewTop) {
+            return
+        }
+        STACK[STACK.size - 1] = R_DETAIL + providerId + ":" + TAB_CFG
+    }
     /** 详情页路由里的供应商 id。 */
     @JvmStatic
     fun detailId(route: String?): String {
@@ -255,9 +338,15 @@ object ProviderNav {
         return if (STACK.isEmpty()) TAB_CFG else detailTabOf(STACK[STACK.size - 1])
     }
 
+/**
+     * 新建供应商：走 R_DETAIL_NEW 路由（详情页壳 + 空表单），与点卡片进详情页同一种长相。
+     * 【为什么不再走 R_NEW】R_NEW 是「光板独立页」，没有底部「配置｜模型」胶囊栏，
+     *   于是「加号进的界面」与「点卡片进的界面」是两个长相 —— 用户明确要求统一。
+     *   这里改成「新建态也进详情壳」，两颗 tab 都在，壳与列表页进来看起来完全一致。
+     */
     @JvmStatic
     fun openNewProvider(act: Activity) {
-        push(act, R_NEW)
+        push(act, R_DETAIL_NEW)
     }
 
     @JvmStatic

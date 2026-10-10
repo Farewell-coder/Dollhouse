@@ -10,9 +10,12 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 
 /**
@@ -62,7 +65,12 @@ object LamdaManager {
     //   每次发消息都会问一次。服务没起时连接被拒会立即返回，但服务在跑时就是一次真实往返；
     //   2s 缓存把开销压到可忽略，与 ShizukuBridge 的缓存策略一致。
     private const val CACHE_TTL_MS = 2000L
+    // 【为什么 @Volatile】CACHE_ALIVE 与 CACHE_ALIVE_AT 由后台线程（probe / markAlive）写、
+    //   由主线程（aliveCached）读。不加 @Volatile 时主线程可能读到「新时间戳 + 旧布尔」的撕裂组合：
+    //   既可能把刚停掉的服务判成活着，也可能把刚起来的服务判成没起。两个字段的可见性必须一致。
+    @Volatile
     private var CACHE_ALIVE = false
+    @Volatile
     private var CACHE_ALIVE_AT = 0L
 
     // 【为什么另开一个刷新标记】主线程只准读缓存，绝不准发网络请求。
@@ -83,6 +91,12 @@ object LamdaManager {
         }
         if (Looper.myLooper() === Looper.getMainLooper()) {
             refreshAsync()
+            // 【保守降级】缓存已过期就不再可信：若上次结论是 alive，可能服务刚被停掉 / 被杀掉，
+            //   这里降级为 false，避免 buildSchema 依据陈旧缓存下发一个必然失败的 device 工具；
+            //   上次结论本就是 false 时保持原样返回，语义不变。
+            if (CACHE_ALIVE) {
+                return false
+            }
             return CACHE_ALIVE
         }
         return probe()
@@ -623,6 +637,13 @@ object LamdaManager {
                     GUARD_SUPPRESS_UNTIL = SystemClock.elapsedRealtime() + GUARD_SUPPRESS_MS / 2
                     return@Runnable
                 }
+                // 【为什么在拉起前再判一次静默期】开头的静默期检查发生在巡检刚起步时，
+                //   而这里已经花掉了几次 Shizuku 往返（探活 + 就绪 + installed）；用户完全可能
+                //   恰好在这中间点了「停止服务」。不复检就会把刚停掉的服务立刻拽回来，
+                //   用户看到的现象就是「停止按钮按了没用、服务自己又起来了」。
+                if (SystemClock.elapsedRealtime() < GUARD_SUPPRESS_UNTIL) {
+                    return@Runnable
+                }
                 start()
             } catch (ignored: Throwable) {
             } finally {
@@ -640,6 +661,9 @@ object LamdaManager {
     @JvmStatic
     fun mcpCall(tool: String, args: JSONObject?, timeoutMs: Long): String {
         var conn: HttpURLConnection? = null
+        // 【为什么记这个】用来区分 SocketTimeoutException 发生在「连接建立」还是「读取回包」阶段：
+        //   请求体写成功即视为已连上，此后的超时都按动作超时处理，两种阶段的提示语完全不同。
+        var sent = false
         try {
             val params = JSONObject()
             params.put("name", tool)
@@ -664,16 +688,38 @@ object LamdaManager {
             os.write(body)
             os.flush()
             os.close()
+            sent = true
 
             val code = c.responseCode
             if (code < 200 || code >= 300) {
-                return "（lamda 返回 HTTP " + code + "）"
+                // 【为什么读 errorStream】lamda 的报错正文（例如参数不合法、内部异常堆栈摘要）都在这里，
+                //   只回一个 HTTP 码等于把最有用的排查信息扔掉；读出来截断后附在文案里。
+                val err = readAll(c.errorStream)
+                val detail = if (err.isBlank()) "" else "：" + clip(err.trim(), MAX_ERROR_BODY_CHARS)
+                return "（lamda 返回 HTTP " + code + detail + "）"
             }
             val text = readAll(c.inputStream)
             val out = textOf(text)
             return if (out == null) "（lamda 没有返回内容）" else out
         } catch (t: Throwable) {
-            return "（连不上 lamda 服务，先在「lamda 设备控制」页启动它）"
+            // 【为什么不归一成一句话】以前所有异常都回「连不上 lamda 服务」，把「连接被拒」「读超时」
+            //   「协议错误」混为一谈，排查时无从下手。这里按异常类型分支，并始终附上原始类名与 message，
+            //   绝不吞掉原始信息。失败仍只返回文案，不抛异常。
+            val detail = t.javaClass.simpleName +
+                (if (t.message.isNullOrEmpty()) "" else "：" + t.message)
+            val hint = when {
+                !sent && t is ConnectException ->
+                    "连不上 lamda 服务，可能未启动或正在启动，请稍后重试"
+                !sent && t is SocketTimeoutException ->
+                    "连接 lamda 服务超时，可能未启动或正在启动，请稍后重试"
+                t is SocketTimeoutException ->
+                    "lamda 动作超时，界面可能正在变化，请重新 observe 后再决定下一步"
+                t is IOException ->
+                    "lamda 通信失败"
+                else ->
+                    "lamda 调用异常"
+            }
+            return "（" + hint + "；" + detail + "）"
         } finally {
             val c = conn
             if (c != null) {
@@ -685,7 +731,19 @@ object LamdaManager {
         }
     }
 
-    /** 从 MCP 回包里取出 result.content[0].text；取不到返 null。 */
+    /** 回包正文上限：observe 会把整棵 UI 树吐回来，动辄上万字符，截断后再交给模型，避免一次打爆上下文。 */
+    private const val MAX_RESULT_CHARS = 12000
+
+    /** HTTP 非 2xx 时回附的错误正文上限：够看到关键报错，又不至于把上下文撑爆。 */
+    private const val MAX_ERROR_BODY_CHARS = 500
+
+    /**
+     * 从 MCP 回包里取出 result.content[0].text。
+     * 【何时返 null】只有「回包根本不是 JSON / 取不到 result.content」才返 null，调用方据此回「没有返回内容」。
+     * 【为什么不再静默】以前 isError、顶层 error 对象都被吞掉返 null，模型只看到「没有返回内容」，
+     *   分不清是被拒绝、参数错还是服务内部错。这里一律翻译成可辨识的中文错误文本。
+     * 【截断】正常文本超过 MAX_RESULT_CHARS 时截断并追加提示，交由模型自己决定是否缩小范围再看。
+     */
     @JvmStatic
     fun textOf(body: String?): String? {
         if (body == null || body.length == 0) {
@@ -706,16 +764,46 @@ object LamdaManager {
         }
         try {
             val obj = JSONObject(json)
+            // 【B5】顶层 error 对象是 JSON-RPC 层错误，提取 code / message 组装成明确文案，不静默返 null。
+            val errObj = obj.optJSONObject("error")
+            if (errObj != null) {
+                val sb = StringBuilder("（lamda 返回错误")
+                val code = errObj.opt("code")
+                if (code != null && code != JSONObject.NULL) {
+                    sb.append(" code=").append(code)
+                }
+                val msg = errObj.optString("message", "").trim()
+                if (msg.isNotEmpty()) {
+                    sb.append("：").append(msg)
+                }
+                return clip(sb.append("）").toString(), MAX_RESULT_CHARS)
+            }
             val result = obj.optJSONObject("result") ?: return null
+            // 【B4】isError=true 表示工具执行失败，必须产出可辨识的错误文本，不能伪装成正常回包。
+            val isError = result.optBoolean("isError", false)
             val content = result.optJSONArray("content")
             if (content == null || content.length() == 0) {
-                return null
+                return if (isError) "（lamda 工具执行失败，但未返回错误详情）" else null
             }
-            val first = content.optJSONObject(0) ?: return null
-            return first.optString("text", "")
+            val first = content.optJSONObject(0)
+                ?: return if (isError) "（lamda 工具执行失败，但未返回错误详情）" else null
+            val text = first.optString("text", "")
+            if (text.isEmpty()) {
+                // 【为什么不返空串】空串会让调用方以为「成功但没有内容」，这里给一句明确提示。
+                return if (isError) "（lamda 工具执行失败，但未返回错误文本）" else "（lamda 返回了空内容）"
+            }
+            return clip(text, MAX_RESULT_CHARS)
         } catch (t: Throwable) {
             return null
         }
+    }
+
+    /** 截断超长文本，超限时末尾追加中文提示，说明已截断。 */
+    private fun clip(s: String, max: Int): String {
+        if (s.length <= max) {
+            return s
+        }
+        return s.substring(0, max) + "…（内容过长，已截断）"
     }
 
     private fun readAll(input: InputStream?): String {

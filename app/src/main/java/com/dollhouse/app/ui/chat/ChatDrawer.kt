@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.dollhouse.app.anim.Springs
+import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import java.text.SimpleDateFormat
@@ -20,6 +21,7 @@ import java.util.Date
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
+import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】聊天面板左侧抽屉：对话列表（新建 / 切换 / 重命名 / 删除）。
@@ -81,10 +83,13 @@ class ChatDrawer(private val host: ChatPanel) {
 
         val panel = LinearLayout(ctx)
         panel.orientation = LinearLayout.VERTICAL
-        panel.setBackgroundColor(UiKit.CARD)
+        // 【全局背景】抽屉自身铺同一张背景图 + 可读性遮罩；opaqueBase=true 在图片下垫一层不透明底，
+        //   避免透出下层聊天区那张同款图造成「叠图」。未设背景时退回卡片底色。
+        GlobalBackground.install(panel, UiKit.CARD, true)
         panel.isClickable = true
         val pad = dp(12.0f)
-        panel.setPadding(pad, dp(14.0f), pad, dp(10.0f))
+        // 【沉浸安全区】状态栏已沉浸，顶部 / 左右只需让开物理 cutout（刘海 / 挖孔），基础间距不变。
+        UiKit.bindCutoutPadding(panel, pad, dp(14.0f), pad, dp(10.0f))
 
         val head = LinearLayout(ctx)
         head.orientation = LinearLayout.HORIZONTAL
@@ -93,7 +98,7 @@ class ChatDrawer(private val host: ChatPanel) {
         title.text = "对话"
         title.setTextSize(UiKit.FS_TITLE)
         title.setTextColor(UiKit.TITLE)
-        title.typeface = Typeface.DEFAULT_BOLD
+        title.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         head.addView(title, LinearLayout.LayoutParams(0, -2, 1.0f))
         val add = smallButton(ctx, "＋ 新建")
         add.setOnClickListener {
@@ -225,7 +230,7 @@ class ChatDrawer(private val host: ChatPanel) {
         name.text = title
         name.setTextSize(UiKit.FS_BTN)
         name.setTextColor(UiKit.TITLE)
-        name.typeface = Typeface.DEFAULT_BOLD
+        name.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         name.isSingleLine = true
         name.ellipsize = TextUtils.TruncateAt.END
         // 【图标语义】当前会话不再靠裸 ● 表示，改用实心 / 空心星标（与顶部「与人偶的对话」同一套口径）。
@@ -258,6 +263,7 @@ class ChatDrawer(private val host: ChatPanel) {
         row.addView(line)
 
         val meta = TextView(ctx)
+        meta.typeface = Fonts.ui(ctx)
         meta.text = fmtTime(o.optLong("updated", 0L))
         meta.setTextSize(UiKit.FS_TINY)
         meta.setTextColor(UiKit.SUB)
@@ -281,7 +287,7 @@ class ChatDrawer(private val host: ChatPanel) {
         t.text = text
         t.setTextSize(UiKit.FS_SUB)
         t.setTextColor(UiKit.SUB)
-        t.typeface = Typeface.DEFAULT_BOLD
+        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         t.setPadding(dp(4.0f), dp(14.0f), 0, 0)
         box.addView(t)
     }
@@ -310,6 +316,7 @@ class ChatDrawer(private val host: ChatPanel) {
         val sh = newDialogShell(ctx, title)
 
         val t2 = TextView(ctx)
+        t2.typeface = Fonts.ui(ctx)
         t2.text = message
         t2.setTextSize(UiKit.FS_SUB)
         t2.setTextColor(UiKit.SUB)
@@ -332,6 +339,7 @@ class ChatDrawer(private val host: ChatPanel) {
         val sh = newDialogShell(ctx, title)
 
         val input = EditText(ctx)
+        input.typeface = Fonts.ui(ctx)
         input.setText(initial ?: "")
         input.isSingleLine = true
         UiKit.field(input, ctx)
@@ -369,7 +377,7 @@ class ChatDrawer(private val host: ChatPanel) {
         sh.overlay.isClickable = true
         sh.box = LinearLayout(ctx)
         sh.box.orientation = LinearLayout.VERTICAL
-        sh.box.background = UiKit.round(UiKit.CARD, ctx, 16)
+        sh.box.background = UiKit.round(UiKit.card(), ctx, 16)
         val pad = dp(18.0f)
         sh.box.setPadding(pad, pad, pad, dp(14.0f))
         sh.box.isClickable = true
@@ -377,7 +385,7 @@ class ChatDrawer(private val host: ChatPanel) {
         t1.text = title
         t1.setTextSize(UiKit.FS_TITLE)
         t1.setTextColor(UiKit.TITLE)
-        t1.typeface = Typeface.DEFAULT_BOLD
+        t1.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
         sh.box.addView(t1)
         sh.bar = LinearLayout(ctx)
         sh.bar.orientation = LinearLayout.HORIZONTAL
