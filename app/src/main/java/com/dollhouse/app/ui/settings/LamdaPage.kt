@@ -122,22 +122,52 @@ object LamdaPage {
     /* ============================== 渲染 ============================== */
     @Composable
     private fun LamdaContent(ctx: Context, st: UiState) {
-        // 本帧认定的「正在跑的动作名」：动作刚发起时 LamdaManager 侧的标记可能还没来得及置上，
-        //   用 st.busyKey 立刻把按钮禁掉，避免抢跑。
-        val busy = st.busyKey ?: LamdaManager.busyAction()
-        val idle = busy == null
-        val s = st.snap
         DhKit.Page(
             title = "lamda 设备控制",
             sub = "让 AI 能操作手机（shell 级命令通道）",
             onBack = { ProviderNav.handleBack(ctx) }
         ) {
-            statusCard(ctx, st, s, st.hint, busy)
-            installCard(ctx, st, s, idle)
-            runCard(ctx, st, s, idle)
-            deleteCard(ctx, st, idle)
-            abilityCard(ctx)
+            LamdaCards(ctx, st)
         }
+    }
+
+    /**
+     * 【r13】「实验」卡片的**展开式**正文：与整页形态共用同一批卡片，只是不套 [DhKit.Page]。
+     *
+     * 【为什么必须共用】用户定案设置页的「实验」是**展开式卡片**（不跳页）。若为它另写一套
+     *   卡片，两个入口迟早会长成两种长相 —— 这正是工程一直在收口的事。
+     *   这里把「正文」抽出来，整页与卡片两种外壳都调它，视觉与逻辑天然同源。
+     *
+     * 【状态归属】与整页形态一样，每次进入都从「正在检查…」开始（不拿上一次的旧状态渲染），
+     *   并把自己登记成当前活着的状态，保证在飞的探测回来时结果落到这一份上。
+     */
+    @Composable
+    fun Embedded(act: Activity) {
+        val state = remember {
+            UiState(act).also {
+                SNAP = null
+                STATE = it
+                refresh(it, null)
+            }
+        }
+        // 【flat = true】嵌入设置页卡片内：子分区不再各自画卡片底，
+        //   否则会出现「卡片套卡片」的两层圆角与描边。
+        LamdaCards(act, state, true)
+    }
+
+    /** 【r13】实验正文的五张卡片：整页形态与展开式卡片共用这一份。 */
+    @Composable
+    private fun LamdaCards(ctx: Context, st: UiState, flat: Boolean = false) {
+        // 本帧认定的「正在跑的动作名」：动作刚发起时 LamdaManager 侧的标记可能还没来得及置上，
+        //   用 st.busyKey 立刻把按钮禁掉，避免抢跑。
+        val busy = st.busyKey ?: LamdaManager.busyAction()
+        val idle = busy == null
+        val s = st.snap
+        statusCard(ctx, st, s, st.hint, busy, flat)
+        installCard(ctx, st, s, idle, flat)
+        runCard(ctx, st, s, idle, flat)
+        deleteCard(ctx, st, idle, flat)
+        abilityCard(ctx, flat)
     }
     /** 卡片头：图标 + 标题（原 LamdaUiKit.header 的 Compose 等价物）。 */
     @Composable
@@ -166,7 +196,8 @@ object LamdaPage {
                 .padding(horizontal = 4.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DhKit.Icon(iconRes = iconRes, sizeDp = 18f, color = fg)
+            // 【r12】18f 不在 [Design] 的图标五档内 → 归到 SZ_MD(20)。
+            DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = fg)
             Spacer(Modifier.width(10.dp))
             Text(
                 text = name,
@@ -237,8 +268,9 @@ object LamdaPage {
     }
     /** 服务状态：一态一图标一颜色，全部由 [Design.Status] 绑定。 */
     @Composable
-    private fun statusCard(ctx: Context, st: UiState, s: Snap?, hint: Hint?, busy: String?) {
-        DhKit.Card {
+    private fun statusCard(ctx: Context, st: UiState, s: Snap?, hint: Hint?, busy: String?,
+                           flat: Boolean = false) {
+        DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("服务状态", Design.icons.SERVER)
             val text: String
             val color: Color
@@ -294,12 +326,13 @@ object LamdaPage {
     }
     /** 安装：下载 + 解包。 */
     @Composable
-    private fun installCard(ctx: Context, st: UiState, s: Snap?, idle: Boolean) {
+    private fun installCard(ctx: Context, st: UiState, s: Snap?, idle: Boolean,
+                            flat: Boolean = false) {
         // 把快照读成局部量：不再到处写 !!，也就不会有依赖短路求值的脆弱判断。
         val hasFile = s != null && s.hasFile
         val pkgReady = s != null && s.pkgReady
         val installed = s != null && s.installed
-        DhKit.Card {
+        DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("安装", Design.icons.DOWNLOAD)
             // 下载：本地已有文件（含半截）就置灰。理由见 LamdaManager.download —— 不静默覆盖、不静默续传。
             ActionRow("下载服务器包（约 204 MB）", Design.icons.DOWNLOAD,
@@ -320,12 +353,13 @@ object LamdaPage {
     }
     /** 运行：启停 + 自动保活 + 服务接口信息。 */
     @Composable
-    private fun runCard(ctx: Context, st: UiState, s: Snap?, idle: Boolean) {
+    private fun runCard(ctx: Context, st: UiState, s: Snap?, idle: Boolean,
+                        flat: Boolean = false) {
         // 【互斥规则】跑着的时候不给点启动、没跑的时候不给点停止。以前两个都能点，
         //   点错一个只会得到一句「已经在运行 / 没在运行」，纯属浪费一次往返。
         val running = s != null && s.status == Design.Status.RUNNING
         val installed = s != null && s.installed
-        DhKit.Card {
+        DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("运行", Design.icons.START)
             ActionRow("启动服务", Design.icons.START, idle && installed && !running, false) { start(st) }
             ActionRow("停止服务", Design.icons.STOP, idle && running, false) { stop(st) }
@@ -360,9 +394,9 @@ object LamdaPage {
     }
     /** 删除：危险操作，独立成块并与普通操作在视觉上分开。 */
     @Composable
-    private fun deleteCard(ctx: Context, st: UiState, idle: Boolean) {
+    private fun deleteCard(ctx: Context, st: UiState, idle: Boolean, flat: Boolean = false) {
         var confirm by remember { mutableStateOf(false) }
-        DhKit.Card {
+        DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("删除", Design.icons.DELETE)
             ActionRow("删除已安装的服务与下载的包", Design.icons.DELETE, idle, true) { confirm = true }
             DhForm.Note("会先停掉服务，再删掉 /data/local/tmp 下解包出来的文件，"
@@ -394,8 +428,8 @@ object LamdaPage {
      * 每一项都对应 LamdaTool 里真实存在的动作。
      */
     @Composable
-    private fun abilityCard(ctx: Context) {
-        DhKit.Card {
+    private fun abilityCard(ctx: Context, flat: Boolean = false) {
+        DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("AI 能做什么", Design.icons.AI)
             CapabilityRow("打开 / 关闭应用", "按包名或应用名启动、结束某个应用", Design.icons.APP)
             CapabilityRow("点按", "按坐标点一下屏幕上的元素", Design.icons.TAP)

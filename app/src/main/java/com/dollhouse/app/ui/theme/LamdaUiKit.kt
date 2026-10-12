@@ -59,7 +59,7 @@ object LamdaUiKit {
         r.orientation = LinearLayout.HORIZONTAL
         r.gravity = Gravity.CENTER_VERTICAL
         r.background = UiKit.round(
-            if (danger && enabled) UiKit.errBg() else UiKit.SOFT, ctx, 10f)
+            if (danger && enabled) UiKit.errBg() else UiKit.soft(), ctx, 10f)
         r.setPadding(dp(ctx, 12), 0, dp(ctx, 12), 0)
         // 【为什么用最小高度而不是固定高度】系统字体放大时要能撑开，
         //   固定高度会把文字裁掉（需求第 23 条：不得文字截断）。

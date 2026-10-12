@@ -39,6 +39,10 @@ class BootReceiver : BroadcastReceiver() {
             if (PetPrefs.userStopped(ctx)) {
                 return
             }
+            // 【r12】一只都没启用就别开机自动拉起 —— 拉了也不会出人偶（服务会自己停）。
+            if (com.dollhouse.app.data.DollStore.enabled(ctx).isEmpty()) {
+                return
+            }
             val start = Intent(ctx, PetService::class.java)
             start.action = PetService.ACTION_START
             if (Build.VERSION.SDK_INT >= 26) {

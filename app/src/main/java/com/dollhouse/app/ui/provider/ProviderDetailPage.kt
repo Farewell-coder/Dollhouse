@@ -50,14 +50,13 @@ object ProviderDetailPage {
     /**
      * 毛玻璃染色层的不透明度（0~255）。
      *
-     * 【为什么是这个量级】要求是「半透明 + 内容隐约透过」，同时「文字必须始终清楚」。
-     *   太低（<0x40）时背后内容会与文字抢注意力，未选中项的标签开始糊；太高（>0xA0）
-     *   就退回成实心色块，毛玻璃白做。0x7A 约等于 48%：背后内容能看见轮廓与色块，
-     *   但被压暗成一层次要信息，文字对比度不受影响。
+     * 【r13 统一口径】原来这里写死 0x7A（48%）—— 那正是用户报的「配置/模型页的胶囊底色偏实」。
+     *   现在统一取 [UiKit.CAPSULE_FILL_ALPHA]（25%），与 Compose 侧 `DhKit.NavBar` 同源，
+     *   两处底栏不会再出现「一个透一个实」。
      */
-    private const val GLASS_FILL = 0x7A
+    private const val GLASS_FILL = UiKit.CAPSULE_FILL_ALPHA
     /** 胶囊内选中指示块的染色不透明度：比玻璃底更实，保证「选中」一眼可辨。 */
-    private const val SEL_FILL = 0xCC
+    private const val SEL_FILL = 0x66
 
     internal fun build(act: Activity, providerId: String, tab: String): View {
         val ctx: Context = act

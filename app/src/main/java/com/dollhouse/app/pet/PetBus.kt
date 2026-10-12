@@ -1,50 +1,64 @@
 package com.dollhouse.app.pet
 
+import java.util.concurrent.CopyOnWriteArrayList
+
 /**
- * 【职责】进程内的单例事件总线：把桌宠的状态变化广播给聊天面板。
+ * 【职责】进程内的单例事件总线：把桌宠的状态变化广播给所有订阅者。
  *
- * 【交互】PetService / PetView 发事件，ChatPanel 订阅。
+ * 【交互】PetService / PetWindow / PetView 发事件，ChatPanel（全屏聊天页）与各个人偶窗口订阅。
  *
- * 【坑】listener 是单个静态引用（同一时刻只允许一个订阅者），注册新监听会顶掉旧的。
+ * 【多实例】listener 从「单个静态引用」升级为「并发安全的订阅者列表」：
+ *   每个已启用人偶的 PetWindow 都注册自己的 listener，事件（台词）向所有窗口广播，
+ *   不再出现「后注册的把先注册的顶掉」——这是多实例展示能同时联动的前提。
  *
- * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
+ * 【兼容】register / unregister 的签名与既有调用方完全一致；register 幂等（同一实例重复注册只保留一份），
+ *   unregister 只摘除该实例，不影响其它订阅者。
+ *
+ * 【线程】订阅者列表用 CopyOnWriteArrayList，注册 / 注销与广播可跨线程并发，避免遍历时被改。
  */
 object PetBus {
-    @Volatile
-    private var listener: Listener? = null
+    private val listeners = CopyOnWriteArrayList<Listener>()
 
     interface Listener {
-        fun onAffection(i: Int)
-
         fun onSay(str: String, j: Long)
     }
 
     @JvmStatic
     fun register(listener2: Listener?) {
-        listener = listener2
+        if (listener2 == null) {
+            return
+        }
+        // 幂等：同一实例重复注册只保留一份（等价于旧实现里 register 覆盖自身）。
+        if (!listeners.contains(listener2)) {
+            listeners.add(listener2)
+        }
     }
 
     @JvmStatic
     fun unregister(listener2: Listener?) {
-        if (listener === listener2) {
-            listener = null
+        if (listener2 == null) {
+            return
         }
+        listeners.remove(listener2)
     }
 
     @JvmStatic
     fun say(str: String?, j: Long) {
-        val listener2 = listener
-        if (listener2 == null || str == null || str.isEmpty()) {
+        if (str == null || str.isEmpty()) {
             return
         }
-        listener2.onSay(str, j)
+        for (listener2 in listeners) {
+            // 单个订阅者抛异常不能中断对其余窗口的广播。
+            try {
+                listener2.onSay(str, j)
+            } catch (ignored: Throwable) {
+            }
+        }
     }
 
+    /** 当前订阅人数（诊断 / 测试用）。 */
     @JvmStatic
-    fun affection(i: Int) {
-        val listener2 = listener
-        if (listener2 != null) {
-            listener2.onAffection(i)
-        }
+    fun listenerCount(): Int {
+        return listeners.size
     }
 }

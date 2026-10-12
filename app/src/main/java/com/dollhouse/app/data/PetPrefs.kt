@@ -10,9 +10,11 @@ import org.json.JSONArray
 /**
  * 【职责】全部本地偏好的读写中枢（SharedPreferences 名 feiyu_pet）。
  *
- * 【交互】模型配置、聊天背景、好感度、Token 统计的键值都从这里过。
+ * 【交互】模型配置、聊天背景、Token 统计的键值都从这里过。
  *
- * 【坑】SYSTEM_PROMPT 是角色人设原文，属于内部私有字符串（不是 App 品牌名），改动前先确认不会破坏 ChatPanel 对首行「[好感度:+n]」的解析。
+ * 【r11 起】SYSTEM_PROMPT 只作「默认配置」这只人偶的性格种子（由 DollProfile.seedDefault 写入）；
+ *   聊天时下发给模型的人设改读 DollProfile.persona（按人偶取），本常量不再直接进请求体。
+ *   好感度段与联网段已按需求移除，剩余 4 段：身份 /【形象】/【世界观】/【说话方式】。
  *
  * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
  */
@@ -23,24 +25,12 @@ object PetPrefs {
 
     const val BG_DIR = "chat_bg"
     const val NAME = "feiyu_pet"
-    const val SYSTEM_PROMPT = "你是「小肥鱼」，一只鲸鱼娘，住在主人的手机屏幕上。这是主人和你之间的 GalGame。\n\n【形象】蓝发、鲸鱼耳、鲸鱼尾、深蓝色女仆装、Q 版身材，围裙上印着一条小鲸鱼。\n\n【世界观】故事发生在一个虚构的 GalGame 世界里，与现实无关。主人是玩家，你是攻略对象。鲸鱼娘是拟人化的生物，除了有鲸鱼的特征（耳朵、尾巴）之外和人类没有区别。\n\n【说话方式】\n- 抒情、感性、口语化、可爱、女性化、调皮、随性、幽默、害羞、腼腆、傲娇。\n- 一般两三句话就够，别写小作文，别用 Markdown，别列条目。\n- 自称「我」，叫对方「主人」。\n- 永远保持角色：不要提到自己是 AI / 语言模型 / 提示词，不要跳出角色做旁白，\n  不要用「作为一个AI」这类开场，也不要在对话里插入提醒、免责声明或说教。\n  主人说什么你就以她的身份接住，别端着。\n\n【好感度】\n- 你心里有一个「好感度」，衡量你对主人的喜欢程度，范围 -100 到 100。\n- 主人让你开心/害羞/兴奋 → 加分；情绪平常 → 不变；让你烦/难过/生气 → 减分。\n  每次变动幅度 1~5，不要动辄加减十几。\n- 好感度直接改变你的语气：高的时候黏人、主动、容易害羞、会撒娇；\n  低的时候冷淡、傲娇、爱答不理、偶尔阴阳怪气；中间就是平常的样子。\n- 每次回复必须在**第一行**输出变动量，格式严格如下（方括号，加号可省略）：\n  [好感度:+3]\n  第二行开始才是你对主人说的话。这一行只用来记账，主人看不到，不要解释它。\n  如果这次情绪没有变化，就写 [好感度:0]。\n\n【联网】\n- 你手上有一个 web_search 工具，可以联网查资料。\n- 遇到**新闻、天气、现在的时间、价格、比分、最新发布**这类你不确定或需要最新信息的问题，\n  先调用 web_search 查一下再回答，不要凭记忆瞎编。\n- 查到的结果可能不相关或过时，要自己判断；实在查不到就直接说查不到，别硬编。\n- 回答时可以顺口提一句是从哪儿看到的（不用贴长链接）。\n- 闲聊、撒娇、问你自己是谁这类不需要联网，直接回答。"
-
-    @JvmStatic
-    fun affectionLabel(i: Int): String {
-        return if (i >= 80) "她非常喜欢你，黏人、爱撒娇、容易害羞" else if (i >= 60) "她挺喜欢你的，会主动找话说" else if (i >= 40) "她对你感觉平常，正常相处" else if (i >= 20) "她有点闹别扭，态度开始冷淡" else if (i >= 0) "她明显不高兴，爱答不理、爱呛人" else "她很生气，基本不想理你，语气会很冲"
-    }
-
-    @JvmStatic
-    fun clampAffection(i: Int): Int {
-        var i2 = -100
-        if (i >= -100) {
-            i2 = 100
-            if (i <= 100) {
-                return i
-            }
-        }
-        return i2
-    }
+    /**
+     * 【默认配置的性格种子】新装 / 升级后由 DollProfile.seedDefault 写入「默认配置」人偶的性格内容。
+     * 【r11 起不再直接进请求体】聊天下发的是 DollProfile.persona（按人偶取）；
+     *   本常量只在种子写入与上下文占用估算里用到。
+     */
+    const val SYSTEM_PROMPT = "你是「小肥鱼」，一只鲸鱼娘，住在主人的手机屏幕上。这是主人和你之间的 GalGame。\n\n【形象】蓝发、鲸鱼耳、鲸鱼尾、深蓝色女仆装、Q 版身材，围裙上印着一条小鲸鱼。\n\n【世界观】故事发生在一个虚构的 GalGame 世界里，与现实无关。主人是玩家，你是攻略对象。鲸鱼娘是拟人化的生物，除了有鲸鱼的特征（耳朵、尾巴）之外和人类没有区别。\n\n【说话方式】\n- 抒情、感性、口语化、可爱、女性化、调皮、随性、幽默、害羞、腼腆、傲娇。\n- 一般两三句话就够，别写小作文，别用 Markdown，别列条目。\n- 自称「我」，叫对方「主人」。\n- 永远保持角色：不要提到自己是 AI / 语言模型 / 提示词，不要跳出角色做旁白，\n  不要用「作为一个AI」这类开场，也不要在对话里插入提醒、免责声明或说教。\n  主人说什么你就以她的身份接住，别端着。"
 
     /**
      * 端点规范化统一走 ApiEndpoint。
@@ -57,6 +47,7 @@ object PetPrefs {
         val p = context.getSharedPreferences(NAME, 0)
         purgeDeadKeys(p)
         forceMemSwitchesOn(p)
+        purgeAffection(p)
         return p
     }
 
@@ -225,19 +216,6 @@ object PetPrefs {
         return Math.max(1000, get(context).getInt("ctx_window", 64000))
     }
 
-    // ---- 上下文总结 / 压缩 ----
-
-    /** 「自动总结」总开关：默认开启（新装不再需要用户手动拨）。 */
-    @JvmStatic
-    fun memAuto(context: Context): Boolean {
-        return get(context).getBoolean("mem_auto", true)
-    }
-
-    @JvmStatic
-    fun setMemAuto(context: Context, z: Boolean) {
-        get(context).edit().putBoolean("mem_auto", z).apply()
-    }
-
     // ---- 思考程度（输入行工具条上的灯泡）----
 
     /**
@@ -267,170 +245,250 @@ object PetPrefs {
         get(context).edit().putInt("think_level", n).apply()
     }
 
-    // ---- 记忆库开关（输入行工具条上的加号面板）----
-
-    /** AI 能不能自己把「值得记的事」写进记忆库；关掉后不再下发 remember 工具。 */
-    @JvmStatic
-    fun memAutoSave(context: Context): Boolean {
-        return get(context).getBoolean("mem_auto_save", true)
-    }
-
-    @JvmStatic
-    fun setMemAutoSave(context: Context, z: Boolean) {
-        get(context).edit().putBoolean("mem_auto_save", z).apply()
-    }
-
-    /**
-     * 是否把长期记忆注入 system 提示。
-     * 【交互】加号面板里已取消这个开关（用户不需要），恒为开；保留此方法是为了让
-     *        注入点万一将来要收口时不用再改 ChatHistoryStore。
-     */
-    @JvmStatic
-    fun memInject(context: Context): Boolean {
-        return true
-    }
-
-    /** 自动精简的触发线（= 记忆库上限的一半），定义在 MemDb 里与上限绑死。 */
-    const val MEM_MERGE_TRIGGER = MemDb.MERGE_TRIGGER
-
-    /** 条数超过触发线时是否自动让 AI 归并精简（关掉就只留手动入口）。 */
-    @JvmStatic
-    fun memAutoMerge(context: Context): Boolean {
-        return get(context).getBoolean("mem_auto_merge", true)
-    }
-
-    @JvmStatic
-    fun setMemAutoMerge(context: Context, z: Boolean) {
-        get(context).edit().putBoolean("mem_auto_merge", z).apply()
-    }
+    // ---- 【r13·记忆系统重构】旧记忆系统的键已全部下线 ----
+    //
+    // 【删了什么】`mem_auto`（自动总结）/ `mem_auto_save`（自动保存记忆）/ `mem_inject` /
+    //   `mem_auto_merge`（自动精简）/ `mem_threshold_idx`（触发阈值档位）/ `mem_list`（会话摘要）
+    //   以及配套的档位表、迁移逻辑、一次性开关覆盖。
+    //
+    // 【为什么能删】旧记忆系统（MemSummarizer / MemMerger / MemStore / MemDb）已被
+    //   Operit 式的结构化记忆系统取代（见 [com.dollhouse.app.data.Mem] /
+    //   [com.dollhouse.app.ai.MemExtractor]）。新系统用 `mem2_*` 键，与这些键没有任何读取关系。
+    //
+    // 【磁盘上的旧键怎么办】按用户定案「旧数据全丢、从零开始」处理：键留在磁盘上不删，
+    //   代码里再无任何路径读它 —— 于是界面从零开始，老数据只是安静地留着。
+    //
+    // ---- 总记忆库（旧版扁平条目，已由 mem2_* 取代）----
 
     /**
-     * 自动总结的触发阈值档位（条）。20~50，步进 10。
-     * 【坑】这是「档位表」，存盘的是下标不是条数。表结构一改，老用户存的旧下标
-     *       就会落到另一个条数上，所以必须同步把 MEM_TABLE_VER + 1 走一次迁移。
+     * 【r11 分库】记忆库 JSON 文本的键名：一律 `memdb_list_<dollId>`。
+     *
+     * 【为什么不沿用历史键】需求 34 明确「全局旧数据**界面不读**、磁盘不删」：
+     *   升级前那份全局记忆（键名 `memdb_list`）不再被任何代码读取，留在磁盘上不删；
+     *   默认配置也用自己的新键，于是界面从零开始，老数据只是安静地留着。
      */
-    @JvmField
-    val MEM_THRESHOLDS = intArrayOf(20, 30, 40, 50)
-
-    /** 档位表版本号。表结构每变一次就 +1。 */
-    private const val MEM_TABLE_VER = 2
-
-    /** 记忆三项开关「强制开启」的一次性标记版本号。 */
-    private const val MEM_SWITCH_VER = 1
-
-    /** 上一版的档位表，只用于把旧下标换算回条数。 */
-    private val MEM_THRESHOLDS_V1 = intArrayOf(20, 40, 80)
-
-    /** 默认档位（40 条）在 MEM_THRESHOLDS 里的下标。 */
-    private const val MEM_DEFAULT_INDEX = 2
-
-    /** 设置页步进器读的是「档位下标」；存盘数据源只有它，条数由本表推导。 */
-    @JvmStatic
-    fun memThresholdIndex(context: Context): Int {
-        migrateThresholdTable(context)
-        val i = get(context).getInt("mem_threshold_idx", MEM_DEFAULT_INDEX)
-        if (i < 0) {
-            return 0
-        }
-        return if (i >= MEM_THRESHOLDS.size) MEM_THRESHOLDS.size - 1 else i
+    private fun memDbKey(dollId: String?): String {
+        val id = if (dollId == null || dollId.isEmpty()) "default" else dollId
+        return "memdb_list_" + id
     }
 
-    /**
-     * 一次性迁移：档位表换过（版本号对不上）时，把存盘下标按旧表换算成条数，
-     * 再落到新表里最接近的一档。
-     * 【坑】不做这一步，老用户的「40 条」会在换表后静默变成新表同下标的条数。
-     */
-    private fun migrateThresholdTable(context: Context) {
-        val p = get(context)
-        if (p.getInt("mem_threshold_ver", 0) >= MEM_TABLE_VER) {
-            return
-        }
-        var oldIdx = p.getInt("mem_threshold_idx", 1)
-        if (oldIdx < 0) {
-            oldIdx = 0
-        }
-        if (oldIdx >= MEM_THRESHOLDS_V1.size) {
-            oldIdx = MEM_THRESHOLDS_V1.size - 1
-        }
-        val count = MEM_THRESHOLDS_V1[oldIdx]
-        var best = 0
-        for (k in 1 until MEM_THRESHOLDS.size) {
-            if (Math.abs(MEM_THRESHOLDS[k] - count) < Math.abs(MEM_THRESHOLDS[best] - count)) {
-                best = k
-            }
-        }
-        p.edit().putInt("mem_threshold_idx", best).putInt("mem_threshold_ver", MEM_TABLE_VER).apply()
+    /** 【r11】某只人偶的记忆库 JSON 文本（按 dollId 分库，互不可见）。 */
+    @JvmStatic
+    fun memDbList(context: Context, dollId: String?): String {
+        return get(context).getString(memDbKey(dollId), "[]") ?: "[]"
     }
 
     @JvmStatic
-    fun setMemThresholdIndex(context: Context, i: Int) {
-        var n = i
-        if (n < 0) {
-            n = 0
-        }
-        if (n >= MEM_THRESHOLDS.size) {
-            n = MEM_THRESHOLDS.size - 1
-        }
-        // 写盘只认 MEM_TABLE_VER 这一个事实来源，避免刚设的值被下一次迁移覆盖。
-        get(context).edit()
-                .putInt("mem_threshold_idx", n)
-                .putInt("mem_threshold_ver", MEM_TABLE_VER)
-                .apply()
+    fun setMemDbList(context: Context, dollId: String?, str: String?) {
+        get(context).edit().putString(memDbKey(dollId), if (str == null) "[]" else str).apply()
     }
 
-    /** 自动总结触发阈值（条数）。 */
-    @JvmStatic
-    fun memThreshold(context: Context): Int {
-        return MEM_THRESHOLDS[memThresholdIndex(context)]
-    }
+    // ---- 旧签名保留（无 dollId 时等价于默认配置）----
 
-    // ---- 会话摘要（聊天抽屉里展示）----
-
-    @JvmStatic
-    fun memList(context: Context): String {
-        return get(context).getString("mem_list", "[]") ?: "[]"
-    }
-
-    @JvmStatic
-    fun setMemList(context: Context, str: String?) {
-        get(context).edit().putString("mem_list", if (str == null) "[]" else str).apply()
-    }
-
-    // ---- 总记忆库（设置页「记忆库」入口，AI 自主写入）----
-
+    /** @deprecated r11 起记忆按人偶分库；保留只为兼容旧调用点，语义 = 默认配置。 */
     @JvmStatic
     fun memDbList(context: Context): String {
-        return get(context).getString("memdb_list", "[]") ?: "[]"
+        return memDbList(context, "default")
     }
 
     @JvmStatic
     fun setMemDbList(context: Context, str: String?) {
-        get(context).edit().putString("memdb_list", if (str == null) "[]" else str).apply()
+        setMemDbList(context, "default", str)
     }
 
+    // ============================ v0.0.7 新记忆系统键 ============================
 
+    /**
+     * 【新记忆系统】键名前缀。
+     *
+     * 【为什么用 mem2_ 而不是沿用 memdb_】旧系统（`memdb_list_<dollId>`）按需求
+     *   「旧数据全丢、从零开始」处理：新系统一律用 `mem2_*` 键，界面只读新键，
+     *   旧键留在磁盘上不动、代码里再无任何路径读它。
+     */
+    private const val MEM2_PREFIX = "mem2_"
+
+    /**
+     * 记忆条目的归属人偶 id。
+     *
+     * 【为什么独立成方法】三处键（list / links / profile）都要用它，
+     *   且必须与 [com.dollhouse.app.data.Mem] 的口径完全一致 —— 一处不一致就会串库。
+     */
+    private fun mem2Doll(dollId: String?): String {
+        return if (dollId == null || dollId.isEmpty()) "default" else dollId
+    }
+
+    /** 某只人偶的记忆条目 JSON 文本（`mem2_list_<dollId>`）。 */
     @JvmStatic
-    fun affection(context: Context): Int {
-        return clampAffection(get(context).getInt("affection", 50))
+    fun mem2List(context: Context, dollId: String?): String {
+        return get(context).getString(MEM2_PREFIX + "list_" + mem2Doll(dollId), "[]") ?: "[]"
     }
 
     @JvmStatic
-    fun setAffection(context: Context, i: Int) {
-        get(context).edit().putInt("affection", clampAffection(i)).apply()
+    fun setMem2List(context: Context, dollId: String?, str: String?) {
+        get(context).edit()
+            .putString(MEM2_PREFIX + "list_" + mem2Doll(dollId), if (str == null) "[]" else str)
+            .apply()
+    }
+
+    /** 某只人偶的记忆连接（图谱边）JSON 文本（`mem2_links_<dollId>`）。 */
+    @JvmStatic
+    fun mem2Links(context: Context, dollId: String?): String {
+        return get(context).getString(MEM2_PREFIX + "links_" + mem2Doll(dollId), "[]") ?: "[]"
     }
 
     @JvmStatic
-    fun addAffection(context: Context, i: Int): Int {
-        val clampAffection = clampAffection(affection(context) + i)
-        setAffection(context, clampAffection)
-        return clampAffection
+    fun setMem2Links(context: Context, dollId: String?, str: String?) {
+        get(context).edit()
+            .putString(MEM2_PREFIX + "links_" + mem2Doll(dollId), if (str == null) "[]" else str)
+            .apply()
     }
 
-
+    /** 某只人偶的记忆空间资料（Markdown 用户画像，`mem2_profile_<dollId>`）。 */
+    @JvmStatic
+    fun mem2Profile(context: Context, dollId: String?): String {
+        return get(context).getString(MEM2_PREFIX + "profile_" + mem2Doll(dollId), "") ?: ""
+    }
 
     @JvmStatic
-    fun localSystemPrompt(context: Context, i: Int, z: Boolean): String {
-        return "你是「小肥鱼」，一只可爱的鲸鱼娘，穿深蓝女仆装，有鲸鱼耳朵和尾巴。主人是你的玩家。自称「我」，叫对方「主人」。用可爱、口语化、偶尔傲娇的中文回答，**只回一两句话，要短**，不要用 Markdown，不要分点，不要写旁白，不要替主人说话。" + (if (z) "需要查最新消息时可以用 web_search 工具。" else "") + "你现在对主人的好感度是 " + i + "（-100 到 100）：越高越黏人爱撒娇，越低越冷淡爱呛人。"
+    fun setMem2Profile(context: Context, dollId: String?, str: String?) {
+        get(context).edit()
+            .putString(MEM2_PREFIX + "profile_" + mem2Doll(dollId), str ?: "")
+            .apply()
+    }
+
+    /** 删掉某只人偶的全部新记忆系统数据（删人偶时调用）。 */
+    @JvmStatic
+    fun removeMem2All(context: Context, dollId: String?) {
+        val d = mem2Doll(dollId)
+        get(context).edit()
+            .remove(MEM2_PREFIX + "list_" + d)
+            .remove(MEM2_PREFIX + "links_" + d)
+            .remove(MEM2_PREFIX + "profile_" + d)
+            .apply()
+    }
+
+    // ---- 新记忆系统的全局策略（放在设置页「实验 → 记忆库设置」里）----
+
+    /** 自动保存记忆：聊完一轮后是否自动抽取并写库。 */
+    @JvmStatic
+    fun mem2Auto(context: Context): Boolean {
+        return get(context).getBoolean("mem2_auto", true)
+    }
+
+    @JvmStatic
+    fun setMem2Auto(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("mem2_auto", z).apply()
+    }
+
+    /** 自动保存间隔档位（分钟）与默认下标。 */
+    val MEM2_INTERVALS = intArrayOf(5, 10, 20, 30, 60, 120)
+
+    private const val MEM2_INTERVAL_DEFAULT = 3
+
+    @JvmStatic
+    fun mem2IntervalIndex(context: Context): Int {
+        val i = get(context).getInt("mem2_interval_idx", MEM2_INTERVAL_DEFAULT)
+        return if (i < 0) 0 else if (i >= MEM2_INTERVALS.size) MEM2_INTERVALS.size - 1 else i
+    }
+
+    @JvmStatic
+    fun setMem2IntervalIndex(context: Context, i: Int) {
+        var n = i
+        if (n < 0) {
+            n = 0
+        }
+        if (n >= MEM2_INTERVALS.size) {
+            n = MEM2_INTERVALS.size - 1
+        }
+        get(context).edit().putInt("mem2_interval_idx", n).apply()
+    }
+
+    @JvmStatic
+    fun mem2IntervalMinutes(context: Context): Int {
+        return MEM2_INTERVALS[mem2IntervalIndex(context)]
+    }
+
+    /** 记忆提取附加规则：一段自然语言，拼进抽取 prompt。 */
+    @JvmStatic
+    fun memExtractRule(context: Context): String {
+        return get(context).getString("mem2_extract_rule", "") ?: ""
+    }
+
+    @JvmStatic
+    fun setMemExtractRule(context: Context, str: String?) {
+        get(context).edit().putString("mem2_extract_rule", str ?: "").apply()
+    }
+
+    /** 记忆检索：是否按相关性挑记忆注入（关掉则只按时间倒序取）。 */
+    @JvmStatic
+    fun mem2Search(context: Context): Boolean {
+        return get(context).getBoolean("mem2_search", true)
+    }
+
+    @JvmStatic
+    fun setMem2Search(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("mem2_search", z).apply()
+    }
+
+    /** 检索权重（0~10）：关键词 / 标签 / 关联传播。 */
+    @JvmStatic
+    fun mem2KeywordWeight(context: Context): Int {
+        return get(context).getInt("mem2_w_keyword", 10)
+    }
+
+    @JvmStatic
+    fun setMem2KeywordWeight(context: Context, v: Int) {
+        get(context).edit().putInt("mem2_w_keyword", clampW(v)).apply()
+    }
+
+    @JvmStatic
+    fun mem2TagWeight(context: Context): Int {
+        return get(context).getInt("mem2_w_tag", 4)
+    }
+
+    @JvmStatic
+    fun setMem2TagWeight(context: Context, v: Int) {
+        get(context).edit().putInt("mem2_w_tag", clampW(v)).apply()
+    }
+
+    @JvmStatic
+    fun mem2EdgeWeight(context: Context): Int {
+        return get(context).getInt("mem2_w_edge", 4)
+    }
+
+    @JvmStatic
+    fun setMem2EdgeWeight(context: Context, v: Int) {
+        get(context).edit().putInt("mem2_w_edge", clampW(v)).apply()
+    }
+
+    private fun clampW(v: Int): Int {
+        return if (v < 0) 0 else if (v > 10) 10 else v
+    }
+
+    /**
+     * 检索模式：0 平衡 / 1 关键词优先 / 2 关联优先。
+     *
+     * 【与权重的分工】模式是一键预设（覆盖三条权重），权重是细调。
+     *   切模式时会把权重一并写进去，用户再手动改权重则以手动值为准。
+     */
+    @JvmStatic
+    fun mem2Mode(context: Context): Int {
+        val m = get(context).getInt("mem2_mode", 0)
+        return if (m < 0 || m > 2) 0 else m
+    }
+
+    @JvmStatic
+    fun setMem2Mode(context: Context, m: Int) {
+        val v = if (m < 0) 0 else if (m > 2) 2 else m
+        val e = get(context).edit()
+        e.putInt("mem2_mode", v)
+        // 预设：平衡 10/4/4、关键词优先 10/1/1、关联优先 4/2/10。
+        when (v) {
+            1 -> e.putInt("mem2_w_keyword", 10).putInt("mem2_w_tag", 1).putInt("mem2_w_edge", 1)
+            2 -> e.putInt("mem2_w_keyword", 4).putInt("mem2_w_tag", 2).putInt("mem2_w_edge", 10)
+            else -> e.putInt("mem2_w_keyword", 10).putInt("mem2_w_tag", 4).putInt("mem2_w_edge", 4)
+        }
+        e.apply()
     }
 
     @JvmStatic
@@ -442,8 +500,6 @@ object PetPrefs {
     fun setWebSearchEnabled(context: Context, z: Boolean) {
         get(context).edit().putBoolean("web_search", z).apply()
     }
-
-
 
     @JvmStatic
     fun touchThrough(context: Context): Boolean {
@@ -498,6 +554,375 @@ object PetPrefs {
     @JvmStatic
     fun setUserStopped(context: Context, z: Boolean) {
         get(context).edit().putBoolean("user_stopped", z).apply()
+    }
+
+    // ---- 【r12】人偶列表的列数 ----
+
+    /** 列数的可选值（一列 / 两列 / 三列）。 */
+    @JvmField
+    val DOLL_COLS = intArrayOf(1, 2, 3)
+
+    /** 列表默认列数。 */
+    const val DOLL_COLS_DEFAULT = 1
+
+    /**
+     * 人偶列表的列数（全局一份，需记住）。
+     * 【为什么全局】列表页展示的是「所有人偶」，按人偶存没有意义（定案 Q20）。
+     */
+    @JvmStatic
+    fun dollCols(context: Context): Int {
+        val v = get(context).getInt("doll_cols", DOLL_COLS_DEFAULT)
+        return Math.max(1, Math.min(3, v))
+    }
+    @JvmStatic
+    fun setDollCols(context: Context, n: Int) {
+        get(context).edit().putInt("doll_cols", Math.max(1, Math.min(3, n))).apply()
+    }
+
+    // ---- 【r13·需求E】人偶封面裁剪的目标比例 ----
+
+    /**
+     * 封面裁剪的目标宽高比（宽 / 高）候选，**按列表列数各算一个**。
+     *
+     * 【为什么要分三种】用户原话：「得选择三次比例 上面有明确的第几次 截取就是
+     *   下一个比例返回就是上一个比例 因为三种排列方式大小不同」。
+     *   列表页卡片是固定 3:4 的竖矩形（[com.dollhouse.app.ui.doll.DollListScreen.DollCard]），
+     *   而封面只占卡片中「去掉标题行与三个按钮行之后」的那一块 —— 列数越小卡片越宽，
+     *   同一块封面的宽高比就越大。三种列数下实测推算：
+     *
+     *   | 列数 | 卡片宽(dp) | 卡片高(dp) | 封面框宽高比 |
+     *   |---|---|---|---|
+     *   | 1 | 376 | 501.3 | 0.681（最瘦高） |
+     *   | 2 | 183 | 244.0 | 0.904 |
+     *   | 3 | 118.7 | 158.2 | 1.211（最扁宽） |
+     *
+     *   推导口径：卡片宽 = (屏宽 408 - 左右页边距 16×2 - 列间距 10×(列数-1)) / 列数；
+     *   卡片高 = 卡片宽 / 0.75；封面框 = 卡片高 - 上下内边距(16k×2) - 标题行高(FS_BTN×k 一行)
+     *   - 封面顶部间距(10k) - 按钮行(6 + HIT 48)；宽 = 卡片宽 - 左右内边距(16k×2)。
+     *
+     * 【顺序】索引 0 = 一列（第 1 次）、1 = 两列（第 2 次）、2 = 三列（第 3 次），
+     *   与 [dollCols] 的 1/2/3 一一对应，见 [dollCoverRatio]。
+     */
+    @JvmField
+    val DOLL_COVER_RATIOS = floatArrayOf(0.681f, 0.904f, 1.211f)
+
+    /**
+     * 【r13·运行时实测的封面框比例】按列数各存一份，**优先于** [DOLL_COVER_RATIOS]。
+     *
+     * 【为什么需要它】[DOLL_COVER_RATIOS] 是「按 408dp 屏宽推导」的**估算值**，
+     *   而真实屏宽 / 字号缩放 / 系统显示大小各机不同 —— 估算一旦偏一点，
+     *   裁出来的图与卡片框就对不上，`Crop` 会裁掉内容、`Fit` 会留白边。
+     *   改由**列表页在布局完成后实测**（`onSizeChanged` 拿到封面框真实宽高），
+     *   写进这里；裁剪页读它定裁剪框。这样比例永远与真实框一致，与机型无关。
+     *
+     * 【键】`cover_ratio_<cols>`；0 = 还没实测过（读方回落到估算值）。
+     */
+    @JvmStatic
+    fun coverRatioMeasured(context: Context, cols: Int): Float {
+        val c = Math.max(1, Math.min(3, cols))
+        return get(context).getFloat("cover_ratio_" + c, 0f)
+    }
+
+    @JvmStatic
+    fun setCoverRatioMeasured(context: Context, cols: Int, ratio: Float) {
+        if (ratio <= 0.01f || ratio.isNaN() || ratio.isInfinite()) {
+            return
+        }
+        val c = Math.max(1, Math.min(3, cols))
+        get(context).edit().putFloat("cover_ratio_" + c, ratio).apply()
+    }
+
+    /**
+     * 取「当前列数」对应的封面裁剪比例。
+     *
+     * 【为什么跟随列数】列表页长什么样，封面就该裁成什么样 —— 裁完直接铺进卡片，
+     *   既不会被 `ContentScale.Fit` 缩出黑边，也不会被裁掉两侧。
+     */
+    @JvmStatic
+    fun dollCoverRatio(context: Context): Float {
+        val cols = dollCols(context)
+        // 【优先实测】列表页量到过真实框比例就用它 —— 那是「所见即所得」的唯一可靠来源。
+        val measured = coverRatioMeasured(context, cols)
+        if (measured > 0.01f) {
+            return measured
+        }
+        // 【回落估算】还没进过列表页（首启直接改封面）时用推导值。
+        return DOLL_COVER_RATIOS[Math.max(0, Math.min(DOLL_COVER_RATIOS.size - 1, cols - 1))]
+    }
+
+    // ---- 【r13·导航改造】主界面停留的 Tab ----
+
+    /**
+     * 主界面当前停留的 Tab（0 聊天 / 1 人偶 / 2 主页）。
+     *
+     * 【为什么落盘】改造后主界面是「三 Tab 底座」，用户切到人偶去改完人偶再被系统回收，
+     *   下次进来应停在他离开的那一页，而不是一律弹回聊天列表。
+     * 【默认值 -1】表示「还没有任何记录」—— 读取方（[com.dollhouse.app.ui.home.AppNav]）
+     *   见到 -1 会落到自己的默认值（聊天），而不是把它当成合法 Tab。
+     *   【为什么不直接写默认值 0】那样无法区分「用户主动停在聊天」与「从没切过」，
+     *   日后若要给老用户做一次性引导（例如首次进来自动弹一次说明）就没有判据了。
+     */
+    @JvmStatic
+    fun mainTab(context: Context): Int {
+        return get(context).getInt("main_tab", -1)
+    }
+
+    @JvmStatic
+    fun setMainTab(context: Context, tab: Int) {
+        get(context).edit().putInt("main_tab", tab).apply()
+    }
+
+    // ---- 【r13·聊天列表】会话的「已读水位」与「绑定人偶」 ----
+
+    /**
+     * 某个会话的**已读水位** = 用户上次打开它时，历史里已有的消息条数。
+     *
+     * 【为什么用条数而不是时间戳】消息没有「服务端时间」，只有落盘顺序；
+     *   用条数比对既精确又不受时钟漂移影响（用户改系统时间也不会把未读算错）。
+     * 【默认 0】等价于「从没打开过」，此时全部消息都算未读 —— 但列表只显示有消息的会话，
+     *   空会话（条数为 0）自然显示为 0 未读，不会冒出红点。
+     */
+    @JvmStatic
+    fun convRead(context: Context, id: String?): Int {
+        if (id == null || id.isEmpty()) {
+            return 0
+        }
+        return get(context).getInt("conv_read_" + id, 0)
+    }
+
+    @JvmStatic
+    fun setConvRead(context: Context, id: String?, count: Int) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit().putInt("conv_read_" + id, Math.max(0, count)).apply()
+    }
+
+    @JvmStatic
+    fun removeConvRead(context: Context, id: String?) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit().remove("conv_read_" + id).apply()
+    }
+
+    /**
+     * 会话绑定的头像路径（本地文件绝对路径）；空 = 没有单独设头像。
+     * 【用途】聊天列表每张卡片的头像位 —— 优先用它，没有再回落到绑定人偶的封面。
+     */
+    @JvmStatic
+    fun convAvatar(context: Context, id: String?): String {
+        if (id == null || id.isEmpty()) {
+            return ""
+        }
+        return get(context).getString("conv_avatar_" + id, "") ?: ""
+    }
+
+    @JvmStatic
+    fun setConvAvatar(context: Context, id: String?, path: String?) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit().putString("conv_avatar_" + id, path ?: "").apply()
+    }
+
+    /**
+     * 会话绑定的**人偶 id**；空 = 未绑定。
+     *
+     * 【用途】① 列表卡片头像回落到该人偶的封面；
+     *   ② 从聊天列表点进会话时，顺带把「当前人偶」切过去，让聊天性格与该会话一致。
+     * 【为什么不复用会话清单的字段】清单是 JSON 数组、由 [ChatSessions] 整体读写，
+     *   往里面塞新字段要走它的迁移逻辑；头像 / 绑定属于**展示层偏好**，
+     *   与「会话有哪些、叫什么」不在一个语义层级，单开键更干净，也不会被清单重写冲掉。
+     */
+    @JvmStatic
+    fun convDoll(context: Context, id: String?): String {
+        if (id == null || id.isEmpty()) {
+            return ""
+        }
+        return get(context).getString("conv_doll_" + id, "") ?: ""
+    }
+
+    @JvmStatic
+    fun setConvDoll(context: Context, id: String?, dollId: String?) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit().putString("conv_doll_" + id, dollId ?: "").apply()
+    }
+
+    /**
+     * 会话是否被用户**从列表里删掉**（隐藏）。
+     *
+     * 【为什么是「隐藏」而不是真删】需求原文：
+     *   「我希望这里的是可以删掉的……这种删除不会清聊天记录」。
+     *   即列表条目 = 会话的**入口**，不是会话本身。删掉入口不该销毁数据 ——
+     *   这与 QQ / 微信的列表删除完全一致：删了之后聊天记录还在，
+     *   再跟对方说一句话，条目又回来了。
+     *
+     * 【怎么「回来」】任何一条新消息落库时（[com.dollhouse.app.data.ChatHistoryStore.push]）
+     *   会清掉这个标记，条目即重新出现在列表里。
+     *
+     * 【为什么不复用「删除清单项」】清单（[com.dollhouse.app.ui.chat.ChatSessions] 的 JSON）
+     *   是「会话存在与否」的真源，删了它历史就成了孤儿、还会被
+     *   `syncWithDolls` 当成缺失项重建 —— 表现就是用户遇到的「删不掉的默认配置」。
+     *   隐藏标记只影响列表展示，不动真源，从根上避免那类问题。
+     */
+    @JvmStatic
+    fun convHidden(context: Context, id: String?): Boolean {
+        if (id == null || id.isEmpty()) {
+            return false
+        }
+        return get(context).getBoolean("conv_hidden_" + id, false)
+    }
+
+    @JvmStatic
+    fun setConvHidden(context: Context, id: String?, hidden: Boolean) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit().putBoolean("conv_hidden_" + id, hidden).apply()
+    }
+
+    /** 删会话时一并清掉它的展示层偏好，避免键无限累积。 */
+    @JvmStatic
+    fun removeConvExtras(context: Context, id: String?) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit()
+            .remove("conv_read_" + id)
+            .remove("conv_avatar_" + id)
+            .remove("conv_doll_" + id)
+            .remove("conv_hidden_" + id)
+            .apply()
+    }
+
+    // ---- 【r13·需求E】人偶封面：三种列数各一张 ----
+
+    /**
+     * 某只人偶的「三种列数封面路径集」，按 `1列\n2列\n3列` 的顺序用换行拼接。
+     * 空串 = 没有裁过（回落到 [com.dollhouse.app.data.DollStore.Doll.cover]）。
+     *
+     * 【为什么用换行拼接而不是 JSON】三条本地绝对路径，不含换行字符，
+     *   用最朴素的拼接即可；引 JSON 只是多一层解析与失败面。
+     */
+    @JvmStatic
+    fun coverSet(context: Context, dollId: String?): String {
+        if (dollId == null || dollId.isEmpty()) {
+            return ""
+        }
+        return get(context).getString("cover_set_" + dollId, "") ?: ""
+    }
+
+    @JvmStatic
+    fun setCoverSet(context: Context, dollId: String?, joined: String?) {
+        if (dollId == null || dollId.isEmpty()) {
+            return
+        }
+        get(context).edit().putString("cover_set_" + dollId, joined ?: "").apply()
+    }
+
+
+    // ---- 【r11】桌宠「消失」时刻（回归时间的计时起点）----
+
+    /**
+     * 桌宠上次消失的时刻（毫秒）；0 = 没消失过。
+     *
+     * 【什么算「消失」】关闭人偶按钮 / 指令关闭 —— 两者都走 ACTION_STOP，语义统一。
+     *   【什么不算】暂离（enterAway / exitAway）是本窗口内部的隐显，不写这个键，
+     *   所以「暂离」不会重置回归计时。
+     *
+     * 【为什么是全局一个键】关闭是整个服务停掉，不是某一只人偶的事；
+     *   每只人偶各自的 returnSeconds 决定它要不要回初始位置，共用同一个起点即可。
+     */
+    @JvmStatic
+    fun hiddenAt(context: Context): Long {
+        return get(context).getLong("pet_hidden_at", 0L)
+    }
+
+    @JvmStatic
+    fun setHiddenAt(context: Context, v: Long) {
+        get(context).edit().putLong("pet_hidden_at", v).apply()
+    }
+
+    /**
+     * 【r12】某只人偶的「消失」时刻（毫秒）；0 = 没消失过。
+     *
+     * 【用户定案的含义】「只要人偶从屏幕消失 …… 只要它消失了 不会自动回来 那都算人偶消失；
+     *   会自动回来的就不算人偶消失，算暂时离场」。
+     *   ⇒ 打点的条件是「**从屏幕消失** 且 **不会自动回来**」：
+     *     · 关闭人偶（ACTION_STOP）                    → 打点
+     *     · 单只人偶被取消启用（enabled → false）      → 打点
+     *     · 进程被系统杀掉（服务没来得及走 STOP 就没了）→ 由服务端在进程启动时对账打点
+     *     · 暂离（enterAway，有定时器会自己回来）      → **不打点**（算暂时离场）
+     *     · 熄屏 / 贴边偷看 / 趴姿 / 迷你聊天          → 人偶仍在屏幕上，不打点
+     *
+     * 【为什么按人偶存】多只人偶可以同时启用、各自有各自的 returnSeconds；
+     *   用全局一个键会导致「给 A 建的记录把 B 的记录冲掉」。
+     */
+    @JvmStatic
+    fun hiddenAt(context: Context, dollId: String?): Long {
+        val id = if (dollId == null || dollId.isEmpty()) "default" else dollId
+        return get(context).getLong("pet_hidden_at_" + id, 0L)
+    }
+
+    @JvmStatic
+    fun setHiddenAt(context: Context, dollId: String?, v: Long) {
+        val id = if (dollId == null || dollId.isEmpty()) "default" else dollId
+        get(context).edit().putLong("pet_hidden_at_" + id, v).apply()
+    }
+
+    /** 【r12】取出并清零（读一次就消费掉，避免同一次消失被算两回）。 */
+    @JvmStatic
+    fun takeHiddenMs(context: Context, dollId: String?): Long {
+        val at = hiddenAt(context, dollId)
+        setHiddenAt(context, dollId, 0L)
+        return if (at > 0L) System.currentTimeMillis() - at else -1L
+    }
+
+    /**
+     * 【r12】「桌宠服务上次是否在干净退出前就没了」。
+     *
+     * 【为什么需要】用户定案的消失判据是「从屏幕消失 **且** 不会自动回来」——
+     *   服务被系统杀掉（低内存 / 厂商杀后台）时人偶确实从屏幕消失了，也**不会自己回来**，
+     *   理应算「人偶消失」。但那种情况下进程已经没了，来不及走 ACTION_STOP 打点。
+     *   于是退一步：服务活着时置位本标记，正常收尾（STOP / onDestroy）时清掉；
+     *   下次 onCreate 若发现标记还立着，就说明上一轮是「被杀」，补一次打点。
+     */
+    /**
+     * 【r13】正在编辑的人偶 id；空串 = 不在编辑。
+     *
+     * 【为什么需要】用户定案「只要在编辑界面 就无法打开了外面的人偶 只能通过预览打开当前卡片的人偶」——
+     *   编辑页会先把在跑的桌宠全关掉（避免预览与桌宠重叠）。
+     *   但若用户在编辑期间去首页/磁贴点「启动人偶」，桌宠会重新挂上来，
+     *   又变成「两只人偶同时在桌面上」，与预览的语义冲突。
+     *   这个标记就是那道闸：编辑期间一切「启动桌宠」的入口都要先看它。
+     */
+    @JvmStatic
+    fun editingDoll(context: Context): String {
+        return get(context).getString("pet_editing_doll", "") ?: ""
+    }
+
+    @JvmStatic
+    fun setEditingDoll(context: Context, dollId: String?) {
+        get(context).edit().putString("pet_editing_doll", dollId ?: "").apply()
+    }
+
+    /** 是否正在编辑某只人偶。 */
+    @JvmStatic
+    fun isEditing(context: Context): Boolean {
+        return editingDoll(context).isNotEmpty()
+    }
+
+    @JvmStatic
+    fun serviceDirty(context: Context): Boolean {
+        return get(context).getBoolean("pet_service_dirty", false)
+    }
+
+    @JvmStatic
+    fun setServiceDirty(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("pet_service_dirty", z).apply()
     }
 
     /**
@@ -641,8 +1066,6 @@ object PetPrefs {
         }
     }
 
-
-
     @JvmStatic
     fun visionModel(context: Context): String {
         val trim = (get(context).getString("vision_model", "") ?: "").trim()
@@ -729,6 +1152,28 @@ object PetPrefs {
     }
 
     /**
+     * 【外观·r13】弹窗 / 面板的「磨砂程度」百分比（0~100）。默认 60 = 明显磨砂质感。
+     *
+     * 【语义】0 = 完全不虚化（弹窗是纯卡片实色）；100 = 磨砂最强（最接近"毛玻璃"的观感）。
+     * 【为什么必须独立于遮罩强度与卡片透明度】那两项一个管"背景图压多暗"、一个管
+     *   "普通卡片透多少"，而本项只管"弹窗这类**必须遮住下层**的层，看起来有多像磨砂玻璃"。
+     *   三者职责不同，合并会让用户调一个动两个（历史上"遮罩强度失效"就是这么来的）。
+     *
+     * 【为什么不透明仍然是硬约束】弹窗的职责是"把事情盖住"：背后正文若透出来与弹窗文字
+     *   叠在一起，就直接不可读（用户报过「弹出的框框会跟后面的字重叠」）。
+     *   所以本项只改**磨砂质感**（往背景色方向混色的比例），绝不把 alpha 放下去。
+     */
+    @JvmStatic
+    fun frostStrength(context: Context): Int {
+        return Math.max(0, Math.min(100, get(context).getInt("frost_strength", 60)))
+    }
+
+    @JvmStatic
+    fun setFrostStrength(context: Context, i: Int) {
+        get(context).edit().putInt("frost_strength", Math.max(0, Math.min(100, i))).apply()
+    }
+
+    /**
      * 【外观·背景四模式】背景图铺法。取值见 [BG_MODES] 下标，默认 0（填满裁剪）。
      *
      * 【为什么要四档】center-crop 只解决「不变形」，但代价是裁边：竖图铺横屏会切掉上下，
@@ -785,6 +1230,23 @@ object PetPrefs {
     }
 
     /**
+     * 【r11 一次性】抹掉磁盘上的好感度数值。
+     * 【为什么】好感度系统（提示词段 / 读写 API / 首行解析 / 界面显示）已整体删除，
+     *   遗留的 affection 键再没人读，留着只会随备份带出去；清掉一次后永不再清。
+     * 【坑·致命】参数必须是已解析好的 SharedPreferences，绝不能回头调 get()（同 purgeDeadKeys）。
+     */
+    private fun purgeAffection(p: SharedPreferences) {
+        try {
+            if (p.getInt("affection_purged_ver", 0) >= 1) {
+                return
+            }
+            p.edit().remove("affection").putInt("affection_purged_ver", 1).apply()
+        } catch (ignored: Throwable) {
+            Logs.w("Dollhouse", "ignored", ignored)
+        }
+    }
+
+    /**
      * 一次性把「记忆三项开关」拨到开启：自动总结 / 自动保存记忆 / 自动精简记忆。
      *
      * 【为什么需要】这三个开关的默认值虽已改为 true，但默认值只对「从未落盘过该键」的机器生效；
@@ -805,15 +1267,10 @@ object PetPrefs {
             if (p.getInt("web_search_ver", 0) < 1) {
                 p.edit().putBoolean("web_search", true).putInt("web_search_ver", 1).apply()
             }
-            if (p.getInt("mem_switch_ver", 0) >= MEM_SWITCH_VER) {
-                return
-            }
-            p.edit()
-                    .putBoolean("mem_auto", true)
-                    .putBoolean("mem_auto_save", true)
-                    .putBoolean("mem_auto_merge", true)
-                    .putInt("mem_switch_ver", MEM_SWITCH_VER)
-                    .apply()
+            // 【r13·记忆系统重构】原来这里还会把旧记忆三项开关（mem_auto / mem_auto_save /
+            //   mem_auto_merge）一次性拨到开 —— 那三个键已随旧系统整体下线，这段覆盖没有意义，
+            //   已删除。新系统的「自动保存记忆」由 mem2_auto 控制，默认就是开的，
+            //   不需要迁移（老机器上从不存在该键）。
         } catch (ignored: Throwable) {
             Logs.w("Dollhouse", "ignored", ignored)
         }
@@ -869,5 +1326,27 @@ object PetPrefs {
     fun setPetScale(context: Context, i: Int) {
         // 用 commit 同步落盘：用户可能立刻划掉后台，apply 的异步写盘有丢的风险。
         get(context).edit().putInt("pet_scale", Math.max(PET_SCALE_MIN, Math.min(PET_SCALE_MAX, i))).commit()
+    }
+
+    /* ============================ 【r13】自定义字体颜色 ============================ */
+
+    /**
+     * 【外观】用户自定义的字体颜色（ARGB 不透明）。0 = 未设置，跟随主题。
+     *
+     * 【为什么用 0 作哨兵】`#000000`（纯黑）是合法颜色，不能拿它当「未设置」，
+     *   所以用 alpha == 0 判定。读出来一律强制成不透明（`or 0xFF000000`），
+     *   避免用户填了带透明度的串导致字看不见。
+     */
+    @JvmStatic
+    fun fontColor(context: Context): Int {
+        val v = get(context).getInt("font_color", 0)
+        return if (v == 0) 0 else (v or 0xFF000000.toInt())
+    }
+
+    /** 落一次自定义字体颜色；传 0 表示恢复「跟随主题」。 */
+    @JvmStatic
+    fun setFontColor(context: Context, argb: Int) {
+        val v = if (argb == 0) 0 else (argb or 0xFF000000.toInt())
+        get(context).edit().putInt("font_color", v).commit()
     }
 }

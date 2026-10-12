@@ -1,6 +1,8 @@
 package com.dollhouse.app.pet
 
 import com.dollhouse.app.PetService
+import com.dollhouse.app.data.DollProfile
+import com.dollhouse.app.data.DollStore
 
 /**
  * 【职责】桌宠手势动作注册表：手势 id → 具体响应。
@@ -39,8 +41,11 @@ object PetActionRegistry {
                 host.petJump()
                 // 【补回 v2.5】v2.4 删 chatter 时只剩 petJump()，单击再也不出词
                 //   （用户报「点击没有消息弹出来」）。这里补回「跳一下 + 随机说一句」。
-                val lines = PetService.LINES_TAP
-                if (lines != null && lines.isNotEmpty()) {
+                // 【r11】台词改成按当前交互的人偶取：没启用窗口时回落默认配置；
+                //   台词被清空就只跳不说（不再拿内置常量兜底，否则「清空后不说话」失效）。
+                val dollId = host.activeWindow?.doll?.id ?: DollStore.DEFAULT_ID
+                val lines = DollProfile.talkLines(host, dollId)
+                if (lines.isNotEmpty()) {
                     host.say(lines[host.random.nextInt(lines.size)], 2400L)
                 }
             }

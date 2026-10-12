@@ -132,6 +132,8 @@ object Icons {
     val IC_SQUARE = R.drawable.ic_square
     @JvmField
     val IC_ROTATE_CCW = R.drawable.ic_rotate_ccw
+    @JvmField
+    val IC_ROTATE_CW = R.drawable.ic_rotate_cw
     /** 连接 / 网络 / 终端。 */
     @JvmField
     val IC_PLUG = R.drawable.ic_plug
@@ -164,7 +166,62 @@ object Icons {
     val IC_SPARKLES = R.drawable.ic_sparkles
     @JvmField
     val IC_MESSAGE_CIRCLE = R.drawable.ic_message_circle
+    @JvmField
+    val IC_EYE = R.drawable.ic_eye
+    @JvmField
+    val IC_EYE_OFF = R.drawable.ic_eye_off
+    @JvmField
+    val IC_SAVE = R.drawable.ic_save
+    @JvmField
+    val IC_SLIDERS_HORIZONTAL = R.drawable.ic_sliders_horizontal
+    @JvmField
+    val IC_ACTIVITY = R.drawable.ic_activity
+    @JvmField
+    val IC_USER_ROUND = R.drawable.ic_user_round
+    @JvmField
+    val IC_LAYOUT_TEMPLATE = R.drawable.ic_layout_template
+    @JvmField
+    val IC_FOLDER_OPEN = R.drawable.ic_folder_open
+    @JvmField
+    val IC_CROSSHAIR = R.drawable.ic_crosshair
+    /** 【r13】命名（Lucide signature）：给动作 / 人偶改名字。 */
+    @JvmField
+    val IC_SIGNATURE = R.drawable.ic_signature
+    /** 【r13】改封面（Lucide image-plus）：换一张封面图。 */
+    @JvmField
+    val IC_IMAGE_PLUS = R.drawable.ic_image_plus
 
+    /* ================= 【r13·导航改造】三 Tab 与聊天列表用图标 =================
+     * 【来源】全部取自 lucide-static 官方 SVG（ISC 协议）v1.55.0，
+     *   经 /root/dh_lucide/convert.py 转成 VectorDrawable，与本工程既有图标
+     *   同一风格（24dp 视口 / 线宽 2 / 圆角端点 / 白色占位描边）。
+     * 【为什么另起一段】这一组是本次「聊天列表成为默认首页」新增的语义图标，
+     *   与设备控制那批分开登记，日后核对来源时一目了然。
+     */
+    /** 聊天 Tab / 会话列表（Lucide message-square：方形气泡，比 message-circle 更像「列表」）。 */
+    @JvmField
+    val IC_MESSAGE_SQUARE = R.drawable.ic_message_square
+    /** 人偶 Tab（Lucide users：双人）。 */
+    @JvmField
+    val IC_USERS = R.drawable.ic_users
+    /* 【不重复登记 user-round】它在设备控制那段已经叫 [IC_USER_ROUND]（第 180 行），
+       语义与几何完全一致，这里再开一个别名只会让「同一个图标两个名字」——
+       正是本项目在 triangle-alert 上刻意避免过的情况。需要时直接用 IC_USER_ROUND。 */
+    /** 添加人偶（Lucide user-plus）。 */
+    @JvmField
+    val IC_USER_PLUS = R.drawable.ic_user_plus
+    /** 修改 / 编辑（Lucide square-pen：方框内一支笔，用于「改名」语义）。 */
+    @JvmField
+    val IC_SQUARE_PEN = R.drawable.ic_square_pen
+    /** 置顶（Lucide pin）。 */
+    @JvmField
+    val IC_PIN = R.drawable.ic_pin
+    /** 圆形头像占位（Lucide circle-user-round）。 */
+    @JvmField
+    val IC_CIRCLE_USER_ROUND = R.drawable.ic_circle_user_round
+    /** 圆点（Lucide 圆）——未读小圆点用；几何上就是「实心圆」的描边版。 */
+    @JvmField
+    val IC_CIRCLE = R.drawable.ic_circle
     /** 取图并按 color 上色。返回的 Drawable 每次都是新实例，可安全用于不同 View。 */
     @JvmStatic
     fun get(ctx: Context?, resId: Int, color: Int): Drawable? {

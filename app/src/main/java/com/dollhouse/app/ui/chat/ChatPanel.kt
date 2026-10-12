@@ -15,13 +15,16 @@ import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.agent.ChatToolRegistry
 import com.dollhouse.app.ai.DeepSeekClient
-import com.dollhouse.app.ai.MemSummarizer
+import com.dollhouse.app.ai.MemExtractor
 import com.dollhouse.app.ai.ThinkLevel
 import com.dollhouse.app.ai.TokenStat
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.ChatHistoryStore
+import com.dollhouse.app.data.DollProfile
+import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.ImageStore
-import com.dollhouse.app.data.MemDb
+import com.dollhouse.app.data.Mem
+import com.dollhouse.app.data.Memory
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.device.OcrEngine
@@ -47,7 +50,7 @@ import org.json.JSONObject
  *        挂载层；若把本类改成 FrameLayout，它会命中自身，抽屉就挂到面板内部而不是页面层。
  *
  * 【坑】history 是整段对话上下文，每次请求都会带上；MAX_TOOL_ROUNDS 限制联网工具的最大轮次，
- *        防止 AI 反复查资料不收敛。改这里要小心 token 统计（TokenStat）与好感度解析的联动。
+ *        防止 AI 反复查资料不收敛。改这里要小心 token 统计（TokenStat）的联动。
  */
 class ChatPanel(
         context: Context,
@@ -83,8 +86,7 @@ class ChatPanel(
     private var task: DeepSeekClient.Task? = null
     /** 【思考框】本次请求发出的时刻（毫秒），用于算「思考了 X 秒」。 */
     private var askStartMs = 0L
-    /** 抽屉层：包住整块面板，不改变 ChatPanel 的构造签名与父子结构。 */
-    private var drawer: ChatDrawer? = null
+    // 【r13·入口收拢】原 `drawer: ChatDrawer?` 字段已移除（抽屉没了，见 openDrawer 处的说明）。
     /** 摘要分割标题在 [ChatState.items] 里的下标（-1 = 本会话无摘要头）。 */
     private var summaryIndex = -1
 
@@ -126,13 +128,22 @@ class ChatPanel(
 
     /* ------------------------- 状态 → 界面 ------------------------- */
 
-    /** 往消息列表追加一条气泡；[index] >= 0 时说明它已落库（用于判定操作条位置）。 */
-    private fun appendBubble(text: String, mine: Boolean, image: String?) {
+    /**
+     * 往消息列表追加一条气泡。
+     *
+     * @param index 这条消息在 [history] 里的下标；-1 表示「不在历史里」（如错误提示条）。
+     *   【r13 修 bug·「重新生成之后长按没反应」】原来这里**写死 -1**，而长按菜单
+     *   （见 [ChatUi.showMessageMenu]）需要 index 才能定位到历史里的那条消息，
+     *   于是「刚发/刚生成、还没经过 renderHistory 重铺」的那条长按一律无反应 ——
+     *   历史里已有的消息因为重铺时拿到了正确 index，反倒正常。
+     *   修法：由调用方在**落库之后**传入 `history.length() - 1`。
+     */
+    private fun appendBubble(text: String, mine: Boolean, image: String?, index: Int = -1) {
         ChatState.items = ChatState.items + ChatItem(
             role = if (mine) "user" else "assistant",
             text = text,
             image = image,
-            index = -1,
+            index = index,
             isPrev = false,
             isSummary = false
         )
@@ -211,9 +222,12 @@ class ChatPanel(
         SheetPanel.showThink(context, findLayer(), this)
     }
 
-    /** 工具条：功能（记忆 / 发图）面板。 */
+    /**
+     * 【r13·需求改造】原「功能面板（记忆 / 发图）」已随加号面板一起删除。
+     * 【现在怎么发图】工具条上的图片按钮直接调 [openPicker]（用户定案：甲 —— 整页删掉，发图挪到别处）。
+     */
     internal fun showMemory() {
-        SheetPanel.showMemory(context, findLayer(), this)
+        openPicker()
     }
 
     /* ------------------------- 对外方法（契约不变） ------------------------- */
@@ -300,7 +314,7 @@ class ChatPanel(
     fun applyBackground() {
         recordChatBgRatio()
         // fallback=OPTION：未设置背景时铺面板原底色；有图时铺「不透明底 + 图 + 可读性遮罩」。
-        GlobalBackground.install(this, UiKit.OPTION, false)
+        GlobalBackground.install(this, UiKit.option(), false)
     }
 
     /**
@@ -398,14 +412,11 @@ class ChatPanel(
      * 【坑】挂载层是「父链里第一个 FrameLayout」——ChatActivity 里是 android.R.id.content。
      *       找不到就退回自己的父容器，至少不会崩。
      */
-    fun openDrawer() {
-        if (drawer == null) {
-            drawer = ChatDrawer(this)
-        }
-        val layer = findLayer() ?: return
-        drawer?.open(layer)
-    }
-
+    // 【r13·入口收拢】原 openDrawer() 已移除 —— 聊天页不再有左侧会话抽屉。
+    //   需求原文：「第二三幅图这两个也不需要了」。
+    //   会话切换统一由**聊天列表页**（默认首页）承担：两处并存会出现「同一操作两种入口」，
+    //   而抽屉那份列表是命令式 View 拼的、没有头像 / 预览 / 未读，信息密度也低于列表页。
+    //   【不是删功能】改名 / 删除已由列表页长按菜单承接；「清空当前对话」保留在本页工具区。
     /** 抽屉 / 确认框共用的挂载层。 */
     internal fun findLayer(): ViewGroup? {
         var p: ViewParent? = parent
@@ -418,15 +429,8 @@ class ChatPanel(
         return if (p is ViewGroup) p else null
     }
 
-    /** 抽屉关着就关掉并返回 true（给返回键用）。 */
-    fun closeDrawerIfOpen(): Boolean {
-        val d = drawer
-        if (d != null && d.isOpen()) {
-            d.close()
-            return true
-        }
-        return false
-    }
+    // 【r13·入口收拢】原 closeDrawerIfOpen() 已移除（抽屉没了，返回键无需先关它）。
+    //   聊天页的返回键现在直接走 PageStack / 系统返回，语义更简单。
 
     /** 会话切换 / 新建 / 删除后：重新载入历史并整屏重铺。 */
     fun reloadHistory() {
@@ -438,36 +442,14 @@ class ChatPanel(
         refreshCtxRing()
     }
 
-    /** 手动总结：点了就总结，不设条数门槛（内容为空时才挡）。 */
-    fun summarizeNow() {
-        // 【v2.9.1】每个静默 return 都补一条可见提示：全工程禁用 Toast，
-        // 不给反馈用户只会以为「点了没反应」，无法区分「真失败」与「本就没得总结」。
-        Logs.i("DollhouseMemo", "[入口] 点按立即总结 histLen=" + history.length()
-                + " running=" + MemSummarizer.isRunning())
-        if (MemSummarizer.isRunning()) {
-            Logs.i("DollhouseMemo", "[入口] 被挡: 上一次还在进行中")
-            flashMemo("上一次总结还在进行中")
-            return
-        }
-        if (history.length() < 1) {
-            Logs.i("DollhouseMemo", "[入口] 被挡: 历史为空")
-            flashMemo("当前对话是空的，没什么可总结的")
-            return
-        }
-        // 【v2.9.5】总结前先收回展开态：补回批是「临时回看」，要点早已进过摘要，
-        //  把它们留在 history 里会被 transcript 当成新内容重复总结一遍
-        //  （用户报障「第一次总结的内容没有被销毁」）。
-        //  收回 = 原样退回暂存位（数据一条不丢），之后本次只总结「摘要 + 之后的消息」。
-        if (prevCount > 0) {
-            val folded = ChatHistoryStore.collapsePrev(this, prevCount)
-            Logs.i("DollhouseMemo", "[入口] 收回展开态 ok=" + folded
-                    + " prevCount=" + prevCount)
-            prevCount = 0
-            // 立即重铺：无论后续总结成败，界面上都要与内存一致（不再显示那批临时回看的消息）。
-            renderHistory()
-        }
-        MemSummarizer.summarizeNow(this, null)
-    }
+    /**
+     * 【r13·记忆系统重构】原「立即总结（归档）」入口已随旧系统整体移除。
+     *
+     * 【为什么删】它做的是「把最老一批消息压成摘要、删掉原文、摘要挂历史头部」——
+     *   一次动几十条、不可逆，且与新的「插入总结」语义重叠（后者只插一条分割条、不动原文）。
+     *   归档能力已由 [com.dollhouse.app.ai.MemExtractor] 的结构化抽取（new/update/merge）
+     *   承担：它同样不删原文，但产出的是可检索、可编辑、可单独删除的记忆条目。
+     */
 
     /** 复制最后一条助手回复（气泡操作条的「⧉ 复制」）。 */
     fun copyLastReply() {
@@ -492,20 +474,409 @@ class ChatPanel(
         }
     }
 
-    /** 清空当前对话（先二次确认）。 */
-    fun confirmClearChat() {
-        val d = drawer ?: run {
-            val created = ChatDrawer(this)
-            drawer = created
-            val layer = findLayer()
-            if (layer != null) {
-                created.open(layer)
-            }
-            created
+    /* ------------------ 【r13】消息长按操作（菜单在 ChatUi 里弹） ------------------ */
+
+    /**
+     * 复制指定下标的消息（长按菜单「复制」）。
+     * @param index [history] 里的下标；越界/非消息条目直接忽略。
+     */
+    fun copyAt(index: Int) {
+        val o = itemAt(index) ?: return
+        val text = o.optString("content", "")
+        if (text.isEmpty()) {
+            return
         }
-        d.confirm("清空当前对话", "这段对话会从本机彻底删掉，不能恢复。", "清空", Runnable {
-            clearChat()
-        })
+        copyText(text)
+        flashMemo("已复制")
+    }
+
+    /**
+     * 多选批量复制（长按菜单「多选」→ 选中若干 → 复制）。
+     * 【为什么不直接复制** 多选的价值在于一次拿多条，所以拼接后一次入剪贴板。
+     */
+    fun copyMany(indexes: List<Int>) {
+        if (indexes.isEmpty()) {
+            return
+        }
+        val sb = StringBuilder()
+        for (i in indexes) {
+            val o = itemAt(i) ?: continue
+            val t = o.optString("content", "")
+            if (t.isEmpty()) {
+                continue
+            }
+            if (sb.isNotEmpty()) {
+                sb.append("\n\n")
+            }
+            sb.append(t)
+        }
+        if (sb.isEmpty()) {
+            return
+        }
+        copyText(sb.toString())
+        flashMemo("已复制 " + indexes.size + " 条")
+    }
+
+    /**
+     * 【回滚到此处】把历史截断到指定下标（含）为止，之后的全部丢弃。
+     *
+     * 【语义】相当于「从这里重新开始」：该条及之前保留，之后的消息不再存在。
+     *   与「编辑并重发」的区别是它**不改内容、不自动重发**，只把上下文收短。
+     */
+    fun rollbackTo(index: Int) {
+        val o = itemAt(index) ?: return
+        if (index < 0 || index >= history.length()) {
+            return
+        }
+        // 【护栏】请求在途时不允许改历史：回来时会把截断点之后的内容又写回去。
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        try {
+            val arr = JSONArray()
+            for (i in 0..index) {
+                arr.put(history.opt(i))
+            }
+            history = arr
+            prevCount = 0
+            ChatHistoryStore.saveHistory(this)
+            renderHistory()
+            refreshCtxRing()
+            flashMemo("已回滚到这条")
+        } catch (unused: Throwable) {
+        }
+    }
+
+    /**
+     * 【编辑并重发】把指定消息的正文回填到输入框，并截断它**之前**的历史。
+     *
+     * 【为什么截断到它之前】重发等价于「重新说一遍」：原消息本身会由发送动作重新产生，
+     *   若把它留在历史里就会重复（模型会看到同一句话两遍）。
+     */
+    fun editAndResend(index: Int) {
+        val o = itemAt(index) ?: return
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        val text = o.optString("content", "")
+        try {
+            val arr = JSONArray()
+            for (i in 0 until index) {
+                arr.put(history.opt(i))
+            }
+            history = arr
+            prevCount = 0
+            ChatHistoryStore.saveHistory(this)
+            renderHistory()
+            refreshCtxRing()
+        } catch (unused: Throwable) {
+        }
+        // 回填输入框，用户可改完再发（不自动发 —— 避免误触直接产生一条新消息）。
+        ChatState.input = text
+        refreshInputRow()
+        flashMemo("已回填，改完点发送")
+    }
+
+    /**
+     * 【单条重新生成】删掉这条**助手**回复，并立刻重新请求一次。
+     *
+     * 【为什么不复用 regenerate()】那个只处理「最后一条」，长按的是中间某条时用不了。
+     *   这里先截断到该条之前，再走同一套发送链路，等价于「让她重说这条」。
+     */
+    fun regenerateAt(index: Int) {
+        val o = itemAt(index) ?: return
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        if ("assistant" != o.optString("role")) {
+            flashMemo("只能重新生成她的回复")
+            return
+        }
+        // 前一条必须是 user（否则没有可重答的问题）。
+        if (index <= 0) {
+            return
+        }
+        val prev = history.optJSONObject(index - 1)
+        if (prev == null || "user" != prev.optString("role")) {
+            flashMemo("这条前面没有可重答的问题")
+            return
+        }
+        try {
+            val arr = JSONArray()
+            for (i in 0 until index) {
+                arr.put(history.opt(i))
+            }
+            history = arr
+            prevCount = 0
+            ChatHistoryStore.saveHistory(this)
+            renderHistory()
+            refreshCtxRing()
+        } catch (unused: Throwable) {
+        }
+        if (!canChat()) {
+            flashMemo("还没配可用的模型")
+            return
+        }
+        setWaiting(true)
+        addThinking("正在思考…")
+        askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
+    }
+
+    /**
+     * 【插入总结】把「从最近一条摘要到当前这条」之间的对话，**用 AI 压成摘要**，
+     *   作为一条分割条（kind=summary）插在这条消息之后。**不动任何原文**。
+     *
+     * 【与「立即总结（归档）」的区别】
+     *   · 归档 = 把最老一批压成要点、**删掉原文**、摘要挂历史头部（已随旧记忆系统下线）；
+     *   · 插入总结 = 只往对话流里插一条分割条，原文一条不删、可点开看、可再删掉。
+     *
+     * 【摘要从哪来】AI 生成，用**与聊天同一个模型**（ProviderStore.activeProvider + 三件套），
+     *   不再让用户手打 —— 手打等于把「总结」变成了「发一条普通消息」，没有意义。
+     *
+     * 【范围口径】从「本段最后一处 kind=summary」之后开始，到 [index] 这条为止，
+     *   中间的所有 user / assistant 消息都喂给模型。这样反复插入多次总结时，
+     *   每次只总结「上次总结之后的新内容」，不会把旧结论重复压一遍。
+     *
+     * @param index 长按的那条消息在 [history] 里的下标。
+     */
+    fun insertSummaryAt(index: Int) {
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        val at = Math.max(0, Math.min(history.length(), index + 1))
+        // ① 找出本段起点：从 at-1 往前找到最近一条 summary，其之后就是本次要压的范围。
+        var from = 0
+        for (i in at - 1 downTo 0) {
+            val o = history.optJSONObject(i) ?: continue
+            if ("summary" == o.optString("kind")) {
+                from = i + 1
+                break
+            }
+        }
+        // ② 收集范围内的真实消息。
+        val turns = ArrayList<Pair<String, String>>()
+        for (i in from until at) {
+            val o = history.optJSONObject(i) ?: continue
+            if ("summary" == o.optString("kind")) {
+                continue
+            }
+            val r = o.optString("role", "")
+            if ("user" != r && "assistant" != r) {
+                continue
+            }
+            val c = o.optString("content", "").trim()
+            if (c.isEmpty()) {
+                continue
+            }
+            turns.add(Pair(r, c))
+        }
+        if (turns.isEmpty()) {
+            flashMemo("这一段还没有可总结的内容")
+            return
+        }
+        if (!PetPrefs.hasKey(context)) {
+            flashMemo("还没填 API Key")
+            return
+        }
+        setWaiting(true)
+        addThinking("正在总结这一段…")
+        MemExtractor.summarize(ctx = context, dollId = boundDollId(), turns = turns,
+                done = object : MemExtractor.Done {
+                    override fun onDone(text: String?) {
+                        if (text == null || text.trim().isEmpty()) {
+                            // 【状态收尾】失败也要收掉等待态与思考条，否则输入行一直禁用。
+                            setWaiting(false)
+                            removeThinking()
+                            flashMemo("总结失败，稍后再试")
+                            return
+                        }
+                        applySummary(text.trim(), at)
+                    }
+                })
+    }
+
+    /** 把 [text] 作为 kind=summary 的分割条插在 [at] 位置，并重铺界面。 */
+    private fun applySummary(text: String, at: Int) {
+        // 【状态收尾】无论插入成败都要收掉「正在总结这一段…」——
+        //   否则等待态会一直挂着，输入行保持禁用。
+        setWaiting(false)
+        removeThinking()
+        try {
+            val pos = Math.max(0, Math.min(history.length(), at))
+            val arr = JSONArray()
+            for (i in 0 until pos) {
+                arr.put(history.opt(i))
+            }
+            val head = JSONObject()
+            head.put("role", "system")
+            head.put("kind", "summary")
+            head.put("content", text)
+            arr.put(head)
+            for (i in pos until history.length()) {
+                arr.put(history.opt(i))
+            }
+            history = arr
+            prevCount = 0
+            ChatHistoryStore.saveHistory(this)
+            renderHistory()
+            refreshCtxRing()
+            flashMemo("已插入总结")
+        } catch (t: Throwable) {
+            flashMemo("插入失败")
+        }
+    }
+
+    /** 【信息】弹出这条消息的详情（角色 / 时间 / 字数 / 模型）。 */
+    fun showItemInfo(index: Int) {
+        val o = itemAt(index) ?: return
+        val act = com.dollhouse.app.ui.theme.UiKit.findActivity(context) ?: return
+        val role = o.optString("role", "")
+        val who = if ("user" == role) "你" else "她"
+        val content = o.optString("content", "")
+        val ts = o.optLong("ts", 0L)
+        val model = o.optString("model", "")
+        val sb = StringBuilder()
+        sb.append("来自：").append(who).append('\n')
+        sb.append("字数：").append(content.length).append(" 字\n")
+        if (ts > 0L) {
+            sb.append("时间：").append(fmtTime(ts)).append('\n')
+        }
+        if (model.isNotEmpty()) {
+            sb.append("模型：").append(model).append('\n')
+        }
+        if (o.has("image")) {
+            sb.append("带图：是\n")
+        }
+        com.dollhouse.app.ui.theme.UiKit.showDialog(
+            act,
+            "这条消息",
+            com.dollhouse.app.ui.theme.UiKit.dialogMessage(act, sb.toString().trim()),
+            "知道了",
+            null,
+            null,
+            null
+        )
+    }
+
+    /**
+     * 【回复】引用这条消息，把她的原话填进输入框。
+     *
+     * 【为什么是「填进输入框」而不是「存一条引用数据」】工程的消息结构里没有引用字段
+     *   （见 [ChatHistoryStore.put]），加字段要动落盘 / 重铺 / 上下文三处。
+     *   而用户的实际诉求是「接着她这句话说」，把原话前置成一个引用块写进输入框，
+     *   语义达成、改动最小，也不影响历史数据的兼容性。
+     */
+    fun replyTo(index: Int) {
+        val o = itemAt(index) ?: return
+        val t = o.optString("content", "").trim()
+        if (t.isEmpty()) {
+            flashMemo("这条没有可引用的文字")
+            return
+        }
+        val quoted = if (t.length > 60) t.substring(0, 60) + "…" else t
+        ChatState.input = "> " + quoted + "\n" + ChatState.input
+        refreshInputRow()
+        flashMemo("已引用，接着说")
+    }
+
+    /** 【删除】删掉这条消息（只动这一条，不影响其它）。 */
+    fun deleteAt(index: Int) {
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        if (index < 0 || index >= history.length()) {
+            return
+        }
+        try {
+            val arr = JSONArray()
+            for (i in 0 until history.length()) {
+                if (i != index) {
+                    arr.put(history.opt(i))
+                }
+            }
+            history = arr
+            prevCount = 0
+            ChatHistoryStore.saveHistory(this)
+            renderHistory()
+            refreshCtxRing()
+            flashMemo("已删除")
+        } catch (t: Throwable) {
+            flashMemo("删除失败")
+        }
+    }
+
+    /** 时间戳 → 「MM-dd HH:mm」。信息弹窗用。 */
+    private fun fmtTime(ts: Long): String {
+        return try {
+            java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(ts))
+        } catch (unused: Throwable) {
+            ""
+        }
+    }
+
+    /** 【修改记忆】把这条消息存进**当前人偶**的记忆库（供后续对话注入）。 */
+    fun saveToMemory(index: Int) {
+        val o = itemAt(index) ?: return
+        val t = o.optString("content", "").trim()
+        if (t.isEmpty()) {
+            flashMemo("这条没有可保存的文字")
+            return
+        }
+        val dollId = boundDollId()
+        // 【r13·分库不串】写入当前会话绑定的那只人偶 —— 用 boundDollId 而非默认配置。
+        val m = Memory()
+        m.title = if (t.length > 18) t.substring(0, 18) else t
+        m.content = t
+        m.source = Memory.SOURCE_CHAT
+        m.originDoll = dollId
+        if (Mem.add(context, dollId, m)) {
+            flashMemo("已存进记忆库")
+        } else {
+            flashMemo("保存失败")
+        }
+    }
+
+    /** 取 [history] 里下标处的**真实消息**对象；越界或非消息（摘要/system）返回 null。 */
+    private fun itemAt(index: Int): JSONObject? {
+        if (index < 0 || index >= history.length()) {
+            return null
+        }
+        val o = history.optJSONObject(index) ?: return null
+        if ("summary" == o.optString("kind")) {
+            return null
+        }
+        val role = o.optString("role", "")
+        return if ("user" == role || "assistant" == role) o else null
+    }
+
+    /**
+     * 清空当前对话（先二次确认）。
+     *
+     * 【r13·入口收拢改造】原实现借 `ChatDrawer.confirm(...)` 叠确认框 —— 那是抽屉时代的
+     *   命令式 View 弹窗。抽屉已移除，这里改用全 App 统一的弹窗通道 [UiKit.showDialog]
+     *   （与「没配模型」「打不开相册」等提示同一套壳、同一磨砂质感），
+     *   顺带彻底断开本页对 `ChatDrawer` 的依赖。
+     *
+     * 【为什么不用 Compose 的 DhForm.Alert】本方法是从「清空当前对话」按钮的命令式回调里
+     *   调进来的（不是 Composable 作用域），而 `DhForm.Alert` 标了 `@Composable`，
+     *   在这里调会编译不过。`UiKit.showDialog` 是原生 Dialog，任何线程/上下文都能调。
+     */
+    fun confirmClearChat() {
+        val act = com.dollhouse.app.ui.theme.UiKit.findActivity(context) ?: return
+        com.dollhouse.app.ui.theme.UiKit.showDialog(
+            act,
+            "清空当前对话",
+            com.dollhouse.app.ui.theme.UiKit.dialogMessage(act, "这段对话会从本机彻底删掉，不能恢复。"),
+            "清空",
+            android.view.View.OnClickListener { clearChat() },
+            "取消",
+            null
+        )
     }
 
     /** 真清空：历史归零（摘要与总记忆库不动，那是两份独立数据）。 */
@@ -520,10 +891,13 @@ class ChatPanel(
         refreshCtxRing()
     }
 
-    /** 本地估算的当前上下文占用字符数（人名提示词 + 记忆 + 历史正文）。 */
+    /** 本地估算的当前上下文占用字符数（人设 + 记忆 + 历史正文）。 */
     fun ctxUsedChars(): Int {
-        var n = PetPrefs.SYSTEM_PROMPT.length
-        n += MemDb.recentText(context, MemDb.MAX_INJECT_CHARS).length
+        // 【r13·一人偶一对话】人设与记忆都按**当前会话绑定的那只人偶**取 ——
+        //   写死默认那只会让环里显示的占用与实际请求不一致（换了人偶后数字不变）。
+        val who = boundDollId()
+        var n = DollProfile.persona(context, who).length
+        n += Mem.injectText(context, who, Mem.MAX_INJECT_CHARS).length
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i)
             if (o != null) {
@@ -534,15 +908,32 @@ class ChatPanel(
     }
 
     /**
+     * 【r13·一人偶一对话】当前会话绑定的人偶 id（拿不到就退回默认配置）。
+     *
+     * 【为什么每次现算而不缓存】用户在聊天页里可能切会话（抽屉切换 → [reloadHistory]），
+     *   缓存会带着上一只人偶的人设去发消息。这里只是一次 SharedPreferences 读 + 字符串前缀，
+     *   相对一次网络请求可忽略。
+     */
+    internal fun boundDollId(): String {
+        return try {
+            val id = ChatSessions.currentId(context)
+            val d = ChatSessions.dollOfConv(context, id)
+            if (d.isEmpty()) DollStore.DEFAULT_ID else d
+        } catch (unused: Throwable) {
+            DollStore.DEFAULT_ID
+        }
+    }
+
+    /**
      * 刷新顶栏的进度环。
      *
-     * 【口径 v2.10.0】当前聊天条数 ÷ 记忆触发阈值，与 MemSummarizer 的 byCount 触发条件同源：
-     *  涨到 100% 就是自动总结该触发的那一刻（触发后保留 KEEP_TAIL 条，环会回落到 8/阈值）。
-     *  ctxUsedChars() 仍保留：MemSummarizer.maybeAuto 的 byRatio 分支还在用它，不能删。
+     * 【口径 v0.0.7】当前聊天条数 ÷ 记忆库容量，表示「这个库用到多满」。
+     * 【为什么不再用阈值】旧系统按「条数到阈值触发归档」，阈值随旧系统一起删了；
+     *   新系统是「每轮自动抽取」，没有阈值这个概念，环改为反映库容量占用。
      */
     fun refreshCtxRing() {
-        val threshold = Math.max(1, PetPrefs.memThreshold(context))
-        ChatState.ctxRatio = (history.length() / threshold.toFloat()).coerceIn(0f, 1f)
+        val cap = Math.max(1, Mem.MAX_ENTRIES)
+        ChatState.ctxRatio = (history.length() / cap.toFloat()).coerceIn(0f, 1f)
     }
 
     fun regenerate() {
@@ -565,7 +956,8 @@ class ChatPanel(
         if (ChatSessions.isPet(context)) {
             PetBus.say("让我再想想…", 4000L)
         }
-        askModel(ChatHistoryStore.buildRequest(this), 0, true)
+        // 【r13·一人偶一对话】重生成同样按当前会话绑定的人偶组装请求。
+        askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
     }
 
     fun onSend() {
@@ -596,8 +988,10 @@ class ChatPanel(
             text = "看看这张图。"
         }
         ChatState.input = ""
-        appendBubble(text, true, str2)
+        // 【顺序】先落库、再挂气泡 —— 这样气泡能拿到它在 history 里的真实下标，
+        //   长按菜单才定位得到（见 appendBubble 的说明）。
         ChatHistoryStore.push(this, "user", text, str2)
+        appendBubble(text, true, str2, history.length() - 1)
         if (ChatSessions.isPet(context)) {
             PetBus.say(if (str2 != null) "让我看看…" else "让我想想…", 2500L)
         }
@@ -625,11 +1019,16 @@ class ChatPanel(
             // 【OCR】扫完了，现在才真正收掉附件条（发送瞬间挂起，避免抢在 OCR 前清空）。
             clearAttachment()
             // 【OCR】扫完再组装请求：这时图片文字已在缓存里，正文才带得上。
-            askModel(ChatHistoryStore.buildRequest(context, history), 0, true)
+            // 【r13·一人偶一对话】请求按**当前会话绑定的那只人偶**组装人设与记忆。
+            askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
         })
     }
 
     fun askModel(jSONArray: JSONArray, i: Int, z: Boolean) {
+        // 【r13·记忆分库】声明「这一轮属于哪只人偶」，供记忆工具写入时定位目标库。
+        //   【为什么在这里】下面 runTools 会执行模型返回的 remember 调用，
+        //   而工具执行时拿不到「正在跟谁聊」；不先声明就会写错库。
+        ChatToolRegistry.setDoll(boundDollId())
         // 【交互】记忆工具始终可用（AI 自己决定记什么）；联网工具按用户开关决定。
         val tools = if (z) buildTools() else null
         // 【思考框】计时起点：这一刻算「模型开始思考」。
@@ -764,9 +1163,10 @@ class ChatPanel(
     }
 
     private fun buildTools(): JSONArray {
-        // 【三件套】两个开关都从加号面板来：联网工具 + 记忆工具。
+        // 【三件套】两个开关：联网工具（设置页）+ 记忆工具（记忆库设置 → 自动保存记忆）。
+        //   【r13·新记忆系统】记忆开关从旧的 memAutoSave 换成 mem2Auto —— 与新键一致。
         return ChatToolRegistry.buildSchema(PetPrefs.webSearchEnabled(context),
-                PetPrefs.memAutoSave(context))
+                PetPrefs.mem2Auto(context))
     }
 
     /** 工具分发的宿主侧入口：入参原样透传给注册表，由各工具自己解析（search 取 query、remember 取 title/text）。 */
@@ -776,9 +1176,11 @@ class ChatPanel(
 
     fun finishWithError(str: String?) {
         task = null
+        // 【r13·不中断】等待态与思考框与视图无关，先收掉 ——
+        //   否则用户离开期间出错，回来时输入框永远停在「停止」。
+        setWaiting(false)
+        removeThinking()
         if (isAttachedToWindow) {
-            setWaiting(false)
-            removeThinking()
             appendBubble("（出错了：" + str + "）", false, null)
         }
     }
@@ -798,53 +1200,71 @@ class ChatPanel(
      */
     fun handleReply(str: String?, reasoning: String?, costMs: Long) {
         task = null
-        if (!isAttachedToWindow) {
-            return
-        }
-        setWaiting(false)
-        removeThinking()
         var body = str ?: ""
         var think = reasoning?.trim() ?: ""
         val pet = ChatSessions.isPet(context)
         if (body.trim().isEmpty()) {
             if (think.isEmpty()) {
-                finishWithError("模型返回了空内容")
+                if (isAttachedToWindow) {
+                    setWaiting(false)
+                    removeThinking()
+                    finishWithError("模型返回了空内容")
+                } else {
+                    // 【r13·不中断】人已离开：错误没地方显示，但等待态必须收掉，
+                    //   否则回来时输入框永远停在「停止」。
+                    setWaiting(false)
+                    removeThinking()
+                }
                 return
             }
             if (pet) {
                 body = think
                 think = ""
             } else {
-                ChatState.thinkingBox = ThinkingBox(think, costMs)
+                if (isAttachedToWindow) {
+                    setWaiting(false)
+                    removeThinking()
+                    ChatState.thinkingBox = ThinkingBox(think, costMs)
+                } else {
+                    // 【r13·不中断】纯思考内容（自聊池）离屏时没有思考框可挂，
+                    //   但回复本身不能丢 —— 落到历史里，回来重铺就能看到。
+                    setWaiting(false)
+                    removeThinking()
+                    val t0 = think.trim()
+                    if (t0.isNotEmpty()) {
+                        ChatHistoryStore.push(this, "assistant", t0)
+                    }
+                }
                 return
             }
         }
-        val matcher = AFFECTION_HEAD.matcher(body)
-        val i: Int
-        val z: Boolean
-        if (matcher.find()) {
-            i = try {
-                matcher.group(1).toInt()
-            } catch (unused: Throwable) {
-                0
-            }
-            z = true
-        } else {
-            i = 0
-            z = false
-        }
-        var trim = AFFECTION_ANY.matcher(body).replaceAll("").trim()
+        // 【r11】好感度已删除：只把老记录可能残留的记账行剥掉，不再解析、不再记账。
+        var trim = ChatHistoryStore.stripLegacyAffection(body)
         if (trim.isEmpty()) {
-            trim = if (z) "……" else body.trim()
+            trim = body.trim()
         }
-        if (z) {
-            PetBus.affection(PetPrefs.addAffection(context, i))
-        }
+        // 【r13 修 bug·「返回再进来就中断 AI 发话」】落盘**必须无条件执行**。
+        //
+        // 【曾经的 bug】原实现在本方法开头写了 `if (!isAttachedToWindow) return` ——
+        //   用户发出消息后立刻返回列表 / 切到别页，等模型回来时视图已 detach，
+        //   这一句直接把整条回复**丢弃**（不落盘、不进历史）。
+        //   用户再进聊天页只能看到自己那句、AI 那边永远没回应，表现就是「中断了」。
+        //
+        // 【修法】落盘与视图无关，先落；界面更新才判 `isAttachedToWindow`。
+        //   离屏期间照常写历史，回来时 [reloadHistory] 重铺即可看到完整一轮。
         ChatHistoryStore.push(this, "assistant", trim)
+        if (!isAttachedToWindow) {
+            // 离屏：没有气泡可加，收掉等待态即可（回来由 reloadHistory 重铺）。
+            setWaiting(false)
+            removeThinking()
+            return
+        }
+        setWaiting(false)
+        removeThinking()
         if (!pet && think.isNotEmpty()) {
             ChatState.thinkingBox = ThinkingBox(think, costMs)
         }
-        appendBubble(trim, false, null)
+        appendBubble(trim, false, null, history.length() - 1)
         if (pet) {
             PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L)
         }
@@ -965,11 +1385,5 @@ class ChatPanel(
 
     companion object {
         private const val MAX_TOOL_ROUNDS = 3
-
-        @JvmField
-        internal val AFFECTION_HEAD: Pattern = Pattern.compile("^\\s*[\\[【]\\s*好感度\\s*[:：]\\s*([+-]?\\d+)\\s*[\\]】]\\s*")
-
-        @JvmField
-        internal val AFFECTION_ANY: Pattern = Pattern.compile("[\\[【]\\s*好感度\\s*[:：]\\s*[+-]?\\d+\\s*[\\]】]")
     }
 }

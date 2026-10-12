@@ -43,10 +43,19 @@ object PetToggle {
         return false
     }
 
-    /** 启动桌宠：高版本走 startForegroundService，避免「后台启动服务」被拦。 */
+    /**
+     * 启动桌宠：高版本走 startForegroundService，避免「后台启动服务」被拦。
+     *
+     * 【r11 修 bug】启动前先清 userStopped。
+     *   【为什么】PetService 只在「收到 ACTION_START 且真的走到服务体」时清这个标志；
+     *   若服务此刻已经在跑（isRunning=true），startService 不会重走 onStartCommand，
+     *   标志就一直停在 true —— 之后被划掉 / 重启都不会自动拉起，用户以为「启动人偶」没生效。
+     *   这里先清一次是幂等的：真走到 onStartCommand 时它会再清一次，无副作用。
+     */
     @JvmStatic
     fun start(ctx: Context) {
         try {
+            PetPrefs.setUserStopped(ctx, false)
             val i = Intent(ctx, PetService::class.java)
             i.setAction(PetService.ACTION_START)
             if (Build.VERSION.SDK_INT >= 26) {

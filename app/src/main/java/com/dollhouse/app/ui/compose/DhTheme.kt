@@ -8,6 +8,8 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -36,6 +38,20 @@ data class DhColors(
     val acc: Color,
     val acc2: Color,
     val card: Color,
+    /** 【r13】卡片内嵌实体按钮底（比 [card] 实两档，卡片半透明时按钮不「消失」）。 */
+    val cardUp: Color,
+    /**
+     * 【r13】弹窗 / 底部面板底：**不透明**，按用户「磨砂程度」调质感。
+     * 【为什么必须与 [card] 分开】[card] 跟着卡片透明度走，弹窗若用它就会透出背后正文，
+     *   与弹窗文字叠成一片（用户报过）。见 `UiKit.sheet()`。
+     */
+    val sheet: Color,
+    /** 【r13】弹窗内的实体按钮底：与 [sheet] 同色系但更实，保证按钮浮得出来。 */
+    val sheetUp: Color,
+    /** 【r13·底栏】悬浮胶囊底（半透明主题色），两处底栏共用。 */
+    val capsule: Color,
+    /** 【r13·底栏】胶囊内选中项高亮块底。 */
+    val capsuleSel: Color,
     val bg: Color,
     val title: Color,
     val sub: Color,
@@ -70,13 +86,23 @@ data class DhColors(
                 acc = Color(UiKit.ACC),
                 acc2 = Color(UiKit.ACC2),
                 card = Color(UiKit.card()),
+                cardUp = Color(UiKit.cardUp()),
+                // 【r13】弹窗 / 面板底：不透明 + 磨砂质感，见 UiKit.sheet()。
+                sheet = Color(UiKit.sheet()),
+                sheetUp = Color(UiKit.sheetUp()),
+                // 【r13·底栏】两处悬浮胶囊底栏共用同一组令牌，避免再次分叉。
+                capsule = Color(UiKit.capsuleFill()),
+                capsuleSel = Color(UiKit.capsuleSel()),
                 bg = Color(UiKit.BG),
                 title = Color(UiKit.TITLE),
                 sub = Color(UiKit.SUB),
                 line = Color(UiKit.LINE),
-                option = Color(UiKit.OPTION),
-                soft = Color(UiKit.SOFT),
-                field = Color(UiKit.FIELD),
+                // 【r13】三个层级底走派生方法而不是裸常量：卡片透明度改变时，
+                //   它们跟着一起透、但永远比卡片实一档，层级关系在任何透明度下都成立。
+                //   （调用点因此零改动 —— 全 App 的 c.soft / c.option / c.field 自动跟随。）
+                option = Color(UiKit.option()),
+                soft = Color(UiKit.soft()),
+                field = Color(UiKit.field()),
                 ok = Color(UiKit.OK),
                 err = Color(UiKit.ERR),
                 onAcc = Color(UiKit.ON_ACC),
@@ -165,10 +191,22 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
     val colors = remember(revision) { DhColors.fromUiKit() }
     val family = remember(ctx) { safeFamily(ctx, bold = false) }
     val familyBold = remember(ctx) { safeFamily(ctx, bold = true) }
+    // 【r12 修 bug·蓝色水滴】文本选择把手与选中底色的主题化。
+    // 【为什么必须显式提供】本工程刻意不建 MaterialTheme（见本文件头），而 Compose 的
+    //   LocalTextSelectionColors 默认值来自 Material 的 colorScheme —— 落到 M3 默认的
+    //   Color(0xFF4285F4)（那个蓝）上，于是**每一个**输入框的光标把手都是蓝的。
+    //   在这里 provide 一次，全工程所有输入框（含各页的 DhForm.Input）一并改走主题色。
+    val selection = remember(colors) {
+        TextSelectionColors(
+            handleColor = colors.acc,
+            backgroundColor = colors.acc.copy(alpha = 0.4f)
+        )
+    }
     CompositionLocalProvider(
         LocalDhColors provides colors,
         LocalDhFontFamily provides family,
         LocalDhFontFamilyBold provides familyBold,
+        LocalTextSelectionColors provides selection,
         content = content
     )
 }

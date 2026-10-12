@@ -69,19 +69,26 @@ fun SwipeToDelete(
 
     Box(modifier = modifier) {
         // —— 右侧删除区 ——
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .fillMaxHeight()
-                .width(ACTION_DP.dp)
-                // 只把右侧两个角做圆：左侧直角与已滑开的卡片右边缘严丝合缝，
-                // 不再出现「两块圆角之间夹一道底色」的穿模感。
-                .clip(RoundedCornerShape(topEnd = DhKit.R_CARD.dp, bottomEnd = DhKit.R_CARD.dp))
-                .background(c.err)
-                .then(if (opened) Modifier.pressable { onDelete() } else Modifier),
-            contentAlignment = Alignment.Center
-        ) {
-            DhKit.Icon(Icons.IC_TRASH, 22f, c.onAcc)
+        // 【r13 修 bug·垃圾桶不该常驻可见】用户原话：「它那个删除键是隐藏在底下的，
+        //   我要的是往左滑的时候 删除键才出现」。
+        //   原来这一层**一直**画在内容层右边（靠内容层盖住），于是内容层半透明时
+        //   垃圾桶就透过来了 —— 看起来像「藏在卡片底下」。现在改成：
+        //   只有滑开（opened）时才挂上去，没滑开时这一层根本不存在。
+        if (opened) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(ACTION_DP.dp)
+                    // 只把右侧两个角做圆：左侧直角与已滑开的卡片右边缘严丝合缝，
+                    // 不再出现「两块圆角之间夹一道底色」的穿模感。
+                    .clip(RoundedCornerShape(topEnd = DhKit.R_CARD.dp, bottomEnd = DhKit.R_CARD.dp))
+                    .background(c.err)
+                    .pressable { onDelete() },
+                contentAlignment = Alignment.Center
+            ) {
+                DhKit.Icon(Icons.IC_TRASH, 22f, c.onAcc)
+            }
         }
         // —— 内容层（跟手位移） ——
         Box(

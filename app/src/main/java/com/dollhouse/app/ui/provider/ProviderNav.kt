@@ -7,7 +7,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.View
-import android.view.ViewGroup
 import com.dollhouse.app.ai.ApiClient
 import com.dollhouse.app.ai.ApiEndpoint
 import com.dollhouse.app.ai.ModelRules
@@ -16,7 +15,7 @@ import com.dollhouse.app.core.KeyVault
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.settings.ExperimentPage
 import com.dollhouse.app.ui.settings.LamdaPage
-import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.widget.ApiPageKit
 import java.net.HttpURLConnection
 
@@ -34,7 +33,6 @@ object ProviderNav {
 
     /** 整页挂在 android.R.id.content 上时用的 tag（沿用旧值，返回链无需改动）。 */
     const val TAG_PAGE = "feiyu_cfg_page"
-
     const val R_LIST = "list"
     const val R_NEW = "new"
     /** 独立思考行为页：从设置页进入，不与供应商栈混在一起。 */
@@ -79,56 +77,89 @@ object ProviderNav {
         val act = ApiPageKit.findActivity(ctx) ?: return
         STACK.clear()
         STACK.add(if (root == null || root.isEmpty()) R_LIST else root)
-        val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
-        // 已有旧页先摘掉，避免同一 tag 挂两层。
-        val old = content.findViewWithTag<View>(TAG_PAGE)
-        if (old != null) {
-            content.removeView(old)
-        }
-        UiKit.openPage(content, render(act), TAG_PAGE)
+        // 【迁 PageStack】整页由全 App 页面栈托管，本类只保留内部业务路由栈（一层 = 一个 key）。
+        PageStack.push(act, TAG_PAGE) { render(act) }
     }
-
     /** 本页是否开着。 */
     @JvmStatic
     fun isOpen(ctx: Context): Boolean {
         return try {
-            val act = ApiPageKit.findActivity(ctx) ?: return false
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return false
-            content.findViewWithTag<View>(TAG_PAGE) != null
+            PageStack.contains(ctx, TAG_PAGE)
         } catch (ignored: Throwable) {
             false
         }
+    }
+
+    /**
+     * 只恢复内部路由记账（不渲染）。
+     * 【用途】页面栈按 key 逐层重建本层之前，先让 [render] 认得栈顶是谁。
+     */
+    /**
+     * 【r13·切 Tab 收尾】把供应商模块的内部路由栈重置到「列表」并关闭其层。
+     *
+     * 【为什么要它】供应商模块是「一层壳 + 内部业务路由」的结构（见类头注释）：
+     *   它在 [PageStack] 里只占一层，但层内部还记着「列表 / 新建 / 详情 / 模型…」的深度。
+     *   用户在人偶编辑页里点了「配置」深入三层，然后直接切到底部的「聊天」Tab ——
+     *   若只把 PageStack 弹空，那层壳虽然没了，**内部路由记账还停在深处**；
+     *   下次再从别处 [open] 供应商时，会直接落在三层深的那个页面上，
+     *   而不是用户预期的列表。这里与 [ProviderNav.back] 同源地把记账归零。
+     *
+     * 【为什么不做成 back() 循环】`back()` 每退一格都会触发一次重渲染（同步建 View），
+     *   连退三层就是三次无谓的页面构造。这里直接在记账层面归零，零次渲染。
+     */
+    @JvmStatic
+    fun resetForTab(ctx: Context?) {
+        try {
+            STACK.clear()
+        } catch (ignored: Throwable) {
+        }
+        com.dollhouse.app.ui.compose.PageStack.popIfTop(ctx, TAG_PAGE)
+    }
+
+    @JvmStatic
+    fun setRoutes(routes: List<String>?) {
+        STACK.clear()
+        if (!routes.isNullOrEmpty()) {
+            STACK.addAll(routes)
+        }
+    }
+
+    /** 页面构造：供页面栈按 key 重建。 */
+    @JvmStatic
+    fun buildPage(act: Activity): View {
+        return render(act)
     }
 
     /** 返回键：栈里还有上一层就回退，到底了就关门。永远返回 true（本页开着）。 */
     @JvmStatic
     fun handleBack(ctx: Context): Boolean {
         return try {
+            // 只有本模块的层处于最上层时才接管返回；否则交给它上面的层。
+            if (!PageStack.isTop(ctx, TAG_PAGE)) {
+                return false
+            }
             val act = ApiPageKit.findActivity(ctx) ?: return false
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return false
-            val old = content.findViewWithTag<View>(TAG_PAGE) ?: return false
             if (STACK.size > 1) {
                 STACK.removeAt(STACK.size - 1)
-                UiKit.swapPage(content, render(act), TAG_PAGE)
+                PageStack.replaceTop(act) { render(act) }
             } else {
                 STACK.clear()
-                UiKit.closePage(old)
+                PageStack.popIfTop(act, TAG_PAGE)
             }
             true
         } catch (ignored: Throwable) {
             false
         }
     }
-
     /** 无论在第几层都直接关门（退出设置页 / 页面重挂时用）。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
         return try {
-            val act = ApiPageKit.findActivity(ctx) ?: return false
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return false
-            val old = content.findViewWithTag<View>(TAG_PAGE) ?: return false
+            if (!PageStack.contains(ctx, TAG_PAGE)) {
+                return false
+            }
             STACK.clear()
-            UiKit.closePage(old)
+            PageStack.popIfTop(ctx, TAG_PAGE)
             true
         } catch (ignored: Throwable) {
             false
@@ -156,14 +187,10 @@ object ProviderNav {
             return
         }
         try {
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
             STACK.clear()
             STACK.addAll(routes)
-            val old = content.findViewWithTag<View>(TAG_PAGE)
-            if (old != null) {
-                content.removeView(old)
-            }
-            UiKit.openPage(content, render(act), TAG_PAGE)
+            // 【迁 PageStack】原实现先摘同 tag 旧页再 openPage；页面栈的 push 自带同 key 归位语义。
+            PageStack.push(act, TAG_PAGE) { render(act) }
         } catch (ignored: Throwable) {
         }
     }
@@ -177,31 +204,31 @@ object ProviderNav {
             return
         }
         STACK.add(route)
-        val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
-        UiKit.openPage(content, render(act), TAG_PAGE)
+        // 已经在栈里就换内容（不新压层），否则压入本模块的唯一层。
+        if (PageStack.contains(act, TAG_PAGE)) {
+            PageStack.replaceTopSlide(act) { render(act) }
+        } else {
+            PageStack.push(act, TAG_PAGE) { render(act) }
+        }
     }
-
     /** 原地重建当前层（保存 / 启停 / 删除之后刷新画面）。 */
     @JvmStatic
     fun refresh(act: Activity?) {
         if (act == null) {
             return
         }
-        val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
-        UiKit.swapPage(content, render(act), TAG_PAGE)
+        PageStack.replaceTop(act) { render(act) }
     }
-
     /** 子页保存 / 删除完成后的「返回上一层 + 刷新」：一步到位，避免中间态闪一下。 */
     @JvmStatic
     fun back(act: Activity?) {
         if (act == null) {
             return
         }
-        val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
         if (STACK.size > 1) {
             STACK.removeAt(STACK.size - 1)
         }
-        UiKit.swapPage(content, render(act), TAG_PAGE)
+        PageStack.replaceTop(act) { render(act) }
     }
 
     /* ------------------------------ 渲染分派 ------------------------------ */

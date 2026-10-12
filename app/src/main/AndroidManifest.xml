@@ -81,6 +81,18 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 【封面裁剪·r13 需求E】改封面「用自己的图片」的中间页：
+             选图 → 按三种列数比例各裁一次 → 落盘。
+             【为什么另开一页】与 BackgroundCropActivity 的「一次裁一张、写进聊天背景」不同，
+             本页要连裁三张并写进某只人偶的封面；硬合成一页会到处是条件分支。
+             theme 用 Manifest 声明（而不是代码 setTheme），否则窗口背景还是 Light 的浅色底，
+             冷启动那一下会白闪 —— 与既有两个选图页同一套路。 -->
+        <activity
+            android:name=".CoverCropActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- 外部链接落地页：浏览器 / 自动化软件 / 终端 am start 都能拉起。
              dollhouse://pet/on | off | toggle
              com.dollhouse.app.action.PET_ON | PET_OFF | PET_TOGGLE
@@ -104,6 +116,8 @@
                 <action android:name="com.dollhouse.app.action.PET_ON" />
                 <action android:name="com.dollhouse.app.action.PET_OFF" />
                 <action android:name="com.dollhouse.app.action.PET_TOGGLE" />
+                <!-- 【r13】动画帧烘焙自检 / 预生成（终端或自动化触发）。 -->
+                <action android:name="com.dollhouse.app.action.BAKE_ANIM" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.os.PowerManager
 import android.os.SystemClock
 import android.text.TextPaint
@@ -136,8 +137,12 @@ class PetView(context: Context) : View(context) {
 
     /** 【v2.10.2】getLocationOnScreen 的复用缓冲（旧实现每帧 new int[2]，onDraw 里尤其浪费）。 */
     private val locBuf = IntArray(2)
-    internal var affection = 0
     internal var animating = false
+    /**
+     * 【r11】面朝方向：true = 水平镜像（朝左）。
+     * 由 PetWindow 在挂载 / 刷新时按 DollProfile.flip 写入；绘制时把画布水平翻转。
+     */
+    internal var flipped = false
     internal var blinkCountdown = 0.0f
     internal var blinkT = 0.0f
     private val bmpPaint = Paint(7)
@@ -478,6 +483,19 @@ class PetView(context: Context) : View(context) {
 
     fun setSprite(bitmap: Bitmap?) {
         sprite = bitmap
+        invalidate()
+    }
+
+    /**
+     * 【r11】设置面朝方向（水平镜像）。值没变则直接返回，避免每帧白白重绘。
+     * 【为什么镜像的是画布而不是位图】镜像画布只需一个负缩放，零内存开销；
+     *   翻转位图要重新分配一张同样大的 Bitmap（人偶图不小），每切一次都吃内存。
+     */
+    fun setFlipped(z: Boolean) {
+        if (flipped == z) {
+            return
+        }
+        flipped = z
         invalidate()
     }
 
@@ -946,7 +964,13 @@ class PetView(context: Context) : View(context) {
         val f7 = f * f5 * idleScaleY
         canvas.save()
         canvas.translate(pivotLocalX, ((sin + f4) - sin2) - lift)
-        canvas.scale(f5, f7)
+        // 【r11】面朝方向：水平镜像。缩放取负后所有后续绘制（含气泡尾巴偏移）
+        //   会自动跟着翻到另一侧，不必逐处改坐标。
+        if (flipped) {
+            canvas.scale(-f5, f7)
+        } else {
+            canvas.scale(f5, f7)
+        }
         canvas.rotate(lean)
         canvas.rotate(tilt + idleTilt)
         canvas.translate((-pw) / 2.0f, -fh.toFloat())
@@ -969,33 +993,264 @@ class PetView(context: Context) : View(context) {
             return
         }
         val uptimeMillis = SystemClock.uptimeMillis() - exprStartAt
-        if (uptimeMillis >= 0) {
-            val j = exprDuration
-            if (uptimeMillis > j) {
-                return
+        if (uptimeMillis < 0) {
+            return
+        }
+        val j = exprDuration
+        if (uptimeMillis > j) {
+            return
+        }
+        drawEmoteAt(canvas, f, f2, expression, uptimeMillis / j.toFloat())
+    }
+
+    /**
+     * 【r13 抽参】按「阶段比例 [t]」绘制一枚表情（0 = 刚出现，1 = 完全消失）。
+     *
+     * 【为什么从 drawEmote 拆出来】内置动作要烘焙表情帧图，必须能把表情定格在
+     *   任意中间态；而 drawEmote 是拿 SystemClock 现算进度的，烘焙时无法控制。
+     *   抽成纯参数函数后，实时绘制与烘焙**共用同一份**绘制代码，不会出现
+     *   「烘出来的表情和桌面上看到的不一样」。
+     *
+     * @param expr 表情 id（[EXPR_SURPRISED] / [EXPR_HAPPY] / [EXPR_DIZZY]）。
+     */
+    private fun drawEmoteAt(canvas: Canvas, f: Float, f2: Float, expr: Int, t: Float) {
+        val f3 = t
+        val f4 = if (f3 < TAILR_RU) ((f3 / TAILR_RU) * 0.9f) + AHOGE_U else if (f3 < EYE_RU) 1.2f - (((f3 - TAILR_RU) / TAILL_RV) * 0.2f) else 1.0f
+        val i = if (f3 < 0.65f) 255 else ((1.0f - ((f3 - 0.65f) / 0.35f)) * 255.0f).toInt()
+        val f5 = (-dp(10.0f)) * f3
+        emotePaint.color = emoteColor(expr)
+        emotePaint.alpha = Math.max(0, Math.min(255, i))
+        // 字号随人偶实时宽度走，保证「表情 : 人偶」比例恒定。
+        emotePaint.textSize = petWidth() * EMOTE_SIZE_RATIO
+        val ex = f + (petWidth() * AHOGE_U)
+        val y = f2 + dp(6.0f) + f5
+        canvas.save()
+        canvas.translate(ex, y)
+        canvas.scale(f4, f4)
+        emotePaint.style = Paint.Style.STROKE
+        emotePaint.strokeWidth = petWidth() * EMOTE_STROKE_RATIO
+        emotePaint.color = UiKit.card()
+        emotePaint.alpha = Math.max(0, Math.min(255, i))
+        canvas.drawText(emoteGlyph(expr), 0.0f, 0.0f, emotePaint)
+        emotePaint.style = Paint.Style.FILL
+        emotePaint.color = emoteColor(expr)
+        emotePaint.alpha = Math.max(0, Math.min(255, i))
+        canvas.drawText(emoteGlyph(expr), 0.0f, 0.0f, emotePaint)
+        canvas.restore()
+    }
+
+    /* ==================== 【r13】内置动作帧图烘焙 ==================== */
+
+    /**
+     * 按显式参数重算网格并返回顶点数组（测量用，不绘制）。
+     *
+     * 【为什么单独给一个入口】烘焙前要先量出「所有帧的顶点包围盒」才能定帧图尺寸，
+     *   而 [verts] 是私有字段、[buildMesh] 也是私有方法，只能在类内开口。
+     *
+     * @param v    参数数组，约定见 [bakeDraw]。
+     * @param expr 表情 id（0 = 无）。
+     */
+    internal fun bakeMesh(v: FloatArray, expr: Int): FloatArray {
+        val pw = petWidth().toFloat()
+        val fh = fullHeight().toFloat()
+        if (pw <= 0.0f || fh <= 0.0f) {
+            return verts
+        }
+        val saved = expression
+        expression = expr
+        buildMesh(pw, fh, v[0], v[9], v[10], v[11])
+        expression = saved
+        return verts
+    }
+
+    /**
+     * 【r13 修 bug·烘焙帧把人偶裁掉】按 [bakeDraw] 的**完整变换链**量出这一帧
+     * 在**画布坐标系**里的外接矩形（即 ox = oy = 0 时的落点范围）。
+     *
+     * 【为什么必须换算到画布坐标】[bakeDraw] 用 (ox, oy) 把「精灵左上角」摆到画布上，
+     *   而 ox/oy 又依赖本方法量出的矩形 —— 鸡生蛋。解法是把 ox/oy **保留为符号**：
+     *   本方法只量「ox = oy = 0 时的落点范围」，调用方用它推出 ox/oy 与画布尺寸。
+     *
+     * 【严格推导】[bakeDraw] 的变换链（Canvas 的 translate/scale/rotate 都是 preConcat，
+     *   即 CTM' = CTM × T，**先调用的在更外层**）：
+     * ```
+     *   dx = pvx - pw/2 - ox
+     *   dy = pvy - fh  - oy
+     *   CTM = T(-dx,-dy) · T(pvx, P) · S · R6 · R7 · T(-pw/2,-fh)
+     *   其中 P = (sin + pvy) - sin2 - lift
+     * ```
+     * 网格点 (u,v) 的最终落点：
+     * ```
+     *   (x, y) = CTM · (u,v)
+     *   x = qx + pw/2 + ox                        （q = 去掉最外层 T(-dx,-dy) 的结果）
+     *   y = qy + fh + sin - sin2 - lift + oy
+     * ```
+     * 本方法返回的 out 即「q 映射后再平移 (pw/2, fh+sin-sin2-lift)」的包围盒 ——
+     * 也就是 **ox = oy = 0 时的画布落点范围**。
+     *
+     * 【调用方怎么用·符号是关键】
+     * ```
+     *   ox = pad - out.left        ← 不是 out.left - pad！
+     *   oy = pad - out.top
+     *   画布尺寸 = out 宽高各加 2*pad
+     * ```
+     * 上一版写成 `out.left - pad`，等于把 rect.left **重复计入两次**，
+     * 人偶被整体推向画布右下、左上角被推出画布外 —— 用户报的
+     * 「左边和上面都被截了一段」正是这个符号错的直接后果。
+     *
+     * @param v    参数数组，约定同 [bakeDraw]。
+     * @param expr 表情 id（0 = 无）；表情绘制在精灵之外，也要并进包围盒。
+     * @param out  输出矩形（画布坐标，ox = oy = 0 口径）。
+     * @return 是否量到了有效矩形。
+     */
+    internal fun bakeBounds(v: FloatArray, expr: Int, out: RectF): Boolean {
+        val pw = petWidth().toFloat()
+        val fh = fullHeight().toFloat()
+        if (pw <= 0.0f || fh <= 0.0f) {
+            return false
+        }
+        val sin = Math.sin(v[0].toDouble()).toFloat() * bobAmp
+        val sin2 = if (v[1] >= 0.0f) Math.sin(v[1] * 3.141592653589793).toFloat() * jumpAmp else 0.0f
+        val pop = v[2] * 0.05f + 1.0f
+        val squash = if (v[5] >= 0.0f) {
+            1.0f - (Math.sin(v[5] * 3.141592653589793).toFloat() * AHOGE_RU)
+        } else {
+            1.0f
+        }
+        val scaleY = if (v[4] > 0.0f) v[4] else 1.0f
+        val lift = (v[2] * dp(DRAG_TILT_MAX)) + v[3]
+        val pvx = pivotLocalX()
+        val pvy = pivotLocalY()
+        val p = ((sin + pvy) - sin2) - lift
+
+        // 【必须用 post* 而不是 pre*】Canvas 的 translate/scale/rotate 是 preConcat
+        //   （先调用的在更外层）；Matrix 里与之等价的是 postConcat（M' = M × X），
+        //   所以要用 post*，并且**调用顺序与 Canvas 逐行一致**。
+        //
+        // 【为什么矩阵里没有 (pvx, P) 这一层】bakeDraw 的完整链是
+        //   `T(-dx,-dy) · T(pvx,P) · S · R6 · R7 · T(-pw/2,-fh)`。
+        //   展开点变换后 (pvx, P) 与 T(-dx,-dy) 中的 -pvx / +fh 部分**互相抵消**，
+        //   净效果就是：
+        //     x = sa + pw/2 + ox
+        //     y = sb + fh + sin - sin2 - lift + oy
+        //   其中 (sa, sb) = S·R6·R7·T3 作用于网格点的结果。
+        //   所以矩阵只放 `S · R6 · R7 · T3` 四层，之后统一 `offset(pw/2, fh+sin-sin2-lift)`
+        //   —— 多加一层 (pvx, P) 会让结果整体再偏 (pvx, P)，人偶被推出画布。
+        val m = android.graphics.Matrix()
+        m.postScale(pop, squash * pop * scaleY)
+        m.postRotate(v[6])
+        m.postRotate(v[7])
+        m.postTranslate((-pw) / 2.0f, -fh)
+
+        // 精灵本体的矩形：0..pw × 0..fh。再叠上形变后网格顶点的包围盒兜一层
+        // （呼吸/尾巴等形变会让顶点略超出本体矩形）。
+        val r = RectF(0f, 0f, pw, fh)
+        val verts = bakeMesh(v, expr)
+        if (verts.size >= 4) {
+            var k = 0
+            while (k + 1 < verts.size) {
+                val x = verts[k]
+                val y = verts[k + 1]
+                if (x.isFinite() && y.isFinite()) {
+                    if (x < r.left) {
+                        r.left = x
+                    }
+                    if (x > r.right) {
+                        r.right = x
+                    }
+                    if (y < r.top) {
+                        r.top = y
+                    }
+                    if (y > r.bottom) {
+                        r.bottom = y
+                    }
+                }
+                k += 2
             }
-            val f3 = uptimeMillis / j.toFloat()
-            val f4 = if (f3 < TAILR_RU) ((f3 / TAILR_RU) * 0.9f) + AHOGE_U else if (f3 < EYE_RU) 1.2f - (((f3 - TAILR_RU) / TAILL_RV) * 0.2f) else 1.0f
-            val i = if (f3 < 0.65f) 255 else ((1.0f - ((f3 - 0.65f) / 0.35f)) * 255.0f).toInt()
-            val f5 = (-dp(10.0f)) * f3
-            emotePaint.color = emoteColor(expression)
-            emotePaint.alpha = Math.max(0, Math.min(255, i))
-            // 字号随人偶实时宽度走，保证「表情 : 人偶」比例恒定。
-            emotePaint.textSize = petWidth() * EMOTE_SIZE_RATIO
-            val ex = f + (petWidth() * AHOGE_U)
-            val y = f2 + dp(6.0f) + f5
+        }
+        m.mapRect(out, r)
+
+        // 【窗口局部 → 画布坐标】见上文推导：x += pw/2，y += fh + sin - sin2 - lift。
+        //   这一层平移正是 bakeDraw 里 T(-dx,-dy) 抵消掉 (pvx, P) 之后剩下的部分。
+        out.offset(pw / 2.0f, fh + sin - sin2 - lift)
+
+        // 【表情也要算进去】drawEmoteAt 画在精灵之外（头顶上方 + 横向偏移），
+        //   它不在网格顶点里，不并进来同样会被画布裁掉。
+        //   落点口径（同样换到 ox = oy = 0 的画布坐标）：
+        //     中心 x = pw * AHOGE_U + pw/2
+        //     基线 y = (sin - sin2 - lift) + dp(6) + f5，f5 = -dp(10)*t（t ∈ [0,1]）
+        //   字号 = pw * EMOTE_SIZE_RATIO；字形以基线为原点，向上约 1.4 个字高、
+        //   向下约 0.5 个字高，横向左右各留 1 个字宽。取最极端（t=1）的位置。
+        if (expr != 0) {
+            val size = pw * EMOTE_SIZE_RATIO
+            val ex = (pw * AHOGE_U) + pw / 2.0f
+            val ey = (sin - sin2 - lift) + dp(6.0f) - dp(10.0f)
+            val er = RectF(ex - size, ey - size * 1.4f, ex + size, ey + size * 0.5f)
+            out.union(er)
+        }
+        return out.width() > 0f && out.height() > 0f
+    }
+
+    /**
+     * 把一帧画到画布上（内置动作帧图烘焙用）。
+     *
+     * 【几何完全复用 onDraw】这里的变换序列与 [onDraw] 逐行一致，
+     *   只是额外先把「精灵左上角」平移落点到画布的 (ox, oy)，
+     *   于是烘出来的每一帧都与桌面上真实绘制的结果同源。
+     *
+     * @param v    参数数组：[0]phase [1]jumpT [2]dragLift [3]idleLiftPx [4]idleScaleY
+     *             [5]landT [6]lean [7]tilt [8]保留 [9]blinkT [10]idleEyeScale [11]gaze。
+     *             jumpT / landT 传 -1 表示「不在进行」。
+     * @param expr 表情 id；0 = 不画表情。
+     * @param t    表情的阶段比例（0~1）；[expr] 为 0 时忽略。
+     * @param ox   精灵左上角在画布上的落点 X。
+     * @param oy   精灵左上角在画布上的落点 Y。
+     */
+    internal fun bakeDraw(canvas: Canvas, v: FloatArray, expr: Int, t: Float,
+                          ox: Float, oy: Float) {
+        val bmp = current() ?: return
+        val pw = petWidth().toFloat()
+        val fh = fullHeight().toFloat()
+        if (pw <= 0.0f || fh <= 0.0f) {
+            return
+        }
+        val saved = expression
+        expression = expr
+        buildMesh(pw, fh, v[0], v[9], v[10], v[11])
+        expression = saved
+        val sin = Math.sin(v[0].toDouble()).toFloat() * bobAmp
+        val sin2 = if (v[1] >= 0.0f) Math.sin(v[1] * 3.141592653589793).toFloat() * jumpAmp else 0.0f
+        // 【与 onDraw 逐参数对齐】onDraw 的三层缩放与两层抬升：
+        //   scaleX = dragLift*0.05+1（拖拽时整体放大一点）
+        //   scaleY = 落地压扁(landT) × scaleX × idleScaleY
+        //   lift   = dragLift*DP(DRAG_TILT_MAX) + idleLiftPx
+        val pop = v[2] * 0.05f + 1.0f
+        val squash = if (v[5] >= 0.0f) {
+            1.0f - (Math.sin(v[5] * 3.141592653589793).toFloat() * AHOGE_RU)
+        } else {
+            1.0f
+        }
+        val scaleY = if (v[4] > 0.0f) v[4] else 1.0f
+        val lift = (v[2] * dp(DRAG_TILT_MAX)) + v[3]
+        // 把「精灵左上角」从窗口局部坐标搬到画布 (ox, oy)：
+        //   窗口局部里它位于 (pivotLocalX - pw/2, pivotLocalY - fh)。
+        val pvx = pivotLocalX()
+        val pvy = pivotLocalY()
+        val dx = pvx - (pw / 2.0f) - ox
+        val dy = pvy - fh - oy
+        canvas.save()
+        canvas.translate(-dx, -dy)
+        canvas.translate(pvx, ((sin + pvy) - sin2) - lift)
+        canvas.scale(pop, squash * pop * scaleY)
+        canvas.rotate(v[6])
+        canvas.rotate(v[7])
+        canvas.translate((-pw) / 2.0f, -fh)
+        canvas.drawBitmapMesh(bmp, MX, MY, verts, 0, null, 0, bmpPaint)
+        canvas.restore()
+        if (expr != 0) {
             canvas.save()
-            canvas.translate(ex, y)
-            canvas.scale(f4, f4)
-            emotePaint.style = Paint.Style.STROKE
-            emotePaint.strokeWidth = petWidth() * EMOTE_STROKE_RATIO
-            emotePaint.color = UiKit.card()
-            emotePaint.alpha = Math.max(0, Math.min(255, i))
-            canvas.drawText(emoteGlyph(expression), 0.0f, 0.0f, emotePaint)
-            emotePaint.style = Paint.Style.FILL
-            emotePaint.color = emoteColor(expression)
-            emotePaint.alpha = Math.max(0, Math.min(255, i))
-            canvas.drawText(emoteGlyph(expression), 0.0f, 0.0f, emotePaint)
+            canvas.translate(-dx, -dy)
+            drawEmoteAt(canvas, pvx, ((pvy - fh) + sin) - sin2 - lift, expr, t)
             canvas.restore()
         }
     }
@@ -1053,10 +1308,6 @@ class PetView(context: Context) : View(context) {
 
     fun lookAt(f: Float) {
         anim.lookAt(f)
-    }
-
-    fun setAffection(i: Int) {
-        anim.setAffection(i)
     }
 
     fun tick() {

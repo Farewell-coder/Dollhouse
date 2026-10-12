@@ -181,11 +181,6 @@ class PetAnimator(private val host: PetView) {
         host.gazeCountdown = 1.6f
     }
 
-    fun setAffection(i: Int) {
-        host.affection = PetPrefs.clampAffection(i)
-        host.invalidate()
-    }
-
     fun tick() {
         val uptimeMillis = SystemClock.uptimeMillis()
         val min = Math.min(120.0f, (uptimeMillis - host.lastFrame).toFloat()) / 1000.0f
@@ -260,8 +255,8 @@ class PetAnimator(private val host: PetView) {
             val f12 = host.gazeCountdown - min
             host.gazeCountdown = f12
             if (f12 <= 0.0f) {
-                val i = host.affection
-                host.gazeTarget = ((Math.random() * 2.0 - 1.0).toFloat()) * (if (i >= 70) 0.35f else if (i < 30) 1.0f else PetView.TAILR_V)
+                // 【r11】好感度已删除：凝视幅度固定取中间档，不再按数值分黏人 / 冷淡两态。
+                host.gazeTarget = ((Math.random() * 2.0 - 1.0).toFloat()) * PetView.TAILR_V
                 host.gazeCountdown = (Math.random().toFloat()) * 6.0f + 4.0f
             }
         }

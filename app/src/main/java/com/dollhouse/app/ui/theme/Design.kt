@@ -45,6 +45,15 @@ object Design {
     /** 图标与紧邻文字的默认间距（dp）。 */
     const val GAP_ICON = 8
 
+    /**
+     * 【r12】品牌大标题字号。
+     *
+     * 【为什么单列一档】首页的「Dollhouse」是 40.sp，是全 App 唯一的大标题字号，
+     *   原来直接硬编码在 [com.dollhouse.app.ui.home.HomeScreen] 里。
+     *   与 [UiKit.FS_*] 那套正文字号刻度不同量级，硬塞进去会撑爆刻度语义，故在此单开一档。
+     */
+    const val FS_TITLE_BRAND = 40.0f
+
     /* ------------ 间距刻度（dp）------------ */
 
     /** 卡片内边距。 */

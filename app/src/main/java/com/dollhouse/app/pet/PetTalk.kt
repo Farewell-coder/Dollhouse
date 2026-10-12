@@ -6,7 +6,7 @@ import android.os.Looper
 import com.dollhouse.app.agent.ChatToolRegistry
 import com.dollhouse.app.agent.ChatToolRunner
 import com.dollhouse.app.ai.DeepSeekClient
-import com.dollhouse.app.ai.MemSummarizer
+import com.dollhouse.app.ai.MemExtractor
 import com.dollhouse.app.ai.ThinkLevel
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.ChatHistoryStore
@@ -27,7 +27,7 @@ import org.json.JSONObject
  *          会话历史复用 ChatHistoryStore 的独立版（ctx + history），存档键与全屏聊天页完全一致。
  *
  * 【共用】请求组装走 ChatHistoryStore.buildRequest(ctx, history)，
- *          人设 / 好感度 / 思考档位 / 长期记忆 / 学习示例 / 图片策略与全屏页同源，不会分叉。
+ *          人设 / 思考档位 / 长期记忆 / 学习示例 / 图片策略与全屏页同源，不会分叉。
  *
  * 【取舍】不传 tools：气泡只有两行，联网结果没有展示位，且少一轮往返更跟手。
  *          完整工具能力仍在全屏聊天页（首页 →「打开聊天」）。
@@ -79,6 +79,15 @@ class PetTalk(private val ctx: Context, private val host: Host) {
     }
 
     interface Host {
+        /**
+         * 【r13·一人偶一对话】本迷你聊天所属人偶的 id。
+         *
+         * 【为什么由宿主提供】[PetTalk] 是「某一只人偶的聊天逻辑」，它自己拿不到
+         *   是谁在说话 —— 而人偶身份正是**会话绑定**与**人设选择**的依据。
+         *   宿主（`PetWindow`）持有 `doll`，天然知道答案，透传进来即可。
+         */
+        fun dollId(): String
+
         /** 显示常驻气泡（不自动消失），相位由本类管理。 */
         fun saySticky(str: String)
 
@@ -121,7 +130,19 @@ class PetTalk(private val ctx: Context, private val host: Host) {
     private fun convId(): String {
         val id = this.petConvId
         if (id == null || id.isEmpty()) {
-            this.petConvId = ChatSessions.ensurePet(this.ctx)
+            // 【r13·一人偶一对话】按**自己的那只人偶**取会话 ——
+            //   多只人偶同时挂着时，各自落在各自的会话里，不会互相串档。
+            val d = try {
+                host.dollId()
+            } catch (unused: Throwable) {
+                ""
+            }
+            this.petConvId = if (d.isNotEmpty()) {
+                ChatSessions.ensureForDoll(this.ctx, d)
+            } else {
+                // 宿主给不出人偶（理论上不该发生）：退回池级兜底，至少不丢消息。
+                ChatSessions.ensurePet(this.ctx)
+            }
         }
         return this.petConvId!!
     }
@@ -203,9 +224,20 @@ class PetTalk(private val ctx: Context, private val host: Host) {
             this.host.sayTemp("还没配置 API Key（首页 → 聊天设置）", 3600L)
             return
         }
-        // 【池跟随】每轮开始时绑定当前人偶池会话：抽屉里选了另一条人偶会话，这一轮就写到那条上；
-        //   绑定后整轮（读 + 两次落盘）都认同一个 id。
-        this.petConvId = ChatSessions.ensurePet(this.ctx)
+        // 【r13·一人偶一对话】每轮开始时绑定**本窗口那只人偶**的专属会话。
+        //   【曾经的 bug】原来调 ensurePet()，拿到的是人偶池的通用种子会话（`pet`）——
+        //   于是桌面上挂着好几只人偶时，她们的话全写进同一条对话里（串档）。
+        //   现在按 host.dollId() 取 `d_<dollId>`，各聊各的。
+        val myDoll = try {
+            host.dollId()
+        } catch (unused: Throwable) {
+            ""
+        }
+        this.petConvId = if (myDoll.isNotEmpty()) {
+            ChatSessions.ensureForDoll(this.ctx, myDoll)
+        } else {
+            ChatSessions.ensurePet(this.ctx)
+        }
         reloadHistory()
         ChatHistoryStore.push(this.ctx, this.history!!, "user", trim, convId())
         // 新一轮对话清掉上一轮的翻页状态，避免旧游标串到新回复上。
@@ -351,7 +383,7 @@ class PetTalk(private val ctx: Context, private val host: Host) {
         var tools: JSONArray? = null
         if (this.toolRound < MAX_TOOL_ROUNDS) {
             val schema = ChatToolRegistry.buildSchema(PetPrefs.webSearchEnabled(this.ctx),
-                    PetPrefs.memAutoSave(this.ctx))
+                    PetPrefs.mem2Auto(this.ctx))
             if (schema.length() > 0) {
                 tools = schema
             }
@@ -510,106 +542,65 @@ class PetTalk(private val ctx: Context, private val host: Host) {
     }
 
     /**
-     * 【v0.0.1】自动压缩旁路：迷你框过去不触发（它没有 ChatPanel），现在走
-     *   MemSummarizer 的无 UI 通道，与全屏页共用同一份压缩逻辑，不再分叉。
-     * 【为什么不在本类直接判阈值】阈值/双触发/RUNNING 锁/守卫全在 MemSummarizer 里，
-     *   这里只提供数据面（ctx + history 活引用 + 锚定 id），否则两处各写一份必然漂移。
-     * 【主线程】与 ChatPanel 版一致：post 到 ui 线程再发起，避免在回调线程碰 prefs。
-     * 【表现面】迷你框没有提示位与「总结中」指示，flash/busy 降级为只记日志 ——
-     *   气泡此刻正被回复占用，任何提示都会把它顶掉。
+     * 【r13·新记忆系统】迷你框侧的自动抽取旁路。
+     *
+     * 【为什么还需要它】全屏聊天页的抽取挂在 `ChatHistoryStore.push(host, ...)` 上，
+     *   而迷你框走的是 `push(ctx, history, ...)` 那条路径，两条各管各的。
+     *   迷你框现在直接调 [MemExtractor.extract]，与全屏页共用同一份抽取协议。
+     *
+     * 【人偶】取当前会话绑定的那只，并同步给 [ChatToolRegistry]，
+     *   保证「工具写入」与「自动抽取」落到同一个库 —— 这是分库不串的前提。
+     *
+     * 【主线程】与全屏页一致：post 到 ui 线程再发起，避免在回调线程碰 prefs。
      */
     private fun maybeAutoSummarize() {
-        if (!PetPrefs.memAuto(this.ctx)) {
-            return
-        }
         val self = this
         this.ui.post {
-            MemSummarizer.maybeAuto(object : MemSummarizer.Sink {
-                override fun ctx(): Context {
-                    return self.ctx
+            try {
+                if (!PetPrefs.mem2Auto(self.ctx)) {
+                    return@post
                 }
-
-                override fun convId(): String {
-                    return self.convId()
-                }
-
-                override fun history(): JSONArray {
-                    return self.history!!
-                }
-
-                override fun setHistory(h: JSONArray) {
-                    self.history = h
-                }
-
-                override fun ctxUsedChars(): Int {
-                    return MemSummarizer.ctxUsedChars(self.ctx, self.history)
-                }
-
-                /** 迷你框无「展开态」概念：载入时已由 collapsePrevOnLoad 收口。 */
-                override fun foldPrev(): Boolean {
-                    return false
-                }
-
-                override fun clearPrev() {
-                }
-
-                override fun flash(msg: String) {
-                    Logs.i("DollhouseMemo", "[mini] " + msg)
-                }
-
-                override fun busy(busy: Boolean) {
-                }
-
-                override fun uiRefresh(after: Runnable?) {
-                    if (after != null) {
-                        after.run()
+                val dollId = ChatSessions.dollOfConv(self.ctx, self.convId())
+                ChatToolRegistry.setDoll(dollId)
+                val h = self.history ?: return@post
+                val turns = ArrayList<Pair<String, String>>()
+                val from = if (h.length() > 6) h.length() - 6 else 0
+                for (i in from until h.length()) {
+                    val o = h.optJSONObject(i) ?: continue
+                    if ("summary" == o.optString("kind")) {
+                        continue
                     }
+                    val r = o.optString("role")
+                    if ("user" != r && "assistant" != r) {
+                        continue
+                    }
+                    turns.add(Pair(r, o.optString("content", "")))
                 }
-
-                override fun post(r: Runnable) {
-                    self.ui.post(r)
+                if (turns.isEmpty()) {
+                    return@post
                 }
-
-                override fun postDelayed(r: Runnable, ms: Long) {
-                    self.ui.postDelayed(r, ms)
-                }
-
-                override fun removeCallbacks(r: Runnable) {
-                    self.ui.removeCallbacks(r)
-                }
-            })
+                MemExtractor.extract(self.ctx, dollId, turns, null)
+            } catch (t: Throwable) {
+                Logs.w("DollhouseMem", "[mini] 自动抽取失败", t)
+            }
         }
     }
 
     /**
-     * 回复落地：剥掉首行好感度记账、写档、贴气泡。
-     * 【坑】好感度首行契约（[好感度:+3]）与全屏页共用同一对正则，
-     *        改这里等于同时改两个入口，别只改一边。
+     * 回复落地：剥掉老记录残留的记账行、写档、贴气泡。
+     * 【r11】好感度已删除：不再解析、不再记账，只做一次历史残渣剥离（与全屏页共用
+     *        ChatHistoryStore.stripLegacyAffection，两个入口不会分叉）。
      */
     private fun finish(str: String?) {
         val raw = if (str == null) "" else str
-        var delta = 0
-        var hasDelta = false
-        val matcher = ChatPanel.AFFECTION_HEAD.matcher(raw)
-        if (matcher.find()) {
-            try {
-                delta = matcher.group(1).toInt()
-                hasDelta = true
-            } catch (unused: Throwable) {
-                delta = 0
-            }
-        }
         // 【修 v0.0.1】两条路分开：
-        //   storeText = 去掉好感度记账后的原文（保留换行）→ 写历史，聊天页与下一轮上下文都是原貌；
+        //   storeText = 剥掉记账行后的原文（保留换行）→ 写历史，聊天页与下一轮上下文都是原貌；
         //   text      = storeText 压成单行 → 只给人偶气泡用（模型自带换行会把句子拦腰断开）。
-        var storeText = ChatPanel.AFFECTION_ANY.matcher(raw).replaceAll("").trim()
+        var storeText = ChatHistoryStore.stripLegacyAffection(raw)
         if (storeText.isEmpty()) {
-            storeText = if (hasDelta) "……" else raw.trim()
+            storeText = raw.trim()
         }
         val text = ChatHistoryStore.oneLine(storeText)
-        if (hasDelta) {
-            PetBus.affection(PetPrefs.addAffection(this.ctx, delta))
-        }
         ChatHistoryStore.push(this.ctx, this.history!!, "assistant", storeText, convId())
         // 【v0.0.1】一轮回复落盘完毕，走无 UI 通道触发自动压缩（原先迷你框这条旁路不触发）。
         maybeAutoSummarize()

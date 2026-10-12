@@ -5,14 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import com.dollhouse.app.ai.TokenStat
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.device.ShizukuBridge
 import com.dollhouse.app.pet.PetToggle
+import com.dollhouse.app.ui.compose.PageRegistry
+import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.provider.ProviderNav
-import com.dollhouse.app.ui.settings.AboutPage
-import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.ThemeRefresh
@@ -74,6 +73,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 【r13·三 Tab】解锁 Tab 恢复闸门：Activity 重建后要让 AppNav 重新读一次偏好，
+        //   否则会停在内存里的默认值（聊天），把用户重建前停留的 Tab 丢掉。
+        com.dollhouse.app.ui.home.AppNav.unlock()
         // 先按当前主题档位把配色刷进 UiKit，再建界面；否则首帧会用上一轮的旧配色。
         // apply() 只读取色缓存，不在主线程解码壁纸，冷启动不会被壁纸拖慢。
         ThemeManager.apply(this)
@@ -93,6 +95,9 @@ class MainActivity : Activity() {
                 }
             })
         }
+        // 【r11 种子】默认配置的交谈 / 性格内容继承改造前的内置值；幂等，只写一次。
+        //   放在首页装配之前：编辑页 / 聊天页首帧就要能读到这份种子。
+        com.dollhouse.app.data.DollProfile.seedDefault(this)
         // 【装配】首页 + 设置页两棵 ComposeView 由 HomeUi 一次性建好并挂进 content。
         //   不再 setContentView：Compose 页是「页面」而不是「内容视图」，走同一条挂载通道。
         HomeUi.apply(this)
@@ -120,7 +125,7 @@ class MainActivity : Activity() {
         if (savedInstanceState != null) {
             val decor = window?.decorView
             decor?.post {
-                restoreRouteState(savedInstanceState)
+                restorePageStack(savedInstanceState)
                 ThemeRefresh.restoreState(decor, savedInstanceState)
                 ThemeRefresh.restoreInputs(decor, inputDraft)
             }
@@ -129,6 +134,20 @@ class MainActivity : Activity() {
         if (silkRestored) {
             UiKit.themeFade(this)
         }
+    }
+
+    /**
+     * 【单实例唤回】manifest 里本页是 `singleTask`：从最近任务 / 通知再进来时**不重建实例**，
+     *   而是走这个方法。此前没有重写它，等于「被唤回时什么都不做」——
+     *   若上次离开时层序已清过账、View 却还挂在树上（退场动画被打断，或厂商 ROM 清理后台
+     *   只摘任务不销毁进程），回来就会看到「视觉停在主页、触摸仍落二级页」。
+     *   这里补上：接住新 Intent，并立刻做一次层级对账，把记账与真实 View 树拉回一致。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // AOSP 不会自动更新 getIntent()，须手动 set，否则后续读到的还是首次启动的那个。
+        setIntent(intent)
+        PageStack.reconcile(this)
     }
 
     /**
@@ -144,7 +163,7 @@ class MainActivity : Activity() {
      * 【重建保命】未加 configChanges，系统日夜切换 / 配置变更仍会重建本 Activity。
      * 这里按遍历序存下所有输入框文本与滚动区位置，重建后由 [ThemeRefresh.restoreState] 回填，
      * 使重建在观感上「位置与输入都没丢」。
-     * 【路由】另存首页 / 设置页可见性、独立覆盖页与提供商栈，交给 [restoreRouteState] 还原。
+     * 【路由】整条页面层序（Home 上的覆盖层）交给 [savePageStack] / [restorePageStack] 存取。
      * 【隐私】只写稳定标识与已登记白名单输入：密钥这类文本绝不进 Bundle。
      */
     override fun onSaveInstanceState(outState: Bundle) {
@@ -154,81 +173,57 @@ class MainActivity : Activity() {
         } catch (ignored: Throwable) {
         }
         try {
-            saveRouteState(outState)
+            savePageStack(outState)
         } catch (ignored: Throwable) {
         }
     }
 
-    // ---- 路由状态：页面 tag（与 HomeUi / 各覆盖页内常量逐字一致，跨类按 tag 定位） ----
-    private val TAG_HOME_PAGE = "feiyu_home_page"
-    private val TAG_SETTINGS_PAGE = "feiyu_settings_page"
-    private val TAG_ABOUT_PAGE = "feiyu_about_page"
-    private val TAG_MEM_PAGE = "feiyu_mem_page"
-    private val TAG_TOKEN_PAGE = "feiyu_token_page"
-    private val OVERLAY_ABOUT = "about"
-    private val OVERLAY_MEM = "mem"
-    private val OVERLAY_TOKEN = "token"
-    private val KEY_SETTINGS_SHOWN = "dh_home_settings_shown"
-    private val KEY_PROVIDER_ROUTES = "dh_provider_routes"
-    private val KEY_OVERLAY_PAGE = "dh_overlay_page"
+    // ---- 路由状态：页面 key（与各页面自己的 key 常量逐字一致，跨类按 key 定位） ----
+    // 【迁 PageStack】原先记「设置页可见性 + 三个覆盖页互斥挑一个 + 提供商栈」，
+    //   是「同一时刻只记得住一层」的老模型；现在整条层序交给 PageStack.keys()。
+    private val KEY_PAGE_STACK = "dh_page_stack"
 
-    /** 采集当前路由：设置页是否在前、独立覆盖页、提供商栈（全为稳定标识，不含任何输入内容）。 */
-    private fun saveRouteState(outState: Bundle) {
-        val content = findViewById<android.view.ViewGroup>(android.R.id.content)
-        outState.putBoolean(KEY_SETTINGS_SHOWN,
-                content?.findViewWithTag<android.view.View>(TAG_SETTINGS_PAGE)?.visibility
-                        == android.view.View.VISIBLE)
-        val overlay = when {
-            content?.findViewWithTag<android.view.View>(TAG_TOKEN_PAGE) != null -> OVERLAY_TOKEN
-            content?.findViewWithTag<android.view.View>(TAG_MEM_PAGE) != null -> OVERLAY_MEM
-            content?.findViewWithTag<android.view.View>(TAG_ABOUT_PAGE) != null -> OVERLAY_ABOUT
-            else -> null
+    /** 提供商模块内部业务路由栈的存档键（沿用历史键名，兼容旧存档读取逻辑）。 */
+    private val KEY_PROVIDER_ROUTES = "dh_provider_routes"
+
+    /** 采集当前整条页面层序（全为稳定 key，不含任何输入内容）。 */
+    private fun savePageStack(outState: Bundle) {
+        val keys = PageStack.keys(this)
+        if (!keys.isEmpty()) {
+            outState.putStringArrayList(KEY_PAGE_STACK, keys)
         }
-        if (overlay != null) {
-            outState.putString(KEY_OVERLAY_PAGE, overlay)
-        }
-        if (ProviderNav.isOpen(this)) {
+        // 提供商模块的内部业务路由（列表 / 新建 / 编辑 / 模型 …）一并存下：
+        //   它只占 PageStack 的一层，层序无法表达其内部深度，故单独记一份。
+        if (keys.contains(ProviderNav.TAG_PAGE)) {
             outState.putStringArrayList(KEY_PROVIDER_ROUTES, ProviderNav.saveRoutes())
         }
     }
 
     /**
-     * 还原 [saveRouteState] 存下的路由：直接改两页可见性（不走动画、不加过场），再按稳定栈重建覆盖页。
-     * 【顺序】先落两页可见性，再恢复提供商栈，最后把独立覆盖页压在最上层，层级与重建前一致。
+     * 按 [savePageStack] 存下的 key 逐层重建。
+     * 【顺序】自底向上重建，底层先入栈，上层后压 —— 与重建前的层序完全一致。
+     * 【供应商模块】它一层壳里还有自己的业务路由栈，先回填其记账再建页，否则会退化成列表页。
+     * 【不播动画】重建应「静止在终点」，全程用 reset 之外的静默路径（push 会滑入，故随后静置）。
      */
-    private fun restoreRouteState(state: Bundle) {
+    private fun restorePageStack(state: Bundle) {
         if (isFinishing) {
             return
         }
         val content = findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
-        val home = content.findViewWithTag<android.view.View>(TAG_HOME_PAGE)
-        val settings = content.findViewWithTag<android.view.View>(TAG_SETTINGS_PAGE)
-        val settingsShown = state.getBoolean(KEY_SETTINGS_SHOWN, false)
-        val shown = if (settingsShown) settings else home
-        val hidden = if (settingsShown) home else settings
-        // 【过场清理】HomeUi.show 建界面时的交叉淡入可能把某页 alpha 留在中间态，
-        //   这里取消动画并复位：目标页完整可见、另一页彻底收起，不出现半透明残留。
-        if (shown != null) {
-            shown.animate().cancel()
-            shown.visibility = android.view.View.VISIBLE
-            shown.alpha = 1f
-            shown.translationX = 0f
+        PageStack.reset(this)
+        val keys = state.getStringArrayList(KEY_PAGE_STACK)
+        if (keys.isNullOrEmpty()) {
+            // 没有层：只把首页 / 设置页之间的过场状态静置（与旧逻辑的兜底一致）。
+            ThemeRefresh.settleAfterRestore(content)
+            return
         }
-        if (hidden != null) {
-            hidden.animate().cancel()
-            hidden.visibility = android.view.View.GONE
+        for (key in keys) {
+            if (ProviderNav.TAG_PAGE == key) {
+                ProviderNav.setRoutes(state.getStringArrayList(KEY_PROVIDER_ROUTES))
+            }
+            PageStack.push(this, key) { PageRegistry.build(this, key) }
         }
-        if (!ProviderNav.isOpen(this)) {
-            ProviderNav.restoreRoutes(this, state.getStringArrayList(KEY_PROVIDER_ROUTES))
-        }
-        when (state.getString(KEY_OVERLAY_PAGE)) {
-            OVERLAY_TOKEN -> TokenStat.open(this)
-            OVERLAY_MEM -> MemPage.open(this)
-            OVERLAY_ABOUT -> AboutPage.open(this)
-        }
-        // 【静置】以上覆盖页都走 UiKit.openPage 的 300ms 自右滑入；
-        //   就地取消并复位，让恢复后的界面停在最终位置——不残留半透明与位移，
-        //   也不会因为首页入场动画把视线带回主页。
+        // 【静置】以上入栈都带 300ms 滑入；就地取消并复位，让恢复后停在最终位置。
         ThemeRefresh.settleAfterRestore(content)
     }
 
@@ -241,6 +236,16 @@ class MainActivity : Activity() {
         HomeUi.sync(this)
         // 【全局背景】回前台重挂一次：用户去选了新背景图后回来，路径变了会自动重解码并刷全部挂载点。
         GlobalBackground.installHome(this)
+        // 【层级对账】回前台无条件对一次账：把「记账里的层」与「content 上真实挂的 View」拉齐。
+        //   覆盖三条会把两者搞错位的路径：singleTask 唤回不重建 View 树、退场动画被切后台打断、
+        //   厂商 ROM 清理后台只摘任务不销毁进程。幂等，无错位时零副作用。
+        PageStack.reconcile(this)
+        // 【r13·修 bug·三页同时可见】把三个 Tab 页强行收成「只有当前 Tab 可见」。
+        //   【为什么必须在这里做】`PageStack.reconcile` 只管**覆盖层**，管不到底座这三个 Tab 页；
+        //   而「切页动画被切后台打断」会让旧页停在「alpha≈0 但 VISIBLE」——
+        //   回前台时多页同时可见，视觉上就是三个页面叠在一起（用户截图报的那个）。
+        //   本方法只做状态归位（零动画、幂等），回前台「静止在终点」，正好符合预期。
+        HomeUi.settleTabs(this)
         // 【Shizuku】监听挂在这一对生命周期里：授权结果 / 服务后启动都要能自动刷回界面。
         if (!shizukuListenersOn) {
             shizukuListenersOn = true
@@ -259,9 +264,28 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
+    /**
+     * 【层级回收】宿主销毁时把本实例的页面层序分桶一并丢掉。
+     *   层里存的是整页 View，不回收会让旧 Activity 的 View 树跟着分桶表常驻。
+     *   配置变更时本方法同样会走到：此时存档已在 [onSaveInstanceState] 里存好，
+     *   新实例会在 onCreate 用新身份建新桶并逐层还原，两边不会互串。
+     */
+    override fun onDestroy() {
+        PageStack.reset(this)
+        super.onDestroy()
+    }
+
+    /**
+     * 【返回键统一入口】顺序即优先级，四条语义互斥、逐层降级：
+     *   ① [ProviderNav.handleBack] —— 提供商模块「一层壳 + 内部业务路由」：只在自己那层位于
+     *      最上层时接管，回退一格内部路由（层数不变）；不是最上层就交出去。
+     *   ② [PageStack.handleBack] —— 层级系统的统一兜底：Token / 记忆 / 关于 / 人偶列表 /
+     *      设置页 / 人偶编辑全都只是栈里的一层，弹掉栈顶即可。
+     *   ③ [HomeUi.handleBack] —— 底座（三个 Tab）不属于覆盖层，不进 [PageStack]：
+     *      在非「聊天」Tab 时回到「聊天」，在「聊天」时返回 false 交给系统。
+     */
     override fun onBackPressed() {
-        if (ProviderNav.handleBack(this) || TokenStat.closeIfOpen(this)
-                || MemPage.closeIfOpen(this) || AboutPage.closeIfOpen(this)
+        if (ProviderNav.handleBack(this) || PageStack.handleBack(this)
                 || HomeUi.handleBack(this)) {
             return
         }

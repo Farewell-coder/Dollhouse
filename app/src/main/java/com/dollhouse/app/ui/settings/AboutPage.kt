@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
-import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -25,6 +24,8 @@ import com.dollhouse.app.core.Logs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 
@@ -48,7 +49,7 @@ import com.dollhouse.app.ui.theme.UiKit
  */
 object AboutPage {
     private const val LOG_TAG = "Dollhouse"
-    private const val TAG_PAGE = "feiyu_about_page"
+    const val TAG_PAGE = "feiyu_about_page"
 
     /** 作者（与参考图一致，用户只要求改软件名与描述）。 */
     private const val AUTHOR = "aerree"
@@ -56,30 +57,26 @@ object AboutPage {
     /** 反馈群（QQ 群号，与参考图一致）。 */
     private const val GROUP = "864339949"
 
-    /** 返回键用：本页开着就关掉并返回 true。 */
+    /** 返回键用：本页在栈顶就退一层并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
-        return try {
-            val act = findActivity(ctx) ?: return false
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return false
-            val old = content.findViewWithTag<View>(TAG_PAGE) ?: return false
-            UiKit.closePage(old)
-            true
-        } catch (t: Throwable) {
-            false
-        }
+        return PageStack.popIfTop(ctx, TAG_PAGE)
+    }
+
+    /** 页面构造：供页面栈入栈与跨重建恢复共用。 */
+    @JvmStatic
+    fun buildPage(ctx: Context): View? {
+        val act = findActivity(ctx) ?: return null
+        // Compose 运行所需 owner（原生 Activity 不自动装），幂等。
+        ComposeHost.installForActivity(act)
+        return ComposeHost.createView(act) { AboutContent(act) }
     }
 
     /** 设置页「关于」入口行的落地动作。 */
     @JvmStatic
     fun open(ctx: Context) {
         try {
-            val act = findActivity(ctx) ?: return
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
-            // Compose 运行所需 owner（原生 Activity 不自动装），幂等。
-            ComposeHost.installForActivity(act)
-            val page = ComposeHost.createView(act) { AboutContent(act) }
-            UiKit.openPage(content, page, TAG_PAGE)
+            PageStack.push(ctx, TAG_PAGE) { buildPage(ctx) }
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
@@ -118,13 +115,14 @@ object AboutPage {
                         + "长按打开面板。"
                 )
                 Body(
-                    "她能记住你们聊过的事，聊长了会把早期内容压成要点，"
-                        + "把这些要点和你的对话一起带进下一次回复。"
+                    "她能记住你们聊过的事：聊天过程中会自动把值得记的东西整理成条目存进记忆库，"
+                        + "下次开口前按相关性挑出来带上。每只人偶一份独立记忆库，互不可见。"
                         + "所有对话、记忆与配置都只留在这台设备上，不上传任何服务器。"
                 )
                 Body(
-                    "玩法很简单：给她配一个模型端点 → 点她说话 → 聊久了自动总结。"
-                        + "关掉自动总结，她就只保留原文，不会替你压缩。"
+                    "玩法很简单：给她配一个模型端点 → 点她说话。"
+                        + "想让她记得更准，可以在「设置 → 实验 → 记忆库设置」里写一条提取规则；"
+                        + "不想要自动记忆，把那里的开关关掉即可，原文一条都不会动。"
                 )
                 Body("对话内容由所选模型生成，仅供娱乐。")
             }
@@ -157,7 +155,8 @@ object AboutPage {
                     .background(c.card),
                 contentAlignment = Alignment.Center
             ) {
-                DhKit.Icon(iconRes = Icons.IC_WHALE, sizeDp = 22f, color = c.acc)
+                // 【r12】22f 不在 [Design] 的图标五档内 → 归到 SZ_LG(24)。
+                DhKit.Icon(iconRes = Icons.IC_WHALE, sizeDp = Design.SZ_LG, color = c.acc)
             }
             Spacer(Modifier.width(12.dp))
             Text(

@@ -85,16 +85,62 @@ object ThemeRefresh {
      */
     @JvmStatic
     fun applyCardAlpha(act: Activity?, percent: Int) {
-        val old = UiKit.card()
+        // 【r13】层级底（SOFT / OPTION / FIELD）与卡片内实体按钮（CARD）都跟着卡片透明度联动，
+        //   所以要一起「旧值 → 新值」重涂，否则已建好的 View 上它们会停在旧的不透明度。
+        val oldCard = UiKit.card()
+        val oldSoft = UiKit.soft()
+        val oldOption = UiKit.option()
+        val oldField = UiKit.field()
+        val oldUp = UiKit.cardUp()
         UiKit.applyCardAlpha(percent)
-        val neu = UiKit.card()
-        if (act == null || old == neu) {
+        val neuCard = UiKit.card()
+        val neuSoft = UiKit.soft()
+        val neuOption = UiKit.option()
+        val neuField = UiKit.field()
+        val neuUp = UiKit.cardUp()
+        val changed = oldCard != neuCard || oldSoft != neuSoft || oldOption != neuOption ||
+            oldField != neuField || oldUp != neuUp
+        if (act == null || !changed) {
             return
         }
-        walk(act.window?.decorView) { v -> retintCard(v.background, old, neu) }
+        walk(act.window?.decorView) { v ->
+            val bg = v.background
+            retintCard(bg, oldCard, neuCard)
+            retintCard(bg, oldSoft, neuSoft)
+            retintCard(bg, oldOption, neuOption)
+            retintCard(bg, oldField, neuField)
+            retintCard(bg, oldUp, neuUp)
+        }
         DhTheme.bump()
         GlobalBackground.refreshAll()
     }
+
+    /**
+     * 【r13·外观】把「磨砂程度」改到 [percent] 并让已建界面就地生效。
+     *
+     * 【为什么与 applyCardAlpha 同一套写法】弹窗 / 面板底（`UiKit.sheet()` / `sheetUp()`）是
+     *   「取色那一刻」抄进各控件背景 Drawable 里的，改偏好不会让已建好的弹窗自动变；
+     *   所以这里按「旧值 → 新值」把视图树上等于旧底色的 Drawable 整值换掉，
+     *   再 bump 一次让 Compose 侧重新取色 —— 不重建 Activity，不丢滚动与输入。
+     */
+    @JvmStatic
+    fun applyFrostStrength(act: Activity?, percent: Int) {
+        val oldSheet = UiKit.sheet()
+        val oldUp = UiKit.sheetUp()
+        UiKit.applyFrostStrength(percent)
+        val neuSheet = UiKit.sheet()
+        val neuUp = UiKit.sheetUp()
+        if (act == null || (oldSheet == neuSheet && oldUp == neuUp)) {
+            return
+        }
+        walk(act.window?.decorView) { v ->
+            val bg = v.background
+            retintCard(bg, oldSheet, neuSheet)
+            retintCard(bg, oldUp, neuUp)
+        }
+        DhTheme.bump()
+    }
+
     /** 把 Drawable 里等于 [old] 的底色整值换成 [neu]（保留描边 / 圆角 / 层级）。 */
     private fun retintCard(d: Drawable?, old: Int, neu: Int) {
         if (d == null) {

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import com.dollhouse.app.ai.TokenStat
 import com.dollhouse.app.ui.chat.ChatPanel
+import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.ThemeRefresh
 import com.dollhouse.app.ui.theme.UiKit
@@ -98,21 +99,41 @@ class ChatActivity : Activity() {
             //   直接复用旧的 ChatPanel（singleTop），只在构造时调过一次 applyBackground()，
             //   于是「选完图聊天页背景没变化」。每次回前台重套一次即可（幂等）。
             chatPanel.applyBackground()
+            // 【r13 修 bug·「返回再进来就中断 AI 发话」】回前台重铺一次历史。
+            //
+            // 【为什么需要】用户发出消息后立刻返回列表，模型回来时视图可能已 detach ——
+            //   那条回复由 [com.dollhouse.app.ui.chat.ChatPanel.handleReply] 照常落盘，
+            //   但**没有气泡可加**。回到本页时若不重铺，屏幕上就看不到它，
+            //   用户会以为「AI 没回 / 中断了」。
+            //   reloadHistory 会从盘上读回完整历史并整屏重铺，把离屏期间那轮补上。
+            //
+            // 【幂等】重铺只是「按盘上数据重建界面」，不产生任何写入；
+            //   没有离屏消息时重铺结果与现状一致，不会闪。
+            chatPanel.reloadHistory()
         }
     }
 
     /**
-     * 【修·返回键】抽屉开着时先关抽屉，而不是直接退出聊天页。
-     *   原实现没有这个方法，ChatPanel.closeDrawerIfOpen() 全工程零调用点 ——
-     *   左侧抽屉一打开，按返回键就整个退出去，只能点遮罩关。
-     *   与 MainActivity 的处理顺序保持一致：先让页面内的浮层吃掉返回键，再交给系统。
+     * 【修·返回键】先让页面内的覆盖层吃掉返回键，再交给系统。
+     * 【r13·入口收拢】原先还要先关「左侧会话抽屉」——抽屉已移除（会话切换统一走
+     *   聊天列表页），这里只剩覆盖层一层判断，语义更简单。
      */
     override fun onBackPressed() {
-        val chatPanel = this.panel
-        if (chatPanel != null && chatPanel.closeDrawerIfOpen()) {
+        // 【层级】本页也会挂覆盖层（点「Token 统计」进 TokenStat）：先退层，再退页。
+        //   与 MainActivity 同一优先级口径 —— 浮层 > 覆盖层 > 宿主自身的退栈。
+        if (PageStack.handleBack(this)) {
             return
         }
         super.onBackPressed()
+    }
+
+    /**
+     * 【层级回收】本页对应的页面层序分桶随实例一起丢掉，避免层内 View 被常驻引用。
+     *   ChatActivity 不做路由存档（重建后不还原覆盖层），故这里只回收、不保存。
+     */
+    override fun onDestroy() {
+        PageStack.reset(this)
+        super.onDestroy()
     }
 
     companion object {

@@ -186,16 +186,219 @@ object UiKit {
     }
 
     /**
+     * 【r13 修 bug·弹窗文字与背后重叠】**不透明**卡片色：弹窗 / 抽屉这类
+     * 「必须遮挡下层」的层专用，**刻意不跟随用户的卡片透明度**。
+     *
+     * 【为什么必须单开一个方法】[card] 会按用户设的「卡片透明度」变半透明 ——
+     *   这在普通卡片上是想要的效果，但放到弹窗上就成了事故：
+     *   弹窗半透明 → 背后的正文直接透出来 → 两层文字叠在一起看不清
+     *   （用户报了「弹出的框框会跟后面的字重叠」）。
+     *   弹窗的职责是「把事情盖住」；可读性优先于个性化。
+     */
+    @JvmStatic
+    fun cardSolid(): Int {
+        return CARD
+    }
+
+    /**
+     * 【r13·外观】弹窗 / 底部面板的底色 —— **不透明**，但按用户的「磨砂程度」调质感。
+     *
+     * 【为什么不是真模糊】本工程刻意不建 MaterialTheme，弹窗是自绘的 `Dialog` / Compose
+     *   `Dialog`：窗口内部没有任何系统 API 能模糊「兄弟 View」（`View.setRenderEffect`
+     *   模糊的是自己画出来的内容，`Window.setBackgroundBlurRadius` 只在窗口层可用）。
+     *   真采样 + 自模糊（如 `GlassCapsule` 那套）代价是每帧一次降采样卷积，
+     *   放在每个弹窗上不值得 —— 而弹窗**必须**不透明，模糊本来也只是"质感"。
+     *
+     * 【怎么做】把卡片色朝**背景色方向**混一点，混多混少由「磨砂程度」决定：
+     *   - 0   → 完全不混，弹窗是纯卡片实色（「没有虚化的样子」）；
+     *   - 100 → 混到 [FROST_MIX_MAX]，颜色最接近环境底色，观感最像磨砂玻璃；
+     *   无论哪一档，**alpha 永远是 255**，所以背后正文绝不可能透上来。
+     *
+     * 【为什么不是 100% 混到 BG】那就成了纯背景色，弹窗与页面糊在一起、边界消失。
+     *   上限收在 [FROST_MIX_MAX]，保证弹窗始终「看得出是一块浮起来的板」。
+     */
+    @JvmStatic
+    fun sheet(): Int {
+        return frostMix(CARD)
+    }
+
+    /** 【r13·外观】当前磨砂程度（0~100），由 [applyFrostStrength] 落。 */
+    @JvmField
+    var frostApplied = 60
+
+    /**
+     * 【r13·底栏】悬浮胶囊（底部导航栏）底色的不透明度（0~255）。
+     *
+     * 【为什么两处底栏必须共用这一个数】工程里有两处悬浮胶囊底栏：人偶编辑页的
+     *   「控制 / 活动 / 人格」（Compose 的 `DhKit.NavBar`）与供应商详情页的
+     *   「配置 / 模型」（View 的 `GlassCapsule`）。用户报过「一个透明但没胶囊、一个
+     *   是胶囊但底色偏实」，要求**统一成透明胶囊**。统一的前提就是透明度只有一个来源，
+     *   各写各的必然再次分叉。
+     *
+     * 【为什么是 0x40（约 25%）】要求是「胶囊外形 + 透明（磨砂）底色 + 选中项高亮」：
+     *   太低（<0x20）胶囊外形几乎看不见、选中块像浮在空中；太高（>0x70）又退回成实心色块。
+     *   0x40 能让背后插画透出轮廓与色块，同时描边与投影把胶囊外形交代清楚。
+     */
+    const val CAPSULE_FILL_ALPHA = 0x40
+
+    /** 【r13·底栏】悬浮胶囊的底色：主题卡片色按 [CAPSULE_FILL_ALPHA] 透明化。 */
+    @JvmStatic
+    fun capsuleFill(): Int {
+        return ContrastCore.withAlpha(CARD, CAPSULE_FILL_ALPHA)
+    }
+
+    /**
+     * 【r13·底栏】胶囊内「选中项」的高亮块底色。
+     *
+     * 【为什么不用 OPTION】`option()` 是给卡片内选项行用的（不透明度跟着卡片透明度走）；
+     *   胶囊底是**固定** 25% 的透明底，两者混在一起会随用户调卡片透明度而失配 ——
+     *   胶囊越透、选中块越糊，最后「选中项看不见」。这里固定一个比胶囊底明显更实、
+     *   但仍是半透明的量，保证任何主题 / 任何卡片透明度下都读得出选中态。
+     */
+    @JvmStatic
+    fun capsuleSel(): Int {
+        return ContrastCore.withAlpha(ACC, 0x66)
+    }
+
+    /**
+     * 【r13·外观】弹窗内的实体按钮底（次按钮 / 药丸）—— 同样**不透明**。
+     *
+     * 【为什么需要单独一个】弹窗面板走 [sheet]（往背景色混过），若按钮也走 [cardUp]，
+     *   在卡片透明度被调低时按钮会比面板更"实"甚至色相不一致；卡片透明度 100% 时
+     *   又和面板同色、按钮直接看不见。这里按**磨砂程度的一半**混合：
+     *   与面板同色系、但永远比面板更靠近卡片色 → 在任何磨砂档位下都浮得出来。
+     */
+    @JvmStatic
+    fun sheetUp(): Int {
+        return frostMixAt(CARD, 0.5f)
+    }
+
+    /** 磨砂程度能往背景色方向混的上限比例（0.35 = 最多混到 35%）。 */
+    private const val FROST_MIX_MAX = 0.35f
+
+    /** 把 [base] 按当前磨砂程度朝 [BG] 混合，并**强制不透明**（弹窗必须挡住下层）。 */
+    private fun frostMix(base: Int): Int {
+        return frostMixAt(base, 1.0f)
+    }
+
+    /** [frostMix] 的可调强度版：[ratio] 越小，混得越少（越接近 [CARD]）。 */
+    private fun frostMixAt(base: Int, ratio: Float): Int {
+        val opaque = base or 0xFF000000.toInt()
+        val k = Math.max(0, Math.min(100, frostApplied)) / 100.0f * FROST_MIX_MAX * ratio
+        if (k <= 0.0f) {
+            return opaque
+        }
+        return ContrastCore.blend(opaque, BG, k.toDouble()) or 0xFF000000.toInt()
+    }
+
+    /** 落一次「磨砂程度」偏好；由 [ThemeManager.apply] 在换主题 / 冷启动时调用。 */
+    @JvmStatic
+    fun applyFrostStrength(percent: Int) {
+        frostApplied = Math.max(0, Math.min(100, percent))
+    }
+
+    /**
      * 落一次「卡片透明度」偏好。由 [ThemeManager.apply] 与 ThemeRefresh 在需要生效时调用。
      */
     @JvmStatic
     fun applyCardAlpha(percent: Int) {
         cardAlphaApplied = Math.max(0, Math.min(100, percent))
+        // 【r13】卡片内层级底比卡片本身实一档 —— 卡片越透，越需要这档落差才能
+        //   看出「按钮 / 行」的形状（用户原话：「透明之后按键的层级要有一点区」）。
+        levelAlphaApplied = Math.min(100, cardAlphaApplied + LEVEL_BOOST)
+        cardUpAlphaApplied = Math.min(100, cardAlphaApplied + CARD_UP_BOOST)
     }
 
     /** 当前已应用的卡片透明度（0~100）。 */
     @JvmField
     var cardAlphaApplied = 100
+
+    /** 【r13】层级底（行 / 输入框 / 选项）比卡片实多少个百分点。 */
+    private const val LEVEL_BOOST = 18
+
+    /** 【r13】卡片内实体按钮比卡片实多少个百分点。 */
+    private const val CARD_UP_BOOST = 26
+
+    /** 【r13】层级底当前不透明度（由 [applyCardAlpha] 落）。 */
+    private var levelAlphaApplied = 100
+
+    /** 【r13】卡片内实体按钮当前不透明度（由 [applyCardAlpha] 落）。 */
+    private var cardUpAlphaApplied = 100
+
+    /**
+     * 【r13·外观】卡片内的「行 / 选项 / 输入框」底色 —— 比 [card] 实一档。
+     *
+     * 【为什么不直接用 SOFT 常量】卡片透明度是用户可调的：卡片降到 30% 时，
+     *   若行底仍是不透明的 SOFT，卡片与行会「一个透一个实」，看着像两种材质。
+     *   这里让行底跟着卡片一起透，但**永远比卡片实一档**，于是层级关系在任何
+     *   透明度下都成立。
+     *
+     * 【为什么是派生方法而不是新增调色板格子】与 [okBg] / [card] 同口径：
+     *   新增格子会撑破 ThemeManager 的 PAL_SIZE=29 校验（历史上因此丢过莫奈配色）。
+     */
+    @JvmStatic
+    fun soft(): Int = levelOf(SOFT)
+
+    /** 见 [soft]：选中态选项底。 */
+    @JvmStatic
+    fun option(): Int = levelOf(OPTION)
+
+    /** 见 [soft]：输入框底。 */
+    @JvmStatic
+    fun field(): Int = levelOf(FIELD)
+
+    /**
+     * 【r13·外观】卡片内嵌的「实体按钮」底 —— 比 [card] 实两档。
+     *
+     * 【为什么需要】步骤键 / 药丸 / 弹窗次按钮原本用 CARD 作底，而卡片面也是 CARD：
+     *   卡片一旦半透明，二者同色，按钮就「消失」了。抬高两档后按钮始终浮在卡片之上。
+     */
+    @JvmStatic
+    fun cardUp(): Int {
+        val p = cardUpAlphaApplied
+        if (p >= 100) {
+            return CARD
+        }
+        return ContrastCore.withAlpha(CARD, Math.max(0, Math.min(255, p * 255 / 100)))
+    }
+
+    /* ============================ 【r13】自定义字体颜色 ============================ */
+
+    /**
+     * 【外观】用户自定义的字体颜色（0 = 未设置，跟随主题）。
+     *
+     * 【为什么放 UiKit 而不是 Compose 侧】本工程的颜色唯一真源就是 UiKit 的静态字段：
+     *   View 侧（残留的手写页、弹窗）直接读 `UiKit.TITLE`，Compose 侧经
+     *   `DhColors.fromUiKit()` 间接读同一个字段。落在这里，两侧一起变。
+     */
+    @JvmField
+    var FONT_CUSTOM = 0
+
+    /**
+     * 把用户的自定义字色落到正文 / 副标题上。
+     *
+     * 【为什么正文与副标题用同一个色】用户要的是「字看得清」，不是「维护一套新的配色层级」；
+     *   给两个色反而要多问一次。
+     * 【为什么强制不透明】允许用户填 `#80FFFFFF` 这种半透明串的话，
+     *   在浅色背景上会直接看不清 —— 与这个功能的初衷相反。
+     */
+    @JvmStatic
+    fun applyFontColor(argb: Int) {
+        FONT_CUSTOM = if (ContrastCore.alphaOf(argb) == 0) 0 else (argb or 0xFF000000.toInt())
+        if (FONT_CUSTOM != 0) {
+            TITLE = FONT_CUSTOM
+            SUB = FONT_CUSTOM
+        }
+    }
+
+    /** 把 [raw] 按当前的层级不透明度合成（100% 时原样返回，保证默认外观零回归）。 */
+    private fun levelOf(raw: Int): Int {
+        val p = levelAlphaApplied
+        if (p >= 100) {
+            return raw
+        }
+        return ContrastCore.withAlpha(raw, Math.max(0, Math.min(255, p * 255 / 100)))
+    }
 
     /**
      * 当前调色板快照，顺序与 ThemeManager.apply() 的赋值顺序严格一致（29 位）。
@@ -237,6 +440,13 @@ object UiKit {
         CHAT_CHIP_MUTE = ContrastCore.ensureContrast(CHAT_CHIP_MUTE, CHAT_ACTION_BG, ContrastCore.AA_NORMAL)
         // 主按钮：白（或深）字压在强调色上。
         ON_ACC = ContrastCore.ensureContrast(ON_ACC, ACC, ContrastCore.AA_NORMAL)
+        // 【r13·必须放在最后】用户自定义的字体颜色**不参与夹紧**：本功能的存在意义就是
+        //   「有些背景字看不清，我要把它固定成我自己选的颜色」。若这里再夹一次，
+        //   用户选的颜色会被改掉 —— 正好与需求相反。
+        if (FONT_CUSTOM != 0) {
+            TITLE = FONT_CUSTOM
+            SUB = FONT_CUSTOM
+        }
     }
 
     /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 整页转场 300ms。 */
@@ -547,6 +757,20 @@ object UiKit {
     @JvmStatic
     fun secondary(b: TextView, c: Context) {
         b.background = roundStroke(card(), LINE, c, 12f)
+        b.setTextColor(TITLE)
+        b.gravity = Gravity.CENTER
+        b.elevation = dp(c, 1).toFloat()
+        press(b)
+    }
+
+    /**
+     * 【r13】弹窗内的次按钮：底走 [sheetUp]（不透明 + 与弹窗面板同色系但更实）。
+     * 【为什么单开一个】[secondary] 的底是 [card]，会跟着卡片透明度变；放在弹窗里就会出现
+     *   「面板是实色、按钮是半透明」或「面板与按钮同色、按钮看不见」。见 [sheetUp]。
+     */
+    @JvmStatic
+    fun secondaryOnSheet(b: TextView, c: Context) {
+        b.background = roundStroke(sheetUp(), LINE, c, 12f)
         b.setTextColor(TITLE)
         b.gravity = Gravity.CENTER
         b.elevation = dp(c, 1).toFloat()
@@ -1092,7 +1316,9 @@ object UiKit {
         if (primary) {
             UiKit.primary(b, ctx)
         } else {
-            secondary(b, ctx)
+            // 【r13】弹窗次按钮走 sheetUp 底：面板已改成不透明 sheet()，
+            //   次按钮必须跟着换成同色系但更实的一档，否则「面板与按钮同色 → 按钮看不见」。
+            secondaryOnSheet(b, ctx)
         }
         // 【按键动画】弹窗按钮同样统一挂按压反馈（与 btn 同一套手感）。
         press(b)
@@ -1114,7 +1340,7 @@ object UiKit {
     /** 输入框统一外观：淡紫底圆角 + 内边距 + 主字色（对齐 SettingsPage.addLabeled）。 */
     @JvmStatic
     fun field(e: EditText, c: Context) {
-        e.background = rowBg(c, FIELD)
+        e.background = rowBg(c, field())
         val pad = dp(c, 12)
         e.setPadding(pad, pad, pad, pad)
         e.setTextSize(FS_BTN)
@@ -1141,7 +1367,10 @@ object UiKit {
 
         val col = LinearLayout(act)
         col.orientation = LinearLayout.VERTICAL
-        col.background = round(card(), act, 16f)
+        // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 sheet()：**不透明**（绝不让背后正文透上来），
+        //   质感由「外观 → 磨砂程度」控制。原来走 card()，会跟着卡片透明度一起变半透明，
+        //   用户把卡片调透之后弹窗与背后文字就叠成一片。
+        col.background = round(sheet(), act, 16f)
         val pad = dp(act, 18)
         col.setPadding(pad, pad, pad, dp(act, 14))
 

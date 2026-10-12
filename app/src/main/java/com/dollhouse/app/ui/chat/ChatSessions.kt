@@ -9,7 +9,7 @@ import org.json.JSONObject
 /**
  * 【职责】多会话管理：两个会话池（self 自聊 / pet 人偶）的增删改查、当前会话与当前池的切换。
  *
- * 【入口】ChatHistoryStore.loadHistory / saveHistory（取当前会话 id）、ChatDrawer（列表与操作）、
+ * 【入口】ChatHistoryStore.loadHistory / saveHistory（取当前会话 id）、聊天列表页（列表与操作）、
  *        PetTalk（人偶池落点）。
  *
  * 【交互】清单统一存 conv_index，每条带 pool 字段（"self" / "pet"）区分池；
@@ -33,6 +33,18 @@ object ChatSessions {
 
     /** 【v0.0.1】人偶池的种子会话 id：池里一条都没有时补建，作为 PetTalk 的兜底落点。 */
     const val PET_ID = "pet"
+
+    /** 【r13】日志标签。 */
+    private const val TAG = "DollhouseSessions"
+
+    /**
+     * 【r13·一人偶一对话】人偶绑定会话的 id 前缀。
+     *
+     * 【为什么用前缀而不是纯时间戳】`d_<dollId>` 是**确定性**的：给定人偶就能算出会话，
+     *   这正是「一个人偶对应一个对话框」的技术基础（见 [idForDoll]）。
+     *   同时它与历史遗留的 `pet` / `p*` / `c*` 一眼可分，排查数据问题时不会混淆。
+     */
+    const val D_PREFIX = "d_"
 
     // ==================== 池标记 ====================
 
@@ -66,11 +78,26 @@ object ChatSessions {
     /** 完整清单（两个池都在）。 */
     @JvmStatic
     fun listAll(ctx: Context): JSONArray {
-        return try {
+        val raw = try {
             JSONArray(PetPrefs.convIndex(ctx))
         } catch (unused: Throwable) {
             JSONArray()
         }
+        // 【r13·修 bug·列表重复】按 id 去重。
+        //   与 DollStore.load 同因：清单是「读-改-写」维护的 JSON 数组，
+        //   两个写操作交错时会把同一条目追加两次，列表里就出现同名对话。
+        //   在**唯一读取入口**收敛，无论历史存档被搞成什么样都只返回一份。
+        val out = JSONArray()
+        val seen = HashSet<String>()
+        for (i in 0 until raw.length()) {
+            val o = raw.optJSONObject(i) ?: continue
+            val id = o.optString("id")
+            if (id.isEmpty() || !seen.add(id)) {
+                continue
+            }
+            out.put(o)
+        }
+        return out
     }
 
     private fun saveAll(ctx: Context, arr: JSONArray?) {
@@ -236,13 +263,346 @@ object ChatSessions {
         return id
     }
 
-    /** 在当前池新建会话并切过去，返回新 id。 */
+    /**
+     * 【r13·已废弃，全工程零调用点】在当前池建一条新会话并切过去。
+     *
+     * 【为什么不删】它被旧档迁移路径间接依赖（`ensurePet` 内部的补建分支），
+     *   删掉会牵连一片；而「不再被 UI 调用」这件事已经由「调用点为零」保证了。
+     *   需求「不需要那个新的对话」针对的是**入口**，不是数据层能力。
+     *
+     * 【新代码不要调它】会话的唯一合法来源是 [ensureForDoll]（人偶的投影）。
+     *   想给用户「新对话」的入口，正确做法是让他去新建一只人偶。
+     */
     @JvmStatic
     fun create(ctx: Context): String {
         val p = pool(ctx)
         val id = createIn(ctx, p, if (POOL_PET == p) "p" else "c", "新的对话")
         setCurrent(ctx, p, id)
         return id
+    }
+
+    // ==================== 【r13·一人偶一对话】会话与人偶强绑定 ====================
+
+    /**
+     * 【r13】某只人偶对应的**确定性会话 id**。
+     *
+     * 【为什么要「确定性」】需求原文：「聊天界面不要无限添加，就像 QQ 好友一样，
+     *   一个联系人对应的一个对话框，不要无限增加对话框；以后聊天界面的对话框
+     *   都得绑定人偶」。
+     *   所以会话不再是用户随手新建的孤儿，而是**人偶的投影**：
+     *   给定 dollId 就能算出唯一 id，反复调也只会得到同一个会话。
+     *   `d_` 前缀把它与历史遗留的 `p*` / `c*` / `pet` 会话区分开，便于迁移与排查。
+     */
+    @JvmStatic
+    fun idForDoll(dollId: String?): String {
+        return D_PREFIX + (dollId ?: "")
+    }
+
+    /** 会话 id 是不是「人偶绑定会话」。 */
+    @JvmStatic
+    fun isDollConv(id: String?): Boolean {
+        return id != null && id.startsWith(D_PREFIX)
+    }
+
+    /**
+     * 【r13】取（必要时创建）某只人偶的会话 id。
+     *
+     * 【迁移策略】本 App 升级前的老数据里，人偶池的会话是 `pet` 这样**不绑定人偶**的单条，
+     *   全池共用一条。直接给它改 id 会让老用户丢掉所有聊天记录，所以：
+     *   ① 目标 id 已存在 → 直接用；
+     *   ② 不存在，但人偶池里有一条**尚未绑定人偶**的老会话（`convDoll` 为空）
+     *      且它已有聊天记录 → **就地把它改名成 `d_<dollId>`**（历史原样保留）；
+     *   ③ 都不满足 → 新建一条（标题取人偶名）。
+     *
+     * 【为什么序②要求「有聊天记录」】空的老会话没有保价值，硬占一个 id 反而让
+     *   多只人偶争抢同一条；让它们各自新建更干净。
+     */
+    @JvmStatic
+    fun ensureForDoll(ctx: Context, dollId: String): String {
+        if (dollId.isEmpty()) {
+            return ensurePet(ctx)
+        }
+        val want = idForDoll(dollId)
+        // ① 已有绑定会话
+        if (find(ctx, want) != null) {
+            PetPrefs.setConvDoll(ctx, want, dollId)
+            return want
+        }
+        // ② 继承一条未绑定的老会话（仅当它确实聊过）
+        val adopt = findAdoptablePetConv(ctx)
+        if (adopt != null) {
+            val old = adopt.optString("id")
+            if (old.isNotEmpty() && old != want) {
+                if (renameConvId(ctx, old, want)) {
+                    PetPrefs.setConvDoll(ctx, want, dollId)
+                    Logs.i(TAG, "[绑定] 老会话 " + old + " → " + want)
+                    return want
+                }
+            }
+        }
+        // ③ 新建 —— 【必须用确定性 id】
+        //   【曾经的 bug】这里原来调 createIn(ctx, POOL_PET, D_PREFIX, ...)，
+        //   而 createIn 内部生成的是 `prefix + 时间戳`（`d_1759...`），**不是** `d_<dollId>`。
+        //   于是下一轮 syncWithDolls 再查 `find("d_default")` 依然落空，**又建一条** ——
+        //   表现就是列表里堆出一串同名的「默认配置」，而且删了还会再长出来（删不掉）。
+        //   现在直接用算好的 [want] 建，保证「一只人偶 = 一条会话」的幂等性。
+        addConv(ctx, POOL_PET, want, dollTitle(ctx, dollId))
+        PetPrefs.setConvDoll(ctx, want, dollId)
+        return want
+    }
+
+    /**
+     * 【r13】用**指定 id** 建一条会话（与 [createIn] 的区别：id 由调用方给，不是时间戳）。
+     *
+     * 【为什么需要它】人偶绑定会话的 id 必须是确定性的（`d_<dollId>`），
+     *   而 [createIn] 的语义是「生成一个不重复的随机 id」，两者目的相反。
+     *   混用正是上面那个「重复建会话」bug 的根源。
+     *
+     * 【幂等】id 已存在时直接返回 false，不重复建。
+     */
+    @JvmStatic
+    fun addConv(ctx: Context, p: String, id: String, title: String): Boolean {
+        if (id.isEmpty() || find(ctx, id) != null) {
+            return false
+        }
+        return try {
+            val all = listAll(ctx)
+            val o = JSONObject()
+            o.put("id", id)
+            o.put("title", title)
+            o.put("pool", if (POOL_PET == p) POOL_PET else POOL_SELF)
+            o.put("updated", System.currentTimeMillis())
+            all.put(o)
+            saveAll(ctx, all)
+            PetPrefs.setConvHistory(ctx, id, "[]")
+            true
+        } catch (unused: Throwable) {
+            false
+        }
+    }
+
+    /** 建会话时的默认标题：用人偶名（拿不到就退回固定文案）。 */
+    private fun dollTitle(ctx: Context, dollId: String): String {
+        return try {
+            val d = com.dollhouse.app.data.DollStore.byId(ctx, dollId)
+            val n = d?.name
+            if (n.isNullOrEmpty()) "对话" else n
+        } catch (unused: Throwable) {
+            "对话"
+        }
+    }
+
+    /**
+     * 找一条「可以被人偶认领」的老会话：人偶池里、没有绑定人偶、且**已有聊天记录**。
+     * 【为什么必须有记录】见 [ensureForDoll] 的策略②注释。
+     */
+    private fun findAdoptablePetConv(ctx: Context): JSONObject? {
+        val arr = listOf(listAll(ctx), POOL_PET)
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = o.optString("id")
+            if (id.isEmpty() || isDollConv(id)) {
+                continue
+            }
+            // 已被绑到某只人偶的，不能抢。
+            if (PetPrefs.convDoll(ctx, id).isNotEmpty()) {
+                continue
+            }
+            if (hasMessages(ctx, id)) {
+                return o
+            }
+        }
+        return null
+    }
+
+    /** 这条会话的历史里有没有真正的对话消息。 */
+    private fun hasMessages(ctx: Context, id: String): Boolean {
+        return try {
+            val hist = JSONArray(PetPrefs.convHistory(ctx, id))
+            for (i in 0 until hist.length()) {
+                val o = hist.optJSONObject(i) ?: continue
+                if (o.optBoolean("_summary", false) || o.optBoolean("_prev", false)) {
+                    continue
+                }
+                val role = o.optString("role", "")
+                if ("user" == role || "assistant" == role) {
+                    return true
+                }
+            }
+            false
+        } catch (unused: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 把一条会话的 id 改成新值（连同它的历史 / 暂存位 / 展示层偏好一起搬）。
+     *
+     * 【为什么整体搬而不是新建】老用户的历史是资产，改 id 后必须让 `conv_<id>` 这一族键
+     *   统统跟着走，否则历史、暂存、已读水位、头像绑定会散落在旧 id 上成为孤儿数据。
+     */
+    @JvmStatic
+    fun renameConvId(ctx: Context, oldId: String, newId: String): Boolean {
+        if (oldId.isEmpty() || newId.isEmpty() || oldId == newId) {
+            return false
+        }
+        if (find(ctx, newId) != null) {
+            return false
+        }
+        return try {
+            // 清单里换 id
+            val all = listAll(ctx)
+            for (i in 0 until all.length()) {
+                val o = all.optJSONObject(i) ?: continue
+                if (oldId == o.optString("id")) {
+                    o.put("id", newId)
+                }
+            }
+            saveAll(ctx, all)
+            // 历史 / 暂存位
+            val hist = PetPrefs.convHistory(ctx, oldId)
+            PetPrefs.setConvHistory(ctx, newId, hist)
+            PetPrefs.removeConvHistory(ctx, oldId)
+            val prev = PetPrefs.convPrev(ctx, oldId)
+            if (prev.isNotEmpty()) {
+                PetPrefs.setConvPrev(ctx, newId, prev)
+                PetPrefs.removeConvPrev(ctx, oldId)
+            }
+            // 展示层偏好（已读水位 / 头像 / 绑定）
+            PetPrefs.setConvRead(ctx, newId, PetPrefs.convRead(ctx, oldId))
+            val av = PetPrefs.convAvatar(ctx, oldId)
+            if (av.isNotEmpty()) {
+                PetPrefs.setConvAvatar(ctx, newId, av)
+            }
+            val dl = PetPrefs.convDoll(ctx, oldId)
+            if (dl.isNotEmpty()) {
+                PetPrefs.setConvDoll(ctx, newId, dl)
+            }
+            PetPrefs.removeConvExtras(ctx, oldId)
+            // 当前会话指向（分池）
+            val p = poolOf(find(ctx, newId))
+            val cur = getCurrent(ctx, p)
+            if (oldId == cur) {
+                setCurrent(ctx, p, newId)
+            }
+            true
+        } catch (unused: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 【r13】把会话清单**对齐到人偶库**：每只人偶都有自己的会话，且不再留孤儿会话。
+     *
+     * 【需求原文】「不需要那个新的对话 每个人偶对应一个对话 想添加新的对话就添加新的人偶」。
+     *   所以本方法做三件事：
+     *   ① 每只人偶补齐它自己的 `d_<dollId>` 会话；
+     *   ② 清掉**垃圾会话**：`d_` 前缀但 id 不是任何现存人偶的（历史 bug 遗留的重复项）；
+     *   ③ 清掉**空的孤儿会话**：既没绑定人偶、又一条消息都没有的（就是那些「新的对话」）。
+     *
+     * 【为什么序③要求「没有消息」】用户升级前可能真的聊过自聊会话，那是有价值的资产，
+     *   不能因为「没绑人偶」就删。只有「空的 + 没绑的」才是纯粹的噪声。
+     *
+     * @return 本次是否改动了清单（改了就 bump 列表信号）。
+     */
+    @JvmStatic
+    fun syncWithDolls(ctx: Context): Boolean {
+        return try {
+            val dolls = com.dollhouse.app.data.DollStore.all(ctx)
+            var changed = false
+            // ① 补齐每只人偶的会话
+            for (d in dolls) {
+                val before = find(ctx, idForDoll(d.id)) != null
+                ensureForDoll(ctx, d.id)
+                if (!before) {
+                    changed = true
+                }
+            }
+            // ②③ 清理垃圾会话
+            if (pruneJunk(ctx, dolls.map { it.id }.toHashSet())) {
+                changed = true
+            }
+            changed
+        } catch (unused: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 清掉垃圾会话，返回是否真的删了东西。
+     *
+     * 【判据·以「id 是否规范」为准，不看 conv_doll】
+     *   上一版按 `conv_doll` 反查「绑定的人偶还在不在」来判垃圾 —— 结果漏掉了一类：
+     *   历史 bug 建的重复项 id 是 `d_<时间戳>`（不是 `d_<dollId>`），
+     *   而它们**同时也被写上了 `conv_doll = 合法dollId`**，于是「绑定的人偶还在」成立、
+     *   判据认为它们不是垃圾 → **永远删不掉**（用户截图里那一堆就是）。
+     *
+     *   正确口径：**人偶绑定会话的 id 必须严格等于 `d_<dollId>`**。
+     *   凡是不满足这条的，无论它 `conv_doll` 写了什么，都是残渣。
+     *   这条判据是「确定性 id」这个设计的直接推论，也是唯一自洽的口径。
+     *
+     * 【保留恰好一条】同一只人偶理论上只该有一条 `d_<dollId>`。
+     *   若因并发/异常出现重复，保留**第一条**（通常是用户真正在用的那条），其余删掉。
+     *
+     * 【额外清空孤儿】没绑定人偶、且一条真实消息都没有的会话（就是「新的对话」）。
+     */
+    private fun pruneJunk(ctx: Context, aliveDolls: Set<String>): Boolean {
+        val all = listAll(ctx)
+        val keep = JSONArray()
+        // 已保留过的「人偶绑定会话 id」，用于识别重复项。
+        val seenDollConv = HashSet<String>()
+        var removed = false
+        for (i in 0 until all.length()) {
+            val o = all.optJSONObject(i) ?: continue
+            val id = o.optString("id")
+            if (id.isEmpty()) {
+                continue
+            }
+            val junk: Boolean
+            if (isDollConv(id)) {
+                // 【人偶绑定会话】id 必须是 `d_<现存人偶id>`，且同 id 只能出现一次。
+                val dollId = id.substring(D_PREFIX.length)
+                junk = !aliveDolls.contains(dollId) || !seenDollConv.add(id)
+            } else {
+                // 【非绑定会话】没绑定人偶、又没有任何消息 → 纯噪声。
+                junk = dollOfConv(ctx, id).isEmpty() && !hasMessages(ctx, id)
+            }
+            if (junk) {
+                removed = true
+                PetPrefs.removeConvHistory(ctx, id)
+                PetPrefs.removeConvPrev(ctx, id)
+                PetPrefs.removeConvExtras(ctx, id)
+                Logs.i(TAG, "[清理] 垃圾会话 " + id)
+            } else {
+                keep.put(o)
+            }
+        }
+        if (removed) {
+            saveAll(ctx, keep)
+            // 【当前会话若被清掉】指向第一条仍存在的，避免指向一个不存在的 id。
+            for (p in arrayOf(POOL_SELF, POOL_PET)) {
+                val cur = getCurrent(ctx, p)
+                if (cur.isNotEmpty() && find(ctx, cur) == null) {
+                    val f = firstOf(listOf(keep, p))
+                    setCurrent(ctx, p, if (f == null) "" else f.optString("id"))
+                }
+            }
+        }
+        return removed
+    }
+
+    /** 反查：这条会话绑定的人偶 id（没有则空串）。 */
+    @JvmStatic
+    fun dollOfConv(ctx: Context, convId: String?): String {
+        if (convId == null || convId.isEmpty()) {
+            return ""
+        }
+        val byPref = PetPrefs.convDoll(ctx, convId)
+        if (byPref.isNotEmpty()) {
+            return byPref
+        }
+        // 兜底：从确定性 id 前缀反推（偏好键被清掉时仍能恢复绑定）。
+        return if (isDollConv(convId)) convId.substring(D_PREFIX.length) else ""
     }
 
     // ==================== 人偶池种子 ====================
@@ -419,6 +779,26 @@ object ChatSessions {
         // 删的是当前显示的池 → 兜底补一条可用会话（人偶池删空了会补回「人偶」）。
         if (p == pool(ctx)) {
             ensure(ctx)
+        }
+    }
+
+    /**
+     * 【r13·列表删除=隐藏】把某个会话的**聊天记录清空**，但保留清单项。
+     *
+     * 【与 [delete] 的区别】[delete] 把清单项也一起删了（会话从列表消失，且会被
+     *   [syncWithDolls] 重建）；本方法只清消息，清单项与绑定关系原样保留 ——
+     *   对应「聊天页 → 清空当前对话」这个诉求。
+     */
+    @JvmStatic
+    fun clearMessages(ctx: Context, id: String?) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        try {
+            PetPrefs.removeConvHistory(ctx, id)
+            PetPrefs.removeConvPrev(ctx, id)
+            PetPrefs.setConvRead(ctx, id, 0)
+        } catch (unused: Throwable) {
         }
     }
 

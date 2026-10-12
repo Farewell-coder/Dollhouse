@@ -17,7 +17,6 @@ import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.chat.ChatPanel
-import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Fonts
@@ -71,7 +70,9 @@ object SheetPanel {
 
         val panel = LinearLayout(ctx)
         panel.orientation = LinearLayout.VERTICAL
-        panel.background = UiKit.round(UiKit.card(), ctx, 18f)
+        // 【r13 修 bug·透明之后很丑】面板底走 sheet()：不透明 + 磨砂质感。
+        //   原来走 card()，跟着卡片透明度变半透明，背景图透上来后行与字糊在一起。
+        panel.background = UiKit.round(UiKit.sheet(), ctx, 18f)
         panel.isClickable = true
         val pad = UiKit.dp(ctx, 16f)
         panel.setPadding(pad, UiKit.dp(ctx, 14f), pad, UiKit.dp(ctx, 18f))
@@ -109,7 +110,7 @@ object SheetPanel {
     }
 
     private fun closeAll(layer: ViewGroup?) {
-        val tags = arrayOf(TAG_MODEL, TAG_THINK, TAG_MEM)
+        val tags = arrayOf(TAG_MODEL, TAG_THINK)
         val l = layer ?: return
         for (tag in tags) {
             val v = l.findViewWithTag<View>(tag)
@@ -147,7 +148,7 @@ object SheetPanel {
         val r = LinearLayout(ctx)
         r.orientation = LinearLayout.HORIZONTAL
         r.gravity = Gravity.CENTER_VERTICAL
-        r.background = UiKit.round(if (active) UiKit.CHAT_CHIP_ON else UiKit.SOFT, ctx, 10f)
+        r.background = UiKit.round(if (active) UiKit.CHAT_CHIP_ON else UiKit.soft(), ctx, 10f)
         val lp = LinearLayout.LayoutParams(-1, -2)
         lp.topMargin = UiKit.dp(ctx, 6f)
         r.layoutParams = lp
@@ -420,7 +421,7 @@ object SheetPanel {
                 t.setTextColor(if (on) UiKit.ON_ACC else UiKit.SUB)
                 t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
                 t.setPadding(0, UiKit.dp(ctx, 7f), 0, UiKit.dp(ctx, 7f))
-                t.background = UiKit.round(if (on) UiKit.ACC else UiKit.SOFT, ctx, 8f)
+                t.background = UiKit.round(if (on) UiKit.ACC else UiKit.soft(), ctx, 8f)
                 val lp = LinearLayout.LayoutParams(0, -2, 1.0f)
                 lp.rightMargin = if (i == PetPrefs.THINK_NAMES.size - 1) 0 else UiKit.dp(ctx, 5f)
                 t.layoutParams = lp
@@ -452,60 +453,19 @@ object SheetPanel {
     /* ------------------------------ 3. 记忆（加号） ------------------------------ */
 
     /**
-     * 弹「记忆」功能面板：发图 / 立即总结 / 打开记忆库。
-     * 【入口】工具条上的加号。
+     * 【r13·需求改造】原「记忆」功能面板（发图 / 立即总结 / 打开记忆库）已整块删除。
      *
-     * 【d19】原「自动保存记忆」「自动精简记忆」两个开关已移植到设置页「记忆」卡片下级；
-     *   本面板因此只剩三个可点项，顶部标题与说明行也一并删掉，间距相应收紧。
+     * 【用户定案】「甲」——整页删掉，「发图」挪到别处。
+     *
+     * 【为什么删】面板里的三项在两轮改造后已全部失去存在理由：
+     *   · 「立即总结」= 旧归档机制，随旧记忆系统一并下线；
+     *   · 「打开记忆库」= 现在每只人偶有自己的入口（人偶编辑页 → 人格 → 记忆库），
+     *     全局入口既找不到「看谁的库」，点开还会落到默认配置上；
+     *   · 「发图」= 唯一还有用的项，已上提到输入工具条（[com.dollhouse.app.ui.chat.ChatUi.ToolRow]），
+     *     图标即功能，比藏进面板少一步点击。
+     *
+     * 【删了 pill 吗】是。[pill] 只服务过这个面板，一并删除，避免留死代码。
      */
-    @JvmStatic
-    fun showMemory(ctx: Context, layer: ViewGroup?, host: ChatPanel?) {
-        val shade = open(layer, TAG_MEM, ctx, 0)
-        val panel = body(shade) ?: return
-        // 【需求】收紧：少了标题与两行开关说明后，公共 open() 的 14/18dp 内边距显得上下都空，
-        //   本面板单独压到 10/12dp。（只改本面板，不动 open()，避免波及模型配置 / 思考程度两个面板。）
-        val memPad = UiKit.dp(ctx, 16f)
-        panel.setPadding(memPad, UiKit.dp(ctx, 10f), memPad, UiKit.dp(ctx, 12f))
-        // 【需求】本面板只留三个可点项：发图 / 立即总结 / 打开记忆库。
-        //   · 原「记忆」标题已删（面板本身不需要再自报家门）；
-        //   · 「自动保存记忆」「自动精简记忆」两个开关已移植到设置页「记忆」卡片下级；
-        //   · 「发图」行不再带副标题 —— 图标 + 「发图」二字已足够说明它是什么。
-        panel.addView(
-            entryRow(ctx, Icons.IC_IMAGE, "发图", null, Runnable {
-                closeAll(layer)
-                host?.openPicker()
-            })
-        )
-
-        val acts = LinearLayout(ctx)
-        acts.orientation = LinearLayout.HORIZONTAL
-        val alp = LinearLayout.LayoutParams(-1, -2)
-        // 【需求】收紧：原先 14dp 的顶间距在少了标题与说明行之后显得空，收到 10dp。
-        alp.topMargin = UiKit.dp(ctx, 10f)
-        acts.layoutParams = alp
-
-        // 【v2.3】原「立即整理记忆」入口按需求删除（记忆归并保留自动档）；
-        //         原位置改为「立即总结」——把当前对话压成摘要，与右侧「打开记忆库」同构造、等宽同行。
-        val sum = pill(ctx, "立即总结")
-        sum.setOnClickListener {
-            closeAll(layer)
-            // 【v2.9.4】覆盖复审报的 P1：host==null 会让整条链路静默不执行。
-            Logs.i("DollhouseMemo", "[入口] 面板点按 host=" + (host != null))
-            host?.summarizeNow()
-        }
-        acts.addView(sum, LinearLayout.LayoutParams(0, -2, 1.0f))
-
-        val lib = pill(ctx, "打开记忆库")
-        val llp = LinearLayout.LayoutParams(0, -2, 1.0f)
-        llp.leftMargin = UiKit.dp(ctx, 8f)
-        lib.layoutParams = llp
-        lib.setOnClickListener {
-            closeAll(layer)
-            MemPage.open(ctx)
-        }
-        acts.addView(lib)
-        panel.addView(acts)
-    }
 
     /**
      * 面板里的一行「图标 + 名称/说明 + ›」入口。
@@ -517,7 +477,7 @@ object SheetPanel {
         val r = LinearLayout(ctx)
         r.orientation = LinearLayout.HORIZONTAL
         r.gravity = Gravity.CENTER_VERTICAL
-        r.background = UiKit.round(UiKit.SOFT, ctx, 10f)
+        r.background = UiKit.round(UiKit.soft(), ctx, 10f)
         val lp = LinearLayout.LayoutParams(-1, -2)
         lp.topMargin = UiKit.dp(ctx, 8f)
         r.layoutParams = lp
@@ -557,20 +517,5 @@ object SheetPanel {
             action?.run()
         }
         return r
-    }
-
-    /** 面板底部的胶囊按钮。 */
-    private fun pill(ctx: Context, text: String): TextView {
-        val t = TextView(ctx)
-        t.text = text
-        t.setTextSize(UiKit.FS_SUB)
-        t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
-        t.setTextColor(UiKit.CHAT_CHIP_FG)
-        t.gravity = Gravity.CENTER
-        t.background = UiKit.round(UiKit.CHAT_CHIP_BG, ctx, 12f)
-        t.setPadding(0, UiKit.dp(ctx, 11f), 0, UiKit.dp(ctx, 11f))
-        t.isClickable = true
-        UiKit.press(t)
-        return t
     }
 }

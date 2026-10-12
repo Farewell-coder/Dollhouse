@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.view.View
-import android.view.ViewGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +32,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.widget.MiniChart
@@ -296,18 +296,13 @@ object TokenStat {
 
     /* ----------------------------- 页面栈 ----------------------------- */
 
-    /** 返回键用：统计页开着就关掉并返回 true。 */
+    /**
+     * 返回键用：统计页在栈顶就退一层并返回 true。
+     * 【迁 PageStack】原实现按 tag 找 View 再 closePage，现统一交给页面栈认层。
+     */
     @JvmStatic
     fun closeIfOpen(ctx: Context?): Boolean {
-        try {
-            val act = findActivity(ctx) ?: return false
-            val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return false
-            val old = content.findViewWithTag<View>(TAG_PAGE) ?: return false
-            UiKit.closePage(old)
-            return true
-        } catch (t: Throwable) {
-            return false
-        }
+        return PageStack.popIfTop(ctx, TAG_PAGE)
     }
 
     /** 由聊天页顶栏圆圈 / 设置页入口行调用。offset 归零，永远从「今天」开始看。 */
@@ -321,14 +316,21 @@ object TokenStat {
         }
     }
 
-    private fun show(ctx: Context?) {
-        val act = findActivity(ctx) ?: return
-        val content = act.findViewById<ViewGroup>(android.R.id.content) ?: return
+    /**
+     * 页面构造：供页面栈入栈与跨重建恢复共用。
+     * 【为什么单独抽出来】恢复路由时栈里只有 key，需要一个「按 key 造页」的统一入口。
+     */
+    @JvmStatic
+    fun buildPage(ctx: Context?): View? {
+        val act = findActivity(ctx) ?: return null
         // Compose 运行所需 owner（原生 Activity 不自动装），幂等。
         ComposeHost.installForActivity(act)
-        val page = ComposeHost.createView(act) { TokenContent(act) }
-        // 打开统计页：走 openPage 的右侧滑入（与其它一级页一致），不是 swapPage。
-        UiKit.openPage(content, page, TAG_PAGE)
+        return ComposeHost.createView(act) { TokenContent(act) }
+    }
+
+    private fun show(ctx: Context?) {
+        // 打开统计页：走页面栈的右侧滑入（与其它一级页一致）。
+        PageStack.push(ctx, TAG_PAGE) { buildPage(ctx) }
     }
 
     private fun findActivity(ctx: Context?): Activity? {

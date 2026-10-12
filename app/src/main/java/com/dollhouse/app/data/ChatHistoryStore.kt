@@ -1,7 +1,9 @@
 package com.dollhouse.app.data
 
 import android.content.Context
-import com.dollhouse.app.ai.MemSummarizer
+import com.dollhouse.app.agent.ChatToolRegistry
+import com.dollhouse.app.ai.MemExtractor
+import com.dollhouse.app.ai.MemSearch
 import com.dollhouse.app.ai.ThinkLevel
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.device.LamdaManager
@@ -23,6 +25,20 @@ import org.json.JSONObject
  * 【坑】history 每次请求都会整段带上，改这里会直接影响 token 消耗。
  */
 object ChatHistoryStore {
+    /**
+     * 【历史残渣剥离】剥掉老记录里的好感度记账（[好感度:+3] / 【好感度：-2】）。
+     * 【为什么还要它】好感度系统已整体删除，但磁盘上老对话的首行仍留着那一行；
+     *   显示时剥掉即可、不回写磁盘 —— 老记录保持原貌，用户也不会再看到已废弃的记账。
+     * 【谁用】ChatPanel.handleReply 与 PetTalk.finish（全屏页 / 迷你框两个入口共用这一份）。
+     */
+    private val LEGACY_AFFECTION: java.util.regex.Pattern =
+        java.util.regex.Pattern.compile("[\\[【]\\s*好感度\\s*[:：]\\s*[+-]?\\d+\\s*[\\]】]")
+
+    @JvmStatic
+    fun stripLegacyAffection(s: String?): String {
+        return if (s == null) "" else LEGACY_AFFECTION.matcher(s).replaceAll("").trim()
+    }
+
     // 从偏好恢复「当前会话」的对话历史。
     // 【坑】多会话改造后不再读 chat_history，改读 conv_<当前会话 id>；
     //        ChatSessions.ensure 负责旧档迁移与兜底建会话。
@@ -544,11 +560,74 @@ object ChatHistoryStore {
         val ctx = host.getContext()
         val id = ChatSessions.currentId(ctx)
         ChatSessions.touch(ctx, id)
+        // 【r13·列表删除=隐藏】有新消息进来，条目就重新出现在列表里（QQ 语义）。
+        PetPrefs.setConvHidden(ctx, id, false)
         if ("user" == str) {
             ChatSessions.autoTitleIfNeeded(ctx, id, str2)
         }
-        // 上下文总结：开了自动总结且条数到阈值时，异步把最老的一批压成摘要。
-        MemSummarizer.maybeAuto(host)
+        // 【r13·新记忆系统】聊完一轮后自动抽取长期记忆（替代旧的「自动总结」归档）。
+        //
+        // 【为什么挂在这里】本方法（host 版）是全屏聊天页落盘的必经之路，
+        //   落盘之后才抽取 —— 保证模型看到的是「已经写进历史的那一轮」。
+        // 【为什么带 dollId】抽取结果只写进**当前会话绑定的那只人偶**的库；
+        //   旧实现写死默认配置，导致所有人偶的记忆混在一个桶里（本轮修掉）。
+        // 【开关】设置页「实验 → 记忆库设置 → 自动保存记忆」。
+        autoExtract(host, str)
+        // 【r13 修 bug·「在人偶页说句话，聊天列表不出现」】必须广播「会话已变」。
+        //
+        // 【曾经的 bug】全工程有两条 push 路径：
+        //   · [push] (ctx, history, role, content, id) —— 人偶迷你框 PetTalk 走它，**有**广播；
+        //   · 本方法（host 版）—— **全屏聊天页 ChatPanel 走它，没有广播**。
+        //   于是用户「去人偶页 → 点开某人偶 → 说一句话 → 回聊天列表」时，
+        //   会话虽已建、消息虽已落库，聊天列表页却收不到任何变更信号，
+        //   仍显示旧数据（空态或旧预览），只能等下次冷启动 —— 用户报的正是这个。
+        //   修法：把广播补到这条路径上，两条 push 的对外行为就此一致。
+        ChatListSignal.bump()
+    }
+
+    /**
+     * 【r13·新记忆系统】一轮对话结束后自动抽取长期记忆。
+     *
+     * 【触发时机】assistant 的消息落盘时（一轮问答的终点），而不是 user 落盘时 ——
+     *   否则会把「只有提问、还没回答」的半轮喂给模型。
+     *
+     * 【人偶】取当前会话绑定的那只，并在调用前同步给 [ChatToolRegistry]，
+     *   保证「手动 remember 工具」与「自动抽取」写的是同一个库。
+     */
+    @JvmStatic
+    fun autoExtract(host: ChatPanel?, role: String?) {
+        if (host == null || "assistant" != role) {
+            return
+        }
+        try {
+            val ctx = host.getContext()
+            if (!PetPrefs.mem2Auto(ctx)) {
+                return
+            }
+            val dollId = host.boundDollId()
+            ChatToolRegistry.setDoll(dollId)
+            // 只喂最后几轮，避免把整段历史再抽一遍（与抽取器内部的 HISTORY_LIMIT 呼应）。
+            val turns = ArrayList<Pair<String, String>>()
+            val h = host.history
+            val from = if (h.length() > 6) h.length() - 6 else 0
+            for (i in from until h.length()) {
+                val o = h.optJSONObject(i) ?: continue
+                if ("summary" == o.optString("kind")) {
+                    continue
+                }
+                val r = o.optString("role")
+                if ("user" != r && "assistant" != r) {
+                    continue
+                }
+                turns.add(Pair(r, o.optString("content", "")))
+            }
+            if (turns.isEmpty()) {
+                return
+            }
+            MemExtractor.extract(ctx, dollId, turns, null)
+        } catch (t: Throwable) {
+            Logs.w("DollhouseMem", "autoExtract 失败", t)
+        }
     }
     /**
      * 【独立版】给 ChatPanel 之外的使用者（迷你聊天框）追加一条消息并落盘。
@@ -567,8 +646,59 @@ object ChatHistoryStore {
         put(history, role, content, null)
         saveHistory(ctx, history, id)
         ChatSessions.touch(ctx, id)
+        // 【r13·列表删除=隐藏】有新消息进来，条目就重新出现在列表里（QQ 语义）。
+        //   覆盖全屏聊天页 / 迷你聊天框 / 通知栏回复三条路径（都经本方法落库）。
+        PetPrefs.setConvHidden(ctx, id, false)
         if ("user" == role) {
             ChatSessions.autoTitleIfNeeded(ctx, id, content)
+        }
+        // 【r13·聊天列表】广播一次「会话已变」。
+        //   【为什么挂在这里】本方法是**全工程唯一的消息落库入口**：
+        //   全屏聊天页（ChatPanel）、人偶迷你框（PetTalk）、通知栏回复全都经它落盘。
+        //   挂在最上层的一个点，胜过在每个调用方各写一遍（漏一处就会出现
+        //   「发完消息回列表，预览还是旧的」）。
+        //   【为什么两层都在这里】数据层不能依赖 UI 层（会形成反向依赖），
+        //   所以这里只发一个「轻量信号」，由 UI 层自己去听 —— 见
+        //   [com.dollhouse.app.ui.chat.ChatState.bumpList] 的同款说明。
+        ChatListSignal.bump()
+    }
+
+    /**
+     * 【r13·聊天列表】「会话数据已变更」的**跨层信号**。
+     *
+     * 【为什么不用 ChatState.bumpList】数据层（本包）不该 import UI 层（`ui.chat`）——
+     *   那会让「换 UI 框架」变成「改数据层」，也会在单测数据层时被迫拉起 Compose 运行时。
+     *   这里放一个极简的监听器容器：数据层只管 `bump()` 触发，
+     *   谁想听（列表页）自己 `watch` 注册。**方向是单向的**：UI → 数据层注册回调，
+     *   数据层不认识任何 UI 类型。
+     *
+     * 【线程】回调在**调用 push 的那个线程**上执行（可能是 IO 线程）。
+     *   注册方（Compose）要负责切主线程。
+     */
+    object ChatListSignal {
+        private val listeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+        /** 数据变了。 */
+        @JvmStatic
+        fun bump() {
+            for (l in listeners) {
+                try {
+                    l.invoke()
+                } catch (ignored: Throwable) {
+                }
+            }
+        }
+
+        /** 注册监听（幂等由调用方自己保证；本容器不去重）。 */
+        @JvmStatic
+        fun watch(l: () -> Unit) {
+            listeners.add(l)
+        }
+
+        /** 注销（页面离开时可调；不调也只是多一个空转回调，不会泄漏 Activity 因为 lambda 只捕获全局状态）。 */
+        @JvmStatic
+        fun unwatch(l: () -> Unit) {
+            listeners.remove(l)
         }
     }
     /** 纯函数：向历史数组追加一条消息，不落盘。 */
@@ -650,24 +780,56 @@ object ChatHistoryStore {
         // 兼容入口：保留给仍按 host 调用的旧位置。
         return buildRequest(host.getContext(), host.history)
     }
+
     /**
-     * 【通用版】组装一次请求的全部 system 消息（人设 / 好感度 / 思考档位 / 长期记忆 / 学习示例）
+     * 【r13·一人偶一对话】按「这条会话绑定的人偶」组装请求。
+     *
+     * 【为什么要这个重载】本方法以前写死 `DollStore.DEFAULT_ID` 取人设与记忆 ——
+     *   那在「一个 App 只聊一只人偶」的时代没问题，但改造后每条会话都绑定一只人偶，
+     *   再写死默认那只，就会让用户和 A 人偶聊出 B 人偶的性格（串人设）。
+     *
+     * 【人偶从哪来】由调用方（[ChatPanel] / [PetTalk]）从当前会话反查（[ChatSessions.dollOfConv]）
+     *   后传入 —— 数据层不认识「当前会话」这个概念，保持分层干净。
+     *
+     * @param dollId 这个人偶 id；空串 = 退回默认配置（老数据 / 未绑定的会话）。
+     */
+    @JvmStatic
+    fun buildRequestFor(ctx: Context, history: JSONArray, dollId: String?): JSONArray {
+        return buildRequest(ctx, history, dollId)
+    }
+
+    /**
+     * 【通用版】组装一次请求的全部 system 消息（人设 / 思考档位 / 长期记忆 / 学习示例）
      *   + 最近 12 条对话。参数与开关全部读自 PetPrefs，两个入口（全屏页 / 迷你聊天框）行为不会分叉。
      * 【OCR】图片不再以 image_url 上送，改成本地扫成文字拼进正文 —— 于是这里不再需要
      *   「本次请求是否带图」这类回传参数，模型也一律用同一个（普通文本模型即可）。
      */
     @JvmStatic
     fun buildRequest(ctx: Context, history: JSONArray): JSONArray {
+        return buildRequest(ctx, history, null)
+    }
+
+    /**
+     * 【r13】带人偶的完整版：人设与长期记忆都按 [dollId] 取（空则退回默认配置）。
+     * 这是「聊天对话框绑定人偶」在**请求侧**的落点 —— 会话绑定决定用谁的性格与记忆。
+     */
+    @JvmStatic
+    fun buildRequest(ctx: Context, history: JSONArray, dollId: String?): JSONArray {
+        val who = if (dollId.isNullOrEmpty()) DollStore.DEFAULT_ID else dollId
         val jSONArray = JSONArray()
         try {
-            val affection = PetPrefs.affection(ctx)
-            val jSONObject = JSONObject()
-            jSONObject.put("role", "system")
-            jSONObject.put("content", if (0 != 0) PetPrefs.localSystemPrompt(ctx, affection, PetPrefs.webSearchEnabled(ctx)) else PetPrefs.SYSTEM_PROMPT)
-            jSONArray.put(jSONObject)
+            // 【r11 起】人设按人偶取：这只人偶的「性格内容」。为空就整条不发（等于无约束），
+            //   模型退化成通用助手，而不是拿一份写死的文本硬演。
+            val persona = DollProfile.persona(ctx, who)
+            if (!persona.isEmpty()) {
+                val jSONObject = JSONObject()
+                jSONObject.put("role", "system")
+                jSONObject.put("content", persona)
+                jSONArray.put(jSONObject)
+            }
             // 【设备操作】lamda 服务在跑时，追加一条独立 system 消息，告诉模型她手上还有 device 工具。
-            // 【为什么独立一条】人设原文 SYSTEM_PROMPT 属保留内容、一个字不动（与下面「回复格式」同款做法）；
-            //   而设备能力是「服务在不在」决定的运行时状态，没法写死在原文里。
+            // 【为什么独立一条】人设正文属用户可编辑内容，不该被运行时状态污染（与下面「回复格式」同款做法）；
+            //   而设备能力是「服务在不在」决定的运行时状态，没法写死在人设里。
             // 【门控】服务没起就不加这段 —— 提示词里写着会用工具、tools 里却没有，模型会瞎编。
             val deviceHint = LamdaManager.devicePrompt()
             if (!deviceHint.isEmpty()) {
@@ -675,12 +837,6 @@ object ChatHistoryStore {
                 devObj.put("role", "system")
                 devObj.put("content", deviceHint)
                 jSONArray.put(devObj)
-            }
-            if (0 == 0) {
-                val jSONObject2 = JSONObject()
-                jSONObject2.put("role", "system")
-                jSONObject2.put("content", "当前好感度是 " + affection + "（范围 -100~100）。此时此刻的状态：" + PetPrefs.affectionLabel(affection) + "。请以这个状态说话，并在回复第一行输出本次的变动量。")
-                jSONArray.put(jSONObject2)
             }
             // 【三件套】思考程度（灯泡）：提示词兜底 —— 中转常把不认识的字段悄悄吃掉，
             // 只有这句还起作用。「自动」档返回空串，等于完全不干预。
@@ -693,14 +849,14 @@ object ChatHistoryStore {
             }
             // 【思考框】格式约束：推理型模型会把正文写进思考区而把 content 留空，
             // 上层就只能拿到空气泡。这里独立补一条 system 指令把「正文必须有内容」说死。
-            // 【为什么独立一条】人设原文（SYSTEM_PROMPT）属保留内容，一个字不动；
+            // 【为什么独立一条】人设正文属用户可编辑内容，不该往里塞格式约束；
             // 追加独立消息与上面「思考程度」同款做法，两边入口（全屏页 / 迷你框）共用本方法，一并受约束。
             val fmtObj = JSONObject()
             fmtObj.put("role", "system")
             fmtObj.put("content", "【回复格式】你对主人说的话必须写在正文里，正文不能为空；"
                     + "推理、分析、自我检查的过程请放在思考区，既不要混进正文，也不要用思考区代替正文。")
             jSONArray.put(fmtObj)
-            appendMemory(ctx, jSONArray)
+            appendMemory(ctx, jSONArray, who, lastUserText(history))
             appendSummaries(jSONArray, history)
             appendLearnExamples(ctx, jSONArray)
             appendTailMessages(ctx, jSONArray, history)
@@ -708,18 +864,68 @@ object ChatHistoryStore {
         }
         return jSONArray
     }
-    /** 长期记忆注入：AI 自主写入的记忆库正文（上限见 MemDb.MAX_INJECT_CHARS），可在加号面板关闭。 */
+
+    /** 长期记忆注入：新版记忆库（条目 + 资料文档），按当前问题做相关性检索。 */
     @Throws(Exception::class)
     private fun appendMemory(ctx: Context, arr: JSONArray) {
-        // 总记忆库：AI 自主写入的长期记忆，作为额外 system 提示注入（上限 1200 字）。
-        // 【开关】加号面板里可以关掉注入：她照旧往库里写，但不再随时「记得」这些事。
-        val memory = if (PetPrefs.memInject(ctx)) MemDb.recentText(ctx, MemDb.MAX_INJECT_CHARS) else ""
-        if (!memory.isEmpty()) {
-            val memObj = JSONObject()
-            memObj.put("role", "system")
-            memObj.put("content", "【关于主人的长期记忆】\n" + memory + "\n（这些是之前记下的事，回答时可以自然地用到，不要生硬复述。）")
-            arr.put(memObj)
+        appendMemory(ctx, arr, DollStore.DEFAULT_ID, null)
+    }
+
+    /**
+     * 【r13】按人偶取长期记忆，并按相关性挑（对齐 Operit 的「检索→注入」两步）。
+     *
+     * 【为什么必须带 dollId】记忆库按人偶分库（`mem2_list_<dollId>`），
+     *   这里写死默认那只会让 A 人偶「记得」B 人偶的事 —— 分库的意义就没了。
+     *
+     * 【两条路径】
+     *   · 开了「记忆检索」：用**这一轮主人说的话**当查询词，按关键词/标签/关联打分取前 8 条；
+     *   · 关了：退回「最近若干条」，保证仍能带上记忆（旧行为）。
+     *
+     * @param query 本轮用户输入；null / 空则按时间倒序取。
+     */
+    @Throws(Exception::class)
+    private fun appendMemory(ctx: Context, arr: JSONArray, dollId: String?, query: String?) {
+        val who = if (dollId.isNullOrEmpty()) DollStore.DEFAULT_ID else dollId
+        // 【资料文档】它很短且永远是稳定画像，每轮都带上，不参与检索。
+        val doc = Mem.profile(ctx, who)
+        val items = if (PetPrefs.mem2Search(ctx)) {
+            MemSearch.search(ctx, who, query)
+        } else {
+            MemSearch.search(ctx, who, null)
         }
+        val body = MemSearch.joinForInject(items)
+        if (doc.isEmpty() && body.isEmpty()) {
+            return
+        }
+        val sb = StringBuilder()
+        if (doc.isNotEmpty()) {
+            sb.append("【关于主人的印象】\n").append(doc).append('\n')
+        }
+        if (body.isNotEmpty()) {
+            sb.append("【记下的事】\n").append(body).append('\n')
+        }
+        val memObj = JSONObject()
+        memObj.put("role", "system")
+        memObj.put("content", sb.toString()
+                + "（这些是你之前记下的事，回答时可以自然地用到，不要生硬复述。）")
+        arr.put(memObj)
+    }
+
+    /** 从历史里倒着找最后一条「主人说的话」，作为检索的查询词。 */
+    private fun lastUserText(history: JSONArray?): String? {
+        if (history == null) {
+            return null
+        }
+        for (i in history.length() - 1 downTo 0) {
+            val o = history.optJSONObject(i) ?: continue
+            if ("user" == o.optString("role")) {
+                val c = o.optString("content", "").trim()
+                if (c.isNotEmpty()) {
+                    return c
+                }
+            }
+        }
+        return null
     }
 
     /**

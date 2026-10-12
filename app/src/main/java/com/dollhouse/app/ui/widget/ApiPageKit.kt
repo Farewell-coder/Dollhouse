@@ -111,7 +111,7 @@ object ApiPageKit {
         val r = LinearLayout(ctx)
         r.orientation = LinearLayout.HORIZONTAL
         r.gravity = Gravity.CENTER_VERTICAL
-        r.background = UiKit.round(UiKit.SOFT, ctx, 10f)
+        r.background = UiKit.round(UiKit.soft(), ctx, 10f)
         r.setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
         val lp = LinearLayout.LayoutParams(-1, -2)
         lp.topMargin = dp(ctx, 8)

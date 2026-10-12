@@ -33,7 +33,9 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.settings.AboutPage
+import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 
@@ -60,7 +62,12 @@ object HomeScreen {
         val c = DhTokens.colors
         // 【状态驱动】首帧即按真实状态渲染；起停 / 可用性变化由 HomeUi 推刷新。
         val running = HomeState.running
-        val chatAvailable = HomeState.chatAvailable
+        // 【r13·入口收拢】原 `chatAvailable` 已不再需要 —— 它只服务于「打开聊天」按钮，
+        //   而那个按钮已移除（聊天列表是默认首页，进聊天不再需要主页入口）。
+        //   `HomeState.chatAvailable` 本身保留：openChat 的守卫还会写它。
+        // 【r12】一只都没启用时，主按钮不再是「启动人偶」（点了才知道不行），
+        //   而是直接写「选择人偶」并把人引到自定义人偶页。
+        val hasDoll = HomeState.hasDoll
         // 进页对一次真实状态（供应商 / 模型增删启停后返回立即跟上）。
         LaunchedEffect(Unit) { HomeUi.syncAll(act) }
 
@@ -79,7 +86,8 @@ object HomeScreen {
             Text(
                 text = "Dollhouse",
                 color = c.acc,
-                fontSize = 40.sp,
+                // 【r12】字号走 [Design.FS_TITLE_BRAND] 令牌，不再硬编码 40.sp。
+                fontSize = Design.FS_TITLE_BRAND.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )
@@ -94,18 +102,28 @@ object HomeScreen {
 
             // 按钮区：四按钮竖排、等宽等距（间距 14dp ← 原 buildHomePage 的 btnGap）。
             HomeButton(
-                text = if (running) "关闭人偶" else "启动人偶",
+                text = when {
+                    running -> "关闭人偶"
+                    hasDoll -> "启动人偶"
+                    else -> "选择人偶"
+                },
                 iconRes = Icons.IC_PLAY
             ) {
                 // 【乐观切换】点下即切目标态，真实状态由 HomeUi 的轮询纠偏（与 View 版语义一致）。
-                HomeUi.togglePet(act, !running)
-            }
-            if (chatAvailable) {
-                Spacer(Modifier.height(14.dp))
-                HomeButton(text = "打开聊天", iconRes = Icons.IC_MESSAGE_CIRCLE) {
-                    HomeUi.openChat(act)
+                if (!running && !hasDoll) {
+                    // 【r12】一只都没选：先去选，别让用户点了才发现不行。
+                    DollListScreen.open(act)
+                } else {
+                    HomeUi.togglePet(act, !running)
                 }
             }
+            // 【r13·入口收拢】原「打开聊天」按钮已移除。
+            //   需求原文：「第一幅图打开聊天 这个按钮和他这条路径都不需要了」。
+            //   理由（也符合可持续性）：聊天列表已经是**默认首页**，用户一进 App 就在聊天页；
+            //   从主页再放一个「打开聊天」等于「从聊天页回到主页、再点一次回聊天页」，
+            //   是纯粹的绕路。入口只留一条，路径唯一，用户不用在两种进法之间做选择。
+            //   【不是删功能】聊天页本身、ChatActivity、会话数据全在；
+            //   点聊天列表里的卡片即可进入（见 ChatListScreen.openConv）。
             Spacer(Modifier.height(14.dp))
             HomeButton(text = "设置", iconRes = Icons.IC_SETTINGS) {
                 HomeUi.show(act, false)
@@ -114,7 +132,10 @@ object HomeScreen {
             HomeButton(text = "关于", iconRes = Icons.IC_INFO) {
                 AboutPage.open(act)
             }
-            Spacer(Modifier.height(24.dp))
+            // 【r13·底栏避让】主界面底栏是悬浮的（不在布局流里），页面自己要留出高度。
+            //   【为什么是固定占位而不是 padding】本页是可滚动 Column，用 Spacer 占位能让
+            //   最后一张按钮滚到底时正好完整露出在底栏之上，而不是被压住半截。
+            Spacer(Modifier.height(BottomNav.HEIGHT_DP.dp + 24.dp))
         }
     }
 
@@ -137,7 +158,8 @@ object HomeScreen {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                DhKit.Icon(iconRes = iconRes, sizeDp = 18f, color = c.title)
+                // 【r12】18f 不在 [Design] 的图标五档内 → 归到 SZ_MD(20)。
+                DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = text,

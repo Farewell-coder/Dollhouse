@@ -19,18 +19,39 @@ import org.json.JSONObject
  */
 object ChatToolRegistry {
     private val TOOLS: MutableList<ChatTool> = ArrayList()
-
     /** 联网工具的注册名：它是否随请求下发由用户开关决定，执行入口则始终保留。 */
     private const val NAME_WEB = "web_search"
-
     /** 记忆工具的注册名：同上，是否下发由加号面板里的「自动保存记忆」决定。 */
     private const val NAME_REMEMBER = "remember"
-
     /** 系统命令工具的注册名：不下发时也不影响「未授权→不出现」的门控语义。 */
     private const val NAME_SHELL = "shell"
-
     /** 设备控制工具的注册名：lamda 服务没跑时不下发，避免模型反复空调用。 */
     private const val NAME_DEVICE = LamdaTool.NAME
+
+    /**
+     * 【运行期上下文】当前这轮工具调用属于哪只人偶。
+     *
+     * 【为什么必须存在】工具执行时只有 (name, arguments) 两个参数，拿不到「正在跟谁聊」。
+     *   而记忆工具的写入必须落到**当前会话绑定的那只人偶**的库 —— 旧实现写死
+     *   `DollStore.DEFAULT_ID`，于是所有 AI 自己记的东西都堆进「默认配置」一个桶，
+     *   其它人偶永远读不到、彼此之间还会串。
+     *
+     * 【谁写它】ChatPanel.askModel / PetTalk 在发起请求或跑工具前调 [setDoll]。
+     *   【谁读它】MemoryTool.execute。
+     */
+    private val DOLL = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+    /** 声明「这一轮属于哪只人偶」。传空等于退回默认配置。 */
+    @JvmStatic
+    fun setDoll(dollId: String?) {
+        DOLL.set(if (dollId.isNullOrEmpty()) null else dollId)
+    }
+
+    /** 当前这一轮的人偶 id；没设置时返回 null（调用方自行回落默认）。 */
+    @JvmStatic
+    fun doll(): String? {
+        return DOLL.get()
+    }
 
     init {
         TOOLS.add(SearchTool())

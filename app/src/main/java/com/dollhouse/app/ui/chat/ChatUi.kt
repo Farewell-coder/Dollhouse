@@ -57,6 +57,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import kotlin.math.roundToInt
@@ -138,9 +139,14 @@ object ChatUi {
                 host.controller?.onClose()
             }
             Spacer(Modifier.width(2.dp))
-            DhKit.IconButton(iconRes = Icons.IC_MENU, sizeDp = 20f, color = c.sub) {
-                host.openDrawer()
-            }
+            // 【r13·入口收拢】原「☰ 菜单」按钮（打开左侧会话抽屉）已移除。
+            //   需求原文：「第二三幅图这两个也不需要了」。
+            //   理由：抽屉是「在聊天页里再切会话」的第二套入口，而会话切换现在统一由
+            //   **聊天列表页**（默认首页）承担 —— 两处并存会出现「同一个操作两种入口」，
+            //   且抽屉里的列表是命令式 View 拼的、信息密度也低于列表页（无头像/预览/未读）。
+            //   收拢到列表页后：切会话只需「返回 → 点另一条」，路径唯一、样式一致。
+            //   【不是删功能】改名 / 删除 / 清空当前对话都在；前两者已由列表页长按菜单承接，
+            //   「清空当前对话」保留在聊天页右下角的工具区（见 ChatUi 的 ActionRow）。
             Text(
                 text = "Dollhouse",
                 modifier = Modifier
@@ -318,6 +324,19 @@ object ChatUi {
                     .widthIn(max = maxW)
                     .clip(RoundedCornerShape(15.dp))
                     .background(if (mine) c.chatBubbleUser else c.card)
+                    // 【r13·消息长按】长按弹操作菜单。
+                    //   需求：长按 AI 的消息 / 长按自己的消息，各弹出一组操作。
+                    //   用 [pressable] 的带长按重载（内部 combinedClickable），
+                    //   与单击不冲突 —— 单击仍是「无操作」，符合聊天区习惯。
+                    .pressable(
+                        onClick = {
+                            // 【多选态】多选期间单击 = 勾选/取消勾选（复用同一个手势，不额外加 UI）。
+                            if (MultiSelect.on) {
+                                MultiSelect.toggle(item.index)
+                            }
+                        },
+                        onLongClick = { showMessageMenu(ctx, host, item) }
+                    )
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 val img = item.image
@@ -337,6 +356,76 @@ object ChatUi {
         }
     }
 
+    /**
+     * 【r13】弹出某条消息的长按操作菜单。
+     *
+     * 【为什么用原生弹窗而不是 Compose 的 DhForm.Alert】
+     *   `DhForm.Alert` 是 `@Composable`，只能在 Compose 作用域里声明；
+     *   本方法是从**长按回调**里调进来的（命令式），调它会编译不过。
+     *   `UiKit.showDialog` 是原生 Dialog，任何上下文都能调，且与本 App
+     *   其它确认框（清空对话 / 没配模型提示）同一套壳、同一磨砂质感。
+     *
+     * 【菜单项与显示条件】对齐主流聊天软件的口径 ——
+     *   · 双方都有：复制 / 多选 / 插入总结 / 信息；
+     *   · **仅自己的消息（user）**：编辑并重发 / 回滚到此处 / 删除；
+     *   · **仅她的消息（assistant）**：单条重新生成 / 修改记忆 / 回复 / 删除。
+     *
+     * 【为什么这样分】「编辑并重发」「回滚到此处」操作的是**自己说过的话**，
+     *   长按她的消息时给这两项语义上讲不通（改的是她的发言？删掉她说过的再重发？）；
+     *   「单条重新生成」「回复」则是针对**她说的话**才成立的动作。
+     */
+    private fun showMessageMenu(ctx: android.content.Context, host: ChatPanel, item: ChatItem) {
+        val act = com.dollhouse.app.ui.theme.UiKit.findActivity(ctx) ?: return
+        // 消息在 history 里的下标；摘要 / 占位条（index < 0）不参与。
+        val idx = item.index
+        if (idx < 0) {
+            return
+        }
+        val isAi = "assistant" == item.role
+        val isUser = "user" == item.role
+        val labels = ArrayList<String>()
+        val actions = ArrayList<() -> Unit>()
+
+        // ---- 双方都有 ----
+        labels.add("复制")
+        actions.add { host.copyAt(idx) }
+        labels.add("多选")
+        actions.add {
+            MultiSelect.on = true
+            MultiSelect.toggle(idx)
+        }
+        labels.add("插入总结")
+        actions.add { host.insertSummaryAt(idx) }
+        labels.add("信息")
+        actions.add { host.showItemInfo(idx) }
+
+        // ---- 仅自己的消息 ----
+        if (isUser) {
+            labels.add("编辑并重发")
+            actions.add { host.editAndResend(idx) }
+            labels.add("回滚到此处")
+            actions.add { host.rollbackTo(idx) }
+        }
+
+        // ---- 仅她的消息 ----
+        if (isAi) {
+            labels.add("单条重新生成")
+            actions.add { host.regenerateAt(idx) }
+            labels.add("修改记忆")
+            actions.add { host.saveToMemory(idx) }
+            labels.add("回复")
+            actions.add { host.replyTo(idx) }
+        }
+
+        // ---- 删除（双方都有）----
+        labels.add("删除")
+        actions.add { host.deleteAt(idx) }
+
+        // 标题用消息摘要本身，让用户确认「操作的是哪一条」。
+        val head = item.text.trim().replace('\n', ' ')
+        val title = if (head.length > 14) head.substring(0, 14) + "…" else head
+        MessageMenu.show(act, title.ifEmpty { "消息" }, labels, actions)
+    }
     /** 气泡里的图片附件：异步解码（不卡首帧），12dp 圆角裁切。 */
     @Composable
     private fun BubbleImage(ctx: android.content.Context, path: String, maxW: androidx.compose.ui.unit.Dp) {
@@ -382,7 +471,8 @@ object ChatUi {
                         .height(1.dp)
                         .background(c.line)
                 )
-                DhKit.Icon(iconRes = Icons.IC_CHAT, sizeDp = 13f, color = c.sub)
+                // 【r12】13f 不在 Design 的图标五档内 → 归到 SZ_XS(14)。
+                DhKit.Icon(iconRes = Icons.IC_CHAT, sizeDp = Design.SZ_XS, color = c.sub)
                 Text(
                     text = if (open) "历史对话摘要（点击收起）" else "历史对话摘要",
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
@@ -482,7 +572,7 @@ object ChatUi {
                         .pressable { open = !open },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    DhKit.Icon(iconRes = Icons.IC_BRAIN, sizeDp = 13f, color = c.chatChipMute)
+                    DhKit.Icon(iconRes = Icons.IC_BRAIN, sizeDp = Design.SZ_XS, color = c.chatChipMute)
                     Text(
                         text = thinkCostText(box.costMs),
                         modifier = Modifier.padding(start = 6.dp),
@@ -493,7 +583,7 @@ object ChatUi {
                     Spacer(Modifier.weight(1f))
                     DhKit.Icon(
                         iconRes = if (open) Icons.IC_CHEVRON_UP else Icons.IC_CHEVRON_DOWN,
-                        sizeDp = 13f,
+                        sizeDp = Design.SZ_XS,
                         color = c.chatChipMute
                     )
                 }
@@ -548,7 +638,7 @@ object ChatUi {
                 .padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DhKit.Icon(iconRes = iconRes, sizeDp = 13f, color = c.chatChipMute)
+            DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.chatChipMute)
             Spacer(Modifier.width(4.dp))
             Text(
                 text = text,
@@ -640,10 +730,34 @@ object ChatUi {
                 host.showThink()
             }
             Spacer(Modifier.width(2.dp))
-            DhKit.IconButton(iconRes = Icons.IC_PLUS, sizeDp = 20f, color = c.sub) {
-                host.showMemory()
+            // 【r13·需求改造】原加号（弹功能面板）改为直接的「发图」按钮。
+            //   用户定案「甲」：功能面板整页删掉，「发图」挪出来。图标即功能，少一次点击。
+            DhKit.IconButton(iconRes = Icons.IC_IMAGE_PLUS, sizeDp = 20f, color = c.sub) {
+                host.openPicker()
             }
             Spacer(Modifier.weight(1f))
+            // 【r13·多选】多选态下才出现的「复制选中 / 退出」两个动作。
+            //   入口由「长按消息 → 多选」开启（见 [MessageMenu] / [MultiSelect]）。
+            if (MultiSelect.on) {
+                val n = MultiSelect.picked().size
+                Text(
+                    text = "已选 " + n,
+                    modifier = Modifier.padding(end = 4.dp),
+                    color = c.sub,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts,
+                    maxLines = 1
+                )
+                DhKit.IconButton(iconRes = Icons.IC_COPY, sizeDp = 20f, color = c.title) {
+                    host.copyMany(MultiSelect.picked())
+                    MultiSelect.reset()
+                }
+                Spacer(Modifier.width(2.dp))
+                DhKit.IconButton(iconRes = Icons.IC_CLOSE, sizeDp = 20f, color = c.sub) {
+                    MultiSelect.reset()
+                }
+                Spacer(Modifier.width(4.dp))
+            }
             ChatState.memoText?.let { msg ->
                 Text(
                     text = msg,

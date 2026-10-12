@@ -5,11 +5,14 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -170,6 +173,7 @@ object DhKit {
         modifier: Modifier = Modifier,
         spacingBottom: Boolean = true,
         collapsibleTitle: String? = null,
+        flat: Boolean = false,
         content: @Composable ColumnScope.() -> Unit
     ) {
         val c = DhTokens.colors
@@ -188,9 +192,18 @@ object DhKit {
             modifier = modifier
                 .fillMaxWidth()
                 .padding(bottom = if (spacingBottom) GAP_CARD.dp else 0.dp)
-                .clip(RoundedCornerShape(R_CARD.dp))
-                .background(c.card)
-                .border(1.dp, c.stroke, RoundedCornerShape(R_CARD.dp))
+                // 【r13·flat】平铺形态：只保留间距与分组标题，不画卡片底 / 描边。
+                //   用于「已在一张卡片内部的子分区」—— 否则会出现卡片套卡片的两层圆角。
+                .then(
+                    if (flat) {
+                        Modifier
+                    } else {
+                        Modifier
+                            .clip(RoundedCornerShape(R_CARD.dp))
+                            .background(c.card)
+                            .border(1.dp, c.stroke, RoundedCornerShape(R_CARD.dp))
+                    }
+                )
         ) {
             if (title != null) {
                 Row(
@@ -437,7 +450,8 @@ object DhKit {
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.width(4.dp))
-            Icon(iconRes = icon, sizeDp = 13f, color = tint)
+            // 【r12】13f 不在 [Design] 的图标五档内 → 归到 SZ_XS(14)。
+            Icon(iconRes = icon, sizeDp = Design.SZ_XS, color = tint)
         }
     }
 
@@ -486,7 +500,11 @@ object DhKit {
         }
     }
 
-    /** 步进器的圆形按钮：直径 34dp，白底描边 + 描边图标 ← `HomeCards.stepButton`。 */
+    /**
+     * 步进器的圆形按钮：直径 34dp，实底描边 + 描边图标 ← `HomeCards.stepButton`。
+     *
+     * 【r13】底色由 `card` 换成 `cardUp`：它嵌在卡片里，卡片半透明时同色就看不见形状了。
+     */
     @Composable
     private fun StepButton(iconRes: Int, enabled: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
@@ -494,7 +512,7 @@ object DhKit {
             modifier = Modifier
                 .size(34.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(c.card)
+                .background(c.cardUp)
                 .border(1.dp, c.line, RoundedCornerShape(999.dp))
                 .then(if (enabled) Modifier.pressable(onClick) else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
@@ -571,16 +589,243 @@ object DhKit {
         }
     }
 
+    /* ============================ 长横条按钮 / 底部胶囊导航（r10） ============================ */
+
+    /**
+     * 占满一行的长横条按钮。视觉与 [ValueRow] 逐参数一致（SOFT 底 / 圆角 10 / 内边距 12 / 8dp 行距），
+     * 因此和设置页既有各行天然同族，不会出现「新按钮比旧行矮一点」的突兀。
+     *
+     * 【为什么单列一个构件】r10 的人偶编辑页要在卡片外直接摆按钮，若各页自己拼 Row，
+     *   圆角 / 内边距 / 禁用透明度迟早分叉。尺寸令牌只在本文件出现一次。
+     *
+     * @param iconRes  前置图标；null 表示不占位（规格：只有点名要图标的按钮才配图标）
+     * @param trailing 右侧文字（如 "›"）；null 表示不占位
+     * @param enabled  false 时降透明度且不接收点击（空壳按钮的既定表现）
+     */
+    @Composable
+    fun ActionRow(
+        label: String,
+        modifier: Modifier = Modifier,
+        iconRes: Int? = null,
+        trailing: String? = null,
+        enabled: Boolean = true,
+        onClick: (() -> Unit)? = null
+    ) {
+        val c = DhTokens.colors
+        val clickable = enabled && onClick != null
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = GAP_ROW.dp)
+                .clip(RoundedCornerShape(R_ROW.dp))
+                .background(c.soft)
+                .then(if (clickable) Modifier.pressable(onClick!!) else Modifier)
+                .then(if (enabled) Modifier else Modifier.alpha(0.35f))
+                .padding(horizontal = PAD_ROW.dp, vertical = PAD_ROW.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (iconRes != null) {
+                Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = label,
+                modifier = Modifier.weight(1f),
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fonts
+            )
+            if (!trailing.isNullOrEmpty()) {
+                Text(
+                    text = trailing,
+                    color = c.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+
+    /**
+     * 底部胶囊导航项：图标 + 文字。
+     * 选中态用 OPTION 底 + ACC 字图（与设置页多选项「淡紫底 + 加粗」同一套语义色），
+     * 未选中用 SUB 字图 —— 保证换主题 / 莫奈 / 纯黑下都随主题走。
+     */
+    @Composable
+    fun NavItem(
+        iconRes: Int,
+        label: String,
+        selected: Boolean,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        val c = DhTokens.colors
+        val tint = if (selected) c.acc else c.sub
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (selected) c.option else Color.Transparent)
+                .pressable(onClick)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = tint)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                color = tint,
+                fontSize = UiKit.FS_CHIP.sp,
+                fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+    }
+
+    /**
+     * 页面底部的**透明胶囊**导航条（内容为若干 [NavItem]）。
+     *
+     * 【r13 统一口径】用户报「人偶编辑页的底栏是透明的但没胶囊；配置/模型页是胶囊但底色偏实」，
+     *   要求两处**统一成透明胶囊**。本函数即「透明胶囊」的 Compose 侧唯一实现：
+     *   胶囊外形（999 圆角）+ 半透明主题底（[UiKit.capsuleFill]）+ 描边 + 选中项高亮。
+     *   View 侧的 [com.dollhouse.app.ui.widget.GlassCapsule] 读同一组令牌，两边不会分叉。
+     *
+     * 【为什么外层还要一层 Row】胶囊本身只包住三个按钮（宽度自适应），
+     *   而底栏需要「整屏宽 + 居中」，所以外面套一个透明、无内边距的定位层 ——
+     *   与 `ProviderDetailPage` 里 `pill` 只当尺子、胶囊才是唯一背景层的做法一致。
+     */
+    @Composable
+    fun NavBar(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+        val c = DhTokens.colors
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    // 【必须不透明以外还要能透】胶囊底是半透明主题色，背后内容能透出轮廓；
+                    //   这里不再叠任何实色底板，否则又退回「实心色块」。
+                    .background(c.capsule)
+                    .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                content = content
+            )
+        }
+    }
+
+    /**
+     * 多选行：选中 = OPTION 底 + 加粗 + 右侧勾，未选 = SOFT 底。
+     * 【口径来源】与设置页原「手势响应」弹窗里的 `HomeUi.optionRow` 逐项一致
+     *   （22dp 占位、12dp 内边距、8dp 行距），换到 Compose 后视觉不跳。
+     * 【为什么未选也要占位】勾只在选中时出现；不预留位置会让文字在点选瞬间左右横跳。
+     */
+    @Composable
+    fun CheckRow(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(top = GAP_ROW.dp)
+                .clip(RoundedCornerShape(R_ROW.dp))
+                .background(if (selected) c.option else c.soft)
+                .pressable(onClick)
+                .padding(horizontal = PAD_ROW.dp, vertical = PAD_ROW.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.weight(1f),
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+            if (selected) {
+                Icon(iconRes = Icons.IC_CHECK, sizeDp = 16f, color = c.acc)
+            } else {
+                Spacer(Modifier.width(22.dp))
+            }
+        }
+    }
+
+    /**
+     * 小尺寸等宽按钮（比例大小的 ±1 / ±10 四并排用）。
+     * 【为什么再开一个】[ActionRow] 是整行宽、[StepButton] 是私有 34dp 圆钮；
+     *   四并排需要「可被 weight 拉宽、文字居中」的方钮，与既有药丸口径不同。
+     *   底 / 描边 / 圆角沿用 CARD + LINE + [R_ROW]，与卡片内的行天然同族。
+     */
+    @Composable
+    fun MiniChip(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(R_ROW.dp))
+                // 【r13】卡片内嵌按钮 → cardUp（同色会看不见形状）。
+                .background(c.cardUp)
+                .border(1.dp, c.line, RoundedCornerShape(R_ROW.dp))
+                .pressable(onClick)
+                .padding(vertical = 9.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+
+    /**
+     * 悬浮窗底栏上的「图标 + 文字」按钮（[com.dollhouse.app.pet.DollRangeOverlay] /
+     * [com.dollhouse.app.pet.DollHomeOverlay] 共用）。
+     *
+     * 【为什么提到这里】r12 两个悬浮窗各写了一份**完全相同**的私有实现，
+     *   且字号写成 `13.sp` —— 那是全仓唯一的非标按钮字号（本工程只有
+     *   [UiKit.FS_CHIP]=12 与 [UiKit.FS_BTN]=15 两档）。同一层级的按钮视觉重量不一致，
+     *   正是「看着毛」的来源；收口到一处后不会再分叉。
+     *
+     * 【尺寸】图标走 [Design.SZ_MD]，文字走 [UiKit.FS_CHIP]，与既有药丸同族。
+     */
+    @Composable
+    fun BarButton(iconRes: Int, tint: Color, label: String, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .pressable(onClick)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = tint)
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = label,
+                color = c.title,
+                fontSize = UiKit.FS_CHIP.sp,
+                fontFamily = DhTokens.fonts,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+
     /* ============================ 药丸 ============================ */
 
-    /** 描边药丸（CARD 底 + LINE 描边）← `UiKit.outlineChip`。 */
+    /** 描边药丸（实底 + LINE 描边）← `UiKit.outlineChip`。 */
     @Composable
     fun OutlineChip(text: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
         val c = DhTokens.colors
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(c.card)
+                // 【r13】卡片内嵌按钮 → cardUp。
+                .background(c.cardUp)
                 .border(1.dp, c.line, RoundedCornerShape(999.dp))
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -670,6 +915,47 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     return this
         .scale(scale)
         .clickable(interactionSource = source, indication = null, onClick = onClick)
+}
+
+/**
+ * 【r13·聊天列表】带长按的按下效果。
+ *
+ * 【为什么新开一个重载而不是改原函数】`pressable(onClick)` 全工程有几十处调用，
+ *   给它加默认参数（`onLongClick: (() -> Unit)? = null`）虽然源码兼容，
+ *   但 `clickable` 在带 `onLongClick` 时会走**另一条手势路径**（先等长按超时、
+ *   抬手才算点击），会让所有既有按钮的点击响应多出一点点判定延迟 —— 对
+ *   一个「按压即缩放」的按钮来说这种微妙延迟是可见的。
+ *   所以保持原函数**逐字节不变**，另开一个明确的重载，只有真正需要长按的调用点用它。
+ *
+ * 【为什么用 combinedClickable】Compose 里「同一个区域既响应点击又响应长按」的
+ *   标准做法就是它；手写 `pointerInput` 要自己处理「长按后抬手不能触发点击」
+ *   这条规则，容易在边缘时序上出错。这个重载内部才用 combinedClickable，
+ *   不影响其它调用点。
+ *
+ * 【坑·kapt】这里的注解必须用**短名**（`@OptIn(ExperimentalFoundationApi::class)`），
+ *   不能用全限定名（`@androidx.compose.foundation.ExperimentalFoundationApi::class`）——
+ *   kapt 生成 Java 桩时解析不了全限定注解，会报
+ *   `NonExistentClass cannot be converted to Annotation` 让整个 kapt 阶段失败。
+ *   这是本项目引入 kapt 后踩过的第一个坑，见 ChatListScreen 同款修正。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = 900f),
+        label = "press"
+    )
+    return this
+        .scale(scale)
+        .combinedClickable(
+            interactionSource = source,
+            indication = null,
+            onClick = onClick,
+            onLongClick = onLongClick
+        )
 }
 
 /** [Modifier.pressable] 的横向偏移辅助（开关滑块用）。 */

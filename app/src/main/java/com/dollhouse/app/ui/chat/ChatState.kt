@@ -79,6 +79,28 @@ object ChatState {
         scrollTarget = index
         scrollTick++
     }
+
+    /**
+     * 【r13·聊天列表】会话集合的**变更信号**：每次会话被增删改 / 有新消息后自增，
+     *   列表页据此重新拉取数据（见 [ChatListData.load]）。
+     *
+     * 【为什么与 [items] 分开】[items] 是「当前打开的会话」的消息快照，由 [ChatPanel]
+     *   的重铺流程写入；而本字段是「会话清单」的变更信号，由**任何**改到会话的地方写
+     *   （发送消息、改名、新建、删除）。
+     *   两者生命周期不同：发消息时 [items] 会重建，但会话清单只有「标题首次自动生成」
+     *   与「时间戳刷新」两处会变 —— 合并成一个字段会让列表在不该重算时也重算。
+     *
+     * 【为什么列表页不直接读 ChatSessions 的返回】那个对象是纯数据、没有可观察性
+     *   （见 [com.dollhouse.app.ui.doll.DollState] 的同款说明）。用版本号广播
+     *   「第几次变更」，读取方看到变化自己重新取值 —— 单一真源始终在数据层。
+     */
+    var listRev by mutableStateOf(0)
+        private set
+
+    /** 广播一次「会话集合已变更」。调用方负责确保写操作已经完成。 */
+    fun bumpList() {
+        listRev++
+    }
 }
 
 /**

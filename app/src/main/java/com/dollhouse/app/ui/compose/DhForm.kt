@@ -62,6 +62,7 @@ object DhForm {
      * @param hint     占位提示（输入为空时显示）
      * @param password true 时做密码遮罩（密钥字段用）
      * @param trailing 输入框右侧附加内容（如密钥框的「显示 / 隐藏」）；null 则不占位
+     * @param imeAction 软键盘回车键的语义（默认「完成」；搜索框传 [ImeAction.Search]）
      */
     @Composable
     fun Input(
@@ -73,6 +74,7 @@ object DhForm {
         password: Boolean = false,
         singleLine: Boolean = true,
         keyboard: KeyboardType = KeyboardType.Text,
+        imeAction: ImeAction = ImeAction.Done,
         trailing: (@Composable () -> Unit)? = null
     ) {
         val c = DhTokens.colors
@@ -103,7 +105,7 @@ object DhForm {
                 visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = if (password) KeyboardType.Password else keyboard,
-                    imeAction = if (singleLine) ImeAction.Done else ImeAction.Default
+                    imeAction = if (singleLine) imeAction else ImeAction.Default
                 ),
                 cursorBrush = SolidColor(c.acc),
                 decorationBox = { inner ->
@@ -362,7 +364,10 @@ object DhForm {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(c.card)
+                    // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 c.sheet：**不透明**，
+                    //   质感由「外观 → 磨砂程度」控制。原来走 c.card，会跟着卡片透明度
+                    //   一起变半透明，用户把卡片调透之后弹窗与背后正文叠成一片。
+                    .background(c.sheet)
                     .padding(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 14.dp)
             ) {
                 Text(
@@ -401,9 +406,15 @@ object DhForm {
         }
     }
 
-    /** 弹窗按钮：primary=true 实色主色，否则白底描边。← `UiKit.dialogButton`。 */
+    /**
+     * 弹窗按钮：primary=true 实色主色，否则白底描边。← `UiKit.dialogButton`。
+     *
+     * 【为什么公开】原来只给 [Alert] 用，于是 [com.dollhouse.app.ui.doll.DollNumDialog]
+     *   另外自造了三个「图标圆球」—— 同一个弹窗家族出现两套按钮语言。
+     *   公开后所有弹窗共用一种按钮，新增弹窗不会再有第二种样式。
+     */
     @Composable
-    private fun DialogButton(text: String, primary: Boolean, onClick: () -> Unit) {
+    fun DialogButton(text: String, primary: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
         Text(
             text = text,
@@ -413,8 +424,11 @@ object DhForm {
                     if (primary) {
                         Modifier.background(c.acc)
                     } else {
+                        // 【r13】弹窗底已改成不透明的 sheet，次按钮跟着走 sheetUp：
+                        //   同色系但更实，任何磨砂档位下都浮得出来（用 cardUp 会在卡片
+                        //   透明度 100% 时与面板同色 → 按钮看不见）。
                         Modifier
-                            .background(c.card)
+                            .background(c.sheetUp)
                             .border(1.dp, c.line, RoundedCornerShape(999.dp))
                     }
                 )
@@ -452,7 +466,8 @@ object DhForm {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(c.card)
+                    // 【r13】弹窗底走 sheet：不透明 + 磨砂质感（见 UiKit.sheet()）。
+                    .background(c.sheet)
                     .padding(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 14.dp)
             ) {
                 if (!title.isNullOrEmpty()) {

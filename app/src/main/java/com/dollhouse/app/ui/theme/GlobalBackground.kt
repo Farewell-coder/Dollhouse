@@ -117,26 +117,30 @@ object GlobalBackground {
                 ContrastCore.minOverlayAlphaEffective(cachedAvg, base, imgAlpha, UiKit.BG, UiKit.SUB, ContrastCore.AA_NORMAL))
             return ContrastCore.withAlpha(UiKit.BG, Math.max(0, Math.min(a * k / 100, cap)))
         }
-        val key = (UiKit.BG * 131) xor (UiKit.TITLE * 17) xor (UiKit.SUB * 7) xor imgAlpha xor (cap shl 24) xor (k shl 16)
-        if (key != scrimKey) {
-            var worst = 0
-            for (px in pixels) {
-                if (ContrastCore.alphaOf(px) < 16) {
-                    continue
-                }
-                val t = ContrastCore.minOverlayAlphaEffective(px, base, imgAlpha, UiKit.BG, UiKit.TITLE, ContrastCore.AA_NORMAL)
-                if (t > worst) {
-                    worst = t
-                }
-                val s = ContrastCore.minOverlayAlphaEffective(px, base, imgAlpha, UiKit.BG, UiKit.SUB, ContrastCore.AA_NORMAL)
-                if (s > worst) {
-                    worst = s
-                }
+        // 【r13 修 bug·遮罩强度完全没效果】这里原来有一层 key 缓存：
+        //     `... xor imgAlpha xor (cap shl 24) xor (k shl 16)`，
+        //   把 cap / k / imgAlpha 异或进同一个整数再比对 —— 三个量的位段互相干扰，
+        //   拖动滑条改 k 时算出的 key 可能与上一次**相同**，于是判定「没变」、
+        //   直接沿用旧的 scrimAlpha，用户看到的就是「拖了完全没反应」。
+        //
+        //   【修法】去掉缓存，每次都按当前 k 现算。
+        //   逐像素遍历只在图片已解码（cachedPixels 非空）时发生，
+        //   而拖滑条本身是低频手势；正确性远比这点开销重要。
+        var worst = 0
+        for (px in pixels) {
+            if (ContrastCore.alphaOf(px) < 16) {
+                continue
             }
-            scrimAlpha = Math.max(0, Math.min(worst * k / 100, cap))
-            scrimKey = key
+            val t = ContrastCore.minOverlayAlphaEffective(px, base, imgAlpha, UiKit.BG, UiKit.TITLE, ContrastCore.AA_NORMAL)
+            if (t > worst) {
+                worst = t
+            }
+            val s = ContrastCore.minOverlayAlphaEffective(px, base, imgAlpha, UiKit.BG, UiKit.SUB, ContrastCore.AA_NORMAL)
+            if (s > worst) {
+                worst = s
+            }
         }
-        return ContrastCore.withAlpha(UiKit.BG, scrimAlpha)
+        return ContrastCore.withAlpha(UiKit.BG, Math.max(0, Math.min(worst * k / 100, cap)))
     }
 
     /**

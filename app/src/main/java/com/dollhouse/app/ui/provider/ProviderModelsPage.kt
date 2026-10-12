@@ -92,7 +92,6 @@ object ProviderModelsPage {
             return
         }
         val models = remember(revision, pv.id) { ModelStore.modelsOf(act, pv.id) }
-        var pending by remember { mutableStateOf<AiModel?>(null) }
 
         DhKit.Page(
             title = pv.name,
@@ -115,7 +114,13 @@ object ProviderModelsPage {
                 models.forEach { m ->
                     DhSwipeHost(
                         onOpen = { ProviderNav.openModel(act, m.id) },
-                        onDelete = { pending = m }
+                        onDelete = {
+                            // 【r13 用户定案】滑开 → 点垃圾桶**直接删**，不再弹二次确认窗。
+                            //   定案原文倾向：A（两步：滑开 + 点垃圾桶）+ D（不弹确认窗）+ F（只改这一处）。
+                            //   「两步」本身已经拦掉了「手滑直接删」，再弹一次窗只是多一次点击。
+                            ModelStore.deleteModel(act, m.id)
+                            revision++
+                        }
                     ) {
                         ModelRow(m)
                     }
@@ -124,23 +129,6 @@ object ProviderModelsPage {
             // 底部留白：悬浮「添加模型」按钮高 44dp + 上下各 12dp 呼吸。
             Spacer(Modifier.size(68.dp))
             AddModelButton { ProviderNav.openModels(act, pv.id) }
-        }
-
-        val victim = pending
-        if (victim != null) {
-            DhForm.Alert(
-                title = "删除模型",
-                onDismiss = { pending = null },
-                posText = "删除",
-                onPos = {
-                    ModelStore.deleteModel(act, victim.id)
-                    pending = null
-                    revision++
-                },
-                negText = "取消"
-            ) {
-                DhForm.Note("「" + victim.displayName + "」将从本供应商删除，删除后无法恢复。")
-            }
         }
     }
 

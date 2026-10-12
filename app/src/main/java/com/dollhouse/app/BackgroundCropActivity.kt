@@ -207,14 +207,14 @@ class BackgroundCropActivity : Activity() {
 
     private fun pickImageIntent(): Intent {
         val intent = Intent("android.provider.action.PICK_IMAGES")
-        intent.type = "image/*"
+        intent.type = IMAGE_TYPE
         return intent
     }
 
     private fun compatImageIntent(): Intent {
         val intent = Intent(Intent.ACTION_GET_CONTENT)
         intent.addCategory(Intent.CATEGORY_OPENABLE)
-        intent.type = "image/*"
+        intent.type = IMAGE_TYPE
         return intent
     }
 
@@ -650,5 +650,13 @@ class BackgroundCropActivity : Activity() {
 
         /** 裁剪框框内网格：三分线，帮着对齐构图。 */
         private const val GRID = 3
+
+        /**
+         * 相册的 MIME 过滤。
+         * 【为什么抽成常量】KDoc 与字符串里直接写那个星号斜杠组合会**提前闭合注释块**，
+         *   本工程已因此踩过一次编译事故（整页报「Expecting member declaration」）。
+         *   集中成一个常量后，注释里只出现常量名，物理上不可能再写错。
+         */
+        private const val IMAGE_TYPE = "image/*"
     }
 }

@@ -1,17 +1,5 @@
 package com.dollhouse.app
 
-import com.dollhouse.app.pet.AwayCore
-import com.dollhouse.app.pet.GestureActions
-import com.dollhouse.app.pet.GestureCore
-import com.dollhouse.app.pet.PetActionRegistry
-import com.dollhouse.app.pet.PetBus
-import com.dollhouse.app.pet.PetNotifier
-import com.dollhouse.app.pet.PetTalk
-import com.dollhouse.app.pet.PetTalkInput
-import com.dollhouse.app.pet.PetView
-import com.dollhouse.app.pet.PetWindowController
-import android.animation.ValueAnimator
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.SharedPreferences
@@ -22,167 +10,46 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.util.DisplayMetrics
-import android.view.MotionEvent
-import android.view.ViewConfiguration
 import android.view.WindowManager
-import com.dollhouse.app.MainActivity
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.device.LamdaManager
-import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.pet.PetNotifier
+import com.dollhouse.app.pet.PetWindow
+import com.dollhouse.app.pet.PetWindowController
 import java.util.Random
 
 /**
- * 【职责】桌宠前台服务：持有悬浮窗、驱动动画与随机台词、常驻通知。
+ * 【职责】桌宠前台服务：服务生命周期 + 常驻通知 + lamda 巡检，并把所有悬浮窗交给 PetWindowController 管理。
  *
- * 【交互】收到 MainActivity 的 START/STOP/REFRESH 动作；attachPet() 把 PetView 挂进 WindowManager；长按/点击手势转成聊天窗口与台词。
+ * 【多实例】启动时按 DollStore.enabled() 逐个建 PetWindow（一个都没启用则兜底默认配置），
+ *   每个窗口自带 PetView / LayoutParams / 坐标 / 贴边 / 气泡 / 动画取消句柄，同时挂在 WindowManager 上互不覆盖。
+ *   本类不再持有任何单一窗口状态（那些字段已下沉到 PetWindow 实例）。
  *
- * 【坑】attachPet() 用 catch(Throwable) 吞掉所有异常然后 stopSelfSafely() —— 悬挂浮窗失败时会静默退出，排查「桌宠莫名消失」要看 logcat -b events 里的 am_foreground_service_stop，而不是找 crash 日志。
+ * 【交互】收到 MainActivity 的 START/STOP/REFRESH 动作；手势 / 台词 / 迷你聊天由各 PetWindow 处理，
+ *   只有 PetActionRegistry 需要的少数入口（petJump / say / openMiniTalk）在这里转发到「当前交互窗口」。
+ *
+ * 【坑】ACTION_START 里 attachAll 用 isAttached() 判重，暂离中（anyAway）不重新挂载，
+ *   保持既有「暂离 → 到点自己回来」的单一语义。
  *
  * 本类由原 smali 反编译重建（jadx），行为与原始包保持一致。
  */
 class PetService : Service() {
-    internal var curPivotX = 0f
-    internal var curPivotY = 0f
-    internal var downPivotX = 0f
-    internal var downPivotY = 0f
-    internal var downRawX = 0f
-    internal var downRawY = 0f
-    internal var lastMoveAt = 0L
-    internal var lastRawX = 0f
-    internal var lp: WindowManager.LayoutParams? = null
-    internal var petTopY = 0
-    internal var petView: PetView? = null
     internal lateinit var prefs: SharedPreferences
-    internal var snapAnim: ValueAnimator? = null
-    internal var touchSlop = 0
     internal lateinit var wm: WindowManager
     internal val random = Random()
     internal val ui = Handler(Looper.getMainLooper())
     private lateinit var win: PetWindowController
-    internal var bubbleUp = false
-    internal var added = false
-    internal var peek = false
-    internal var edgePeek = false
-    /** 已应用到 PetView 的缩放系数；REFRESH 里用来判断「比例真的变了没」。 */
-    internal var petScaleApplied = 0.0f
-    internal var edgeAtLeft = false
-    internal var petShown = true
-    internal var lastPlaceAt = 0L
-    internal var dragging = false
-    internal val hideBubble = Runnable { hideBubbleNow() }
-    internal val busListener: PetBus.Listener = object : PetBus.Listener {
-        override fun onSay(str: String, j: Long) {
-            this@PetService.ui.post { this@PetService.say(str, j) }
-        }
 
-        override fun onAffection(i: Int) {
-            this@PetService.ui.post {
-                this@PetService.petView?.setAffection(i)
-            }
-        }
-    }
-    internal val geom = FloatArray(4)
-    /** 手势识别状态机（单双三击 / 长按，纯逻辑便于单测）。 */
-    private val gesture = GestureCore(TAP_WINDOW_MS)
-    /** 长按阈值（毫秒），由 ViewConfiguration 读入。 */
-    private var longPressTimeout = GestureCore.DEFAULT_LONG_PRESS_MS
-    /** 连击窗口到点：结算为单 / 双 / 三击并按配置派发。 */
-    private val tapResolve = Runnable {
-        val g = this@PetService.gesture.onWindowTimeout()
-        if (g != null) {
-            this@PetService.dispatchGesture(g)
-        }
-    }
-    /**
-     * 长按到点：判定为长按手势。
-     * 【坑】即便长按配置为「无」也照样走到这里消费这一次按压，
-     *   否则松手会被连击计数当成单击（用户报的「按久了也当点一下」）。
-     */
-    private val longPressTick = Runnable {
-        val g = this@PetService.gesture.onLongPressTimeout()
-        if (g != null) {
-            this@PetService.ui.removeCallbacks(this@PetService.tapResolve)
-            this@PetService.dispatchGesture(g)
-        }
-    }
-    /** 迷你输入框（三击召唤）与它的逻辑层；常驻复用，不反复建窗。 */
-    internal var talkInput: PetTalkInput? = null
-    internal var talk: PetTalk? = null
-    /** 迷你聊天开启时人偶脚底的 y：整组（人偶 + 输入框）摆位的锚点，键盘上移也基于它。 */
-    internal var talkFeetY = 0
-    /** 最近一次输入法高度，重排时沿用，避免被 0 冲掉。 */
-    internal var talkIme = 0
-    /**
-     * 迷你聊天开启那一刻的人偶水平中心（屏幕坐标）。
-     * 【为何要固定】进 peek 时窗口是「人偶宽」，lp.x + lp.width/2 就是人偶视觉中心；
-     *   摆完框后 lp.width 变成框宽，再拿 lp.x + lp.width/2 当基准会逐次漂移（框越走越偏）。
-     *   故只在首次进入 peek 时记下来，之后一直以它为基准摆框。
-     */
-    internal var talkAnchorX = 0
-    /**
-     * 本轮发送是否刚发生（一个点击周期内有效）。
-     * 【为什么需要】发送后人偶立刻站起来（peek=false），同一轮触摸的 UP 落到 handleTouch
-     *   时 peek 已为假，会被当成「非对话态点击」而误触单击台词。用本标志把这一下让给「看回复」。
-     */
-    internal var talkOnSend = false
-    /**
-     * 迷你输入框当前是否应该存在。
-     *
-     * 【为何需要】layoutMiniTalk 末尾会「没显示就 show」，而发完消息后输入框已经被
-     *   hideQuiet 收掉、紧接着又会重排一次（键盘高度归零），于是它会被重新拉出来 ——
-     *   与「发完只留气泡看回复」的约定相矛盾。用本标志把「摆位」与「是否拉起输入框」分开。
-     */
-    internal var talkInputWanted = false
+    /** 主窗（首个启用人偶）：PetActionRegistry 的对外入口与迷你聊天默认落到它。 */
+    internal var primary: PetWindow? = null
+
+    /** 最近一次交互的人偶窗口：tap / 三击等手势动作落到它，避免多窗口时串到主窗。 */
+    internal var activeWindow: PetWindow? = null
 
     /**
-     * 暂离（away）中：PetView 已从 WindowManager 摘掉，但实例 / lp / PetBus / PetTalk 全部保留。
-     *
-     * 【为什么用独立标志】away 期间 added 会被置 false（好让 REFRESH / 保活路径看到 `!added` 也不 attach）；
-     *   「正在暂离」必须另有判定，恢复只走 exitAway 一条路，避免和 added 语义互相污染。
-     * 【在途回复】away 期间 PetTalk 的回复照样打到 say / saySticky：这两个入口按 `added || away` 放行，
-     *   气泡数据写回同一 PetView、几何留在 lp，但 safeUpdate 因 added=false 不再 updateViewLayout。
-     */
-    internal var away = false
-
-    /** 暂离单一截止：重复触发只重置它，不叠加计时；0 秒 = 摘窗后立即恢复。 */
-    internal val awayCore = AwayCore()
-
-    /** 到期恢复：重新 addView 同一 PetView 并启动动画（不是重新 attachPet）。 */
-    internal val awayResume = Runnable { exitAway() }
-
-    /**
-     * 【无感保活】返回本地 Binder，让「服务是否活着」可被同进程探测。
-     *
-     * 【为什么必须改成这样】getRunningServices 自 API 26 起只能看到本进程内的服务，
-     *   唯一能区分「服务活着」与「进程活着」的手段是 bindService 并看回调是否到达；
-     *   探测侧用 flags=0（不创建服务），只有这里返回了 Binder，回调才会来。
-     * 【影响面】本 Binder 不出进程（组件 exported=false），全工程无其它 onBind 调用方，
-     *   属纯加法改动，不改变任何既有行为。
-     */
-    override fun onBind(intent: Intent?): IBinder {
-        return LocalBinder()
-    }
-
-    /**
-     * 进程内 Binder 句柄：只用于存活探测，不承载业务调用。
-     *
-     * 【为什么是非静态内部类】静态嵌套类里没有外围实例，写 `PetService.this` 会直接
-     *   编译失败（non-static variable this cannot be referenced from a static context）；
-     *   而探测侧只关心「onBind 有没有被调到」，返回一个实心 Binder 就够了。
-     */
-    inner class LocalBinder : Binder()
-
-    /**
-     * 【lamda 自动保活】巡检任务。
-     *
-     * 【为什么挂在这里】lamda 是 shell 进程，被系统回收时不会有任何通知；本服务是前台服务、
-     *   活着是常态，借它的心跳做巡检是最省的做法 —— 不新开 Service、不新注册常驻组件、
-     *   不动 Manifest。人偶本身掉了由 keepalive 那套拉回来，这里只负责 lamda。
-     * 【为什么用 ui Handler】与 onDestroy 共用同一个 Handler，销毁时会被
-     *   removeCallbacksAndMessages(null) 一并清掉，无需额外注销逻辑。
-     * 【开销】60 秒一次读缓存判定，几乎为零；只有探测到没活着才起线程去真拉起。
+     * 【lamda 自动保活】巡检任务：60 秒一次读缓存判定，几乎为零开销。
+     * 与 onDestroy 共用 ui Handler，销毁时会被一并清掉，无需额外注销逻辑。
      */
     internal val lamdaGuard: Runnable = object : Runnable {
         override fun run() {
@@ -195,73 +62,106 @@ class PetService : Service() {
         }
     }
 
+    /**
+     * 【无感保活】返回本地 Binder，让「服务是否活着」可被同进程探测（flags=0 bindService 时回调才会来）。
+     */
+    override fun onBind(intent: Intent?): IBinder {
+        return LocalBinder()
+    }
+
+    /** 进程内 Binder 句柄：只用于存活探测，不承载业务调用。 */
+    inner class LocalBinder : Binder()
+
     override fun onCreate() {
         super.onCreate()
         prefs = PetPrefs.get(this)
+        // 【r11 种子】默认配置的交谈 / 性格内容继承改造前的内置值；幂等，只写一次。
+        com.dollhouse.app.data.DollProfile.seedDefault(this)
         wm = getSystemService("window") as WindowManager
-        touchSlop = ViewConfiguration.get(this).scaledTouchSlop
-        // 长按阈值从 ViewConfiguration 读入，交给手势状态机安排定时器（不写死）。
-        longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
         win = PetWindowController(this)
+        // 【r12 消失对账】上一轮若没走到 onDestroy（被系统杀掉），人偶也算「消失」：
+        //   给当时启用的每只补一次打点，然后清掉脏标记。
+        //   【为什么放在 attach 之前】打点必须在窗口重建、消费 takeHiddenMs 之前完成。
+        if (PetPrefs.serviceDirty(this)) {
+            val now = System.currentTimeMillis()
+            for (d in com.dollhouse.app.data.DollStore.enabled(this)) {
+                PetPrefs.setHiddenAt(this, d.id, now)
+            }
+            PetPrefs.setServiceDirty(this, false)
+        }
         ui.postDelayed(lamdaGuard, LAMDA_GUARD_FIRST_MS)
     }
 
     override fun onStartCommand(intent: Intent?, i: Int, i2: Int): Int {
         val action = if (intent == null) ACTION_START else intent.action
         if (ACTION_STOP == action) {
-            // 用户主动关闭：置位标志，之后被划掉 / 被系统杀 / 重启，都不再自动拉起。
-            // 【away】手动关闭一并取消暂离恢复，保持既有「停止 = 不再自动回来」的启停保活方式。
-            cancelAway()
+            // 用户主动关闭：置位标志，之后被划掉 / 被系统杀 / 重启，都不再自动拉起；取消暂离恢复。
+            win.cancelAwayAll()
             PetPrefs.setUserStopped(this, true)
+            // 【r12 用户定案】关闭 = 人偶从屏幕消失且**不会自动回来** ⇒ 算「人偶消失」，给每只打点。
+            //   按 dollId 存（不再是全局一个键），多只人偶各记各的，不会互相冲掉。
+            win.markAllHidden()
+            // 正常收尾：清掉脏标记，避免下次 onCreate 误判成「被杀」再补打一次点。
+            PetPrefs.setServiceDirty(this, false)
             PetNotifier.stopSafely(this)
             return 2
         }
+        if (ACTION_RELOAD == action) {
+            // 人偶集合发生变化（启用 / 停用 / 新增 / 删除 / 换形象）：整组窗口重建。
+            // attachAll 内部自带 detachAll 兜底，这里无需先拆；暂离中的窗口也一并复位重建。
+            win.detachAll()
+            win.attachAll()
+            return 1
+        }
         if (ACTION_REFRESH == action) {
-            // 【away】暂离中刷新（主题 / 旋转自检）一律跳过：此时 PetView 不在 WindowManager 上，
-            //   任何 updateViewLayout / 重排都会失败或把人偶提前弄回来，恢复由 awayResume 独家负责。
-            if (away) {
-                return 1
-            }
-            updateTouchable()
-            // 主题切换后刷新桌宠取色：颜色常量已被 ThemeManager 整体覆写，这里让画布重读。
-            val pv = petView
-            if (pv != null) {
-                pv.applyTheme()
-                win.applyScale()
-            }
-            // 【v2.10.2】顺带做一次屏幕尺寸自检：REFRESH 是 MainActivity 每次回到前台都会发的动作，
-            // 拿它当「旋转后必然经过的一个点」用，比只等系统回调更稳。
+            // 主题切换后刷新桌宠取色；顺带做屏幕尺寸自检（拿 REFRESH 当「旋转必然经过的一个点」）。
+            // 各窗口内部按 added 守卫，暂离中的窗口不会被误操作。
+            win.updateTouchableAll()
+            win.refreshTheme()
             win.checkScreenChanged()
             return 1
         }
+        // 【r13 用户定案】编辑人偶期间不让外部启动桌宠。
+        //   「只要在编辑界面 就无法打开了外面的人偶 只能通过预览打开当前卡片的人偶」——
+        //   编辑页已把在跑的桌宠关掉，若此时从磁贴 / 通知 / 外部链接又拉起来，
+        //   桌面上就会同时出现「桌宠」和「预览」两只人偶，语义冲突。
+        //   这里与首页的拦截形成双保险（外部入口绕过首页也挡得住）。
+        if (PetPrefs.isEditing(this)) {
+            return 2
+        }
+        // 【r12 修 bug·没选人偶也出现人偶】启动前先确认「有没有启用的人偶」。
+        //   没有任何一只启用时：不挂窗口、直接停服务，并弹一条通知告诉用户为什么。
+        //   需求定案：「没有选择使用人偶的情况下 就不要出现人偶 …… 必须得选择人偶 才会出现所选的人偶」。
+        //   【为什么在这里兜底】外部入口（快捷磁贴 / 外部链接 / 开机广播）绕过首页直接发 ACTION_START，
+        //   只在首页拦是拦不住的，服务侧必须也挡一道。
+        if (!win.hasEnabledDoll()) {
+            PetNotifier.notifyNoDoll(this)
+            return 2
+        }
+        // 【r12】置位「服务在跑」脏标记：正常收尾（STOP / onDestroy）会清掉它；
+        //   若下次 onCreate 发现它还在，就说明上一轮被系统杀了 —— 那也算「人偶消失」。
+        PetPrefs.setServiceDirty(this, true)
         // 走到这里说明是用户主动启动（首页按钮 / 通知栏），清除主动停止标志。
         PetPrefs.setUserStopped(this, false)
+        // 【r12】消失时长改为**按人偶**在 attach 时各自取（见 PetWindow.attach）——
+        //   每只人偶有自己的 returnSeconds，用一个全局时长无法区分。
         PetNotifier.startForegroundCompat(this)
-        // 【away】暂离中 onTaskRemoved 会发 ACTION_START 保活，绝不能借机重新 attach / 隐式显示：
-        //   维持前台即可，等 awayResume 到点自己回来。
-        if (away) {
+        // 暂离中 onTaskRemoved 会发 ACTION_START 保活：维持前台即可，不借机重新挂载 / 隐式显示。
+        if (win.anyAway()) {
             return 1
         }
-        if (!added) {
+        if (!win.isAttached()) {
             if (!Settings.canDrawOverlays(this)) {
                 PetNotifier.stopSafely(this)
                 return 2
             }
-            attachPet()
+            win.attachAll()
         }
         return 1
     }
 
     /**
-     * 【v2.10.2】屏幕尺寸变化回调（旋转 / 折叠屏展开 / 分屏）。
-     *
-     * 【为什么必须自己有】Manifest 里没有声明 configChanges，所以系统在配置变化时
-     *   会重建 Activity 但不会重建本前台 Service —— 悬浮窗带着旧坐标继续挂着，
-     *   竖屏存的 rest_fy(屏高*0.8=1920) 在横屏(屏高1080)下直接落到屏外，表现就是「人偶消失」。
-     *   这里接一下回调，交给 win 重新摆位。
-     *
-     * 【注意】部分 ROM 在桌面（非本 App 前台）旋转时不一定派发这个回调，
-     *   所以 PetView 的帧内自检 screenTick 是同一件事的第二道保险，两者幂等可重复调。
+     * 屏幕尺寸变化回调（旋转 / 折叠屏展开 / 分屏）：交给 win 把每个窗口按新屏幕重新摆位。
      */
     override fun onConfigurationChanged(configuration: Configuration) {
         super.onConfigurationChanged(configuration)
@@ -269,9 +169,7 @@ class PetService : Service() {
     }
 
     /**
-     * 保活：用户在「最近任务」里把本卡片划掉时回调。
-     * 只有当用户没有主动点过「关闭人偶」时才自动拉起，避免和用户的意愿打架。
-     * 直接 startForegroundService，不抢前台、不重建任务栈。
+     * 保活：用户在「最近任务」里把本卡片划掉时回调，未主动关闭则自动拉起。
      */
     override fun onTaskRemoved(intent: Intent?) {
         super.onTaskRemoved(intent)
@@ -292,669 +190,70 @@ class PetService : Service() {
     }
 
     override fun onDestroy() {
-        // 【away】销毁一并取消暂离恢复（removeCallbacksAndMessages 已清 awayResume，这里再清截止状态）。
-        cancelAway()
+        win.cancelAwayAll()
         ui.removeCallbacksAndMessages(null)
-        snapAnim?.cancel()
-        talkInput?.release()
-        talk?.release()
-        detachPet()
+        // detachAll 会逐个取消动画、释放迷你聊天、注销 PetBus 订阅并摘窗。
+        win.detachAll()
+        // 【r12】走到这里说明是正常销毁（STOP 收尾也会到这里）：清掉脏标记。
+        //   下一次 onCreate 若发现标记还在，就说明这一轮是被系统杀的，需要补打消失点。
+        PetPrefs.setServiceDirty(this, false)
         super.onDestroy()
     }
 
-    // 悬浮窗类型：SDK>=26 用 APPLICATION_OVERLAY，否则用 PHONE。
-    // 把 PetView 挂进 WindowManager；任何失败都会静默退出服务。
-    // 从 WindowManager 摘掉 PetView 并复位状态。
-    fun say(str: String, j: Long) {
-        val pv = petView
-        // 【away】暂离中 added 为假，但 PetTalk 在途回复必须写回同一 PetView（气泡数据），
-        //   故放行条件为 `added || away`；窗口写入由 safeUpdate 的 added 守卫拦住，不会重新 attach。
-        if (pv == null || (!added && !away)) {
-            return
-        }
-        ui.removeCallbacks(hideBubble)
-        pv.showBubble(str)
-        if (peek) {
-            // peek 态：人偶是趴姿，窗口高由整组布局算，这里只标「有气泡」再重排。
-            bubbleUp = true
-            layoutMiniTalk(talkIme)
-        } else {
-            expandBubble(pv.neededBubbleSpace())
-        }
-        // 【away】暂离中不排自动收泡：否则回复会在恢复前被 hideBubble 清掉，用户回来什么都看不到。
-        if (!away) {
-            ui.postDelayed(hideBubble, j)
-        }
+    // ---------- 以下为 PetActionRegistry / 对外入口的转发薄壳：落到「当前交互窗口」，无则主窗 ----------
+
+    private fun target(): PetWindow? {
+        return activeWindow ?: primary
     }
 
-    /** 收气泡：peek 态只收气泡并重排整组（保住趴姿与输入框），非 peek 态沿用原逻辑。 */
-    internal fun hideBubbleNow() {
-        val pv = petView
-        if (peek && pv != null) {
-            pv.clearBubble()
-            pv.setBubbleHeight(0)
-            bubbleUp = false
-            layoutMiniTalk(talkIme)
-            return
-        }
-        collapseBubble()
-    }
-
-    /** 常驻气泡：显示后不排自动消失，相位由 PetTalk 自己管。 */
-    internal fun saySticky(str: String) {
-        val pv = petView
-        // 【away】同上：暂离中放行，气泡数据写回同一 PetView，恢复时原样显示。
-        if (pv == null || (!added && !away)) {
-            return
-        }
-        ui.removeCallbacks(hideBubble)
-        pv.showBubble(str)
-        if (peek) {
-            bubbleUp = true
-            layoutMiniTalk(talkIme)
-        } else {
-            expandBubble(pv.neededBubbleSpace())
-        }
-    }
-
-    fun handleTouch(motionEvent: MotionEvent): Boolean {
-        // 【坑】peek 态不能一律早退：否则下面的拖动分支永远不可达，
-        //   输入框开着时想拖走人偶会被当成「点一下」把聊天收掉。
-        //   现在 peek 态照样走拖拽判定，只有「没拖动就松手」才按点击处理（推进气泡相位）。
-        val actionMasked = motionEvent.actionMasked
-        if (actionMasked == 0) {
-            downRawX = motionEvent.rawX
-            downRawY = motionEvent.rawY
-            lastRawX = downRawX
-            lastMoveAt = System.currentTimeMillis()
-            val lpv = lp!!
-            val pv = petView!!
-            downPivotX = lpv.x + pv.pivotLocalX()
-            // 【气泡·静止锚点】气泡在播时窗口整体被抬高了一个气泡高度；这里先把锚点换算回
-            //   「无气泡时的静止位」，后续 placeByPivot 的气泡分支会再减去气泡高度，
-            //   松手/拖动过程中人偶才不会额外上下跳（用户报的「拖完气泡偏了」）。
-            val pivotLocalY = lpv.y + pv.pivotLocalY() + bubbleSpaceIfUp()
-            downPivotY = pivotLocalY
-            curPivotX = downPivotX
-            curPivotY = pivotLocalY
-            dragging = false
-            snapAnim?.cancel()
-            // 【触摸唤醒】按下即置忙：帧循环可能正睡在贴边 / 待机档（最多 250ms 才走一帧），
-            //   立即拉回 16ms，拖拽起手与「按下即响应」才不顿。吸附弹簧已取消，由 isRunning 探测自动落闲。
-            pv.setTouchBusy(true)
-            gesture.onDown()
-            // 新的按下取消上一轮尚未结算的连击（与常见手势识别一致）：这一次抬手会重排窗口，
-            //   否则「上一击的单击动作」会在用户按住第二下时提前触发。
-            ui.removeCallbacks(tapResolve)
-            ui.postDelayed(longPressTick, longPressTimeout.toLong())
-            return true
-        }
-        if (actionMasked != 1) {
-            if (actionMasked == 2) {
-                val rawX = motionEvent.rawX - downRawX
-                val rawY = motionEvent.rawY - downRawY
-                val currentTimeMillis = System.currentTimeMillis()
-                val rawX2 = (motionEvent.rawX - lastRawX) / Math.max(0.008f, (currentTimeMillis - lastMoveAt) / 1000.0f)
-                lastRawX = motionEvent.rawX
-                lastMoveAt = currentTimeMillis
-                if (!dragging && Math.hypot(rawX.toDouble(), rawY.toDouble()) > touchSlop) {
-                    dragging = true
-                    // 拖动即撤销手势：清掉在途的长按与连击判定，松手不再产生任何点击动作。
-                    gesture.cancel()
-                    ui.removeCallbacks(longPressTick)
-                    ui.removeCallbacks(tapResolve)
-                    // 拖动人偶时先摘掉迷你聊天（约定：不让框跟着拖动变成半截），
-                    // 但不动人偶位置 —— 紧接着的拖动流程会接管摆放。
-                    if (peek) {
-                        abortMiniTalkForDrag()
-                    }
-                    // 【气泡·保留】对话回复（PetTalk 气泡）随人偶一起拖动，不清空、不取消请求；
-                    //   仅当没有 PetTalk 气泡时才照旧收掉临时台词气泡。
-                    if (talk?.hasBubble() != true) {
-                        collapseBubble()
-                    }
-                    exitEdgePeek()
-                    petView!!.setDragging(true)
-                }
-                if (dragging) {
-                    curPivotX = downPivotX + rawX
-                    curPivotY = downPivotY + rawY
-                    applyDragPlacement()
-                    petView!!.setDragVelocity(rawX2)
-                    petView!!.lookAt(Math.max(-1.0f, Math.min(1.0f, rawX2 / 900.0f)))
-                }
-                return true
-            }
-            if (actionMasked != 3) {
-                return false
-            }
-        }
-        if (actionMasked == 3) {
-            // CANCEL：撤销未派发的手势，不产生任何动作（也不再把这一下算成点击）。
-            gesture.cancel()
-            ui.removeCallbacks(longPressTick)
-            ui.removeCallbacks(tapResolve)
-        }
-        if (dragging) {
-            petView!!.setDragging(false)
-            placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
-            settle()
-        } else if (actionMasked == 1) {
-            // 抬手：交给手势状态机。长按已消费（或拖动已撤销）时 onUp 返回 false，不再计连击。
-            ui.removeCallbacks(longPressTick)
-            if (gesture.onUp()) {
-                ui.removeCallbacks(tapResolve)
-                ui.postDelayed(tapResolve, TAP_WINDOW_MS)
-            }
-            talkOnSend = false
-        }
-        dragging = false
-        // 【触摸释放】抬手 / CANCEL 都落到这里：清忙标志，帧循环自然落回待机 / 贴边档。
-        petView?.setTouchBusy(false)
-        return true
-    }
-
-    // 按锚点把窗口摆到指定坐标（含边界约束）。
-    // 记住当前锚点位置，供下次启动恢复。
-    internal fun openPanel() {
-        val intent = Intent(this, MainActivity::class.java)
-        intent.flags = 335544320
-        try {
-            startActivity(intent)
-            return
-        } catch (unused: Throwable) {
-        }
-        // ColorOS 等系统会拦截后台服务直接 startActivity；改用 PendingIntent
-        // 走系统允许的通道再试一次，失败则静默放弃（长按桌宠仍可重试）。
-        try {
-            val pending = PendingIntent.getActivity(this, 2, intent, 201326592 or 67108864)
-            pending.send()
-        } catch (ignored: Throwable) {
-            Logs.w("Dollhouse", "ignored", ignored)
-        }
-    }
-
-    /** 让桌宠原地跳一下（单/双击的共用动作）。 */
     internal fun petJump() {
-        petView?.playJump()
+        target()?.petJump()
     }
 
-    /**
-     * 【已废弃】旧的全屏聊天入口。
-     * 【改动】人偶不再把人送进全屏聊天页 —— 三击改成召唤迷你输入框（openMiniTalk）。
-     *   全屏页仍可从首页「打开聊天」进入，那条路径与本类无关。
-     */
+    /** 单击台词入口（PetActionRegistry 调用）。 */
+    fun say(str: String, j: Long) {
+        target()?.say(str, j)
+    }
+
+    internal fun openMiniTalk() {
+        target()?.openMiniTalk()
+    }
+
+    /** 旧的全屏聊天出口：三击已改走迷你输入框。 */
     internal fun toggleChat() {
         openMiniTalk()
     }
 
-    /** 三击召唤：挂出迷你输入框，人偶趴到框顶。 */
-    internal fun openMiniTalk() {
-        if (petView == null || lp == null || !added) {
-            return
-        }
-        ensureMiniTalk()
-        talkInputWanted = true
-        layoutMiniTalk(talkIme)
-    }
-
-    /** 首次使用时组装逻辑层与输入框（之后常驻复用，不反复建窗）。 */
-    private fun ensureMiniTalk() {
-        if (talk == null) {
-            talk = PetTalk(this, newTalkHost())
-        }
-        if (talkInput == null) {
-            talkInput = PetTalkInput(this, newTalkInputHost())
-        }
-    }
-
-    /** PetTalk 的宿主回调：气泡分页 / 行数变化后的整组重排、气泡读回、忙碌态透传。 */
-    private fun newTalkHost(): PetTalk.Host {
-        return object : PetTalk.Host {
-            override fun saySticky(str: String) {
-                this@PetService.saySticky(str)
-            }
-
-            override fun sayTemp(str: String, j: Long) {
-                this@PetService.say(str, j)
-            }
-
-            override fun clearBubble() {
-                this@PetService.hideBubbleNow()
-            }
-
-            override fun showBubblePaged(str: String, i: Int): Int {
-                val petView = this@PetService.petView ?: return 0
-                val pages = petView.showBubblePaged(str, i)
-                // 【v2.7】分页后气泡高度跟着变（一片最多 PAGE_MAX_LINES 行）：
-                //   必须重排一次，否则首屏还按「思考中…」的旧窗高画，多出一行被裁。
-                if (this@PetService.peek && this@PetService.bubbleUp) {
-                    this@PetService.layoutMiniTalk(this@PetService.talkIme)
-                } else {
-                    this@PetService.expandBubble(petView.neededBubbleSpace())
-                }
-                return pages
-            }
-
-            override fun bubblePage(i: Int): String? {
-                return this@PetService.petView?.bubblePage(i)
-            }
-
-            override fun setBubbleLines(i: Int) {
-                val petView = this@PetService.petView ?: return
-                petView.setBubbleMaxLines(i)
-                // 行数变了气泡高度就变，必须重排整组，否则窗高对不上文字。
-                if (this@PetService.peek && this@PetService.bubbleUp) {
-                    this@PetService.layoutMiniTalk(this@PetService.talkIme)
-                }
-            }
-
-            override fun onBusy(z: Boolean) {
-                this@PetService.talkInput?.setBusy(z)
-            }
-
-            override fun bubbleHasOverflow(): Boolean {
-                val petView = this@PetService.petView
-                return petView != null && petView.bubbleHasOverflow()
-            }
-        }
-    }
-
-    /** PetTalkInput 的宿主回调：输入框收起 / 发送 / 输入法高度变化时的整组重排。 */
-    private fun newTalkInputHost(): PetTalkInput.Host {
-        return object : PetTalkInput.Host {
-            override fun onClosed() {
-                // 收起输入框：人偶站起来（含气泡复位）。
-                this@PetService.exitPeek()
-            }
-
-            override fun onSend(str: String) {
-                // 【约定·用户定案】发完消息：收输入框 + 人偶从趴姿站回原位，
-                //   回复走头顶普通气泡展示。（旧行为只重排不退出趴姿，
-                //   于是「框收了、人偶还是半个头」。）
-                // 【顺序要紧】exitPeek() 内部会 clearBubble()，必须先退趴姿再发请求，
-                //   反过来会把刚点亮的「思考中…」一起清掉。
-                this@PetService.talkIme = 0
-                this@PetService.talkInputWanted = false
-                this@PetService.talkOnSend = true
-                this@PetService.exitPeek()
-                this@PetService.talk?.talk(str)
-            }
-
-            override fun onIme(i: Int) {
-                this@PetService.talkIme = i
-                if (this@PetService.peek) {
-                    this@PetService.layoutMiniTalk(i)
-                }
-            }
-        }
-    }
-
-    /**
-     * 迷你聊天的整组摆位：人偶完整悬浮在框上方，输入框紧贴人偶下方。
-     * 【几何 v2.7】框顶 = 人偶脚底 + PET_HOVER_GAP_DP；人偶窗口 = 完整身高 + 气泡高；
-     *   输入框 = 独立 overlay。整组以人偶脚底为锥点，不得越出屏幕可用区。
-     * 【键盘】可用底边扣掉输入法高度，整组不够放就整体上移，人偶与框不会分家。
-     */
-    /** 三击召唤 / 改人偶比例后重排：把「人偶 + 迷你输入框」整组按当前锚点重新摆位。 */
-    internal fun layoutMiniTalk(imeBottom: Int) {
-        val pv = petView
-        val lpv = lp
-        if (pv == null || lpv == null || !added) {
-            return
-        }
-        enterPeek(pv)
-        val dm = resources.displayMetrics
-        // 【定案 v2.6】不再「搭接」：人偶完整悬浮在输入框上方，中间留一条固定间隙。
-        //   旧值 3dp 负搭接（框顶高于脚3dp）会让框盖住人偶下沿；
-        //   用户要求「小人以完整形态悬浮在对话框上面」，故改为正间隙。
-        val gap = Math.round(PET_HOVER_GAP_DP * dm.density)
-        val barH = UiKit.dp(this, PetTalkInput.HEIGHT_DP)
-        val edge = UiKit.dp(this, 8.0f)
-        // 【定案 v2.5】框宽 = 「界面最大比例」时的宽度（petMaxWidth，默认 225dp），
-        //   与人偶比例无关 —— 人偶调小后输入框照样宽，好打字（用户指正）。
-        //   【但】人偶本身不跟着放大：onDraw 按当前比例绘制，在窗内水平居中，
-        //   两侧留出透明带（用户要的是「框保持最大比例、小人不用保持」）。
-        //   趴姿高度取 perchHeight()（当前比例），与绘制共用同一基准，头才贴住框顶。
-        val width = Math.max(1, pv.petMaxWidth())
-        // 【居中 v2.7】框以「人偶所在位置」为基准：每次重排都把框对人偶中心居中，
-        //   并双侧夹回屏内（不越出屏幕）。锚点在首次进 peek 时锁死，避免逐次漂移。
-        lpv.x = Math.max(0, Math.min(dm.widthPixels - width, talkAnchorX - width / 2))
-        // 【人偶高度】取完整身高：peek 态人偶整只悬在框上（v2.6 定案），
-        //   与 onDraw 的绘制基准一致，脚底正好落在窗口底边。
-        //   【与框宽基准不同是有意的】框宽取最大比例（好打字），高度取当前比例（人偶多大画多大）。
-        var perch = pv.perchHeight()
-        if (perch <= 0) {
-            perch = Math.max(1, pv.fullHeight())
-        }
-        // 【坑】先夹 x 再量气泡：贴边态下 lp.x 可能为负，直接拿去排字会算窄，
-        //   等后面夹回屏内就多出一截空白（夹 x 已提到上面，紧跟 width 计算）。
-        var bubble = 0
-        if (bubbleUp) {
-            pv.relayoutBubble(width, lpv.x)
-            bubble = pv.neededBubbleSpaceFor(width, lpv.x)
-            pv.setBubbleHeight(bubble)
-        }
-        val availBottom = dm.heightPixels - Math.max(0, imeBottom)
-        // 【v2.7】整组「人偶 + 框」以人偶脚底为锥点向上生长，不得越出可用底边。
-        //   输入框底边上限 = 可用底边 - 留白；据此反推 talkY 的上限。
-        val maxTalkY = availBottom - edge - barH
-        var baseTalkY = talkFeetY + gap
-        if (baseTalkY > maxTalkY) {
-            baseTalkY = maxTalkY
-        }
-        var bottom = baseTalkY - gap
-        val minTop = Math.round(dm.density * 4.0f)
-        // 人偶太高、顶部要越出屏幕：把人偶锥回屏内（头部小幅让位），
-        //   保「框在屏内可见 + 两者间隙不变」。
-        if (bottom - (perch + bubble) < minTop) {
-            bottom = minTop + perch + bubble
-            if (bottom + gap > maxTalkY) {
-                bottom = maxTalkY - gap
-            }
-        }
-        val talkY = bottom + gap
-        var top = bottom - (perch + bubble)
-        if (top < 0) {
-            top = 0
-        }
-        petTopY = top
-        lpv.width = width
-        lpv.height = perch + bubble
-        lpv.y = top
-        safeUpdate()
-        placeTalkInput(talkY, width)
-    }
-
-    /** 首次进 peek：锁死锚点（脚底 Y / 水平中心），清气泡、关贴边、切趴姿。 */
-    private fun enterPeek(petView: PetView) {
-        val lpv = lp!!
-        talkFeetY = lpv.y + lpv.height
-        // 【v2.7】此刻 lp.width 还是人偶宽、人偶画在窗内居中，中心就是人偶视觉中心。
-        talkAnchorX = lpv.x + Math.max(1, lpv.width) / 2
-        peek = true
-        ui.removeCallbacks(hideBubble)
-        petView.clearBubble()
-        petView.setBubbleHeight(0)
-        bubbleUp = false
-        petView.setEdgePeek(false, false)
-        petView.setPeek(true)
-    }
-
-    /** 输入框摆放：发完消息 / 退出趴姿时只收起；否则按当前位置显示或移动。 */
-    private fun placeTalkInput(talkY: Int, width: Int) {
-        val input = talkInput
-        if (input == null) {
-            return
-        }
-        if (!talkInputWanted) {
-            // 发完消息 / 退出趴姿：只摆人偶与气泡，不把输入框再拉出来。
-            if (input.isShowing()) {
-                input.hideQuiet()
-            }
-            return
-        }
-        val x = lp!!.x
-        if (input.isShowing()) {
-            input.moveTo(x, talkY, width)
-        } else {
-            input.show(x, talkY, width)
-        }
-    }
-
-    /**
-     * 拖动人偶：先收掉迷你输入框（静默 hideQuiet，不 release），人偶照样能被拖走。
-     * 【气泡·保留】不再清空气泡 / 复位 bubbleUp：PetTalk 的分页游标、全文与在途请求原样保留，
-     *   收框后由 placeByPivot 的气泡分支把「人偶 + 气泡」整组继续摆出来。
-     */
-    private fun abortMiniTalkForDrag() {
-        if (!peek) {
-            return
-        }
-        peek = false
-        talkInputWanted = false
-        val input = talkInput
-        if (input != null && input.isShowing()) {
-            // 【坑】必须用 hideQuiet 而不是 release：release 会把 root / input 置空，
-            //   但 lpx 里登记的窗口仍挂在 WindowManager 上 —— 之后 show() 会再 addView，
-            //   同一个 View 被 add 两次，抛 IllegalStateException（try/catch 吞掉后输入框从此拉不起来）。
-            input.hideQuiet()
-        }
-        petView?.setPeek(false)
-        talkIme = 0
-    }
-
-    /**
-     * 手势响应派发：按用户配置的动作集合执行（交谈 / 聊天 / 继续）。
-     *
-     * 【顺序】继续（仅在有气泡或加载中时独占）> 交谈 > 聊天。
-     *   默认：单击 = 交谈 + 继续；双击 = 无；三击 = 聊天（openMiniTalk）；长按 = 无。
-     * 【继续】只有被选中、且当前确有气泡或正在加载时才生效；有气泡/加载时只继续，
-     *   不再叠加交谈 / 聊天（避免把正在看的回复顶掉）。
-     */
-    private fun dispatchGesture(gesture: String) {
-        val actions = PetPrefs.gestureActions(this, gesture)
-        if (actions.isEmpty()) {
-            return
-        }
-        // 【away·独占】暂离最先判定并直接 return：同一次手势即使还配了交谈 / 聊天也不执行，
-        //   避免「摘窗」与「开迷你输入框」互相打架。其余动作保持原来顺序。
-        if (actions.contains(GestureActions.A_AWAY)) {
-            enterAway(PetPrefs.awaySeconds(this))
-            return
-        }
-        val t = talk
-        if (actions.contains(GestureActions.A_CONTINUE) && t != null && (t.hasBubble() || t.isBusy())) {
-            t.onBubbleTap()
-            return
-        }
-        if (actions.contains(GestureActions.A_TALK)) {
-            // 复用单击动作：跳一下 + 随机说一句。
-            PetActionRegistry.perform("tap", this)
-        }
-        if (actions.contains(GestureActions.A_CHAT)) {
-            openMiniTalk()
-        }
-    }
-
-    /**
-     * 进入暂离：整只人偶连同气泡 / 迷你输入框一起从屏幕消失，到点返回原位。
-     *
-     * 【做法】不 stopSelf、不动 user_stopped、不重建 PetTalk、不清空在途回复；只把同一 PetView
-     *   从 WindowManager 摘掉（win.awayHide），实例 / lp / PetBus / PetTalk 原样保留。
-     * 【重复触发】awayCore.reset 只重置单一截止，重新 postDelayed 同一个 awayResume，不叠加。
-     * 【0 秒】reset 返回 0，postDelayed(awayResume, 0) 在下一轮消息执行 exitAway ——
-     *   摘窗后立即恢复，不是永久关闭。
-     */
-    internal fun enterAway(seconds: Int) {
-        val pv = petView
-        if (pv == null || (!added && !away)) {
-            // 人偶根本没挂着（或已被手动关闭）：不制造「假暂离」，保持既有启停语义。
-            return
-        }
-        if (!away) {
-            away = true
-            ui.removeCallbacks(hideBubble)
-            snapAnim?.cancel()
-            // 迷你输入框静默收掉（不 release / 不重建 PetTalk），并清趴姿标记，
-            // 避免 hidden 期间任何路径再把它 input.show 出来（layoutMiniTalk / openMiniTalk 均看 added）。
-            talkInputWanted = false
-            val input = talkInput
-            if (input != null && input.isShowing()) {
-                input.hideQuiet()
-            }
-            peek = false
-            bubbleUp = false
-            pv.setPeek(false)
-            pv.clearBubble()
-            pv.setBubbleHeight(0)
-            // 摘窗前把几何复位成「无气泡静止位」：恢复时同一 lp 直接就是原位置原高度。
-            val lpv = lp
-            if (lpv != null) {
-                lpv.height = pv.baseHeight()
-                lpv.y = petTopY
-            }
-            win.awayHide()
-        }
-        val delay = awayCore.reset(seconds, System.currentTimeMillis())
-        ui.removeCallbacks(awayResume)
-        ui.postDelayed(awayResume, delay)
-    }
-
-    /**
-     * 暂离到期恢复：把同一 PetView 重新 addView 回原 lp 并启动动画。
-     *
-     * 【权限】恢复前复检悬浮窗权限；被撤销就安全退出（stopSafely），不循环重试 ——
-     *   与既有的 onStartCommand 权限分支同一处理方式。
-     * 【在途回复】away 期间 PetTalk 的回复经 say / saySticky 写回了同一 PetView 的气泡数据、留在 lp
-     *   高度里；这里 addView 后 safeUpdate 一次即可原样显示，无需重发请求、也不清空。
-     */
-    internal fun exitAway() {
-        if (!away) {
-            return
-        }
-        away = false
-        awayCore.cancel()
-        val pv = petView
-        val lpv = lp
-        if (pv == null || lpv == null || added) {
-            return
-        }
-        if (!Settings.canDrawOverlays(this)) {
-            PetNotifier.stopSafely(this)
-            return
-        }
-        if (!win.awayShow(pv, lpv)) {
-            PetNotifier.stopSafely(this)
-        }
-    }
-
-    /** 手动停止 / 服务销毁时取消暂离恢复，保持既有「停止 = 不再自动回来」的启停保活方式。 */
-    internal fun cancelAway() {
-        awayCore.cancel()
-        ui.removeCallbacks(awayResume)
-    }
-
-    /** 气泡占用的窗口高度（有气泡且非 peek 时为其实际高度），用于把窗口坐标换算成「静止锚点」。 */
-    private fun bubbleSpaceIfUp(): Int {
-        val pv = petView
-        return if (bubbleUp && !peek && pv != null && pv.hasBubbleContent()) pv.bubbleHeight() else 0
-    }
-
-    // ---------- 以下为 PetWindowController 的转发薄壳，对外契约不变 ----------
-    internal fun overlayType(): Int = win.overlayType()
-
-    internal fun attachPet() {
-        win.attachPet()
-    }
-
-    internal fun detachPet() {
-        win.detachPet()
-    }
-
-    internal fun expandBubble(i: Int) {
-        win.expandBubble(i)
-    }
-
-    fun collapseBubble() {
-        win.collapseBubble()
-    }
-
-    fun safeUpdate() {
-        win.safeUpdate()
-    }
-
-    internal fun placeByPivot(i: Int, i2: Int) {
-        win.placeByPivot(i, i2)
-    }
-
-    internal fun rememberPivot() {
-        win.rememberPivot()
-    }
-
-    internal fun clampFeetY(i: Int, i2: Int, i3: Int): Int = win.clampFeetY(i, i2, i3)
-
-    internal fun settle() {
-        win.settle()
-    }
-
-    internal fun snapToEdge(z: Boolean, i: Int) {
-        win.snapToEdge(z, i)
-    }
-
-    internal fun enterEdgePeek(z: Boolean) {
-        win.enterEdgePeek(z)
-    }
-
-    internal fun exitEdgePeek() {
-        win.exitEdgePeek()
-    }
-
-    internal fun updateTouchable() {
-        win.updateTouchable()
-    }
-
-    internal fun applyPetShown(z: Boolean) {
-        win.setPetShown(z)
-    }
-
-    /**
-     * 退出趴姿：把 host.peek 清掉再委托 PetWindowController 复位。
-     * 【为什么覆写】迷你聊天直接改 peek 而不走 layoutPeek，win 只读 host.peek，
-     *   所以必须由这里同步清位，否则 win.exitPeek() 会因 host.peek 仍为 true 而正常复位，
-     *   但 applyScale 之类读 host.peek 的分支会误判成「聊天框还开着」。
-     */
-    fun exitPeek() {
-        win.exitPeek()
-        peek = false
-        talkIme = 0
-        talkInputWanted = false
-        // 【坑】必须连输入框一起静默收掉：applyScale 等路径会直接调本方法，
-        //   若只复位趴姿，输入框 overlay 会孤零零挂在屏幕上直到 15 秒自愈。
-        val input = talkInput
-        if (input != null && input.isShowing()) {
-            input.hideQuiet()
-        }
-        bubbleUp = false
-    }
-
-    internal fun applyScale() {
-        win.applyScale()
-    }
-
-    internal fun applyDragPlacement() {
-        win.applyDragPlacement()
+    internal fun openPanel() {
+        target()?.openPanel()
     }
 
     companion object {
         const val ACTION_REFRESH = "REFRESH"
+        const val ACTION_RELOAD = "RELOAD"
         const val ACTION_START = "START"
         const val ACTION_STOP = "STOP"
 
-        /** 点一下人偶时随机说一句（原「定时自动冒台词」已按用户要求下线，改成点一下才说）。 */
         /**
-         * 单击人偶时随机蹦一句（用户定案：单击 = 跳一下 + 随机说一句）。
-         * 【坑】v2.4 删 chatter 时把台词入口一并删了，导致「点击没消息弹出来」；
-         *   本轮在 PetActionRegistry 的 tap 动作里重新接线。
+         * 【r11 起只作种子】单击台词的出厂默认值，由 [com.dollhouse.app.data.DollProfile.seedDefault]
+         *   写入「默认配置」人偶的「交谈内容」；运行期取的是 DollProfile.talkLines（按人偶取）。
+         *   本常量不再直接参与单击行为。
          */
         @JvmField
         internal val LINES_TAP = arrayOf("你好呀～", "我一直都在哦。", "有什么想聊的吗？")
 
         internal const val SNAP_ZONE_RATIO = 0.25f
 
-        /** 连击判定窗口：窗口内累计到 3 次才算三击（双击聊天已取消，窗口留宽一点好按）。 */
+        /** 连击判定窗口：窗口内累计到 3 次才算三击。 */
         internal const val TAP_WINDOW_MS = 350L
 
-        /**
-         * 人偶与迷你输入框之间的间隙（dp）。
-         * 【定案 v2.6】曾为负搭接 3dp（框顶盖住脚），用户要求「完整形态悬浮在框上面」，改正间隙。
-         */
+        /** 人偶与迷你输入框之间的间隙（dp）。 */
         internal const val PET_HOVER_GAP_DP = 6.0f
 
         /** lamda 设备服务巡检周期（毫秒）。 */
         internal const val LAMDA_GUARD_MS = 60000L
 
-        /** 人偶刚起时的首次巡检延迟：等服务自己摆稳再干活，别在冷启高峰期抢资源。 */
+        /** 人偶刚起时的首次巡检延迟。 */
         internal const val LAMDA_GUARD_FIRST_MS = 15000L
     }
 }

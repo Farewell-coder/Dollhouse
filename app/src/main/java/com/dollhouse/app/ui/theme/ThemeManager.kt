@@ -208,6 +208,12 @@ object ThemeManager {
             //   29 个颜色字段的唯一写入处，冷启动 / 换主题 / 就地换色三条路径都必经此处，
             //   落一次即可保证「卡片底 = CARD 按用户透明度合成」在全 App 一致。
             UiKit.applyCardAlpha(PetPrefs.cardAlpha(c))
+            // 【r13·外观】弹窗 / 面板的「磨砂程度」。与卡片透明度同理：apply() 是颜色的
+            //   唯一写入处，冷启动 / 换主题 / 就地换色三条路径都必经此处，落一次即可全 App 一致。
+            UiKit.applyFrostStrength(PetPrefs.frostStrength(c))
+            // 【r13·外观】用户自定义字体颜色。与卡片透明度同理：apply() 是 29 个颜色字段的
+            //   唯一写入处，冷启动 / 换主题 / 就地换色三条路径都必经此处，落一次即可全 App 一致。
+            UiKit.applyFontColor(PetPrefs.fontColor(c))
             // 窗口背景同步成当前主题底色：换主题走 recreate()，重建的那一瞬间会先露出
             // 窗口背景，不刷的话暗色 / 纯黑下会闪一下白。
             val act = UiKit.findActivity(c)

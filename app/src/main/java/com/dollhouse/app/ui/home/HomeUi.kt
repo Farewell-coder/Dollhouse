@@ -16,7 +16,6 @@ import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.dollhouse.app.BackgroundCropActivity
@@ -25,12 +24,12 @@ import com.dollhouse.app.PetService
 import com.dollhouse.app.PetTileService
 import com.dollhouse.app.R
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.device.ShizukuBridge
 import com.dollhouse.app.keepalive.KeepAliveBridge
-import com.dollhouse.app.pet.GestureActions
-import com.dollhouse.app.pet.GestureCore
+import com.dollhouse.app.ui.chat.ChatListScreen
 import com.dollhouse.app.ui.theme.Fonts
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
@@ -48,13 +47,42 @@ import com.dollhouse.app.ui.theme.UiKit
  *   同一份逻辑既能被 Compose 页驱动，也保持可测。
  *
  * 【入口】`MainActivity` 在 `onCreate` / `onResume` 调用 [apply] / [sync]。
+ *
+ * 【r13 扩展·三 Tab 底座】改造后主界面是三个 Tab（聊天 / 人偶 / 主页）共享一个底座，
+ *   外加一条常驻的悬浮底栏（[BottomNav]）。本对象的 [apply] 负责把四样东西装配好：
+ *   三个页面（各自一棵 ComposeView）+ 一条底栏；[show] 只切页面的可见性。
+ *   设置页从「底座之一」降级为**主页里的一个覆盖层**（走 [PageStack]），
+ *   理由见 [TAG_SET] 的注释。
  */
 object HomeUi {
     private const val LOG_TAG = "Dollhouse"
 
-    /** 页面 tag：与 `MainActivity.TAG_HOME_PAGE` / `TAG_SETTINGS_PAGE` 逐字一致（路由存储用）。 */
+    /**
+     * 页面 tag：首页 / 设置页是「常驻底座」，由本对象自己用 tag 定位、互斥显隐。
+     * 【为什么不进 PageStack】这两页是 Home 的底座（保性能与滚动位置），
+     *   与覆盖层是两套语义：覆盖层「压在上面的层」，底座「Home 本身换了张脸」。
+     */
     const val TAG_HOME = "feiyu_home_page"
+
+    /**
+     * 【r13·已降级】设置页的老 tag。
+     *
+     * 【保留原因】它与 [com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE] 是**同一个字符串值**
+     *   （`feiyu_settings_page`），历史上这两个常量各指一处引用。设置页从底座改成覆盖层后，
+     *   权威值在 `SettingsScreen.TAG_PAGE`（页面栈与重建都认它）。
+     *   这里保留常量只是为了不改动 [PageStack] 存档里可能存在的旧值 —— 两者字符串相同，
+     *   所以旧存档照样能被 `SettingsScreen` 认领，不需要迁移。
+     */
     const val TAG_SET = "feiyu_settings_page"
+
+    /** 【r13】聊天列表页的 tag（第 1 个 Tab 的宿主）。 */
+    const val TAG_CHAT = "feiyu_chat_page"
+
+    /** 【r13】人偶页的 tag（第 2 个 Tab 的宿主）。 */
+    const val TAG_CONTACT = "feiyu_contact_page"
+
+    /** 【r13】底部悬浮导航栏的 tag —— 它覆盖在三个页面之上，不参与页面显隐。 */
+    const val TAG_BAR = "feiyu_bottom_bar"
 
     /** 通知权限的运行时申请回调码。 */
     private const val REQ_NOTIF = 102
@@ -67,10 +95,25 @@ object HomeUi {
     /* ============================ 装配 ============================ */
 
     /**
-     * 搭出「首页 + 设置页」的宿主。
+     * 搭出「三个 Tab + 一条底栏」的主界面底座。
      *
-     * 【为什么改成两棵独立 ComposeView】原实现把两页控件搭在同一棵 ScrollView 里再拆开，
-     *   拆的过程依赖索引 / 文本 / tag 三套契约。现在两页各自独立，靠 [show] 切可见性即可。
+     * 【结构】
+     * ```
+     * content
+     *  └─ host (FrameLayout)
+     *      ├─ chat     (TAG_CHAT)     ← 聊天列表，默认可见
+     *      ├─ contact  (TAG_CONTACT)  ← 人偶
+     *      ├─ home     (TAG_HOME)     ← 原首页
+     *      └─ bar      (TAG_BAR)      ← 悬浮底栏（盖在最上，三页常驻）
+     * ```
+     *
+     * 【为什么底栏独立成层而不是塞进每个页面】底栏要在三页之间**保持一致的外观与状态**
+     *   （选中的 Tab 高亮、未读徽标）。若每页各挂一条，切页时是三条不同的 View 在交替
+     *   出现，未读徽标要同步三份，选中态动画也会被切断重来。
+     *   独立成层后它自始至终是同一个 View，切页时纹丝不动。
+     *
+     * 【为什么不 setContentView】Compose 页是「页面」而不是「内容视图」，
+     *   走与既有页面栈同一条挂载通道（见 `ComposeHost` 头注释）。
      */
     @JvmStatic
     fun apply(activity: Activity?) {
@@ -81,17 +124,72 @@ object HomeUi {
             val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
             content.removeAllViews()
             val host = android.widget.FrameLayout(activity)
+            // 【顺序即层级】聊天 → 人偶 → 主页 → 底栏：后加的盖在上面。
+            val chat = ChatListScreen.buildPage(activity)
+            chat.tag = TAG_CHAT
+            val contact = ContactScreen.buildPage(activity)
+            contact.tag = TAG_CONTACT
             val home = HomeScreen.build(activity)
             home.tag = TAG_HOME
-            val settings = SettingsScreen.build(activity)
-            settings.tag = TAG_SET
+            host.addView(chat)
+            host.addView(contact)
             host.addView(home)
-            host.addView(settings)
             content.addView(host)
+            // 【底栏】必须最后加：它是 content 的直接子（不放进 host），
+            //   这样它盖在整块页面区之上，且自身的 navigationBarsPadding 能正确取到 insets。
+            //   【为什么不放进 host】host 里三个页面会做 translateX 转场，底栏跟着位移会很怪。
+            val bar = buildBar(activity)
+            bar.tag = TAG_BAR
+            content.addView(bar)
             sync(activity)
-            // 【路由恢复】主题切换重建时回到切换前那一页；冷启动回首页。
-            val toSettings = PetPrefs.themeOnSettings(activity)
-            show(activity, !toSettings)
+            // 【路由恢复】冷启动进「上次停留的 Tab」；第一次启动时偏好里没有记录，
+            //   [AppNav] 会落到默认值（聊天），即需求要求的「默认页面改为聊天列表」。
+            AppNav.restore(activity)
+            showTab(activity, AppNav.current)
+        } catch (ignored: Throwable) {
+            Logs.w(LOG_TAG, "ignored", ignored)
+        }
+    }
+
+    /**
+     * 造底栏。
+     *
+     * 【为什么用 FrameLayout 包一层 ComposeView】底栏要「浮在内容之上且不占布局高度」，
+     *   所以外层必须是内容高度包裹（wrap_content）+ 底对齐，
+     *   这样只有真正的那一条胶囊挡触摸，其余区域点击穿透到下面的页面。
+     */
+    private fun buildBar(act: MainActivity): View {
+        val wrap = android.widget.FrameLayout(act)
+        val lp = android.widget.FrameLayout.LayoutParams(-1, -2)
+        lp.gravity = android.view.Gravity.BOTTOM
+        wrap.layoutParams = lp
+        wrap.isClickable = false
+        val cv = com.dollhouse.app.ui.compose.ComposeHost.createView(act) {
+            BottomNav.Bar(act) { tab ->
+                // 【切页收尾】切 Tab 时把覆盖层全弹掉。
+                //   理由：覆盖层（人偶列表 / 编辑页 / 设置页）是从某个 Tab 里点进去的，
+                //   用户切到另一个 Tab 说明他换了意图，把旧页留在栈里会让返回键
+                //   把他送回「上一个 Tab 的子页」，与直觉相反（主流 App 都是切 Tab 即回栈底）。
+                clearLayers(act)
+                showTab(act, tab)
+            }
+        }
+        wrap.addView(cv, android.widget.FrameLayout.LayoutParams(-1, -2))
+        return wrap
+    }
+
+    /** 把覆盖层全部弹掉（切 Tab 用）。 */
+    private fun clearLayers(act: Activity) {
+        try {
+            while (com.dollhouse.app.ui.compose.PageStack.depth(act) > 0) {
+                // 【先清账再摘页】pop 带退场动画；这里要的是「立刻消失」，
+                //   所以传一个空回调并让它走无动画的快路径 —— 直接 reset 会连记账一起丢，
+                //   而记账正是我们要保留的（下次还能正常入栈）。
+                if (!com.dollhouse.app.ui.compose.PageStack.pop(act)) {
+                    break
+                }
+            }
+            com.dollhouse.app.ui.provider.ProviderNav.resetForTab(act)
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
@@ -118,6 +216,7 @@ object HomeUi {
     fun syncAll(ctx: Context) {
         HomeState.running = isServiceRunning(ctx)
         HomeState.chatAvailable = hasChatTarget(ctx)
+        HomeState.hasDoll = hasEnabledDoll(ctx)
         // 权限
         HomeState.overlay = hasOverlay(ctx)
         HomeState.notif = hasNotif(ctx)
@@ -133,21 +232,14 @@ object HomeUi {
         HomeState.bgAlpha = PetPrefs.chatBgAlpha(ctx)
         HomeState.bgCardAlpha = PetPrefs.cardAlpha(ctx)
         HomeState.bgScrim = PetPrefs.scrimStrength(ctx)
+        HomeState.bgFrost = PetPrefs.frostStrength(ctx)
+        HomeState.fontColor = PetPrefs.fontColor(ctx)
         HomeState.bgMode = PetPrefs.bgMode(ctx)
         HomeState.bgBlur = PetPrefs.blurRadius(ctx)
-        // 人偶
-        HomeState.petScale = PetPrefs.petScaleDisplay(PetPrefs.petScale(ctx))
-        // 记忆
-        HomeState.memAuto = PetPrefs.memAuto(ctx)
-        HomeState.memSave = PetPrefs.memAutoSave(ctx)
-        HomeState.memMerge = PetPrefs.memAutoMerge(ctx)
-        HomeState.memIndex = PetPrefs.memThresholdIndex(ctx)
-        // 操作
-        HomeState.setGesture(GestureCore.G_SINGLE, PetPrefs.gestureActions(ctx, GestureCore.G_SINGLE))
-        HomeState.setGesture(GestureCore.G_DOUBLE, PetPrefs.gestureActions(ctx, GestureCore.G_DOUBLE))
-        HomeState.setGesture(GestureCore.G_TRIPLE, PetPrefs.gestureActions(ctx, GestureCore.G_TRIPLE))
-        HomeState.setGesture(GestureCore.G_LONG, PetPrefs.gestureActions(ctx, GestureCore.G_LONG))
-        HomeState.awaySeconds = PetPrefs.awaySeconds(ctx)
+        // 【r10】人偶比例 / 手势响应 / 暂离时长全部改为「按人偶」存在 DollProfile，
+        //   设置页不再有对应行，这里也就不需要再同步进 HomeState。
+        // 【r13·记忆系统重构】原「记忆」四项（memAuto / memSave / memMerge / memIndex）
+        //   已随旧记忆系统一起删除 —— 新策略由「记忆库设置」页直读直写 PetPrefs，不再需要镜像。
     }
 
     /**
@@ -223,12 +315,53 @@ object HomeUi {
     /* ============================ 首页动作 ============================ */
 
     /**
+     * 【r12】当前有没有「可展示的人偶」= 至少启用了一只。
+     * 【为什么首页也要查】需求定案「没有选择使用人偶的情况下 就不要出现人偶」：
+     *   一只都没启用时服务会自己停掉，但那样用户只看到「点了没反应」，
+     *   不如在这里先提示清楚去哪儿选。
+     */
+    @JvmStatic
+    fun hasEnabledDoll(ctx: Context): Boolean {
+        return try {
+            DollStore.enabled(ctx).isNotEmpty()
+        } catch (ignored: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 【r12】一次性提示。
+     *
+     * 【为什么是弹窗不是 Toast】`UiKit` 顶部有工程硬约束：本 App **不允许任何形式的
+     *   Toast / Snackbar / 自实现浮层短提示**（2026-10-03 已全量删除 55 处）。
+     *   这里走 [showShizukuDialog] 的同一条合法通道：原生 Dialog + 标题 + 正文 + 「知道了」。
+     */
+    @JvmStatic
+    fun showNotice(ctx: Context, title: String, message: String) {
+        val act = UiKit.findActivity(ctx) ?: return
+        UiKit.showDialog(act, title, UiKit.dialogMessage(act, message), "知道了", null, null, null)
+    }
+
+    /**
      * 启停桌宠：点下即切目标态，随后轮询真实状态纠偏。
      * 【不改服务语义】起停仍走原有 Intent 通道（启动还含悬浮窗权限校验）。
      */
     @JvmStatic
     fun togglePet(act: Activity, wantStart: Boolean) {
         if (wantStart) {
+            // 【r13】编辑人偶期间不允许启动桌宠，提示清楚原因。
+            if (PetPrefs.isEditing(act)) {
+                showNotice(
+                    act, "正在编辑人偶",
+                    "编辑期间桌面上只能看到正在预览的那一只。请先退出编辑页，再启动人偶。"
+                )
+                return
+            }
+            // 【r12】先确认选过人偶：没有就不发启动指令，直接提示去选。
+            if (!hasEnabledDoll(act)) {
+                showNotice(act, "还没有选择人偶", "先去「设置 → 自定义人偶」启用一只，她才会出现。")
+                return
+            }
             if (!hasOverlay(act)) {
                 requestOverlay(act)
                 return
@@ -267,11 +400,24 @@ object HomeUi {
         }, 180L)
     }
 
-    /** 打开全屏聊天页（带淡入，不用系统硬切）。 */
+    /**
+     * 打开全屏聊天页（带淡入，不用系统硬切）。
+     *
+     * 【守卫】没配好「可用聊天模型」时不进页，只置一次状态位。
+     *   【为什么要守卫】进去也发不出消息，用户只会看到「点了发送没反应」，
+     *   不如拦在门外。
+     * 【r13·入口收拢】原「打开聊天」按钮已从主页移除，本方法现在只由**聊天列表**调用
+     *   （点某条对话卡片）。所以「没配模型」这件事必须**给出可读的提示** ——
+     *   以前主页上那个按钮会因 `chatAvailable` 为假而整个不显示（用户看不见就不会点），
+     *   现在列表卡片一直在，点了没反应会让人以为坏了。
+     */
     @JvmStatic
     fun openChat(act: Activity) {
         if (!hasChatTarget(act)) {
             HomeState.chatAvailable = false
+            // 【全工程禁用 Toast】走既有合法通道：原生 Dialog + 标题 + 正文 + 「知道了」。
+            showNotice(act, "还没有可用的聊天模型",
+                "先去「设置 → 模型配置」添加一个可用的聊天模型，才能开始对话。")
             return
         }
         try {
@@ -282,74 +428,220 @@ object HomeUi {
         }
     }
 
-    /** 人偶比例增减：delta 为 -1 / +1，每档 10%。 */
-    @JvmStatic
-    fun stepPetScale(act: Activity, delta: Int) {
-        val cur = PetPrefs.petScale(act)
-        PetPrefs.setPetScale(act, cur + delta * PetPrefs.PET_SCALE_STEP)
-        HomeState.petScale = PetPrefs.petScaleDisplay(PetPrefs.petScale(act))
-        notifyPetRefresh(act)
-    }
-
     /* ============================ 页面切换 ============================ */
 
     /**
-     * 首页 / 设置页二选一：只改可见性 + 交叉淡入，不重建任何视图。
-     * 【为什么要交叉】两页同宿主，只淡入目标页会让旧页透过来糊一下。
+     * 【r13】切到某个 Tab：只改可见性 + 交叉淡入，不重建任何视图。
+     *
+     * 【为什么要交叉】三页同宿主，只淡入目标页会让旧页透过来糊一下。
+     * 【为什么不用 translateX 滑动】本 App 的页面栈（[com.dollhouse.app.ui.compose.PageStack]）
+     *   已经用了「自右滑入」表达「前进一层」。若 Tab 切换也用横向滑动，
+     *   两种语义会在视觉上撞车（用户分不清「进了一层」还是「换了个 Tab」）。
+     *   Tab 之间用**淡入淡出**区分，是主流 App 的通行做法。
      */
     @JvmStatic
-    fun show(activity: Activity, home: Boolean) {
+    fun showTab(activity: Activity, tab: Int) {
         try {
-            val homeView = activity.findViewById<View>(android.R.id.content)?.findViewWithTag<View>(TAG_HOME)
-            val setView = activity.findViewById<View>(android.R.id.content)?.findViewWithTag<View>(TAG_SET)
-            if (homeView == null || setView == null) {
+            val content = activity.findViewById<View>(android.R.id.content) ?: return
+            val chat = content.findViewWithTag<View>(TAG_CHAT)
+            val contact = content.findViewWithTag<View>(TAG_CONTACT)
+            val home = content.findViewWithTag<View>(TAG_HOME)
+            // 【兜底】三页缺任何一个就直接按可见性硬切（不播动画）。
+            if (chat == null || contact == null || home == null) {
                 return
             }
-            // 【返回同步】切回首页时刷新「打开聊天」入口：供应商 / 模型增删启停后返回即生效。
-            if (home) {
+            // 【返回同步】切到主页（或聊天）时刷新「打开聊天」入口：
+            //   供应商 / 模型增删启停后返回即生效。
+            if (tab == AppNav.TAB_HOME || tab == AppNav.TAB_CHAT) {
                 HomeState.chatAvailable = hasChatTarget(activity)
             }
-            if (PetPrefs.themeRestore(activity)) {
-                // 换主题重建：直接落到目标页，不重播动画，免得又闪一次。
-                homeView.visibility = if (home) View.VISIBLE else View.GONE
-                setView.visibility = if (home) View.GONE else View.VISIBLE
+            val target = when (tab) {
+                AppNav.TAB_CONTACT -> contact
+                AppNav.TAB_HOME -> home
+                else -> chat
+            }
+            // 【短路径】换主题重建 / 冷启动：直接落到目标页，不重播动画，免得又闪一次。
+            if (PetPrefs.themeRestore(activity) || !barReady(activity)) {
+                for (v in arrayOf(chat, contact, home)) {
+                    v.visibility = if (v === target) View.VISIBLE else View.GONE
+                    v.alpha = 1f
+                }
                 return
             }
-            showDiff(
-                if (home) homeView else setView,
-                if (home) setView else homeView
-            )
+            // 【修 bug·三页同时可见】必须**逐个**处理全部非目标页，不能找到一个就收工。
+            //
+            // 【曾经的 bug】原实现是：
+            //   ```
+            //   for (v in 三页) {
+            //       if (v !== target && v.visibility == VISIBLE) {
+            //           showDiff(target, v); return      ← 只处理了第一个就返回
+            //       }
+            //   }
+            //   ```
+            //   于是「聊天 + 主页」同时可见时切到人偶，只会把聊天淡出，
+            //   **主页还留在屏幕上** —— 三页叠在一起（用户截图里那个样子）。
+            //   触发条件正是「切后台再回来」：`onResume` 的 `reconcile` 会把曾被打断的
+            //   淡出动画补回终态，导致多于一个页面处于 VISIBLE。
+            //
+            // 【正确做法】淡出用「第一个找到的非目标页」（它承载交叉动画），
+            //   其余非目标页**立即 GONE**（它们本来就该是不可见的，没有动画可言）。
+            var fading: View? = null
+            for (v in arrayOf(chat, contact, home)) {
+                if (v === target) {
+                    continue
+                }
+                if (v.visibility != View.VISIBLE) {
+                    continue
+                }
+                if (fading == null) {
+                    fading = v
+                } else {
+                    // 【兜底硬收】多于一个非目标页可见 = 上一次切页的淡出被打断。
+                    //   直接置 GONE，不留动画 —— 否则又会出现「看不见却还挡着」的幽灵页。
+                    v.animate().cancel()
+                    v.visibility = View.GONE
+                    v.alpha = 1f
+                }
+            }
+            if (fading != null) {
+                showDiff(target, fading)
+            } else {
+                // 目标页本来就是唯一可见的（重复点同一个 Tab）：什么都不做。
+                target.visibility = View.VISIBLE
+                target.alpha = 1f
+            }
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
     }
 
-    /** 目标页淡入 + 旧页同步淡出。 */
+    /**
+     * 【r13·修 bug·三页同时可见】把三个 Tab 页强行收成「只有目标页可见」。
+     *
+     * 【为什么单独抽一个方法】`showTab` 依赖「当前只有一个页面可见」这个前提来决定
+     *   该淡出谁；而这个前提会被下面几条路径打破：
+     *   ① 切页动画正播到一半被切到后台（`withEndAction` 不执行，旧页停在 alpha≈0 但 VISIBLE）；
+     *   ② 厂商 ROM「清理后台」只摘任务不销毁进程，回来时 View 树原样保留；
+     *   `PageStack.reconcile` 的规则 C 会把「栈顶那层」补回可见终态，
+     *   但它只管**覆盖层**，管不到底座这三个 Tab 页 —— 于是多页同时可见。
+     *
+     * 【为什么不直接调 showTab】那会播一次交叉淡入动画；回前台应该「静止在终点」。
+     *   这里只做**状态归位**，零动画、零副作用，可在 `onResume` 无条件调用（幂等）。
+     */
+    @JvmStatic
+    fun settleTabs(activity: Activity) {
+        try {
+            val content = activity.findViewById<View>(android.R.id.content) ?: return
+            val chat = content.findViewWithTag<View>(TAG_CHAT) ?: return
+            val contact = content.findViewWithTag<View>(TAG_CONTACT) ?: return
+            val home = content.findViewWithTag<View>(TAG_HOME) ?: return
+            val target = when (AppNav.current) {
+                AppNav.TAB_CONTACT -> contact
+                AppNav.TAB_HOME -> home
+                else -> chat
+            }
+            for (v in arrayOf(chat, contact, home)) {
+                v.animate().cancel()
+                if (v === target) {
+                    v.visibility = View.VISIBLE
+                    v.alpha = 1f
+                } else {
+                    v.visibility = View.GONE
+                    v.alpha = 1f
+                }
+            }
+        } catch (ignored: Throwable) {
+            Logs.w(LOG_TAG, "ignored", ignored)
+        }
+    }
+
+    /**
+     * 底栏是否已经装配好。
+     *
+     * 【用途】冷启动首帧里 [apply] 会调 [showTab]，那时三个页面刚 addView 完、还没布局；
+     *   此判据让首帧走「直接设可见性」的快路径，不播动画（首帧播动画会闪一下）。
+     */
+    private fun barReady(activity: Activity): Boolean {
+        val content = activity.findViewById<View>(android.R.id.content) ?: return false
+        return content.findViewWithTag<View>(TAG_BAR) != null
+    }
+
+    /**
+     * 【兼容旧调用点】`show(act, home)` 的旧语义是「首页 ↹ 设置页」。
+     *
+     * 【映射】改造后设置页是主页里的一个覆盖层，所以：
+     *   `home = true`  → 切到「主页」Tab；
+     *   `home = false` → 切到「主页」Tab 并压上设置页（与改造前「点设置按钮」完全等价）。
+     *
+     * 【为什么保留这个函数】`HomeScreen` 的「设置」按钮与其它几处仍在调它；
+     *   保留一个语义清晰的薄壳比改所有调用点更稳（且日后若再加设置入口，行为自动一致）。
+     */
+    @JvmStatic
+    fun show(activity: Activity, home: Boolean) {
+        AppNav.select(activity, AppNav.TAB_HOME)
+        showTab(activity, AppNav.TAB_HOME)
+        if (!home && activity is MainActivity) {
+            SettingsScreen.open(activity)
+        }
+    }
+
+    /**
+     * 目标页淡入 + 旧页同步淡出。
+     *
+     * 【r10 加固·旧页必须真的收掉】原实现把「置 GONE」挂在入页动画的 `withEndAction` 上，
+     *   而 `withEndAction` 在动画被 `cancel()`（切后台、被系统掐帧、又切了一次页）时
+     *   **不会执行**：旧页就停在 `alpha ≈ 0` 却仍 `VISIBLE` 的状态，看不见却照旧拦触摸 ——
+     *   正是「视觉停在主页、触摸仍落二级页」的成因之一。
+     *   现在改为：旧页自己的动画结束回调 + 一个延时兜底，两条路都调 [hideOut]。
+     */
     private fun showDiff(inView: View, out: View) {
         inView.visibility = View.VISIBLE
         inView.alpha = 0f
         out.alpha = 1f
         inView.animate().alpha(1f).setDuration(UiKit.D_LAYER.toLong())
-            .setInterpolator(UiKit.EASE_DECEL)
-            .withEndAction {
-                if (out.alpha < 0.05f) {
-                    out.visibility = View.GONE
-                }
-            }.start()
+            .setInterpolator(UiKit.EASE_DECEL).start()
         out.animate().alpha(0f).setDuration(UiKit.D_MICRO.toLong())
-            .setInterpolator(UiKit.EASE_ACCEL).start()
+            .setInterpolator(UiKit.EASE_ACCEL)
+            .withEndAction { hideOut(out) }.start()
+        // 【兜底】动画被打断时 withEndAction 不执行，靠这个延时任务把旧页真正收掉。
+        out.postDelayed({ hideOut(out) }, UiKit.D_LAYER.toLong() + 120L)
     }
 
-    /** 返回键：设置页 -> 首页。返回 true 表示这次返回已被消费。 */
+    /**
+     * 把淡出的旧页真正收起来。
+     * 【幂等】已经 GONE 直接返回。
+     * 【防误伤】只收「已经淡到看不见」的页：若这期间它又被切回来（`alpha` 被重新拉到 1），
+     *   说明它现在是当前页，绝不能收。收掉时把 `alpha` 归位成 1，
+     *   免得它下次作为入页时带着 0 显示不出来。
+     */
+    private fun hideOut(out: View) {
+        if (out.visibility == View.GONE) {
+            return
+        }
+        if (out.alpha > 0.05f) {
+            return
+        }
+        out.visibility = View.GONE
+        out.alpha = 1f
+    }
+
+    /**
+     * 返回键：底座级的兜底。
+     *
+     * 【r13 语义变更】改造前是「设置页 → 首页」；现在是三个 Tab：
+     *   - 已经在「聊天」（默认首页）→ 返回 false，交给系统（退出 App）；
+     *   - 在其它 Tab → 回到「聊天」，返回 true。
+     *   【为什么回聊天而不是回上一次的 Tab】聊天是默认首页，也是用户最常停留的地方；
+     *   Android 的通行习惯是「返回逐层退到任务的主入口」，而主入口就是聊天。
+     */
     @JvmStatic
     fun handleBack(activity: Activity): Boolean {
         try {
-            val setView = activity.findViewById<View>(android.R.id.content)?.findViewWithTag<View>(TAG_SET)
-                ?: return false
-            if (setView.visibility != View.VISIBLE) {
+            if (AppNav.current == AppNav.TAB_CHAT) {
                 return false
             }
-            show(activity, true)
+            AppNav.select(activity, AppNav.TAB_CHAT)
+            showTab(activity, AppNav.TAB_CHAT)
             return true
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
@@ -709,6 +1001,36 @@ object HomeUi {
     }
     /** 遮罩强度说明文案。 */
     @JvmStatic
+    /** 【r13】自定义字体颜色的回显文案。 */
+    fun fontColorHint(argb: Int): String {
+        return "字体颜色\u00a0\u00a0" + (if (argb == 0) {
+            "（跟随主题，正文与副标题按主题配色）"
+        } else {
+            "（已固定为 " + hex(argb) + "，正文与副标题都用它）"
+        })
+    }
+
+    /** ARGB → `#RRGGBB`（丢 alpha，与用户输入的格式对齐）。 */
+    fun hex(argb: Int): String {
+        return String.format("#%06X", argb and 0x00FFFFFF)
+    }
+
+    /**
+     * 【r13】应用自定义字体颜色（0 = 恢复跟随主题）。
+     *
+     * 【为什么直接 applyInPlace】字色是「抄」进每个 TextView / 每个 Compose 节点的快照色，
+     *   改偏好不会让已建好的界面自己变。applyInPlace 会做一轮「旧色 → 新色」重映射
+     *   （View 侧遍历视图树，Compose 侧靠 DhTheme.bump 重新取色），不重建 Activity，
+     *   因此不会丢滚动位置与输入内容。
+     */
+    fun applyFontColor(act: Activity, argb: Int) {
+        PetPrefs.setFontColor(act, argb)
+        HomeState.fontColor = if (argb == 0) 0 else (argb or 0xFF000000.toInt())
+        ThemeRefresh.applyInPlace(act)
+        // 桌宠气泡的字色也是从 UiKit 读的，但它活在自己的 Service 里，通知它重读一次。
+        notifyPetReload(act)
+    }
+
     fun scrimHint(percent: Int): String {
         return "遮罩强度\u00a0\u00a0" + (if (percent >= 95) {
             "（默认，按可读性自动压暗）"
@@ -718,6 +1040,26 @@ object HomeUi {
             "（很淡，注意看字）"
         } else {
             "（几乎不加遮罩，原图直出）"
+        })
+    }
+
+    /**
+     * 【r13】磨砂程度说明文案。
+     *
+     * 【为什么单独一条滑条】弹窗 / 底部面板的「质感」与背景图透明度、卡片透明度、遮罩强度
+     *   是三件不同的事：那三项分别管「背景图多淡」「普通卡片多透」「背景图压多暗」，
+     *   本项只管**弹窗这类必须盖住下层的层看起来有多像磨砂玻璃**。
+     */
+    @JvmStatic
+    fun frostHint(percent: Int): String {
+        return "磨砂程度\u00a0\u00a0" + (if (percent <= 5) {
+            "（无虚化，弹窗是纯实色）"
+        } else if (percent <= 35) {
+            "（轻微磨砂）"
+        } else if (percent <= 75) {
+            "（明显磨砂，推荐）"
+        } else {
+            "（磨砂最强，最接近毛玻璃）"
         })
     }
     /** 毛玻璃半径说明文案。 */
@@ -791,7 +1133,7 @@ object HomeUi {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
         row.isClickable = true
-        row.background = UiKit.rowBg(act, if (selected) UiKit.OPTION else UiKit.SOFT)
+        row.background = UiKit.rowBg(act, if (selected) UiKit.option() else UiKit.soft())
         val pad = UiKit.dp(act, 12f)
         row.setPadding(pad, pad, pad, pad)
         val lp = LinearLayout.LayoutParams(-1, -2)
@@ -836,7 +1178,7 @@ object HomeUi {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
         row.isClickable = true
-        row.background = UiKit.rowBg(act, if (selected) UiKit.OPTION else UiKit.SOFT)
+        row.background = UiKit.rowBg(act, if (selected) UiKit.option() else UiKit.soft())
         val pad = UiKit.dp(act, 12f)
         row.setPadding(pad, pad, pad, pad)
         val lp = LinearLayout.LayoutParams(-1, -2)
@@ -919,121 +1261,22 @@ object HomeUi {
         notifyPetRefresh(act)
     }
 
-    /* ============================ 操作卡片（手势 / 暂离） ============================ */
-
-    /** 手势响应多选：无 / 交谈 / 聊天 / 继续 / 暂离；点一项立即保存并就地刷新选中态。 */
-    @JvmStatic
-    fun pickGesture(act: Activity, gesture: String) {
-        val col = LinearLayout(act)
-        col.orientation = LinearLayout.VERTICAL
-        val keys = arrayOf(
-            null, GestureActions.A_TALK, GestureActions.A_CHAT,
-            GestureActions.A_CONTINUE, GestureActions.A_AWAY
-        )
-        val labels = arrayOf(
-            GestureActions.NONE_LABEL, GestureActions.TALK_LABEL,
-            GestureActions.CHAT_LABEL, GestureActions.CONTINUE_LABEL,
-            GestureActions.AWAY_LABEL
-        )
-        fun render() {
-            val set = PetPrefs.gestureActions(act, gesture)
-            col.removeAllViews()
-            for (i in keys.indices) {
-                val key = keys[i]
-                val selected = if (key == null) set.isEmpty() else set.contains(key)
-                col.addView(optionRow(act, labels[i], selected) {
-                    val now = PetPrefs.gestureActions(act, gesture)
-                    if (key == null) {
-                        now.clear()
-                    } else if (now.contains(key)) {
-                        now.remove(key)
-                    } else {
-                        now.add(key)
-                    }
-                    PetPrefs.setGestureActions(act, gesture, now)
-                    HomeState.setGesture(gesture, now.toSet())
-                    render()
-                })
-            }
-        }
-        render()
-        UiKit.showDialog(act, GestureActions.gestureName(gesture), col, null, null, null, null)
-    }
-
-    /** 「暂离」时长行：点开数字输入小卡片（默认 60，范围 0~3600）。 */
-    @JvmStatic
-    fun pickAwaySeconds(act: Activity) {
-        val col = LinearLayout(act)
-        col.orientation = LinearLayout.VERTICAL
-        val edit = EditText(act)
-        edit.typeface = Fonts.ui(act)
-        UiKit.field(edit, act)
-        edit.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-        edit.isSingleLine = true
-        edit.hint = "建议 0～60 秒"
-        edit.setText(PetPrefs.awaySeconds(act).toString())
-        col.addView(edit, LinearLayout.LayoutParams(-1, -2))
-        edit.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                edit.error = null
-            }
-        })
-
-        val btn = UiKit.dialogButton(act, "保存", true)
-        val blp = LinearLayout.LayoutParams(-1, -2)
-        blp.topMargin = UiKit.dp(act, 12f)
-        btn.layoutParams = blp
-        col.addView(btn)
-
-        var dlg: Dialog? = null
-        btn.setOnClickListener {
-            val n = edit.text.toString().trim().toIntOrNull()
-            if (n == null || n < 0 || n > 3600) {
-                edit.error = "请输入 0～3600 的整数"
-                return@setOnClickListener
-            }
-            PetPrefs.setAwaySeconds(act, n)
-            HomeState.awaySeconds = n
-            dlg?.dismiss()
-        }
-        dlg = UiKit.showDialog(act, "暂离时长", col, null, null, null, null)
-    }
-
-    /** 弹窗里的一个多选项：选中项淡紫底 + 加粗 + 右侧勾，固定 22dp 占位。 */
-    private fun optionRow(act: Activity, text: String, selected: Boolean, onPick: () -> Unit): View {
-        val row = LinearLayout(act)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.isClickable = true
-        row.background = UiKit.rowBg(act, if (selected) UiKit.OPTION else UiKit.SOFT)
-        val pad = UiKit.dp(act, 12f)
-        row.setPadding(pad, pad, pad, pad)
-        val lp = LinearLayout.LayoutParams(-1, -2)
-        lp.topMargin = UiKit.dp(act, 8f)
-        row.layoutParams = lp
-
-        val t = TextView(act)
-        t.text = text
-        t.setTextSize(UiKit.FS_BTN)
-        t.setTextColor(UiKit.TITLE)
-        t.typeface = if (selected) Fonts.uiBold(act) else Fonts.ui(act)
-        row.addView(t, LinearLayout.LayoutParams(0, -2, 1.0f))
-
-        val mark: View = if (selected) {
-            Icons.view(act, Icons.IC_CHECK, 16.0f, UiKit.ACC)
-        } else {
-            View(act)
-        }
-        row.addView(mark, LinearLayout.LayoutParams(UiKit.dp(act, 22f), UiKit.dp(act, 22f)))
-
-        UiKit.press(row)
-        row.setOnClickListener { onPick() }
-        return row
-    }
-
     /* ============================ 桌宠刷新 ============================ */
+
+    /** 人偶集合变化（启用 / 停用 / 新增 / 删除）后重建常驻桌宠窗口（服务没在跑时静默忽略）。 */
+    @JvmStatic
+    fun notifyPetReload(ctx: Context) {
+        try {
+            if (!isServiceRunning(ctx)) {
+                return
+            }
+            val i = Intent(ctx, PetService::class.java)
+            i.action = PetService.ACTION_RELOAD
+            ctx.startService(i)
+        } catch (ignored: Throwable) {
+            Logs.w(LOG_TAG, "ignored", ignored)
+        }
+    }
 
     /** 主题切换 / 比例调整后让常驻桌宠重读颜色（服务没在跑时静默忽略）。 */
     @JvmStatic
