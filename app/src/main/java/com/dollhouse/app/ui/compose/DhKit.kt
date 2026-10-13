@@ -120,6 +120,19 @@ object DhKit {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // 【r14·需求 1 根因修复】这里原先有一行
+                //     `.background(DhTokens.colors.bg)`
+                //   它是 r13 为修「二级页串页」加的兜底 —— 作用是「内容高度算错时也别漏出下层」。
+                //   副作用是**把全局背景图整个盖死**：用户设置了背景却在任何二级页都看不到
+                //   （Compose 画的这层不透明底，View 树的 clearOpaquePageBgs 够不到）。
+                //
+                //   【现在由谁兜底】不透明底统一改由 `GlobalBackground.installPage` 铺在
+                //   **页根 View** 上（见 PageStack.push 的调用点）：
+                //   · 它同样能挡住下层页面（防串页，职责不变）；
+                //   · 它是 View background，能被清理函数管到，不会再出现同类盲区；
+                //   · 背景图由它一并画出，Compose 侧只需保持透明即可透出。
+                //   【为什么更稳】页根 View 的尺寸由页面栈给定（match_parent），
+                //   不受 Compose 内部「内容高度算成 0」的影响，兜底能力反而比原来更强。
                 .windowInsetsPadding(WindowInsets.displayCutout)
         ) {
             Box(modifier = Modifier.padding(horizontal = PAD_CARD.dp)) {
@@ -534,6 +547,100 @@ object DhKit {
         )
     }
 
+    /* ============================ 滑条（r14 新增公共构件） ============================ */
+
+    /**
+     * 「图标 + 标题 + 滑条 + 提示」标准块。
+     *
+     * 【为什么提到公共层】r14 之前，设置页里四个滑条各自把「标题 Text / 间距 / 提示 Text」
+     *   抄了一遍 —— 抄到第四个时行距已经和第一个不一致（12 / 10 / 4 混用）。
+     *   现在外观页（4 条）与人偶外观栏（3 条）都用本构件，视觉天然同族。
+     *
+     * 【为什么桥接 View 版滑条】`UiKit.Slider` 是胶囊轨道 + 刻度点 + 终点标记的自绘 View，
+     *   Compose 的 `Slider` 做不出同一形态；「全局 UI 一致」是硬要求，
+     *   换一个长得不一样的滑条正是要避免的突兀。故保留原控件、原位桥接。
+     *
+     * 【为什么不缓存 AndroidView】`factory` 只在首次组合时跑一次，之后 Compose 不会
+     *   重新调用它 —— 所以 [value] 变化**不会**自动反映到滑条上。
+     *   调用方若需要「外部改动后滑条跟着走」，必须换 key 强制重建（见 `remember(value)` 用法）。
+     *   本构件按「滑条是用户输入源、不是显示控件」的口径设计：只读初值，之后由用户拖动驱动。
+     *
+     * @param iconRes 前置小图标（无合适图标时传 0）
+     */
+    @Composable
+    fun SliderRow(
+        title: String,
+        hint: String,
+        max: Int,
+        value: Int,
+        iconRes: Int = 0,
+        modifier: Modifier = Modifier,
+        onChange: (Int, Boolean) -> Unit
+    ) {
+        val c = DhTokens.colors
+        Column(modifier = modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.padding(top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (iconRes != 0) {
+                    Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    text = title,
+                    color = c.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = {
+                    UiKit.Slider(it).apply {
+                        setMax(max)
+                        setProgress(value)
+                        setOnChange(object : UiKit.Slider.OnChange {
+                            override fun onChanged(v: Int, fromUser: Boolean) {
+                                onChange(v, fromUser)
+                            }
+                        })
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = hint,
+                modifier = Modifier.padding(top = 4.dp),
+                color = c.sub,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
+    }
+
+    /**
+     * 【r14】「模型 / 信息行」：左枚图标 + 标题 + 右侧说明文字（不可点）。
+     * 【用途】外观页里「当前主题跟随 xxx」这类只读提示行，与 [ValueRow] 的区别是带图标。
+     */
+    @Composable
+    fun InfoRow(iconRes: Int, text: String, modifier: Modifier = Modifier) {
+        val c = DhTokens.colors
+        Row(
+            modifier = modifier.fillMaxWidth().padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.line)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = text,
+                color = c.line,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
+    }
+
     /** 分隔线（1px LINE）← AboutPage.divider。 */
     @Composable
     fun Divider(modifier: Modifier = Modifier) {
@@ -599,6 +706,7 @@ object DhKit {
      *   圆角 / 内边距 / 禁用透明度迟早分叉。尺寸令牌只在本文件出现一次。
      *
      * @param iconRes  前置图标；null 表示不占位（规格：只有点名要图标的按钮才配图标）
+     * @param desc     第二行小字说明（r13 新增）；null / 空 = 单行行高，与改造前逐像素一致
      * @param trailing 右侧文字（如 "›"）；null 表示不占位
      * @param enabled  false 时降透明度且不接收点击（空壳按钮的既定表现）
      */
@@ -607,12 +715,14 @@ object DhKit {
         label: String,
         modifier: Modifier = Modifier,
         iconRes: Int? = null,
+        desc: String? = null,
         trailing: String? = null,
         enabled: Boolean = true,
         onClick: (() -> Unit)? = null
     ) {
         val c = DhTokens.colors
         val clickable = enabled && onClick != null
+        val hasDesc = !desc.isNullOrEmpty()
         Row(
             modifier = modifier
                 .fillMaxWidth()
@@ -628,13 +738,25 @@ object DhKit {
                 Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
                 Spacer(Modifier.width(10.dp))
             }
-            Text(
-                text = label,
-                modifier = Modifier.weight(1f),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
-            )
+            // 【为什么用 Column 而不是再加一个 Text】两行时行高不该由调用方拼装 ——
+            //   拼装会让「同一页两行行」与「单行行」的基线差几像素，看起来像两种控件。
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                if (hasDesc) {
+                    Text(
+                        text = desc!!,
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = c.sub,
+                        fontSize = UiKit.FS_TINY.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                }
+            }
             if (!trailing.isNullOrEmpty()) {
                 Text(
                     text = trailing,

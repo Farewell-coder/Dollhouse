@@ -368,12 +368,44 @@ object PetPrefs {
     }
 
     // ---- 新记忆系统的全局策略（放在设置页「实验 → 记忆库设置」里）----
-
-    /** 自动保存记忆：聊完一轮后是否自动抽取并写库。 */
+/** 自动保存记忆：聊完一轮后是否自动抽取并写库。 */
     @JvmStatic
     fun mem2Auto(context: Context): Boolean {
         return get(context).getBoolean("mem2_auto", true)
     }
+
+    /* ---- 对话显示（r13 流式 + 思考过程）---- */
+
+    /**
+     * 【r13·流式】是否用 SSE 流式接收回复（边生成边显示）。
+     * 【默认开】流式的观感明显更好（打字机效果 + 真实思考耗时），且失败会自动降级回非流式，
+     *   不会因为某家中转不支持而卡死。
+     * 【什么时候该关】中转站对 SSE 支持不完整（回一半就断）时，关掉即完全回到旧行为。
+     */
+    @JvmStatic
+    fun streamOutput(context: Context): Boolean {
+        return get(context).getBoolean("stream_output", true)
+    }
+
+    @JvmStatic
+    fun setStreamOutput(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("stream_output", z).apply()
+    }
+
+    /**
+     * 【r13·思考过程】是否显示回复上方的可折叠思考框。
+     * 【默认开】关掉只是不渲染，思考内容仍在历史里（便于随时打开回看）。
+     */
+    @JvmStatic
+    fun showThinking(context: Context): Boolean {
+        return get(context).getBoolean("show_thinking", true)
+    }
+
+    @JvmStatic
+    fun setShowThinking(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("show_thinking", z).apply()
+    }
+
 
     @JvmStatic
     fun setMem2Auto(context: Context, z: Boolean) {
@@ -506,6 +538,17 @@ object PetPrefs {
         return get(context).getBoolean("touch_through", false)
     }
 
+    /**
+     * 【r14】落一次「点击穿透」开关。
+     *
+     * 【为什么现在才补】原先只有 getter —— 这个键只由桌宠侧读、
+     *   从来没有界面写过（旧设置里那一行是只读展示）。r14 把它接进
+     *   「外观 → 弹窗与卡片」，就必须有写入端。
+     */
+    @JvmStatic
+    fun setTouchThrough(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("touch_through", z).apply()
+    }
 
     @JvmStatic
     fun learnEnabled(context: Context): Boolean {
@@ -1348,5 +1391,252 @@ object PetPrefs {
     fun setFontColor(context: Context, argb: Int) {
         val v = if (argb == 0) 0 else (argb or 0xFF000000.toInt())
         get(context).edit().putInt("font_color", v).commit()
+    }
+
+    /* ============================ 【r14】三层外观配置 ============================
+     *
+     * 【为什么单开一段】r14 引入「全局层 / 人偶层 / 聊天内只读」三层配置体系
+     *   （见设计文档第四节）。本段集中登记全部新键，避免散落在既有方法之间
+     *   日后查键值时漏掉。**全部是新增键**，老数据一个不动，缺键一律取默认值。
+     *
+     * 【命名口径】
+     *   - 全局键：不带前缀（如 `bg_enabled`）；
+     *   - 人偶键：由 [DollProfile] 负责加 `d_<dollId>_` 前缀（见 DollProfile.key）；
+     *   - 聊天内：不落键（只读）。
+     */
+
+    // ---- 全局背景开关 ----
+
+    /**
+     * 全局背景是否启用。**默认 false（关闭）**。
+     *
+     * 【用户定案】「第二个默认关」—— 用户没设置过就不该有任何背景图，
+     *   避免覆盖别人机器上的观感（本 App 会分发给他人）。
+     *
+     * 【与「移除背景」的区别】关掉开关只让图**不显示**，路径 / 透明度 / 毛玻璃 /
+     *   遮罩全部保留，重新打开即原样恢复；「移除背景」才是真清空（见 [clearBackground]）。
+     */
+    @JvmStatic
+    fun bgEnabled(context: Context): Boolean {
+        return get(context).getBoolean("bg_enabled", false)
+    }
+
+    @JvmStatic
+    fun setBgEnabled(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("bg_enabled", z).apply()
+    }
+
+    /**
+     * 【真清空】移除背景：删路径 + 重置全部背景参数 + 关掉开关。
+     *
+     * 【为什么是「重置全部」而不是「只删图」】用户点「移除背景」的预期是
+     *   「回到没见过这张图之前的样子」；只删路径会把滑条留在旧值上，
+     *   下次选新图时会莫名其妙地「一进来就是毛玻璃 + 低透明度」。
+     */
+    @JvmStatic
+    fun clearBackground(context: Context) {
+        get(context).edit()
+            .putString(BG_DIR, "")
+            .putBoolean("bg_enabled", false)
+            .putInt("chat_bg_alpha", 60)
+            .putInt("blur_radius", 0)
+            .putInt("scrim_strength", 100)
+            .putInt("bg_mode", 0)
+            .apply()
+    }
+
+    // ---- 聊天气泡 / 头像（用户侧统一一套）----
+
+    /**
+     * 【聊天风格】是否在气泡旁显示小圆头像。**默认 true**。
+     *
+     * 【语义（用户定案）】人偶发的消息显示**人偶头像**，用户发的显示**我的头像** ——
+     *   即「各显各的」，而非两侧共用一个头像。
+     * 【为什么开关是全局而不是跟人偶走】它是「界面风格」不是「角色特征」；
+     *   按人偶存会让用户在每只人偶里各调一次，纯属负担。
+     */
+    @JvmStatic
+    fun showAvatar(context: Context): Boolean {
+        return get(context).getBoolean("show_avatar", true)
+    }
+
+    @JvmStatic
+    fun setShowAvatar(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("show_avatar", z).apply()
+    }
+
+    /**
+     * 【聊天风格】气泡宽度档位（0=窄 1=适中 2=宽）。默认 1。
+     * 【实现口径】不存像素，只存档位 —— 分辨率 / 字号变化时由渲染端按档位换算，
+     *   避免「在别人的机器上气泡撑爆屏幕」。
+     */
+    @JvmStatic
+    fun bubbleWidth(context: Context): Int {
+        return Math.max(0, Math.min(2, get(context).getInt("bubble_width", 1)))
+    }
+
+    @JvmStatic
+    fun setBubbleWidth(context: Context, i: Int) {
+        get(context).edit().putInt("bubble_width", Math.max(0, Math.min(2, i))).apply()
+    }
+
+    /**
+     * 【聊天风格】用户侧气泡是否用磨砂玻璃质感（0=关闭 1=开启）。默认 1。
+     * 【为什么用户侧单独有一套】用户定案「用户的气泡是统一的」——
+     *   它与背景图 / 卡片透明度都独立，只描述「我这边的气泡看起来像不像毛玻璃」。
+     */
+    @JvmStatic
+    fun bubbleUserFrost(context: Context): Boolean {
+        return get(context).getBoolean("bubble_user_frost", true)
+    }
+
+    @JvmStatic
+    fun setBubbleUserFrost(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("bubble_user_frost", z).apply()
+    }
+
+    // ---- 弹窗与卡片（外观 Tab④）----
+
+    /**
+     * 【弹窗与卡片】弹窗底的透明度百分比（0~100，越大越不透明）。默认 100。
+     *
+     * 【口径】这是 r14 新增的**独立**滑条：原「磨砂程度」（[frostStrength]）管的是
+     *   「往背景色方向混多少色」，本项管的是「弹窗底整体透多少」。
+     *   两者互不替代 —— 用户要求「弹窗全部改掉，并且这个程度是可以调的」。
+     * 【默认 100 的理由】弹窗的职责是「把事情盖住」，默认必须完全不透，
+     *   否则老用户升级后会突然看到「弹窗和背后文字叠成一片」。
+     */
+    @JvmStatic
+    fun dialogAlpha(context: Context): Int {
+        return Math.max(0, Math.min(100, get(context).getInt("dialog_alpha", 100)))
+    }
+
+    @JvmStatic
+    fun setDialogAlpha(context: Context, i: Int) {
+        get(context).edit().putInt("dialog_alpha", Math.max(0, Math.min(100, i))).apply()
+    }
+
+    /**
+     * 【弹窗与卡片】弹窗背后模糊半径（0~25 dp）。默认 0。
+     *
+     * 【实现真相】`Window.setBackgroundBlurRadius` 是 **API 31+**；
+     *   本工程 minSdk 24 —— 低于 31 时本项**静默无效**（退化为纯遮罩），
+     *   这是平台限制，不假装能做到（见设计文档 R2）。
+     */
+    @JvmStatic
+    fun dialogBlur(context: Context): Int {
+        return Math.max(0, Math.min(25, get(context).getInt("dialog_blur", 0)))
+    }
+
+    @JvmStatic
+    fun setDialogBlur(context: Context, i: Int) {
+        get(context).edit().putInt("dialog_blur", Math.max(0, Math.min(25, i))).apply()
+    }
+
+    /* ============================ 【r14】我的资料 ============================
+     * 【为什么放在 PetPrefs 而不是新对象】三项都是「用户自身」的标量，
+     *   与既有偏好同属一个 SharedPreferences；单开对象只会多一层转发。
+     * 具体读写封装见 data/MyProfile.kt（那里负责头像文件的编解码与兜底）。
+     */
+
+    // ---- 人偶分组清单（全局一份，成员的归属存在各人偶自己身上）----
+
+    /**
+     * 【人偶分组】分组名清单（JSON 数组字符串）。
+     * 【为什么清单与归属分开放】清单是「有哪些组」（可改名 / 可删），
+     *   归属是「这只人偶在哪组」（跟着人偶走）。放一起会让「删组」变成
+     *   一次要改所有人的批量写；分开后删组只需从清单里去掉，成员自动落回「未分组」。
+     */
+    @JvmStatic
+    fun dollGroups(context: Context): String {
+        return get(context).getString("doll_groups", "") ?: ""
+    }
+
+    @JvmStatic
+    fun setDollGroups(context: Context, json: String?) {
+        get(context).edit().putString("doll_groups", if (json == null) "" else json).apply()
+    }
+
+    // ---- 图谱视图状态（每只人偶各自记住缩放 / 平移）----
+
+    /**
+     * 【记忆图谱】上次的视图状态（JSON：{scale, tx, ty}），按人偶存。
+     * 【为什么存】图谱节点是力导向布局，用户调到看得舒服的视角后
+     *   退出再进若被重置成默认，等于每次都要重新调 —— 体验很差。
+     */
+    @JvmStatic
+    fun memGraphView(context: Context, dollId: String?): String {
+        return get(context).getString(memGraphViewKey(dollId), "") ?: ""
+    }
+
+    @JvmStatic
+    fun setMemGraphView(context: Context, dollId: String?, json: String?) {
+        get(context).edit().putString(memGraphViewKey(dollId), if (json == null) "" else json).apply()
+    }
+
+    private fun memGraphViewKey(dollId: String?): String {
+        val id = if (dollId == null || dollId.isEmpty()) "_" else dollId
+        return "mem_graph_view_" + id
+    }
+
+    /**
+     * 【记忆图谱】节点手动摆位（JSON：{标题: {x,y}}），按人偶存。
+     * 【为什么单独存】力导向布局是「初次自动定」，用户拖过的节点应当**被尊重** ——
+     *   下次进来还在他放的地方，而不是又被算回去。
+     */
+    @JvmStatic
+    fun memGraphPins(context: Context, dollId: String?): String {
+        return get(context).getString(memGraphPinsKey(dollId), "") ?: ""
+    }
+
+    @JvmStatic
+    fun setMemGraphPins(context: Context, dollId: String?, json: String?) {
+        get(context).edit().putString(memGraphPinsKey(dollId), if (json == null) "" else json).apply()
+    }
+
+    private fun memGraphPinsKey(dollId: String?): String {
+        val id = if (dollId == null || dollId.isEmpty()) "_" else dollId
+        return "mem_graph_pins_" + id
+    }
+
+    // ---- 记忆分组（图谱右上角文件夹图标进的分类界面）----
+
+    /**
+     * 【记忆图谱·分类】自定义分类清单（JSON 数组）。
+     * 【与「人偶分组」的区别】那是人偶的，这是**记忆条目**的 —— 两回事，键名刻意分开。
+     */
+    @JvmStatic
+    fun memCategories(context: Context, dollId: String?): String {
+        return get(context).getString(memCategoriesKey(dollId), "") ?: ""
+    }
+
+    @JvmStatic
+    fun setMemCategories(context: Context, dollId: String?, json: String?) {
+        get(context).edit().putString(memCategoriesKey(dollId), if (json == null) "" else json).apply()
+    }
+
+    private fun memCategoriesKey(dollId: String?): String {
+        val id = if (dollId == null || dollId.isEmpty()) "_" else dollId
+        return "mem_categories_" + id
+    }
+
+    /* ============================ 【r14】外观 · 从壁纸取色 ============================ */
+
+    /**
+     * 【外观·从壁纸取色】取色来源档位（0 = 自动，1 = 强制解码）。
+     *
+     * 【为什么与 [themeMonetWall] 是两个键】
+     *   `theme_monet_wall` 存的是**系统壁纸 id**，用于「缓存的色相是否还对应当前壁纸」的校验
+     *   （见 ThemeManager.readHueCache）。它会被系统 id 覆盖。
+     *   用户选的**档位**是另一回事，混在同一个键里会在换壁纸时被冲掉。
+     */
+    @JvmStatic
+    fun monetWallMode(context: Context): Int {
+        return Math.max(0, Math.min(1, get(context).getInt("monet_wall_mode", 0)))
+    }
+
+    @JvmStatic
+    fun setMonetWallMode(context: Context, i: Int) {
+        get(context).edit().putInt("monet_wall_mode", Math.max(0, Math.min(1, i))).apply()
     }
 }

@@ -67,6 +67,20 @@ object HomeState {
     /** 背景毛玻璃半径（0~24 dp，0 = 不模糊）。 */
     var bgBlur by mutableStateOf(0)
 
+    /* ---- 【r14】弹窗与卡片 Tab ---- */
+    /** 弹窗底透明度（0~100，越大越不透明）。 */
+    var dlgAlpha by mutableStateOf(100)
+    /** 弹窗背后模糊半径（0~25 dp；API < 31 系统不支持，静默无效）。 */
+    var dlgBlur by mutableStateOf(0)
+
+    /* ---- 【r14】聊天界面 Tab ---- */
+    /** 是否在气泡旁显示头像（人偶发的显人偶头像、我发的显我的头像）。 */
+    var showAvatar by mutableStateOf(true)
+    /** 用户侧气泡磨砂开关。 */
+    var bubbleUserFrost by mutableStateOf(true)
+    /** 气泡宽度档位（0 窄 / 1 适中 / 2 宽）。 */
+    var bubbleWidth by mutableStateOf(1)
+
     // 【r10 已移除「人偶比例」】比例改到「每只人偶」的编辑页（活动 → 比例大小），
     //   本对象里那份全局副本再无读者，删掉以免日后有人误改一处、桌宠不响应。
     // 【r13·记忆系统重构】原「记忆卡片」的四项状态（memAuto / memSave / memMerge / memIndex）

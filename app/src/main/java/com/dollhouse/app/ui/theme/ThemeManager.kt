@@ -236,6 +236,62 @@ object ThemeManager {
         }
     }
 
+    /**
+     * 【r14·外观 Tab①】「从壁纸取色」的取色来源档位名。
+     *
+     * 【为什么只有两档】本工程实际可用的取色通道就两条（见 [extractHue]）：
+     *   ① 系统调色接口 `getWallpaperColors()` —— 零权限、不解码，最稳；
+     *   ② 自己解码壁纸缩略图 —— 兜底，Android 13+ 可能需要读图权限。
+     *   摆出四档（锁屏 / 主屏 / 平均色…）会让用户选了才发现没区别 —— 那才是骗人。
+     *   这里如实给出「自动 / 强制解码」两条，语义清晰、也确实不同。
+     */
+    @JvmField
+    val WALL_NAMES = arrayOf("自动（推荐）", "强制解码")
+
+    /**
+     * 【r14】设置取色来源档位。
+     *
+     * 【档位怎么影响取色】
+     *   0 = 自动：先试系统调色接口，拿不到再解码（[extractHue] 的默认行为）。
+     *   1 = 强制解码：跳过系统接口直接解码 —— 用于「系统给出了灰黑色但壁纸其实很鲜艳」的情况。
+     *
+     * 【为什么必须写独立键】`PetPrefs.themeMonetWall` 存的是**系统壁纸 id**，
+     *   只用于「缓存是否还对应同一张壁纸」的校验（见 [readHueCache]）。
+     *   把档位写进那个键，会在用户换壁纸时被系统 id 冲掉 —— 选择凭空消失。
+     *   故档位单开一个键 [PetPrefs.monetWallMode]。
+     */
+    @JvmStatic
+    fun setMonetWall(c: Context?, wall: Int) {
+        if (c == null) {
+            return
+        }
+        try {
+            PetPrefs.setMonetWallMode(c, Math.max(0, Math.min(WALL_NAMES.size - 1, wall)))
+        } catch (t: Throwable) {
+            Logs.w(LOG_TAG, "ignored", t)
+        }
+    }
+
+    /**
+     * 当前取色来源档位。
+     * 【与缓存的区别】`PetPrefs.themeMonetWall` 历史上存的是**壁纸 id**（用于缓存校验），
+     *   本方法返回的才是用户选的**档位**。两者共用一个键会互相踩：
+     *   壁纸一变（用户换壁纸）就会把档位冲掉，用户回来发现「我的选择没了」。
+     *   故档位单独存一个键（见下）。
+     */
+    @JvmStatic
+    fun monetWall(c: Context?): Int {
+        if (c == null) {
+            return 0
+        }
+        return try {
+            val v = PetPrefs.monetWallMode(c)
+            Math.max(0, Math.min(WALL_NAMES.size - 1, v))
+        } catch (ignored: Throwable) {
+            0
+        }
+    }
+
     /** 后台取色回调：ok=true 表示拿到了颜色，可以刷新界面；false 表示取不到、应回退内置配色。 */
     fun interface HueCallback {
         fun onHue(ok: Boolean)
@@ -327,9 +383,19 @@ object ThemeManager {
      * 拿不到时再退回自己解码缩略图（Android 13+ 那条路要 READ_MEDIA_IMAGES，没授权必失败，只当兜底）。
      */
     private fun extractHue(c: Context): Float {
-        val hue = hueFromWallpaperColors(c)
-        if (!hue.isNaN()) {
-            return hue
+        // 【r14】尊重「从壁纸取色」的档位：强制解码时跳过系统调色接口。
+        //   【为什么需要这条】部分 ROM 的 getWallpaperColors() 会给出偏灰的「代表色」，
+        //   而壁纸本身其实很鲜艳 —— 那时系统给的就是错的，用户需要一条绕开它的路。
+        val forced = try {
+            PetPrefs.monetWallMode(c) == 1
+        } catch (ignored: Throwable) {
+            false
+        }
+        if (!forced) {
+            val hue = hueFromWallpaperColors(c)
+            if (!hue.isNaN()) {
+                return hue
+            }
         }
         return extractHueByDecode(c)
     }

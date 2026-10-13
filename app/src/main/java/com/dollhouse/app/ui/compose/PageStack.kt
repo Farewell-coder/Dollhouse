@@ -208,6 +208,8 @@ object PageStack {
         page.translationX = pageW(content) * 0.14f
         page.alpha = 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
+        // 【r13 修 bug·触摸穿透】见 [sealLayer] 的说明。
+        sealLayer(page)
         // 覆盖页自铺全局背景：页内不透明底遮住下层同一张图，避免叠影。
         GlobalBackground.installPage(page)
         stack.add(Layer(key, page))
@@ -482,6 +484,7 @@ object PageStack {
             fresh.translationX = pageW(content) * 0.14f
         }
         content.addView(fresh, ViewGroup.LayoutParams(-1, -1))
+        sealLayer(fresh)
         GlobalBackground.installPage(fresh)
         stack[idx] = Layer(key, fresh)
         val anim = fresh.animate().alpha(1f).setDuration(UiKit.D_PAGE.toLong())
@@ -495,6 +498,35 @@ object PageStack {
                 p.removeView(old)
             }
         }.start()
+    }
+
+    /**
+     * 【r13 修 bug·二级页触摸穿透】把一层页「封」成触摸不透的。
+     *
+     * 【现象】用户报：在「角色设定」页点右上角（那一页**没有图标**），却触发了上一层
+     *   「编辑人偶」页右上角的预览（眼睛）按钮 —— 明明上层已被新页盖住。
+     *
+     * 【根因】层与层是 `android.R.id.content` 的**兄弟 View**，靠「新页盖住旧页」形成层级。
+     *   Android 分发触摸时，会按子 View 的**倒序**（最上层优先）逐个询问；
+     *   谁先消费就归谁，**没人消费就继续往下问下一层**。
+     *   而本工程的页面都是 ComposeView：Compose 只在**真的有可点控件的地方**消费事件，
+     *   空白区域（比如顶栏右侧没放按钮的位置）一律不消费 ——
+     *   于是这一下就穿透到底下的旧页，把旧页的按钮按了。
+     *
+     * 【修法】给每层页挂一个「兜底消费」的触摸监听：
+     *   · Compose 自己消费的事件（按钮、输入框、滚动、手势）照常优先，本监听**不会被触发**；
+     *   · 只有「Compose 不要」的事件才会落到这里，被就地吃掉，不再往下传。
+     *   即：**谁在最上层，谁就该把这一层内的触摸负责到底**。
+     *
+     * 【为什么不用 isClickable=true】那会额外走一遍 View 的点击语义
+     *   （按下态、`performClick`、无障碍事件），语义上"这一层被点了"并不成立；
+     *   而 OnTouchListener 只声明一件事：这一下手势由本层兜底，不做别的。
+     *
+     * 【为什么不用「把下层设成 INVISIBLE」】被盖住的层要参与退层动画（原样露出），
+     *   隐藏它会连带改变绘制与动画行为；在「入口」处堵住穿透，改动面最小、语义最清楚。
+     */
+    private fun sealLayer(v: View) {
+        v.setOnTouchListener { _, _ -> true }
     }
 
     /** 屏宽（拿不到布局宽度时兜底用显示宽度）。 */

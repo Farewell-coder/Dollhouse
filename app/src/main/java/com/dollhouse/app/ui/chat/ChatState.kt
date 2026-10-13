@@ -44,9 +44,6 @@ object ChatState {
     /** 在途「思考中…」占位文案（null = 无）。 */
     var thinking by mutableStateOf<String?>(null)
 
-    /** 回复上方的可折叠思考框（null = 无）。 */
-    var thinkingBox by mutableStateOf<ThinkingBox?>(null)
-
     /** 附件条：图片路径。 */
     var attachImage by mutableStateOf<String?>(null)
 
@@ -58,6 +55,16 @@ object ChatState {
 
     /** 输入框内容。 */
     var input by mutableStateOf("")
+
+    /**
+     * 【r13·流式】在途思考内容。
+     *
+     * 【为什么要单独一份】流式期间正文气泡会逐字更新，思考框也要同步长出来（用户点开就能看），
+     *   但它此刻还没有对应的 [ChatItem]（消息尚未落盘）。把在途内容放这里，
+     *   由 [ChatUi] 在「最后一条气泡上方」按需渲染。
+     *   收尾后清空 —— 落盘的那条消息自带 `think`，重铺时不再依赖本字段。
+     */
+    var streamThink by mutableStateOf<String?>(null)
 
     /** 滚动请求序号：每次自增触发一次滚动（与 [scrollTarget] 配对）。 */
     var scrollTick by mutableStateOf(0)
@@ -112,6 +119,9 @@ object ChatState {
  * @param index     在 `history` 中的下标（-1 = 不落库的本地提示气泡）
  * @param isPrev    是否属于「补回批」（更早的历史）
  * @param isSummary 是否为摘要分割标题
+ * @param think     这条回复当时的推理内容（null / 空 = 没有或用户关掉了显示）
+ * @param thinkMs   「思考了 X 毫秒」；0 = 未知（老数据 / 非流式估算）
+ * @param cover     摘要条覆盖的消息条数（仅 `isSummary` 时有效；0 = 老数据没有这个字段）
  */
 data class ChatItem(
     val role: String,
@@ -119,8 +129,17 @@ data class ChatItem(
     val image: String?,
     val index: Int,
     val isPrev: Boolean,
-    val isSummary: Boolean
+    val isSummary: Boolean,
+    val think: String? = null,
+    val thinkMs: Long = 0L,
+    val cover: Int = 0
 )
 
-/** 回复上方「思考了 X 秒」折叠框的数据（只在内存里过一手，不落盘）。 */
+/**
+ * 回复上方可折叠思考框的**渲染数据**（r13 起由 [ChatItem.think] 填充）。
+ *
+ * 【与改造前的区别】以前它是一个独立的界面状态（`ChatState.thinkingBox`），只在内存里过一手、
+ *   重铺即丢。现在思考内容随消息落盘，本类退化为纯粹的「传参载体」——
+ *   历史里每一条回复都能按自己的 think 渲染出思考框。
+ */
 data class ThinkingBox(val reasoning: String, val costMs: Long)

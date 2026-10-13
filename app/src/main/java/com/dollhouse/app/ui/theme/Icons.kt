@@ -39,8 +39,6 @@ object Icons {
     val IC_CLOSE = R.drawable.ic_close
     @JvmField
     val IC_MORE = R.drawable.ic_more
-    @JvmField
-    val IC_MENU = R.drawable.ic_menu
 
     // ---- 操作 ----
     @JvmField
@@ -62,12 +60,7 @@ object Icons {
     @JvmField
     val IC_SETTINGS = R.drawable.ic_settings
     @JvmField
-    val IC_CHART = R.drawable.ic_chart
-    @JvmField
     val IC_WHALE = R.drawable.ic_whale
-    /** 提供商模块用到的几个图标（资源早就在，只是原先没暴露成常量）。 */
-    @JvmField
-    val IC_SEARCH = R.drawable.ic_search
     @JvmField
     val IC_EDIT = R.drawable.ic_edit
     @JvmField
@@ -91,17 +84,11 @@ object Icons {
     @JvmField
     val IC_X_CIRCLE = R.drawable.ic_x_circle
     @JvmField
-    val IC_SHIELD = R.drawable.ic_shield
-    @JvmField
     val IC_WARNING = R.drawable.ic_warning
     @JvmField
     val IC_TERMINAL = R.drawable.ic_terminal
     @JvmField
     val IC_SPINNER = R.drawable.ic_spinner
-    @JvmField
-    val IC_STAR = R.drawable.ic_star
-    @JvmField
-    val IC_STAR_OFF = R.drawable.ic_star_off
     @JvmField
     val IC_TILE_PET = R.drawable.ic_tile_pet
 
@@ -138,8 +125,6 @@ object Icons {
     @JvmField
     val IC_PLUG = R.drawable.ic_plug
     @JvmField
-    val IC_CABLE = R.drawable.ic_cable
-    @JvmField
     val IC_NETWORK = R.drawable.ic_network
     @JvmField
     val IC_SQUARE_TERMINAL = R.drawable.ic_square_terminal
@@ -165,17 +150,11 @@ object Icons {
     @JvmField
     val IC_SPARKLES = R.drawable.ic_sparkles
     @JvmField
-    val IC_MESSAGE_CIRCLE = R.drawable.ic_message_circle
-    @JvmField
     val IC_EYE = R.drawable.ic_eye
     @JvmField
     val IC_EYE_OFF = R.drawable.ic_eye_off
     @JvmField
-    val IC_SAVE = R.drawable.ic_save
-    @JvmField
     val IC_SLIDERS_HORIZONTAL = R.drawable.ic_sliders_horizontal
-    @JvmField
-    val IC_ACTIVITY = R.drawable.ic_activity
     @JvmField
     val IC_USER_ROUND = R.drawable.ic_user_round
     @JvmField
@@ -210,18 +189,76 @@ object Icons {
     /** 添加人偶（Lucide user-plus）。 */
     @JvmField
     val IC_USER_PLUS = R.drawable.ic_user_plus
-    /** 修改 / 编辑（Lucide square-pen：方框内一支笔，用于「改名」语义）。 */
+
+    /* ================= 【r14·外观 / 图谱 / 分组 语义图标层】 =================
+     * 【来源】全部取自 lucide-static 官方 SVG（ISC 协议）main 分支，
+     *   经 /root/dh_lucide/convert.py 转成 VectorDrawable，与既有图标同一风格
+     *   （24dp 视口 / 线宽 2 / 圆角端点 / 白色占位描边，运行期由 [get] 上色）。
+     * 【为什么另起一段】这一组是 r14 新增页面的语义图标（外观四 Tab、记忆图谱、
+     *   人偶分组、我的资料、弹窗与卡片）。单独登记便于日后核对来源与替换。
+     * 【命名约定】一律 IC_ + 下划线大写下划线名，与 Lucide 原名的连字符一一对应。
+     */
+
+    // ---- 外观 / 主题 ----
+    /** 调色板（Lucide palette）：外观页整体入口 / 主题 Tab。 */
     @JvmField
-    val IC_SQUARE_PEN = R.drawable.ic_square_pen
-    /** 置顶（Lucide pin）。 */
+    val IC_PALETTE = R.drawable.ic_palette
+    /** 水滴（Lucide droplet）：不透明度类滑条。 */
     @JvmField
-    val IC_PIN = R.drawable.ic_pin
-    /** 圆形头像占位（Lucide circle-user-round）。 */
+    val IC_DROPLET = R.drawable.ic_droplet
+    /** 对比度（Lucide contrast）：可读性遮罩强度。 */
     @JvmField
-    val IC_CIRCLE_USER_ROUND = R.drawable.ic_circle_user_round
-    /** 圆点（Lucide 圆）——未读小圆点用；几何上就是「实心圆」的描边版。 */
+    val IC_CONTRAST = R.drawable.ic_contrast
+    /** 光圈（Lucide aperture）：毛玻璃 / 模糊半径。 */
     @JvmField
-    val IC_CIRCLE = R.drawable.ic_circle
+    val IC_APERTURE = R.drawable.ic_aperture
+    /** 卡片堆叠（Lucide square-stack）：弹窗与卡片 Tab。 */
+    @JvmField
+    val IC_SQUARE_STACK = R.drawable.ic_square_stack
+    /** 方形气泡组（Lucide messages-square）：聊天界面 Tab。 */
+    @JvmField
+    val IC_MESSAGES_SQUARE = R.drawable.ic_messages_square
+
+    // ---- 记忆图谱 ----
+    /** 路径点（Lucide waypoints）：记忆图谱主干入口。 */
+    @JvmField
+    val IC_WAYPOINTS = R.drawable.ic_waypoints
+    /** 节点（Lucide circle-dot）：图谱节点 / 记忆条目。 */
+    @JvmField
+    val IC_CIRCLE_DOT = R.drawable.ic_circle_dot
+    /** 连线（Lucide link-2）：图谱关系边 / 手动关联。 */
+    @JvmField
+    val IC_LINK_2 = R.drawable.ic_link_2
+    /** 放大（Lucide zoom-in）：图谱放大。 */
+    @JvmField
+    val IC_ZOOM_IN = R.drawable.ic_zoom_in
+    /** 缩小（Lucide zoom-out）：图谱缩小。 */
+    @JvmField
+    val IC_ZOOM_OUT = R.drawable.ic_zoom_out
+    /** 最大化（Lucide maximize）：图谱「适配屏幕」。 */
+    @JvmField
+    val IC_MAXIMIZE = R.drawable.ic_maximize
+
+    /** 新建文件夹（Lucide folder-plus）：新建分组。 */
+    @JvmField
+    val IC_FOLDER_PLUS = R.drawable.ic_folder_plus
+    /** 文件夹树（Lucide folder-tree）：分组层级 / 管理分组。 */
+    @JvmField
+    val IC_FOLDER_TREE = R.drawable.ic_folder_tree
+
+    // ---- 我的资料 / 说说 ----
+    /** 我的头像（Lucide circle-user）：用户自身资料。 */
+    @JvmField
+    val IC_CIRCLE_USER = R.drawable.ic_circle_user
+    /** 引号（Lucide quote）：个性签名。 */
+    @JvmField
+    val IC_QUOTE = R.drawable.ic_quote
+    /** 喇叭（Lucide megaphone）：说说 / 公告。 */
+    @JvmField
+    val IC_MEGAPHONE = R.drawable.ic_megaphone
+    /** 报纸（Lucide newspaper）：说说动态流。 */
+    @JvmField
+    val IC_NEWSPAPER = R.drawable.ic_newspaper
     /** 取图并按 color 上色。返回的 Drawable 每次都是新实例，可安全用于不同 View。 */
     @JvmStatic
     fun get(ctx: Context?, resId: Int, color: Int): Drawable? {

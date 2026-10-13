@@ -169,7 +169,10 @@ object BottomNav {
         return when (tab) {
             AppNav.TAB_CHAT -> Icons.IC_MESSAGE_SQUARE
             AppNav.TAB_CONTACT -> Icons.IC_USERS
-            else -> Icons.IC_HOUSE
+            // 【r14·改名】第三项由「主页」变「说说」，图标同步从「房子」换成「喇叭」——
+            //   房子指「首页」，而这一页现在是「动态 / 说说」，语义完全变了。
+            //   继续用房子会让用户以为点进去是主页（那个页面已经不存在了）。
+            else -> Icons.IC_MEGAPHONE
         }
     }
 
@@ -184,7 +187,11 @@ object BottomNav {
             //   叫「联系人」是借喻（借通讯录的交互形态），但它同时带来一个误导：
             //   用户会以为这里能看到手机通讯录里的真人。「人偶」才是这一页的真名。
             AppNav.TAB_CONTACT -> "人偶"
-            else -> "主页"
+            // 【r14·改名】「主页」→「说说」。
+            //   需求原文：「那个底边栏 变成说说 然后那个界面暂时 不可进入 那个说说 标注一下未开放就好」。
+            //   原主页的三个按钮已搬进「我的资料」抽屉（见 ProfileDrawer），
+            //   这一格现在只承载「说说」这个尚未开放的功能位。
+            else -> "说说"
         }
     }
 }

@@ -271,13 +271,305 @@ object DeepSeekClient {
             }
         }, "feiyu-deepseek").start()
     }
-
     /** 读流收口到 ApiClient（保留本方法只为兼容既有调用点）。 */
     @JvmStatic
     @Throws(Exception::class)
     fun readAll(inputStream: InputStream): String {
         return ApiClient.readAll(inputStream)
     }
+
+    /* ============================ 流式（SSE） ============================ */
+
+    /**
+     * 【r13·流式】增量的三种类型。
+     *
+     * 【为什么不分「正文」与「思考」两个回调】上层（ChatPanel）要把两段分别累积到
+     *   思考框与气泡里，用同一个回调带 kind 比注册两个接口更省 —— 也更好做「停止」时的一次性收尾。
+     */
+    enum class StreamKind {
+        /** 思考内容增量（DeepSeek 系 reasoning_content）。 */
+        THINK,
+
+        /** 正文增量（content）。 */
+        TEXT,
+
+        /** 工具调用分片（tool_calls），由上层按 index 拼装。 */
+        TOOL
+    }
+
+    /**
+     * 【r13·流式】增量回调。
+     *
+     * @param kind 增量类型
+     * @param text 增量文本（[StreamKind.TOOL] 时为空串）
+     * @param toolIndex 工具下标（仅 [StreamKind.TOOL] 有意义，从 0 开始）
+     * @param toolId 工具调用 id（仅 [StreamKind.TOOL]，可能只有首个分片带）
+     * @param toolName 工具名（仅 [StreamKind.TOOL]，可能只有首个分片带）
+     * @param toolArgs 工具参数 JSON 片段（仅 [StreamKind.TOOL]，需按序拼接）
+     */
+    fun interface StreamCallback {
+        fun onDelta(
+            kind: StreamKind,
+            text: String,
+            toolIndex: Int,
+            toolId: String?,
+            toolName: String?,
+            toolArgs: String?
+        )
+    }
+
+    /** 流式收尾结果：与非流式同口径的 message 对象 + 耗时（毫秒）。 */
+    fun interface StreamDone {
+        /**
+         * @param message 组装好的 assistant 消息（含 `content` / `reasoning_content` / `tool_calls` / `__usage`）
+         * @param error   错误文案；null = 成功
+         * @param thinkMs 真实思考段耗时（首个思考增量 → 首个正文增量）；0 = 无思考段
+         */
+        fun onDone(message: JSONObject?, error: String?, thinkMs: Long)
+    }
+
+    /**
+     * 【r13·流式】按 SSE 发一次对话请求，边收边回调。
+     *
+     * 【为什么单独一条路径、不改非流式】非流式路径已被全工程（对话 / 摘要 / 记忆抽取 / 工具轮）
+     *   共用，改它风险面太大。流式失败时上层会自动降级回 [chatRaw]，所以这条路径
+     *   只需把「成功」做对，把「失败」如实报出去即可。
+     *
+     * 【协议】OpenAI 兼容的 `text/event-stream`：每行 `data: {json}`，`data: [DONE]` 收尾。
+     *   delta 里可能出现 `reasoning_content`（DeepSeek 系推理模型）/ `content` / `tool_calls` 分片。
+     *
+     * 【工具调用】`tool_calls` 是**按 index 分片下发**的：首个分片带 id 与 function.name，
+     *   后续分片只带 function.arguments 的片段。这里按 index 归并成完整数组，
+     *   形状与非流式的 message.tool_calls 一致，上层 runTools 无需改动即可复用。
+     *
+     * 【取消】沿用 [Task]：cancel() 断开连接，读循环抛异常，最终以 [STOPPED] 收尾。
+     */
+    @JvmStatic
+    fun chatStream(pv: Provider?, key: String?, baseUrl: String?, model: String?, messages: JSONArray?,
+                   tools: JSONArray?, extraBody: JSONObject?, task: Task?,
+                   onDelta: StreamCallback, onDone: StreamDone) {
+        Thread({
+            var doneSent = false
+            var conn: HttpURLConnection? = null
+            // 增量累积器：正文 / 思考 / 工具分片。
+            val contentBuf = StringBuilder()
+            val thinkBuf = StringBuilder()
+            // 工具分片：key = index，value = 已拼好的部分
+            val toolIds = HashMap<Int, String>()
+            val toolNames = HashMap<Int, String>()
+            val toolArgs = HashMap<Int, StringBuilder>()
+            var usage: JSONObject? = null
+            var finishReason = ""
+            // 【真实思考耗时】首个思考增量 → 首个正文增量。这是流式最实在的收益：
+            //   非流式的「思考了 X 秒」只能量整段网络往返（注释里也承认偏长）。
+            var firstThinkAt = 0L
+            var firstTextAt = 0L
+            var toolCallsSeen = false
+
+            fun emit(kind: StreamKind, text: String, ti: Int, tid: String?, tname: String?, targs: String?) {
+                MAIN.post {
+                    try {
+                        onDelta.onDelta(kind, text, ti, tid, tname, targs)
+                    } catch (ignored: Throwable) {
+                    }
+                }
+            }
+
+            try {
+                if (task != null && task.cancelled) {
+                    throw InterruptedException(STOPPED)
+                }
+                if (key == null || key.isEmpty()) {
+                    throw IllegalStateException("还没填 API key")
+                }
+                // 【只对 chat/completions 开流式】Responses 接口的流式事件格式不同
+                //   （event: xxx + data: {...} 分段），本版不做，直接拒绝让上层降级。
+                if (pv != null && pv.useResponseApi) {
+                    throw IllegalStateException("RESPONSES_NO_STREAM")
+                }
+                val urlText = if (pv == null) ApiEndpoint.chatUrl(baseUrl) else ApiClient.chatUrl(pv, model)
+                if (urlText.isEmpty()) {
+                    throw IllegalStateException("还没填接口地址")
+                }
+                val body = buildBody(model, messages, tools, extraBody)
+                // 【关键】唯一与非流式的差别：stream=true + 声明接受 event-stream。
+                body.put("stream", true)
+                val c = ApiClient.open(urlText, pv, key, "POST", true)
+                conn = c
+                if (task != null) {
+                    task.conn = c
+                }
+                c.setRequestProperty("Accept", "text/event-stream")
+                ApiClient.writeJson(c, body.toString())
+                val code = c.responseCode
+                if (code < 200 || code >= 300) {
+                    val err = ApiClient.readBody(c, code)
+                    throw IllegalStateException(buildHttpError(code, err, baseUrl, tools))
+                }
+                val input = c.inputStream
+                val reader = input.bufferedReader(Charsets.UTF_8)
+                // 【逐行读】SSE 每行一条；空行是事件分隔符，直接跳过。
+                while (true) {
+                    if (task != null && task.cancelled) {
+                        throw InterruptedException(STOPPED)
+                    }
+                    val line = reader.readLine() ?: break
+                    if (line.isEmpty()) {
+                        continue
+                    }
+                    // 注释行（: keep-alive）与 event: / id: 行与增量无关。
+                    if (!line.startsWith("data:")) {
+                        continue
+                    }
+                    val payload = line.substring(5).trim()
+                    if (payload == "[DONE]") {
+                        break
+                    }
+                    if (payload.isEmpty()) {
+                        continue
+                    }
+                    val chunk = try {
+                        JSONObject(payload)
+                    } catch (ignored: Throwable) {
+                        continue
+                    }
+                    // usage 通常在最后一个 chunk（stream_options.include_usage 打开时）。
+                    val u = chunk.optJSONObject("usage")
+                    if (u != null) {
+                        usage = u
+                    }
+                    val choices = chunk.optJSONArray("choices") ?: continue
+                    if (choices.length() <= 0) {
+                        continue
+                    }
+                    val choice = choices.optJSONObject(0) ?: continue
+                    val fr = choice.optString("finish_reason", "")
+                    if (fr.isNotEmpty() && "null" != fr) {
+                        finishReason = fr
+                    }
+                    val delta = choice.optJSONObject("delta") ?: continue
+                    // ---- 思考增量 ----
+                    val dThink = delta.optString("reasoning_content", "")
+                    if (dThink.isNotEmpty()) {
+                        if (firstThinkAt == 0L) {
+                            firstThinkAt = System.currentTimeMillis()
+                        }
+                        thinkBuf.append(dThink)
+                        emit(StreamKind.THINK, dThink, -1, null, null, null)
+                    }
+                    // ---- 正文增量 ----
+                    val dText = delta.optString("content", "")
+                    if (dText.isNotEmpty()) {
+                        if (firstTextAt == 0L) {
+                            firstTextAt = System.currentTimeMillis()
+                        }
+                        contentBuf.append(dText)
+                        emit(StreamKind.TEXT, dText, -1, null, null, null)
+                    }
+                    // ---- 工具调用分片 ----
+                    val tc = delta.optJSONArray("tool_calls")
+                    if (tc != null && tc.length() > 0) {
+                        toolCallsSeen = true
+                        for (i in 0 until tc.length()) {
+                            val piece = tc.optJSONObject(i) ?: continue
+                            val idx = piece.optInt("index", 0)
+                            val pid = piece.optString("id", "")
+                            if (pid.isNotEmpty()) {
+                                toolIds[idx] = pid
+                            }
+                            val fn = piece.optJSONObject("function")
+                            if (fn != null) {
+                                val nm = fn.optString("name", "")
+                                if (nm.isNotEmpty()) {
+                                    toolNames[idx] = nm
+                                }
+                                val args = fn.optString("arguments", "")
+                                if (args.isNotEmpty()) {
+                                    val sb = toolArgs.getOrPut(idx) { StringBuilder() }
+                                    sb.append(args)
+                                    emit(StreamKind.TOOL, "", idx, pid.ifEmpty { null }, nm.ifEmpty { null }, args)
+                                }
+                            }
+                        }
+                    }
+                }
+                reader.close()
+                // ---- 组装成与非流式同形的 message ----
+                val msg = JSONObject()
+                msg.put("role", "assistant")
+                msg.put("content", contentBuf.toString())
+                if (thinkBuf.length > 0) {
+                    msg.put("reasoning_content", thinkBuf.toString())
+                }
+                if (usage != null) {
+                    msg.putOpt("__usage", usage)
+                }
+                if (toolCallsSeen) {
+                    val arr = JSONArray()
+                    // 按 index 升序输出，保证与模型给出的顺序一致。
+                    val keys = ArrayList(toolIds.keys)
+                    for (k in toolArgs.keys) {
+                        if (!keys.contains(k)) {
+                            keys.add(k)
+                        }
+                    }
+                    keys.sort()
+                    for (k in keys) {
+                        val o = JSONObject()
+                        o.put("id", toolIds[k] ?: "")
+                        o.put("type", "function")
+                        val fn = JSONObject()
+                        fn.put("name", toolNames[k] ?: "")
+                        fn.put("arguments", toolArgs[k]?.toString() ?: "{}")
+                        o.put("function", fn)
+                        arr.put(o)
+                    }
+                    msg.put("tool_calls", arr)
+                }
+                if (finishReason.isNotEmpty()) {
+                    msg.put("__finish", finishReason)
+                }
+                // 【坑】`+` 与 `if-else` 混写时，`else 0 + " finish="` 会被解析成 `0 + " finish="`
+                //   （Int.plus(String) 不存在 → 编译报「None of the following functions...」）。
+                //   整段 if 用括号包起来，语义才明确。
+                Logs.i("DollhouseMemo", "[stream] ok thinkLen=" + thinkBuf.length
+                        + " contentLen=" + contentBuf.length
+                        + " tools=" + (if (toolCallsSeen) toolIds.size else 0)
+                        + " finish=" + finishReason)
+                val thinkMs = if (firstThinkAt > 0 && firstTextAt > firstThinkAt) {
+                    firstTextAt - firstThinkAt
+                } else {
+                    0L
+                }
+                val fMsg = msg
+                val fThink = thinkMs
+                MAIN.post {
+                    if (!doneSent) {
+                        doneSent = true
+                        onDone.onDone(fMsg, null, fThink)
+                    }
+                }
+            } catch (t: Throwable) {
+                val err = if (task != null && task.cancelled) STOPPED else ApiEndpoint.friendlyError(t, baseUrl)
+                Logs.i("DollhouseMemo", "[stream] err=" + err)
+                MAIN.post {
+                    if (!doneSent) {
+                        doneSent = true
+                        onDone.onDone(null, err, 0L)
+                    }
+                }
+            } finally {
+                try {
+                    conn?.disconnect()
+                } catch (ignored: Throwable) {
+                }
+                if (task != null) {
+                    task.conn = null
+                }
+            }
+        }, "feiyu-stream").start()
+    }
+
 
     /** 组装 chat/completions 请求体：默认参数 + tools + 调用方 extraBody 覆盖合并。 */
     @Throws(Exception::class)

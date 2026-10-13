@@ -297,6 +297,89 @@ object UiKit {
         frostApplied = Math.max(0, Math.min(100, percent))
     }
 
+    /* ============================ 【r14】弹窗透明度 / 模糊 ============================
+     *
+     * 【与「磨砂程度」的区别（务必看清，否则又会做出「调一个动两个」）】
+     *   - 磨砂程度（[frostApplied]）：往**背景色方向混多少色**，alpha 恒为 255。
+     *     它改的是「弹窗看起来像不像毛玻璃」，不改透明度。
+     *   - 弹窗透明度（本节）：改的是**弹窗底的整体 alpha**。
+     *     调低之后背后内容真的会透出来（用户明确要求「全部改掉，并且这个程度是可以调的」）。
+     *
+     * 【默认 100 的理由】弹窗的职责是「把事情盖住」。默认必须完全不透明，
+     *   否则老用户升级后会突然看到「弹窗和背后文字叠成一片」。
+     */
+    /** 【r14】弹窗底透明度（0~100），由 [applyDialogAlpha] 落。 */
+    @JvmField
+    var dialogAlphaApplied = 100
+
+    /** 【r14】弹窗背后模糊半径（0~25 dp），由 [applyDialogBlur] 落。 */
+    @JvmField
+    var dialogBlurApplied = 0
+
+    /** 落一次「弹窗透明度」偏好。 */
+    @JvmStatic
+    fun applyDialogAlpha(percent: Int) {
+        dialogAlphaApplied = Math.max(0, Math.min(100, percent))
+    }
+
+    /** 落一次「弹窗模糊」偏好（单位 dp）。 */
+    @JvmStatic
+    fun applyDialogBlur(dp: Int) {
+        dialogBlurApplied = Math.max(0, Math.min(25, dp))
+    }
+
+    /**
+     * 【r14】把弹窗底色的 alpha 按当前「弹窗透明度」缩放。
+     *
+     * 【怎么用】弹窗底色最终由 `UiKit.showDialog` / `DhForm.Alert` 从 [sheet] 取；
+     *   它们取到之后再经本方法过一道，透明度设置就能作用到每一处弹窗，
+     *   而不必在每个弹窗的构建代码里各写一遍。
+     */
+    @JvmStatic
+    fun dialogTint(base: Int): Int {
+        val p = dialogAlphaApplied
+        if (p >= 100) {
+            return base
+        }
+        val a = (ContrastCore.alphaOf(base) * Math.max(0, p)) / 100
+        return ContrastCore.withAlpha(base, a)
+    }
+
+    /**
+     * 【r14】给一个弹窗 Window 应用「背后模糊」。
+     *
+     * 【如实说明平台限制】`setBackgroundBlurRadius` 是 **API 31+**；
+     *   minSdk 24 的设备上调用它是静默无效的（不是崩溃，就是没效果）。
+     *   本方法已做版本判断，调用方无需再判。
+     *
+     * @return true = 系统接受了模糊设置；false = 版本不支持，调用方可据此提示用户。
+     */
+    @JvmStatic
+    fun applyDialogBlurToWindow(win: android.view.Window?): Boolean {
+        if (win == null) {
+            return false
+        }
+        if (android.os.Build.VERSION.SDK_INT < 31) {
+            return false
+        }
+        val dp = dialogBlurApplied
+        if (dp <= 0) {
+            return false
+        }
+        return try {
+            val px = UiKit.dp(win.context, dp.toFloat())
+            win.setBackgroundBlurRadius(px)
+            val lp = win.attributes
+            if (lp != null) {
+                lp.flags = lp.flags or android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                win.attributes = lp
+            }
+            true
+        } catch (ignored: Throwable) {
+            false
+        }
+    }
+
     /**
      * 落一次「卡片透明度」偏好。由 [ThemeManager.apply] 与 ThemeRefresh 在需要生效时调用。
      */
@@ -1370,7 +1453,9 @@ object UiKit {
         // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 sheet()：**不透明**（绝不让背后正文透上来），
         //   质感由「外观 → 磨砂程度」控制。原来走 card()，会跟着卡片透明度一起变半透明，
         //   用户把卡片调透之后弹窗与背后文字就叠成一片。
-        col.background = round(sheet(), act, 16f)
+        // 【r14·弹窗透明度】底色再过一道 dialogTint：把「弹窗透明度」设置作用到每一处弹窗，
+        //   不必在每个弹窗的构建代码里各写一遍（默认 100 时本方法原样返回，零行为变化）。
+        col.background = round(dialogTint(sheet()), act, 16f)
         val pad = dp(act, 18)
         col.setPadding(pad, pad, pad, dp(act, 14))
 
@@ -1423,6 +1508,9 @@ object UiKit {
                 dp(act, 420)
             )
             w.setLayout(wide, ViewGroup.LayoutParams.WRAP_CONTENT)
+            // 【r14·弹窗模糊】API 31+ 才真正有效；低版本由本方法内部判掉，静默不生效。
+            //   放在 setLayout 之后调用 —— 模糊是按 window 的整体背景算的，尺寸定好再设更稳。
+            applyDialogBlurToWindow(w)
         }
         // 弹窗入场：轻微上浮 + 缩放 + 淡入。
         // 【为何】原先是 show() 后凭空出现，与 App 其他地方的过渡感不一致。

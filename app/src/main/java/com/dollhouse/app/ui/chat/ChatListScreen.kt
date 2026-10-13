@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.ChatHistoryStore
+import com.dollhouse.app.data.MyProfile
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
@@ -47,6 +48,8 @@ import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.home.ChatBadge
+import com.dollhouse.app.ui.home.ProfileDrawer
+import com.dollhouse.app.ui.home.ProfileState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -86,6 +89,8 @@ object ChatListScreen {
 
     /** 头像边长（dp）。 */
     private const val AVATAR_DP = 52
+    /** 【r14·需求 3】顶栏左上角「我」的头像边长（dp）—— 比列表头像小一圈，不抢标题视觉重心。 */
+    private const val HEAD_AVATAR_DP = 36
 
     /** 列表顶部 / 底部内边距（底部要避开悬浮底栏，由宿主用 [contentPadding] 传进来）。 */
     private val PAD_H = 16.dp
@@ -182,6 +187,35 @@ object ChatListScreen {
                     .padding(top = 14.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // ---------- 我的头像入口（r14·需求 3）----------
+                // 【位置】聊天列表**左上角** —— 用户给的 QQ 参考图正是这个位置。
+                // 【职责】点开「我的资料」抽屉（见 [ProfileDrawer.Host]，宿主在 HomeUi.apply）。
+                // 【为什么重读要挂 ProfileState.tick】头像存在 SharedPreferences 里，
+                //   在「我的资料」页换完头像返回后，本按钮不会自己更新 —— 需要一个重读信号。
+                val ptick = ProfileState.tick
+                val myAva = remember(ptick) { MyProfile.avatarBitmap(act, 128) }
+                Box(
+                    modifier = Modifier
+                        .size(HEAD_AVATAR_DP.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.soft)
+                        .pressable { ProfileDrawer.toggle() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    val bmp: android.graphics.Bitmap? = myAva
+                    if (bmp != null && !bmp.isRecycled) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            // 【Cover】圆形裁切区用 Fit 会在圆内留黑边，与列表头像同一口径。
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        DhKit.Icon(iconRes = Icons.IC_CIRCLE_USER, sizeDp = Design.SZ_LG, color = c.sub)
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = "聊天",
                     modifier = Modifier.weight(1f),

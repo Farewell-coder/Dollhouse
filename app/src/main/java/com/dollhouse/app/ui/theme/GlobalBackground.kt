@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ScrollView
 import com.dollhouse.app.data.ImageStore
+import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.chat.ChatBgDrawable
 import java.util.WeakHashMap
@@ -48,7 +49,7 @@ object GlobalBackground {
     private const val DEFAULT_AVG = 0xFF808080.toInt()
 
     /** 已挂背景的视图 → 复现参数（弱键：视图被回收后条目自动消失，不会泄漏）。 */
-    private class Entry(val fallback: () -> Int, val opaqueBase: Boolean)
+    private class Entry(val fallback: () -> Int, val opaqueBase: Boolean, val dollId: String? = null)
 
     private val registry = WeakHashMap<View, Entry>()
 
@@ -67,35 +68,78 @@ object GlobalBackground {
     private var scrimKey = 0
     private var scrimAlpha = -1
 
-    /** 当前背景图相对路径；未设置返回空串。 */
-    fun path(c: Context): String {
+    /**
+     * 【r14·三层配置】解析某个作用域「实际生效」的背景图路径。
+     *
+     * 【优先级】人偶层（有值且开关开）→ 全局层（有值且开关开）→ 空串。
+     *
+     * 【为什么不直接把两个开关合并成一个】用户定案「全局背景默认关」「人偶背景独立」：
+     *   全局关掉后，某只人偶仍可单独开自己的图 —— 两者是覆盖关系，不是从属关系。
+     *
+     * @param dollId 传 null / 空串 = 只看全局层（绝大多数页面）。
+     */
+    private fun resolvePath(c: Context, dollId: String?): String {
         return try {
-            PetPrefs.chatBackground(c) ?: ""
+            if (!dollId.isNullOrEmpty()) {
+                // 【人偶层】先看他有没有自己的图且开着。
+                val own = DollProfile.chatBgPath(c, dollId)
+                if (own.isNotEmpty() && DollProfile.chatBgEnabled(c, dollId) && ImageStore.exists(c, own)) {
+                    return own
+                }
+            }
+            // 【全局层】开关关着就当作「没有背景」。
+            if (!PetPrefs.bgEnabled(c)) {
+                return ""
+            }
+            val p = PetPrefs.chatBackground(c) ?: ""
+            if (p.isEmpty()) "" else p
         } catch (ignored: Throwable) {
             ""
         }
     }
 
-    /** 背景图不透明度百分比（0..100，越大图越实）。 */
-    fun alphaPercent(c: Context): Int {
+    /**
+     * 【r14·三层配置】解析透明度百分比。
+     * 【优先级】与人偶层一致：用了人偶自己的图，就用它自己的透明度。
+     */
+    private fun resolveAlpha(c: Context, dollId: String?): Int {
         return try {
-            PetPrefs.chatBgAlpha(c)
+            if (!dollId.isNullOrEmpty() && DollProfile.chatBgPath(c, dollId).isNotEmpty()) {
+                DollProfile.chatBgAlpha(c, dollId)
+            } else {
+                PetPrefs.chatBgAlpha(c)
+            }
         } catch (ignored: Throwable) {
             30
         }
     }
 
-    /** 是否已设置且文件存在。 */
-    fun hasImage(c: Context): Boolean {
-        val p = path(c)
-        if (p.isEmpty()) {
-            return false
-        }
+    /** 【r14·三层配置】解析毛玻璃半径（同样按作用域回落）。 */
+    private fun resolveBlur(c: Context, dollId: String?): Int {
         return try {
-            ImageStore.exists(c, p)
+            if (!dollId.isNullOrEmpty() && DollProfile.chatBgPath(c, dollId).isNotEmpty()) {
+                DollProfile.chatBgBlur(c, dollId)
+            } else {
+                PetPrefs.blurRadius(c)
+            }
         } catch (ignored: Throwable) {
-            false
+            0
         }
+    }
+
+    /** 当前背景图相对路径；未设置 / 开关关闭返回空串。 */
+    fun path(c: Context): String {
+        return resolvePath(c, null)
+    }
+
+    /** 背景图不透明度百分比（0..100，越大图越实）。 */
+    fun alphaPercent(c: Context): Int {
+        return resolveAlpha(c, null)
+    }
+
+    /** 是否已设置且文件存在（且开关是开的）。 */
+    fun hasImage(c: Context): Boolean {
+        return path(c).isNotEmpty()
     }
 
     /**
@@ -183,22 +227,46 @@ object GlobalBackground {
      * @param opaqueBase    true 时在图片下固定垫 [UiKit.BG] 不透明底，避免透出下层同一张图（覆盖页 / 抽屉用）。
      */
     fun install(v: View?, fallbackColor: Int = UiKit.BG, opaqueBase: Boolean = false) {
+        install(v, fallbackColor, opaqueBase, null)
+    }
+
+    /**
+     * 【r14】带作用域的安装：某个页面如果要用人偶自己的背景（聊天页），把 dollId 传进来。
+     *
+     * @param dollId null / 空串 = 全局层（绝大多数页面）。
+     */
+    fun install(v: View?, fallbackColor: Int, opaqueBase: Boolean, dollId: String?) {
         if (v == null) {
             return
         }
         val provider = fallbackProvider(fallbackColor)
-        synchronized(registry) { registry[v] = Entry(provider, opaqueBase) }
-        applyNow(v, provider, opaqueBase)
-        ensureLoaded(v.context)
+        synchronized(registry) { registry[v] = Entry(provider, opaqueBase, dollId) }
+        applyNow(v, provider, opaqueBase, dollId)
+        ensureLoaded(v.context, dollId)
     }
 
-    /** 覆盖页 / 二级页专用：页根铺一次全局背景（带不透明底遮住下层同一张图，避免叠影），
-     * 并把页内「页面级不透明底色容器」统一置透明，让图只由页根画一次；卡片自身底色保留。 */
+    /**
+     * 覆盖页 / 二级页专用：页根铺一次背景（带不透明底遮住下层同一张图，避免叠影），
+     * 并把页内「页面级不透明底色容器」统一置透明，让图只由页根画一次；卡片自身底色保留。
+     *
+     * 【r14·需求 1 根因修复】原先这里只挂图，但 Compose 侧 `DhKit.Page` 自己还画了一层
+     *   不透明的主题底色 —— 那层是 Compose 画的，**View 树的清理函数够不到**，
+     *   于是背景图被盖死（用户报「设置了背景但页面上看不到」）。
+     *   现在 Compose 侧已收口不再铺底（见 DhKit.Page），不透明底统一由**本方法在页根 View 上垫** ——
+     *   它既挡得住下层页面（防串页），又能被 [clearOpaquePageBgs] 管到，不会再出现同类盲区。
+     */
     fun installPage(root: View?) {
+        installPage(root, null)
+    }
+
+    /**
+     * 【r14】带作用域的覆盖页安装（聊天页用 dollId 拿人偶自己的图）。
+     */
+    fun installPage(root: View?, dollId: String?) {
         if (root == null) {
             return
         }
-        install(root, UiKit.BG, true)
+        install(root, UiKit.BG, true, dollId)
         clearOpaquePageBgs(root)
     }
 
@@ -211,19 +279,20 @@ object GlobalBackground {
         if (e == null) {
             install(v)
         } else {
-            applyNow(v, e.fallback, e.opaqueBase)
+            applyNow(v, e.fallback, e.opaqueBase, e.dollId)
         }
     }
 
     /** 主题 / 图片变化后遍历所有登记视图重建背景（弱键，无需手动注销）。 */
     fun refreshAll() {
         val keys = synchronized(registry) { registry.keys.toTypedArray() }
+        // 【r14】缓存路径可能因全局开 / 关变化而失效，先让缓存对齐一次再刷。
         for (v in keys) {
             val e = synchronized(registry) { registry[v] } ?: continue
-            applyNow(v, e.fallback, e.opaqueBase)
+            applyNow(v, e.fallback, e.opaqueBase, e.dollId)
             // 【毛玻璃 / 填充模式变化】重建 drawable 只换了画法，模糊图与解码缓存还得对齐一次：
             //   半径变了要重算模糊，路径变了要重解。已经对齐时 ensureLoaded 会直接返回，无额外开销。
-            ensureLoaded(v.context)
+            ensureLoaded(v.context, e.dollId)
         }
     }
 
@@ -294,16 +363,23 @@ object GlobalBackground {
         return { color }
     }
 
-    private fun applyNow(v: View, fallback: () -> Int, opaqueBase: Boolean) {
+    private fun applyNow(v: View, fallback: () -> Int, opaqueBase: Boolean, dollId: String?) {
         try {
-            val d = buildDrawable(v.context, fallback(), opaqueBase)
+            val d = buildDrawable(v.context, fallback(), opaqueBase, dollId)
             v.background = d
         } catch (ignored: Throwable) {
             // 背景是装饰层：任何异常都不该影响功能。
         }
     }
 
-    /** 把页内「页面级不透明底色容器」统一置透明，卡片（CARD 等）不动。 */
+    /**
+     * 把页内「页面级不透明底色容器」统一置透明，卡片（CARD 等）不动。
+     *
+     * 【r14 加固】原实现对每个直接子 View 只判一次 `isOpaqueBg`，且**不处理 View 自身是
+     *   背景容器、内部再套一层的情况**。由于 Compose 侧已收口不再画底，本方法现在是
+     *   「防止出现不透明遮罩」的唯一防线，必须更彻底：递归到整棵子树。
+     *   卡片底色（CARD / SHEET 等）与页面底色（BG）不同色，不会被误清。
+     */
     private fun clearOpaquePageBgs(v: View) {
         if (v !is ViewGroup) {
             return
@@ -331,33 +407,46 @@ object GlobalBackground {
         return solid != null && solid == color
     }
 
-    private fun buildDrawable(c: Context, fallbackColor: Int, opaqueBase: Boolean): Drawable? {
-        val p = path(c)
+    private fun buildDrawable(c: Context, fallbackColor: Int, opaqueBase: Boolean, dollId: String?): Drawable? {
+        val p = resolvePath(c, dollId)
         if (p.isEmpty()) {
             return if (ContrastCore.alphaOf(fallbackColor) == 0) null else ColorDrawable(fallbackColor)
         }
-        val bmp = if (p == cachedPath) cachedBmp else null
+        // 【r14·缓存键带上作用域】同一张图可能既是全局背景又是某人偶的背景，
+        //   两处透明度 / 模糊不同 —— 只比路径会取错参数，故 key 用「路径 + dollId」。
+        val key = cacheKey(p, dollId)
+        val bmp = if (key == cachedPath) cachedBmp else null
         if (bmp == null || bmp.isRecycled) {
             // 解码中 / 失败：先用纯色兜底，解码完成后 refreshAll 会换成图。
             return if (ContrastCore.alphaOf(fallbackColor) == 0) null else ColorDrawable(fallbackColor)
         }
         // 有图时必须垫一层不透明纯色底：否则图片透明度会透出下层 window 或第二张同图，形成叠影。
         val base = if (opaqueBase || ContrastCore.alphaOf(fallbackColor) == 0) UiKit.BG else fallbackColor
+        val alpha = resolveAlpha(c, dollId)
         val layers = ArrayList<Drawable>(3)
         layers.add(ColorDrawable(ContrastCore.withAlpha(base, 255)))
         val img = ChatBgDrawable(cachedBlurBmp ?: bmp, PetPrefs.bgMode(c))
-        img.setAlpha((alphaPercent(c) * 255) / 100)
+        img.setAlpha((alpha * 255) / 100)
         layers.add(img)
-        layers.add(ColorDrawable(scrimColor(c, alphaPercent(c))))
+        layers.add(ColorDrawable(scrimColor(c, alpha)))
         return LayerDrawable(layers.toTypedArray())
+    }
+
+    /**
+     * 【r14】解码缓存的键：路径 + 作用域。
+     * 【为什么必须带作用域】同一张图在两处使用时透明度 / 模糊可能不同（全局 vs 某人偶），
+     *   只按路径判等会让先加载的那份参数「串」到另一处。
+     */
+    private fun cacheKey(path: String, dollId: String?): String {
+        return if (dollId.isNullOrEmpty()) path else path + "\u0000" + dollId
     }
 
     /**
      * 确保图片已缓存。同一路径只解一次；解码失败不「永久记住失败」，下次 install 会重试；
      * 解码途中用户换了路径时，丢掉旧结果并立即去解当前路径（不漏新路径）。
      */
-    private fun ensureLoaded(c: Context) {
-        val p = path(c)
+    private fun ensureLoaded(c: Context, dollId: String?) {
+        val p = resolvePath(c, dollId)
         if (p.isEmpty()) {
             synchronized(this) {
                 cachedPath = ""
@@ -370,8 +459,9 @@ object GlobalBackground {
             }
             return
         }
-        val r = blurRadius(c)
-        if (p == cachedPath && r == cachedRadius && !loadFailed) {
+        val key = cacheKey(p, dollId)
+        val r = resolveBlur(c, dollId)
+        if (key == cachedPath && r == cachedRadius && !loadFailed) {
             return
         }
         synchronized(this) {
@@ -381,12 +471,13 @@ object GlobalBackground {
             }
             loading = true
         }
-        startLoad(c.applicationContext, p, r)
+        startLoad(c.applicationContext, p, r, dollId)
     }
 
-    private fun startLoad(app: Context, p: String, r: Int) {
+    private fun startLoad(app: Context, p: String, r: Int, dollId: String?) {
+        val key = cacheKey(p, dollId)
         synchronized(this) {
-            cachedPath = p
+            cachedPath = key
             loadFailed = false
         }
         Thread({
@@ -420,9 +511,9 @@ object GlobalBackground {
                 var stale: Boolean
                 synchronized(this) {
                     loading = false
-                    stale = path(app) != p
+                    stale = cacheKey(resolvePath(app, dollId), dollId) != key
                     if (stale) {
-                        // 期间换了路径：丢弃这次结果（还没被任何 Drawable 引用，可安全回收），
+                        // 期间换了路径 / 关了开关：丢弃这次结果（还没被任何 Drawable 引用，可安全回收），
                         // 置空缓存路径以便立刻去解当前路径。
                         cachedPath = null
                         cachedBlurBmp = null
@@ -448,7 +539,7 @@ object GlobalBackground {
                 refreshAll()
                 if (stale) {
                     // 立即去解当前路径，保证不漏新路径。
-                    ensureLoaded(app)
+                    ensureLoaded(app, dollId)
                 }
             }
         }, THREAD_NAME).start()

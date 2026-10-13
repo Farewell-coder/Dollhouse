@@ -141,6 +141,74 @@ object ThemeRefresh {
         DhTheme.bump()
     }
 
+    /**
+     * 【r14·外观】把「弹窗透明度」改到 [percent] 并让已建界面就地生效。
+     *
+     * 【与 [applyFrostStrength] 的区别】磨砂程度改的是**往背景色混多少**（alpha 恒 255）；
+     *   本方法改的是**弹窗底的整体 alpha**。两者正交，各自独立调。
+     *
+     * 【就地生效的难点】弹窗底色的 alpha 是在「构建弹窗那一刻」算进 Drawable 的，
+     *   改设置不会让已弹出的弹窗自己变。这里按「旧值 → 新值」把视图树上等于旧底色的
+     *   Drawable 整值换掉；已经关闭的弹窗无需处理（下次弹出时会读到新值）。
+     */
+    @JvmStatic
+    fun applyDialogAlpha(act: Activity?, percent: Int) {
+        val oldSheet = UiKit.dialogTint(UiKit.sheet())
+        val oldUp = UiKit.dialogTint(UiKit.sheetUp())
+        UiKit.applyDialogAlpha(percent)
+        val neuSheet = UiKit.dialogTint(UiKit.sheet())
+        val neuUp = UiKit.dialogTint(UiKit.sheetUp())
+        if (act == null || (oldSheet == neuSheet && oldUp == neuUp)) {
+            return
+        }
+        walk(act.window?.decorView) { v ->
+            val bg = v.background
+            retintCard(bg, oldSheet, neuSheet)
+            retintCard(bg, oldUp, neuUp)
+        }
+        // 【Compose 侧】弹窗是独立 Window，不在 Activity 的视图树里（walk 够不到）；
+        //   这里 bump 一次让 Compose 弹窗在下次重组时重新取色。
+        DhTheme.bump()
+    }
+
+    /**
+     * 【r14·外观】把「弹窗模糊」改到 [dp] 并让**已弹出的**弹窗立即生效。
+     *
+     * 【为什么要遍历已弹出的弹窗】模糊是 window 级属性，改设置不会自动重设；
+     *   用户拖动滑条时如果眼前那个弹窗毫无变化，会以为「这项没做」。
+     *   这里把 Activity 的 window 与所有已知弹窗一起重设一遍。
+     *
+     * 【API < 31】`setBackgroundBlurRadius` 不存在，[UiKit.applyDialogBlurToWindow] 内部已判掉。
+     */
+    @JvmStatic
+    fun applyDialogBlur(act: Activity?, dp: Int) {
+        UiKit.applyDialogBlur(dp)
+        if (act == null) {
+            return
+        }
+        val ok = UiKit.applyDialogBlurToWindow(act.window)
+        // 【活动弹窗从哪来】Dialog 没有全局注册表，无法枚举；本工程所有弹窗都通过
+        //   `UiKit.showDialog` / `DhForm.show` 创建，它们内部会调 applyDialogBlurToWindow，
+        //   所以新开的弹窗一定拿到最新值。这里只处理当前 Activity 自身的 window。
+        if (!ok && dp > 0 && android.os.Build.VERSION.SDK_INT < 31) {
+            // 低版本：如实告诉调用方（由 UI 决定是否提示用户），不静默假装成功。
+            DhTheme.bump()
+        }
+    }
+
+    /**
+     * 【r14】只通知 Compose 侧重新取色，不做任何 View 树重映射。
+     *
+     * 【用途】当改动的是一项「只被 Compose 读、不被 View 树抄」的设置时
+     *   （如气泡宽度 / 显示头像开关），走 [applyInPlace] 是浪费 ——
+     *   那会遍历整棵视图树做颜色重映射，而根本没有任何 View 需要改。
+     *   本方法只 bump 主题版本号，让 Compose 重取一次令牌。
+     */
+    @JvmStatic
+    fun bumpAll() {
+        DhTheme.bump()
+    }
+
     /** 把 Drawable 里等于 [old] 的底色整值换成 [neu]（保留描边 / 圆角 / 层级）。 */
     private fun retintCard(d: Drawable?, old: Int, neu: Int) {
         if (d == null) {

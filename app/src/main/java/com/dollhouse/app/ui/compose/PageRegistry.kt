@@ -62,6 +62,7 @@ object PageRegistry {
                 || AboutPage.TAG_PAGE == key
                 || MemPage.TAG_PAGE == key
                 || com.dollhouse.app.ui.settings.MemSettingsPage.TAG_PAGE == key
+                || com.dollhouse.app.ui.settings.ChatSettingsPage.TAG_PAGE == key
                 || com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE == key
                 || ProviderNav.TAG_PAGE == key
     }
@@ -127,6 +128,9 @@ object PageRegistry {
         // 【r13·新记忆系统】「记忆库设置」页（设置 → 实验 → 记忆库设置）。
         if (com.dollhouse.app.ui.settings.MemSettingsPage.TAG_PAGE == key) {
             return com.dollhouse.app.ui.settings.MemSettingsPage.buildPage(act)
+        }
+        if (com.dollhouse.app.ui.settings.ChatSettingsPage.TAG_PAGE == key) {
+            return com.dollhouse.app.ui.settings.ChatSettingsPage.buildPage(act)
         }
         // 【r13】设置页从「底座」改成「覆盖层」后，要能在重建时恢复（见 SettingsScreen.open）。
         if (com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE == key) {

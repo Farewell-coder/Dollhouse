@@ -49,11 +49,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.dollhouse.app.data.PetPrefs
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
@@ -250,6 +253,9 @@ object ChatUi {
         val listState = rememberLazyListState()
         val items = ChatState.items
         val tick = ChatState.scrollTick
+        // 【r13·思考过程】是否渲染思考框（设置里的开关）。
+        val ctx0 = LocalContext.current
+        val showThink = PetPrefs.showThinking(ctx0)
         // 【下标补偿】「加载更早」入口与「思考中」占位都不是 [ChatState.items] 的成员，
         //   却各自占着 LazyColumn 的一个位置：列表下标 = items 下标 + offset，
         //   滚动目标与滚动回调必须按同一口径平移，否则收回判据会整体错位一格。
@@ -286,12 +292,20 @@ object ChatUi {
             }
             itemsIndexed(items, key = { i, _ -> "m$i" }) { idx, item ->
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // 【位置】思考框铺在「它对应的那条回复」正上方：先渲染框、再渲染气泡。
-                    if (idx == items.lastIndex) {
-                        ChatState.thinkingBox?.let { ThinkingBoxView(it) }
+                    // 【r13·思考过程】每条助手回复都在自己的气泡上方挂思考框 ——
+                    //   不再只限最后一条（本轮改造前，历史里的回复一律看不到思考）。
+                    //   【在途】流式期间正文还没落盘，那条占位气泡的 think 由 ChatState.streamThink 提供。
+                    //   【门控】「设置 → 实验 → 对话显示 → 显示思考过程」关掉即整块不渲染
+                    //   （思考内容仍在历史里，随时可以打开回看）。
+                    if (!item.isSummary && "assistant" == item.role && showThink) {
+                        val liveThink = if (idx == items.lastIndex) ChatState.streamThink else null
+                        val thinkText = liveThink ?: item.think
+                        if (!thinkText.isNullOrEmpty()) {
+                            ThinkingBoxView(ThinkingBox(thinkText, item.thinkMs))
+                        }
                     }
                     if (item.isSummary) {
-                        SummaryDivider(item.text)
+                        SummaryDivider(item.text, item.cover)
                     } else {
                         Bubble(host, item)
                     }
@@ -449,50 +463,92 @@ object ChatUi {
         }
     }
 
-    /** 「ⓘ 历史对话摘要」分割标题：两侧细线 + 居中标签，点一下展开/收起摘要全文。 */
+    /**
+     * 「ⓘ 历史对话摘要」分割标题。
+     *
+     * 【r13·对齐 Operit】抄的是 Operit `SummaryMessageComposable` 的口径：
+     *   左右两条细线 + 中间一枚「ⓘ 历史对话摘要」小徽标（淡色底 + 主色字），**点开弹窗看全文**。
+     *
+     * 【为什么去掉「覆盖 N 条」】上一版是自创的：Operit 的摘要条上**没有这个信息**，
+     *   只写「历史对话摘要」五个字（见 `strings.xml` 的 `history_dialog_summary`）。
+     *   加出来既对不上参考，也把一条本该极简的分割线撑成了信息条。
+     *   覆盖条数仍存在消息里（`cover` 字段），改在**详情弹窗**里展示 —— 需要的人看得到，不打扰主界面。
+     */
     @Composable
-    private fun SummaryDivider(text: String) {
+    private fun SummaryDivider(text: String, cover: Int) {
         val c = DhTokens.colors
+        // 【弹窗还是内联展开】Operit 用的是 Dialog（见 SummaryMessageComposable）。
+        //   本工程内联展开会影响 LazyColumn 的项高（展开时下面所有消息整体下移），
+        //   观感更接近参考，所以这里也走弹窗。
         var open by remember { mutableStateOf(false) }
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 2.dp)
+                .padding(top = 10.dp, bottom = 4.dp)
+                .then(if (text.trim().isNotEmpty()) Modifier.pressable { open = true } else Modifier),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            // 左线：主色 50% 透明，1dp（对齐 Operit 的 primary.copy(alpha=0.5f) / thickness 1.dp）。
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(1.dp)
+                    .background(c.acc.copy(alpha = 0.5f))
+            )
+            // 中间徽标：主色 10% 淡底 + 12dp 圆角 + 图标 + 主色小字。
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (text.trim().isNotEmpty()) Modifier.pressable { open = !open } else Modifier),
+                    .padding(horizontal = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.acc.copy(alpha = 0.1f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(1.dp)
-                        .background(c.line)
-                )
-                // 【r12】13f 不在 Design 的图标五档内 → 归到 SZ_XS(14)。
-                DhKit.Icon(iconRes = Icons.IC_CHAT, sizeDp = Design.SZ_XS, color = c.sub)
+                DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.acc)
+                Spacer(Modifier.width(4.dp))
                 Text(
-                    text = if (open) "历史对话摘要（点击收起）" else "历史对话摘要",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                    color = c.sub,
-                    fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
-                )
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(1.dp)
-                        .background(c.line)
+                    text = "历史对话摘要",
+                    color = c.acc,
+                    fontSize = UiKit.FS_CHIP.sp,
+                    fontFamily = DhTokens.fonts,
+                    fontWeight = FontWeight.Medium
                 )
             }
-            if (open) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(1.dp)
+                    .background(c.acc.copy(alpha = 0.5f))
+            )
+        }
+        if (open) {
+            SummaryDialog(text, cover, onDismiss = { open = false })
+        }
+    }
+
+    /** 摘要详情弹窗：标题 + 分隔线 + 可滚动正文（对齐 Operit 的 Dialog 结构）。 */
+    @Composable
+    private fun SummaryDialog(text: String, cover: Int, onDismiss: () -> Unit) {
+        val c = DhTokens.colors
+        DhForm.Alert(
+            title = "历史对话摘要",
+            onDismiss = onDismiss,
+            posText = "关闭"
+        ) {
+            Text(
+                text = text,
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fonts,
+                lineHeight = (UiKit.FS_BTN + 6f).sp
+            )
+            // 【覆盖条数放这里】主界面保持极简，需要细节的人点开才看到。
+            if (cover > 0) {
+                Spacer(Modifier.height(10.dp))
                 Text(
-                    text = text,
-                    modifier = Modifier.padding(top = 4.dp, start = 6.dp, end = 6.dp),
+                    text = "这条摘要覆盖了 " + cover + " 条消息。",
                     color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
+                    fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
             }

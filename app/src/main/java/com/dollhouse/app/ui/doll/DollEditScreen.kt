@@ -62,6 +62,12 @@ object DollEditScreen {
     private const val TAB_CTRL = 0
     private const val TAB_ACT = 1
     private const val TAB_PERSONA = 2
+    /**
+     * 【r14·需求 5b】「外观」页签：这只人偶的聊天背景与她的气泡样式。
+     * 【为什么加在这里】用户定案：「第一个选 A（人偶编辑页加「外观」栏）」——
+     *   人偶层的配置必须跟人偶走，而编辑页正是「这只人偶的全部独立设置」的唯一入口。
+     */
+    private const val TAB_LOOK = 3
 
     /**
      * 打开编辑页。
@@ -171,11 +177,15 @@ object DollEditScreen {
                 when (tab) {
                     TAB_CTRL -> CtrlTab(act, id)
                     TAB_ACT -> ActTab(act, id)
-                    else -> PersonaTab(act, id)
+                    TAB_PERSONA -> PersonaTab(act, id)
+                    // 【r14】第四格：这只人偶的聊天背景与她的气泡。
+                    else -> DollLookTab.Content(act, id)
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // 【底部胶囊导航】三项各带图标 + 文字；选中态用 OPTION 底 + ACC 字图（与设置页多选同套语义色）。
+            // 【底部胶囊导航】四项各带图标 + 文字；选中态用 OPTION 底 + ACC 字图（与设置页多选同套语义色）。
+            // 【r14·为什么从三项变四项】新增「外观」——人偶层的背景 / 气泡配置入口（用户定案）。
+            //   四格仍用同一条胶囊，宽度自适应；中文两字标签不会挤。
             DhKit.NavBar {
                 DhKit.NavItem(
                     iconRes = Icons.IC_SLIDERS_HORIZONTAL,
@@ -192,6 +202,13 @@ object DollEditScreen {
                     label = "人格",
                     selected = tab == TAB_PERSONA
                 ) { tab = TAB_PERSONA }
+                // 【图标语义】用调色板（Lucide palette）——「外观」这一格管的是颜色与背景，
+                //   与设置页的外观入口同图标，用户一眼就能把两处对上。
+                DhKit.NavItem(
+                    iconRes = Icons.IC_PALETTE,
+                    label = "外观",
+                    selected = tab == TAB_LOOK
+                ) { tab = TAB_LOOK }
             }
         }
     }
@@ -200,13 +217,25 @@ object DollEditScreen {
 
     @Composable
     private fun CtrlTab(act: MainActivity, id: String) {
-        // 【r11】名称输入框已删除：本轮不支持改名（人偶名统一由列表页管理）。
-        // 【四个长横条】动作 / 操作 / 暂离 / 轮盘。
-        //   r12：动作已激活（点进去是动作清单页）；轮盘仍是空壳，继续置灰。
-        DhKit.ActionRow(label = "动作") { DollActionPage.open(act, id) }
-        DhKit.ActionRow(label = "操作") { DollGesturePage.open(act, id) }
-        DhKit.ActionRow(label = "暂离") { DollNumDialog.show(act, id, DollNumDialog.KIND_AWAY, null) }
-        DhKit.ActionRow(label = "轮盘", enabled = false)
+        // 【r13·入口体系化】对齐 rikkahub「助手详情」的呈现：每行 = 图标 + 标题 + 一句说明。
+        //   原来这里是四个光秃秃的按钮，用户点进去前完全不知道里面有什么。
+        //   【为什么删「轮盘」】它一直是置灰空壳（点了没反应），留一个死按钮比没有更糟 ——
+        //   用户会以为坏了。用户定过「没必要的就不做」，故整体移除。
+        DhKit.ActionRow(
+            label = "动作",
+            iconRes = Icons.IC_PLAY,
+            desc = "这只人偶的全部动画，可预览每一帧、改名、调速"
+        ) { DollActionPage.open(act, id) }
+        DhKit.ActionRow(
+            label = "操作",
+            iconRes = Icons.IC_HAND,
+            desc = "单击 / 双击 / 三击 / 长按分别做什么"
+        ) { DollGesturePage.open(act, id) }
+        DhKit.ActionRow(
+            label = "暂离",
+            iconRes = Icons.IC_MOUSE_POINTER_2,
+            desc = "多久没人理她就开始休息、什么时候回来"
+        ) { DollNumDialog.show(act, id, DollNumDialog.KIND_AWAY, null) }
     }
 
     /* ============================ 活动页 ============================ */
@@ -262,6 +291,7 @@ object DollEditScreen {
         DhKit.ActionRow(
             label = "初始位置",
             iconRes = Icons.IC_CROSSHAIR,
+            desc = "她每次出现时站在哪儿；也能随时把她叫回去",
             trailing = if (hasHome) "已设置" else "未设置"
         ) {
             val ok = DollHomeOverlay.show(act, id) { homeTick++ }
@@ -280,6 +310,8 @@ object DollEditScreen {
         }
         DhKit.ActionRow(
             label = "屏幕范围",
+            iconRes = Icons.IC_LAYOUT_TEMPLATE,
+            desc = "她能走到屏幕的哪一块区域",
             trailing = if (hasBounds) "已设置" else "整屏"
         ) {
             val ok = DollRangeOverlay.show(act, id) { boundsTick++ }
@@ -306,21 +338,37 @@ object DollEditScreen {
 
     @Composable
     private fun PersonaTab(act: MainActivity, id: String) {
-        DhKit.ActionRow(label = "交谈内容") { DollTalkPage.open(act, id) }
-        DhKit.ActionRow(label = "性格内容") { DollPersonaPage.open(act, id) }
-        DhForm.Note("交谈内容：这只人偶在「交谈」机制下会出现的台词，一条一句。")
-        DhForm.Note("性格内容：这只人偶的性格描述，会随对话一起交给模型。")
-        // 【r13·记忆系统重构】原「记忆」手风琴（自动保存 / 自动精简 / 打开记忆库）整块拆除。
-        //
-        // 【为什么拆】那三项里，前两个是**全局策略**（与具体某只人偶无关），
-        //   已统一收进「设置 → 实验 → 记忆库设置」；只剩「打开记忆库」是真属于本只人偶的入口。
-        //   用户定案：人偶编辑页里只留一个干净的「记忆库」入口，点进去就是这只人偶独立的库。
-        DhKit.Card(collapsibleTitle = "记忆") {
-            DhKit.ActionRow(label = "记忆库", trailing = "›") {
-                MemPage.open(act, id)
+        // 【重读信号】本页的「角色设定」入口带「已设置 / 未设置」状态，读的是 DollProfile。
+        //   它不是 Compose 状态，子页改完设定后退回不会自动刷新 ——
+        //   这里监听 [DollState]（子页离开时会 bump），rev 一变就重算。
+        val rev = DollState.rev
+        val personaSet = remember(id, rev) { DollProfile.hasPersona(act, id) }
+        DhKit.ActionRow(
+            label = "交谈内容",
+            iconRes = Icons.IC_MESSAGE_SQUARE,
+            desc = "她随机冒出的台词，一条一句"
+        ) { DollTalkPage.open(act, id) }
+        // 【r13·角色设定】按钮文案由「性格内容」改为「角色设定」：内容已远超「性格」——
+        //   现在还含世界观 / 说话风格 / 称呼 / 开场白 / 示例对话 / 注入控制 / 世界书 /
+        //   输出替换 / 提示词预览 / 角色卡导入导出。名字不改，用户点进去会一脸问号。
+        DhKit.ActionRow(
+            label = "角色设定",
+            iconRes = Icons.IC_SIGNATURE,
+            // 【状态一眼可见】没写过设定的人偶显示「未设置」，引导用户点进去填 ——
+            //   否则入口看起来和「交谈内容」一样，用户不知道这里有东西可配。
+            desc = if (personaSet) {
+                "性格 / 世界观 / 说话风格 / 开场白 · 已设置"
+            } else {
+                "性格 / 世界观 / 说话风格 / 开场白 · 还没填"
             }
-            DhForm.Note("这只人偶自己的长期记忆，与其它人偶完全隔离。"
-                    + "聊天时她会自动往里记，你也能进去新建、编辑、删除。")
-        }
+        ) { DollPersonaPage.open(act, id) }
+        // 【r13·统一呈现】原「记忆」折叠卡拆除：「打开记忆库」是本只人偶的唯一入口，
+        //   包一层可折叠卡片后与上面两行长得不一样（卡片套卡片），用户反馈「差距太大」。
+        //   现在三行同构 —— 图标 + 标题 + 一句说明。
+        DhKit.ActionRow(
+            label = "记忆库",
+            iconRes = Icons.IC_BRAIN,
+            desc = "她自己的长期记忆，与其它人偶完全隔离"
+        ) { MemPage.open(act, id) }
     }
 }

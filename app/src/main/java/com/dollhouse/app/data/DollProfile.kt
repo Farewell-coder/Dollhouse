@@ -66,6 +66,20 @@ object DollProfile {
     /** 屏幕范围的方向键：横屏。 */
     const val ORIENT_LAND = "land"
 
+    /* ---- 【r14】外观（人偶层）键名基名 ---- */
+    /** 人偶独立聊天背景图路径。 */
+    private const val K_CHAT_BG = "chatbg"
+    /** 人偶独立聊天背景开关。 */
+    private const val K_CHAT_BG_ON = "chatbg_on"
+    /** 人偶独立聊天背景透明度。 */
+    private const val K_CHAT_BG_ALPHA = "chatbg_alpha"
+    /** 人偶独立聊天背景毛玻璃半径。 */
+    private const val K_CHAT_BG_BLUR = "chatbg_blur"
+    /** 人偶气泡底色（0 = 跟随主题）。 */
+    private const val K_BUBBLE_COLOR = "bubble_color"
+    /** 人偶气泡磨砂开关。 */
+    private const val K_BUBBLE_FROST = "bubble_frost"
+
     /** 回归时间的取值区间（秒）；默认 0 = 每次出现都回初始位置。 */
     const val RETURN_DEFAULT = 0
     const val RETURN_MIN = 0
@@ -366,6 +380,44 @@ object DollProfile {
         prefs(ctx).edit().putString(key(dollId, K_PERSONA), s).apply()
     }
 
+    /* ============================ 角色设定（r13） ============================ */
+
+    /** 结构化「角色设定」的存储键（与 [K_PERSONA] 区分：那段自由文本仍是「性格描述」）。 */
+    private const val K_SPEC = "persona_spec"
+
+    /**
+     * 读取这只人偶的结构化角色设定。
+     *
+     * 【容错】JSON 坏掉 / 从没写过都返回一个空对象，**绝不抛** ——
+     *   人格页是高频入口，读盘失败不能让它打不开。
+     */
+    @JvmStatic
+    fun spec(ctx: Context, dollId: String?): PersonaSpec {
+        val raw = prefs(ctx).getString(key(dollId, K_SPEC), "") ?: ""
+        if (raw.isEmpty()) {
+            return PersonaSpec()
+        }
+        return try {
+            PersonaSpec.fromJson(org.json.JSONObject(raw))
+        } catch (ignored: Throwable) {
+            PersonaSpec()
+        }
+    }
+
+    @JvmStatic
+    fun setSpec(ctx: Context, dollId: String?, s: PersonaSpec?) {
+        prefs(ctx).edit().putString(key(dollId, K_SPEC), if (s == null) "" else s.toJson().toString()).apply()
+    }
+
+    /** 这只人偶是否写过任何角色设定（含性格描述与结构化分段）。 */
+    @JvmStatic
+    fun hasPersona(ctx: Context, dollId: String?): Boolean {
+        if (persona(ctx, dollId).trim().isNotEmpty()) {
+            return true
+        }
+        return !spec(ctx, dollId).isEmpty()
+    }
+
     /* ============================ 面朝方向（r11） ============================ */
 
     /**
@@ -422,6 +474,109 @@ object DollProfile {
         }
     }
 
+    /* ============================ r14·外观（人偶层） ============================
+     *
+     * 【为什么走 [key] 的既有规则】`key(dollId, base)` 对默认配置沿用历史键名、
+     *   其余人偶加 `_<dollId>` 后缀 —— 与桌宠侧读键的规则**完全一致**。
+     *   新增的人偶外观键必须复用同一规则，否则桌宠与编辑页会读到两份不同的值。
+     *
+     * 【三层配置中的位置】人偶层覆盖全局层（见 GlobalBackground.resolvePath）：
+     *   这只人偶设了自己的图且开关开着 → 用它的；否则回落全局层。
+     */
+
+    /** 人偶独立聊天背景的路径（空串 = 没设，回落全局）。 */
+    @JvmStatic
+    fun chatBgPath(ctx: Context, dollId: String?): String {
+        return try {
+            prefs(ctx).getString(key(dollId, K_CHAT_BG), "") ?: ""
+        } catch (ignored: Throwable) {
+            ""
+        }
+    }
+
+    @JvmStatic
+    fun setChatBgPath(ctx: Context, dollId: String?, path: String?) {
+        prefs(ctx).edit().putString(key(dollId, K_CHAT_BG), if (path == null) "" else path).apply()
+    }
+
+    /**
+     * 人偶独立背景开关。**默认 true**。
+     * 【为什么默认开】用户主动给这只人偶设了图，意图就是「要用它」；
+     *   默认关会让用户设完图却看不到效果（还以为是 bug）。
+     */
+    @JvmStatic
+    fun chatBgEnabled(ctx: Context, dollId: String?): Boolean {
+        return try {
+            prefs(ctx).getBoolean(key(dollId, K_CHAT_BG_ON), true)
+        } catch (ignored: Throwable) {
+            true
+        }
+    }
+
+    @JvmStatic
+    fun setChatBgEnabled(ctx: Context, dollId: String?, z: Boolean) {
+        prefs(ctx).edit().putBoolean(key(dollId, K_CHAT_BG_ON), z).apply()
+    }
+
+    /** 人偶独立背景的透明度百分比（0~100）。默认沿用全局口径 60。 */
+    @JvmStatic
+    fun chatBgAlpha(ctx: Context, dollId: String?): Int {
+        val v = prefs(ctx).getInt(key(dollId, K_CHAT_BG_ALPHA), 60)
+        return Math.max(0, Math.min(100, v))
+    }
+
+    @JvmStatic
+    fun setChatBgAlpha(ctx: Context, dollId: String?, i: Int) {
+        prefs(ctx).edit().putInt(key(dollId, K_CHAT_BG_ALPHA), Math.max(0, Math.min(100, i))).apply()
+    }
+
+    /** 人偶独立背景的毛玻璃半径（0~24 dp）。 */
+    @JvmStatic
+    fun chatBgBlur(ctx: Context, dollId: String?): Int {
+        val v = prefs(ctx).getInt(key(dollId, K_CHAT_BG_BLUR), 0)
+        return Math.max(0, Math.min(24, v))
+    }
+
+    @JvmStatic
+    fun setChatBgBlur(ctx: Context, dollId: String?, i: Int) {
+        prefs(ctx).edit().putInt(key(dollId, K_CHAT_BG_BLUR), Math.max(0, Math.min(24, i))).apply()
+    }
+
+    /* ---- 人偶气泡样式（覆盖全局默认）---- */
+
+    /**
+     * 人偶气泡的底色 ARGB。**0 = 跟随主题**（默认）。
+     * 【为什么用 0 作哨兵】与 [PetPrefs.fontColor] 同一口径：`#000000` 是合法颜色，不能当「未设」。
+     */
+    @JvmStatic
+    fun bubbleColor(ctx: Context, dollId: String?): Int {
+        return try {
+            prefs(ctx).getInt(key(dollId, K_BUBBLE_COLOR), 0)
+        } catch (ignored: Throwable) {
+            0
+        }
+    }
+
+    @JvmStatic
+    fun setBubbleColor(ctx: Context, dollId: String?, argb: Int) {
+        prefs(ctx).edit().putInt(key(dollId, K_BUBBLE_COLOR), argb).apply()
+    }
+
+    /** 人偶气泡是否用磨砂质感。默认 true。 */
+    @JvmStatic
+    fun bubbleFrost(ctx: Context, dollId: String?): Boolean {
+        return try {
+            prefs(ctx).getBoolean(key(dollId, K_BUBBLE_FROST), true)
+        } catch (ignored: Throwable) {
+            true
+        }
+    }
+
+    @JvmStatic
+    fun setBubbleFrost(ctx: Context, dollId: String?, z: Boolean) {
+        prefs(ctx).edit().putBoolean(key(dollId, K_BUBBLE_FROST), z).apply()
+    }
+
     /* ============================ 清理 ============================ */
 
     /**
@@ -446,7 +601,15 @@ object DollProfile {
         edit.remove(key(dollId, K_HOME_RY))
         edit.remove(key(dollId, K_TALK))
         edit.remove(key(dollId, K_PERSONA))
+        edit.remove(key(dollId, K_SPEC))
         edit.remove(key(dollId, K_FLIP))
+        // 【r14】人偶层外观配置也要清：不然「新建一只 → 恰好复用旧 id」时会继承上一只的背景图。
+        edit.remove(key(dollId, K_CHAT_BG))
+        edit.remove(key(dollId, K_CHAT_BG_ON))
+        edit.remove(key(dollId, K_CHAT_BG_ALPHA))
+        edit.remove(key(dollId, K_CHAT_BG_BLUR))
+        edit.remove(key(dollId, K_BUBBLE_COLOR))
+        edit.remove(key(dollId, K_BUBBLE_FROST))
         for (o in arrayOf(ORIENT_PORT, ORIENT_LAND)) {
             edit.remove(key(dollId, K_BOUND + "_l_" + o))
             edit.remove(key(dollId, K_BOUND + "_t_" + o))

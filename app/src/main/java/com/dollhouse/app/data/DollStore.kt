@@ -47,6 +47,10 @@ object DollStore {
      * @param sprite  形象图绝对路径；空串 = 用内置 `pet_front`。
      * @param enabled 是否启用。允许多个同时启用，启动时逐个挂窗展示。
      * @param builtin 内置项（不可删除）。
+     * @param group   【r14】所属分组名。**空串 = 未分组**（默认），列表里归到「未分组」组。
+     *                【为什么存名字而不是分组 id】分组清单由 [PetPrefs.dollGroups] 持有，
+     *                删组只需从清单里去掉名字，成员的 group 变成「清单里没有的值」，
+     *                读取端一律按「未分组」展示 —— 不需要一次批量改写所有人偶。
      */
     data class Doll(
         val id: String,
@@ -54,8 +58,11 @@ object DollStore {
         val cover: String = "",
         val sprite: String = "",
         val enabled: Boolean = false,
-        val builtin: Boolean = false
+        val builtin: Boolean = false,
+        val group: String = ""
     )
+    /** 【r14】「未分组」的展示名（列表里的默认分组标题）。 */
+    const val GROUP_NONE = "未分组"
 
     @Volatile
     private var cache: MutableList<Doll>? = null
@@ -822,7 +829,10 @@ object DollStore {
                             cover = o.optString("cover", ""),
                             sprite = o.optString("sprite", ""),
                             enabled = o.optBoolean("enabled", false),
-                            builtin = o.optBoolean("builtin", false)
+                            builtin = o.optBoolean("builtin", false),
+                            // 【r14·老数据迁移】缺键一律空串 = 未分组；
+                            //   老存档里没有这个字段，读出来自动归到「未分组」，无需迁移脚本。
+                            group = o.optString("group", "")
                         )
                     )
                 }
@@ -867,6 +877,10 @@ object DollStore {
         o.put("sprite", d.sprite)
         o.put("enabled", d.enabled)
         o.put("builtin", d.builtin)
+        // 【r14】分组归属。为空时不写键，保持老存档格式干净（读端缺键即「未分组」）。
+        if (d.group.isNotEmpty()) {
+            o.put("group", d.group)
+        }
         return o
     }
 }

@@ -169,6 +169,95 @@ object ImageStore {
         return str + "/" + file.name
     }
 
+    /**
+     * 【r14】把本地文件按其**最长边**缩放到 [maxDim] 以内后存进私有目录，返回相对路径。
+     *
+     * 【为什么不复用 [saveFromUri]】那条吃 Uri，而选文件通道回传的是本地路径
+     *   （见 PickFileActivity 的 FileListener —— Uri 的读权限有生命周期问题）。
+     *   两条入口最终做的是同一件事：解码 → 按最长边缩放 → JPEG 落盘 → 清理旧文件。
+     *   这里补上路径版本的入口，顺带把「两步解码 + 精确缩放」的活法收口到本类，
+     *   避免各调用方各写一份（r14 之前 MyProfile 里就有一份私有副本）。
+     *
+     * 【两步解码为什么必须】先只读边界拿原始尺寸，再按采样率解码 ——
+     *   直接把一张 8000px 的图整张读进内存会 OOM（本工程在桌宠贴图上踩过同类坑）。
+     *
+     * @param quality JPEG 质量（0~100）
+     * @return 相对路径（形如 `chat_bg/img_xxx.jpg`）；失败返回空串
+     */
+    @JvmStatic
+    fun saveScaledFile(context: Context?, path: String?, subDir: String, maxDim: Int, quality: Int = 88): String {
+        if (context == null || path.isNullOrEmpty()) {
+            return ""
+        }
+        val srcPath = path
+        return try {
+            val src = File(srcPath)
+            if (!src.exists() || src.length() <= 0L) {
+                return ""
+            }
+            var bmp: Bitmap? = null
+            try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(srcPath, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                    return ""
+                }
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, maxDim)
+                }
+                bmp = BitmapFactory.decodeFile(srcPath, opts) ?: return ""
+                bmp = scaleToLongEdge(bmp!!, maxDim) ?: bmp
+                val target = File(dir(context, subDir), "img_" + System.currentTimeMillis() + ".jpg")
+                FileOutputStream(target).use { out ->
+                    bmp!!.compress(Bitmap.CompressFormat.JPEG, Math.max(0, Math.min(100, quality)), out)
+                }
+                prune(context, subDir)
+                subDir + "/" + target.name
+            } finally {
+                // 【必须回收】大图解码后不回收，连续换几张就会 OOM。
+                //   放在 finally 里保证异常路径也不漏。
+                if (bmp != null && !bmp.isRecycled) {
+                    bmp.recycle()
+                }
+            }
+        } catch (ignored: Throwable) {
+            ""
+        }
+    }
+
+    /** 按目标最长边算采样率（2 的幂，至少 1）。 */
+    private fun sampleSizeFor(w: Int, h: Int, max: Int): Int {
+        var s = 1
+        var cw = w
+        var ch = h
+        while (cw / 2 >= max && ch / 2 >= max) {
+            cw /= 2
+            ch /= 2
+            s *= 2
+        }
+        return s
+    }
+
+    /** 等比缩放到最长边 = [max]；已在范围内原样返回（不产生新对象）。 */
+    private fun scaleToLongEdge(src: Bitmap, max: Int): Bitmap? {
+        val long = Math.max(src.width, src.height)
+        if (long <= max || long <= 0) {
+            return src
+        }
+        val k = max.toFloat() / long
+        val nw = Math.max(1, (src.width * k).toInt())
+        val nh = Math.max(1, (src.height * k).toInt())
+        return try {
+            val out = Bitmap.createScaledBitmap(src, nw, nh, true)
+            if (out !== src) {
+                src.recycle()
+            }
+            out
+        } catch (ignored: Throwable) {
+            src
+        }
+    }
+
     @Throws(Exception::class)
     private fun decodeScaled(context: Context, uri: Uri, i: Int): Bitmap? {
         val options = BitmapFactory.Options()

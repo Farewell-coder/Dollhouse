@@ -84,6 +84,18 @@ object HomeUi {
     /** 【r13】底部悬浮导航栏的 tag —— 它覆盖在三个页面之上，不参与页面显隐。 */
     const val TAG_BAR = "feiyu_bottom_bar"
 
+    /**
+     * 【r14】「我的资料」抽屉层的 tag。
+     *
+     * 【为什么单独一层】抽屉要盖住**整块内容区**（三个 Tab + 悬浮底栏）——
+     *   底栏是 `content` 的直接子，抽屉必须比它更晚加入才能压住它。
+     *   放进 `host` 里会被底栏盖住，所以和底栏一样挂在 `content` 上、且排在最后。
+     *
+     * 【为什么常驻而不按需挂载】[ProfileDrawer.Host] 自己用 `if (!opened) return` 做了
+     *   空转短路；常驻只多一个空 ComposeView，但换来「打开时零挂载延迟」。
+     */
+    const val TAG_PROFILE = "feiyu_profile_drawer"
+
     /** 通知权限的运行时申请回调码。 */
     private const val REQ_NOTIF = 102
     /** Shizuku 授权请求码（结果经 ShizukuBridge 的 listener 回来）。 */
@@ -141,6 +153,19 @@ object HomeUi {
             val bar = buildBar(activity)
             bar.tag = TAG_BAR
             content.addView(bar)
+            // 【r14·我的资料抽屉】必须**最后**加：它要盖住三页与底栏。
+            //   为什么常驻：抽屉自身 `if (!opened) return` 空转，代价只是一个空 ComposeView；
+            //   换来的好处是点头像时零挂载延迟（现挂会有一帧空白）。
+            val drawer = com.dollhouse.app.ui.compose.ComposeHost.createView(activity) {
+                ProfileDrawer.Host(activity)
+            }
+            drawer.tag = TAG_PROFILE
+            // 【命中区】抽屉关闭时它只是一层空 Box，必须**不消费触摸**，
+            //   否则点哪都被它吃掉、三个 Tab 与底栏全部失灵。
+            //   ComposeView 默认 clickable=false，但显式写一遍更稳（日后有人给它加背景也不会误伤）。
+            drawer.isClickable = false
+            drawer.isFocusable = false
+            content.addView(drawer)
             sync(activity)
             // 【路由恢复】冷启动进「上次停留的 Tab」；第一次启动时偏好里没有记录，
             //   [AppNav] 会落到默认值（聊天），即需求要求的「默认页面改为聊天列表」。
@@ -236,6 +261,12 @@ object HomeUi {
         HomeState.fontColor = PetPrefs.fontColor(ctx)
         HomeState.bgMode = PetPrefs.bgMode(ctx)
         HomeState.bgBlur = PetPrefs.blurRadius(ctx)
+        // 【r14】弹窗与卡片 / 聊天界面两组新状态。
+        HomeState.dlgAlpha = PetPrefs.dialogAlpha(ctx)
+        HomeState.dlgBlur = PetPrefs.dialogBlur(ctx)
+        HomeState.showAvatar = PetPrefs.showAvatar(ctx)
+        HomeState.bubbleUserFrost = PetPrefs.bubbleUserFrost(ctx)
+        HomeState.bubbleWidth = PetPrefs.bubbleWidth(ctx)
         // 【r10】人偶比例 / 手势响应 / 暂离时长全部改为「按人偶」存在 DollProfile，
         //   设置页不再有对应行，这里也就不需要再同步进 HomeState。
         // 【r13·记忆系统重构】原「记忆」四项（memAuto / memSave / memMerge / memIndex）
@@ -637,6 +668,12 @@ object HomeUi {
     @JvmStatic
     fun handleBack(activity: Activity): Boolean {
         try {
+            // 【r14·抽屉优先】抽屉盖在最上层，返回键必须先关它；
+            //   否则用户在抽屉里按返回会被直接弹回聊天 Tab，观感像「抽屉卡住了」。
+            if (ProfileDrawer.opened) {
+                ProfileDrawer.close()
+                return true
+            }
             if (AppNav.current == AppNav.TAB_CHAT) {
                 return false
             }
@@ -1211,6 +1248,164 @@ object HomeUi {
             applyThemeNow(act)
         }
         return row
+    }
+
+    /**
+     * 【r14·外观 Tab①】「从壁纸取色」：四档取色来源的单选面板。
+     *
+     * 【与「莫奈主题色」的区别】莫奈是根据**当前色系**生成一整套柔和配色；
+     *   本项是「照抄壁纸主色」——由系统壁纸服务提取，取到后写进 [PetPrefs.themeMonetWall]。
+     *
+     * 【为什么保留弹窗形态】与 [pickThemeMode] / [pickBgMode] 同一条理由：
+     *   `UiKit.showDialog` 是全 App 统一的弹窗通道，单为这个面板再造一套会破坏「弹窗长得一样」。
+     */
+    @JvmStatic
+    fun pickMonetWall(act: Activity) {
+        val names = ThemeManager.WALL_NAMES
+        val cur = PetPrefs.themeMonetWall(act)
+        val col = LinearLayout(act)
+        col.orientation = LinearLayout.VERTICAL
+        val holder = arrayOfNulls<Dialog>(1)
+        for (i in names.indices) {
+            col.addView(monetWallOption(act, i, i == cur, cur, holder))
+        }
+        holder[0] = UiKit.showDialog(act, "从壁纸取色", col, null, null, null, null)
+    }
+
+    /** 单个取色来源选项：选中项淡紫底 + 加粗 + 右侧勾，点选后关窗并重取色。 */
+    private fun monetWallOption(
+        act: Activity, idx: Int, selected: Boolean,
+        cur: Int, holder: Array<Dialog?>
+    ): View {
+        val row = LinearLayout(act)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.isClickable = true
+        row.background = UiKit.rowBg(act, if (selected) UiKit.option() else UiKit.soft())
+        val pad = UiKit.dp(act, 12f)
+        row.setPadding(pad, pad, pad, pad)
+        val lp = LinearLayout.LayoutParams(-1, -2)
+        lp.topMargin = UiKit.dp(act, 8f)
+        row.layoutParams = lp
+
+        val t = TextView(act)
+        t.text = ThemeManager.WALL_NAMES[idx]
+        t.setTextSize(UiKit.FS_BTN)
+        t.setTextColor(UiKit.TITLE)
+        t.typeface = if (selected) Fonts.uiBold(act) else Fonts.ui(act)
+        row.addView(t, LinearLayout.LayoutParams(0, -2, 1.0f))
+
+        // 【坑·必看】占位必须用固定尺寸 View：裸 View 没有内容，onMeasure 会取满父给的
+        //   可用高度，未选中项被撑到近整屏（与 modeOption 同一处坑）。
+        val mark: View = if (selected) {
+            Icons.view(act, Icons.IC_CHECK, 16.0f, UiKit.ACC)
+        } else {
+            View(act)
+        }
+        row.addView(mark, LinearLayout.LayoutParams(UiKit.dp(act, 22f), UiKit.dp(act, 22f)))
+
+        UiKit.press(row)
+        row.setOnClickListener {
+            holder[0]?.dismiss()
+            if (idx == cur) {
+                return@setOnClickListener
+            }
+            // 壁纸取色是后台任务（要解一张整屏大图），交给 ThemeManager 的异步入口。
+            ThemeManager.setMonetWall(act, idx)
+            // 【必须开启莫奈开关】取色的产物只有走莫奈调色板才能作用到界面上；
+            //   不顺手打开，用户会以为「选了没反应」。
+            ThemeManager.setMonet(act, true)
+            // 【必须换一次壁纸 id 缓存】取色的缓存键是「壁纸 id」，而我们换了取色来源档位，
+            //   缓存里的旧色相仍会被判为有效。这里先把缓存清成无效值，再异步重取。
+            PetPrefs.setThemeMonetHue10(act, Int.MIN_VALUE)
+            ThemeManager.monetHueAsync(act) { ok ->
+                act.runOnUiThread {
+                    HomeState.monet = ThemeManager.monet(act)
+                    applyThemeNow(act)
+                    if (!ok) {
+                        showNotice(act, "取色失败", "没能从壁纸取到颜色，可能是系统限制了壁纸读取。当前配色保持不变。")
+                    }
+                }
+            }
+        }
+        return row
+    }
+
+    /**
+     * 【r14·外观 Tab③】气泡宽度三档单选（窄 / 适中 / 宽）。
+     *
+     * 【为什么存档位而不是像素】见 [PetPrefs.bubbleWidth] 的注释：
+     *   存像素会在不同分辨率 / 字号下撑爆屏幕或小得看不见。
+     */
+    @JvmStatic
+    fun pickBubbleWidth(act: Activity) {
+        val names = com.dollhouse.app.ui.settings.AppearancePage.BUBBLE_WIDTH_NAMES
+        val cur = PetPrefs.bubbleWidth(act)
+        val col = LinearLayout(act)
+        col.orientation = LinearLayout.VERTICAL
+        val holder = arrayOfNulls<Dialog>(1)
+        for (i in names.indices) {
+            col.addView(bubbleWidthOption(act, i, i == cur, cur, holder))
+        }
+        holder[0] = UiKit.showDialog(act, "气泡宽度", col, null, null, null, null)
+    }
+
+    private fun bubbleWidthOption(
+        act: Activity, idx: Int, selected: Boolean,
+        cur: Int, holder: Array<Dialog?>
+    ): View {
+        val row = LinearLayout(act)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.isClickable = true
+        row.background = UiKit.rowBg(act, if (selected) UiKit.option() else UiKit.soft())
+        val pad = UiKit.dp(act, 12f)
+        row.setPadding(pad, pad, pad, pad)
+        val lp = LinearLayout.LayoutParams(-1, -2)
+        lp.topMargin = UiKit.dp(act, 8f)
+        row.layoutParams = lp
+
+        val t = TextView(act)
+        t.text = com.dollhouse.app.ui.settings.AppearancePage.BUBBLE_WIDTH_NAMES[idx]
+        t.setTextSize(UiKit.FS_BTN)
+        t.setTextColor(UiKit.TITLE)
+        t.typeface = if (selected) Fonts.uiBold(act) else Fonts.ui(act)
+        row.addView(t, LinearLayout.LayoutParams(0, -2, 1.0f))
+
+        val mark: View = if (selected) {
+            Icons.view(act, Icons.IC_CHECK, 16.0f, UiKit.ACC)
+        } else {
+            View(act)
+        }
+        row.addView(mark, LinearLayout.LayoutParams(UiKit.dp(act, 22f), UiKit.dp(act, 22f)))
+
+        UiKit.press(row)
+        row.setOnClickListener {
+            holder[0]?.dismiss()
+            if (idx == cur) {
+                return@setOnClickListener
+            }
+            PetPrefs.setBubbleWidth(act, idx)
+            HomeState.bubbleWidth = idx
+            // 【必须 bump】气泡宽度是 Compose 侧在读；它是普通字段赋值，不会触发重组。
+            ThemeRefresh.bumpAll()
+        }
+        return row
+    }
+
+    /**
+     * 【r14】桌宠点击穿透开关。
+     *
+     * 【为什么放在「外观 → 弹窗与卡片」Tab 下】它不改外观，但同属「界面交互」这一类；
+     *   单独开一个 Tab 不值当，放这里最省（且用户对它的位置没有特别要求）。
+     *
+     * 【它到底改什么】见 [PetPrefs.touchThrough]：控制桌宠窗口是否让触摸穿过身体外区域。
+     *   改完必须通知桌宠服务重载窗口，否则要等下次启停才生效。
+     */
+    @JvmStatic
+    fun setTouchThrough(ctx: Context, on: Boolean) {
+        PetPrefs.setTouchThrough(ctx, on)
+        notifyPetReload(ctx)
     }
 
     /**

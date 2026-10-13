@@ -25,8 +25,10 @@ import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.data.Mem
 import com.dollhouse.app.data.Memory
+import com.dollhouse.app.data.PersonaBuilder
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
+import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.device.OcrEngine
 import com.dollhouse.app.pet.PetBus
 import com.dollhouse.app.ui.theme.GlobalBackground
@@ -86,6 +88,24 @@ class ChatPanel(
     private var task: DeepSeekClient.Task? = null
     /** 【思考框】本次请求发出的时刻（毫秒），用于算「思考了 X 秒」。 */
     private var askStartMs = 0L
+
+    /**
+     * 【r13·流式】本次请求是否走 SSE。
+     * 【为什么按次判定而不是一个全局开关】降级是「这一次请求」的事：某家中转偶尔不支持流式，
+     *   不能因此把用户的选择永久改成非流式。本次失败 → 只降级这一次。
+     */
+    private var useStream = true
+
+    /**
+     * 【r13·流式】流式增量落到界面上的节流闸。
+     * 【为什么要节流】一次回复可能几百个 chunk，每个都改 Compose 状态会让重组压过渲染帧率
+     *   （用户会觉得「打字打得很抖」）。按时间窗合并，观感反而更顺。
+     */
+    private var lastFlushMs = 0L
+    /** 【r13·流式】在途的流式正文累积（未落盘的正文）。 */
+    private var streamText: StringBuilder? = null
+    /** 【r13·流式】在途的流式思考累积。 */
+    private var streamThink: StringBuilder? = null
     // 【r13·入口收拢】原 `drawer: ChatDrawer?` 字段已移除（抽屉没了，见 openDrawer 处的说明）。
     /** 摘要分割标题在 [ChatState.items] 里的下标（-1 = 本会话无摘要头）。 */
     private var summaryIndex = -1
@@ -118,6 +138,10 @@ class ChatPanel(
         addView(ChatUi.build(this), LinearLayout.LayoutParams(-1, -1))
         // 【交互】记忆工具需要 Context，在这里登记一次（幂等）；联网工具是否下发看用户开关。
         ChatToolRegistry.ensure(context.applicationContext)
+        // 【r13·角色设定】开场白：这条会话一条消息都没有时，把她写的第一句铺进去。
+        //   【为什么挂在 loadHistory 之前】铺完再载入，渲染就自然带上它，不用额外重铺。
+        //   【为什么必须判空】否则每进一次聊天页就多一句开场白（历史会越滚越长）。
+        seedGreetingIfEmpty()
         ChatHistoryStore.loadHistory(this)
         renderHistory()
         refreshInputRow()
@@ -648,17 +672,35 @@ class ChatPanel(
             return
         }
         val at = Math.max(0, Math.min(history.length(), index + 1))
-        // ① 找出本段起点：从 at-1 往前找到最近一条 summary，其之后就是本次要压的范围。
-        var from = 0
-        for (i in at - 1 downTo 0) {
-            val o = history.optJSONObject(i) ?: continue
-            if ("summary" == o.optString("kind")) {
-                from = i + 1
-                break
-            }
+        // ① 目标那条本身不能是摘要（Operit 同款判据）：对摘要再总结一次毫无意义。
+        val target = history.optJSONObject(Math.max(0, at - 1))
+        if (target != null && "summary" == target.optString("kind")) {
+            flashMemo("这条已经是总结了")
+            return
         }
-        // ② 收集范围内的真实消息。
+        // ② 【r13·对齐 Operit 的搜索范围】本段起点 = 长按这条之前**最近的一条总结**。
+        //
+        // 【为什么要往前找】Operit 的做法是「总结只压「上一条总结 → 这一条」之间的对话」，
+        //   于是多次总结可以层层嵌套、互不重复：
+        //       摘要1 【覆盖 A..B】  摘要2 【覆盖 C..D】
+        //   若每次都从对话开头重新压，后面的摘要会把前面的内容再压一遍，越压越重。
+        //
+        // 【为什么不能只看内存】本工程的存档有裁剪（只留最近 60 条，更早的移进「暂存位」）。
+        //   旧实现只在 `history` 里找起点 —— 一旦上一条摘要已被裁走，就会误判成
+        //   「从对话开头开始」，把早已被压过的老消息重新压一遍。
+        val convId = ChatSessions.currentId(context)
+        val inMemory = findLastSummaryIndex(history, at - 1)
+        // ③ 内存里找不到摘要边界 → 去暂存位里找（这就是「搜索前面的消息」）。
+        //   暂存位存的是「已被 60 条裁剪挪出去的老消息」，顺序与正文一致（更早的在前）。
+        //   【两种情形都要捞】
+        //     a. 暂存位里有摘要 → 它之后的原文还没被压过，要压；
+        //     b. 暂存位里没有摘要 → 那些老消息从未被任何摘要覆盖（用户从没总结过），
+        //        不捞就等于「总结永远只覆盖最近 60 条」，这正是用户点出的缺口。
+        val prevArr = readPrev(convId)
+        val usePrev = inMemory < 0 && prevArr.length() > 0
+        // ④ 收集范围内的真实消息（内存里的这一段）。
         val turns = ArrayList<Pair<String, String>>()
+        val from = if (inMemory < 0) 0 else inMemory + 1
         for (i in from until at) {
             val o = history.optJSONObject(i) ?: continue
             if ("summary" == o.optString("kind")) {
@@ -674,6 +716,11 @@ class ChatPanel(
             }
             turns.add(Pair(r, c))
         }
+        // ⑤ 暂存位里「上一条摘要之后」的原文也要一起压进去 ——
+        //   否则被裁掉的那一段永远进不了任何摘要，等于从记忆里消失。
+        if (usePrev) {
+            appendPrevTurns(prevArr, turns)
+        }
         if (turns.isEmpty()) {
             flashMemo("这一段还没有可总结的内容")
             return
@@ -682,6 +729,8 @@ class ChatPanel(
             flashMemo("还没填 API Key")
             return
         }
+        // 【r13】记下覆盖条数：摘要条上会显示「覆盖 N 条」，用户才知道这段压了多少。
+        summaryCover = turns.size
         setWaiting(true)
         addThinking("正在总结这一段…")
         MemExtractor.summarize(ctx = context, dollId = boundDollId(), turns = turns,
@@ -699,7 +748,99 @@ class ChatPanel(
                 })
     }
 
-    /** 把 [text] 作为 kind=summary 的分割条插在 [at] 位置，并重铺界面。 */
+    /**
+     * 【r13】本次总结覆盖的消息条数（由 [insertSummaryAt] 在发起前填写）。
+     *
+     * 【为什么用字段传递】摘要的生成是异步的（AI 回调），而「覆盖多少条」在发起那一刻
+     *   就已经确定。用字段带过去，比回调里重新算一遍起始点更省也更准。
+     */
+    private var summaryCover = 0
+
+    /** 从 [endInclusive] 往前找最近一条摘要的下标；找不到返回 -1。 */
+    private fun findLastSummaryIndex(arr: JSONArray?, endInclusive: Int): Int {
+        if (arr == null) {
+            return -1
+        }
+        for (i in Math.min(endInclusive, arr.length() - 1) downTo 0) {
+            val o = arr.optJSONObject(i) ?: continue
+            if ("summary" == o.optString("kind")) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    /** 读「更早历史」暂存位（坏数据一律当空）。 */
+    private fun readPrev(convId: String): JSONArray {
+        return try {
+            JSONArray(PetPrefs.convPrev(context, convId))
+        } catch (ignored: Throwable) {
+            JSONArray()
+        }
+    }
+
+    /**
+     * 把暂存位里「最后一条摘要之后」的原文追加进待总结列表。
+     *
+     * 【口径】暂存位里的消息在时间轴上**早于**正文，所以整体追加在 turns 之前更符合
+     *   时间顺序。但摘要本身是「给模型读的正文」，顺序反了会让模型把因果读倒 ——
+     *   所以这里转成一个新列表：先暂存段、再正文段。
+     */
+    private fun appendPrevTurns(prev: JSONArray, turns: ArrayList<Pair<String, String>>) {
+        val lastSummary = findLastSummaryIndex(prev, prev.length() - 1)
+        val head = ArrayList<Pair<String, String>>()
+        for (i in (lastSummary + 1) until prev.length()) {
+            val o = prev.optJSONObject(i) ?: continue
+            if ("summary" == o.optString("kind")) {
+                continue
+            }
+            val r = o.optString("role", "")
+            if ("user" != r && "assistant" != r) {
+                continue
+            }
+            val c = o.optString("content", "").trim()
+            if (c.isEmpty()) {
+                continue
+            }
+            head.add(Pair(r, c))
+        }
+        if (head.isEmpty()) {
+            return
+        }
+        // 【上限】暂存位可能有上百条，全塞进一次总结会撑爆预算。
+        //   只取最近的一段（对话越早越不重要），并保留时间顺序。
+        val cap = 40
+        val tail = if (head.size > cap) head.subList(head.size - cap, head.size) else head
+        turns.addAll(0, tail)
+    }
+
+    /**
+     * 把 [text] 作为 kind=summary 的分割条插在 [at] 位置，并重铺界面。
+     *
+     * 【r13·对齐 Operit 的「覆盖」语义】这是本轮的关键修正。
+     *
+     * 【改造前错在哪】摘要只是往对话流里**多插了一条线** —— 它前面那一整段原文
+     *   仍然原样显示、仍然参与上下文。也就是说：「总结」这个动作除了多出一行字，
+     *   什么作用都没有。用户看到的就是「完全不是一种覆盖」。
+     *
+     * 【Operit 是怎么做的】读源码可证，Operit 把摘要当成**边界**而不是标记：
+     *   · `ChatDisplayWindowPaging.isDisplayPageTriggerMessage` —— 摘要被单列为**分页触发点**，
+     *     遇到它就切一页（`user` 与 `summary` 才算触发点）；
+     *   · `ChatHistoryManager.loadMessagesAfterLatestSummaryInRange` —— 载入消息时
+     *     **从「最后一条摘要」之后开始**，前面的不加载；
+     *   · `AIMessageManager` 多处 `indexOfLast { it.sender == "summary" }` —— 组装上下文时
+     *     同样以最后一条摘要为起点。
+     *   合起来：**摘要一旦生成，它前面那段就退出显示与上下文，由摘要代表**。
+     *
+     * 【本工程怎么落地】本工程已有现成的同构机制：「更早历史」暂存位 +顶部
+     *   「点击加载更早的历史记录」。把被覆盖的原文**挪进暂存位并从正文移除**，
+     *   就同时满足两点：
+     *     · 界面上只剩「摘要 + 之后的对话」—— 这才是「覆盖」；
+     *     · 原文一条不丢，点顶部入口就能翻回来（比 Operit 的手动翻页更省事）。
+     *
+     * 【失败即不删】暂存位写盘成功才移除正文（见 [ChatHistoryStore.stashToPrev] 的约定）；
+     *   写盘失败就退回旧行为（只插摘要、原文留着），绝不为了"看起来对"而丢数据。
+     */
     private fun applySummary(text: String, at: Int) {
         // 【状态收尾】无论插入成败都要收掉「正在总结这一段…」——
         //   否则等待态会一直挂着，输入行保持禁用。
@@ -707,14 +848,32 @@ class ChatPanel(
         removeThinking()
         try {
             val pos = Math.max(0, Math.min(history.length(), at))
+            // ---- ① 先把被覆盖的原文收进暂存位 ----
+            val covered = collectCovered(pos)
+            // 【坑】暂存位为空时 stashToPrev 返回 true（没什么可写的，也算成功）——
+            //   所以不能拿它区分「没东西可挪」，直接看收集到的条数。
+            val stashed = covered.length() == 0 || ChatHistoryStore.stashToPrev(
+                context, ChatSessions.currentId(context), covered
+            )
+            // ---- ② 重组正文：摘要标记 + 新摘要 + 之后的消息 ----
             val arr = JSONArray()
             for (i in 0 until pos) {
-                arr.put(history.opt(i))
+                val o = history.optJSONObject(i) ?: continue
+                if ("summary" == o.optString("kind")) {
+                    // 摘要本身是「分界标记」，留在正文（Operit 同样从最后一条摘要起算上下文）。
+                    arr.put(o)
+                } else if (!stashed) {
+                    // 没能收进暂存位 → 原文留在正文，绝不让它凭空消失。
+                    arr.put(o)
+                }
             }
             val head = JSONObject()
             head.put("role", "system")
             head.put("kind", "summary")
             head.put("content", text)
+            // 【r13】记下这条摘要覆盖了多少条消息（对齐 Operit 的 slice 概念）。
+            //   用户看分割条时才知道「这一段压了多少」，排查时也有据可依。
+            head.put("cover", summaryCover)
             arr.put(head)
             for (i in pos until history.length()) {
                 arr.put(history.opt(i))
@@ -724,10 +883,43 @@ class ChatPanel(
             ChatHistoryStore.saveHistory(this)
             renderHistory()
             refreshCtxRing()
-            flashMemo("已插入总结")
+            flashMemo(
+                if (stashed && covered.length() > 0) {
+                    "已插入总结，" + covered.length() + " 条原文收进了「加载更早」"
+                } else {
+                    "已插入总结"
+                }
+            )
         } catch (t: Throwable) {
             flashMemo("插入失败")
         }
+    }
+
+    /**
+     * 收集 **[0, pos)** 段里「将被摘要覆盖」的原文（用户 / 助手消息）。
+     *
+     * 【为什么排除摘要】已有摘要本身是浓缩后的内容，要留在正文继续参与上下文
+     *   （对齐 Operit：上下文从最后一条摘要开始，而不是从最后一条摘要之后开始）。
+     * 【为什么排除 system 等】它们不是对话内容，挪进「更早历史」会在补回时
+     *   混进气泡流（补回批是按消息渲染的）。
+     */
+    private fun collectCovered(pos: Int): JSONArray {
+        val out = JSONArray()
+        for (i in 0 until pos) {
+            val o = history.optJSONObject(i) ?: continue
+            if ("summary" == o.optString("kind")) {
+                continue
+            }
+            val r = o.optString("role", "")
+            if ("user" != r && "assistant" != r) {
+                continue
+            }
+            try {
+                out.put(JSONObject(o.toString()))
+            } catch (ignored: Throwable) {
+            }
+        }
+        return out
     }
 
     /** 【信息】弹出这条消息的详情（角色 / 时间 / 字数 / 模型）。 */
@@ -925,6 +1117,42 @@ class ChatPanel(
     }
 
     /**
+     * 【r13·角色设定】会话是空的就铺上开场白。
+     *
+     * 【只在「当前会话一条消息都没有」时动手】这是自动路径的唯一判据 ——
+     *   不判空的话每进一次聊天页都会追加一句，历史会越滚越长。
+     *   用户想再看一遍，去人格页点「在聊天里重放开场白」（那条路径不判空，是刻意的）。
+     *
+     * 【为什么不走 push(this, ...)】那一刻 `history` 字段还是上一轮的残留 / 空的
+     *   （本方法刻意排在 loadHistory 之前），走面板版会把**错误的内容**存回去。
+     *   这里直接对「刚从盘上读出来的那份数组」追加并回写，语义明确。
+     *
+     * 【为什么要 try 包住】开场白是锦上添花的功能：它失败绝不能让聊天页打不开。
+     */
+    private fun seedGreetingIfEmpty() {
+        try {
+            val id = ChatSessions.currentId(context)
+            val hist = try {
+                JSONArray(PetPrefs.convHistory(context, id))
+            } catch (ignored: Throwable) {
+                JSONArray()
+            }
+            if (hist.length() > 0) {
+                return
+            }
+            val who = boundDollId()
+            val greeting = DollProfile.spec(context, who).greeting.trim()
+            if (greeting.isEmpty()) {
+                return
+            }
+            ChatHistoryStore.push(context, hist, "assistant", greeting, id)
+            Logs.i("DollhousePersona", "[greeting] 铺开场白 len=" + greeting.length + " conv=" + id)
+        } catch (t: Throwable) {
+            Logs.w("DollhousePersona", "开场白自动铺设失败", t)
+        }
+    }
+
+    /**
      * 刷新顶栏的进度环。
      *
      * 【口径 v0.0.7】当前聊天条数 ÷ 记忆库容量，表示「这个库用到多满」。
@@ -1032,8 +1260,8 @@ class ChatPanel(
         // 【交互】记忆工具始终可用（AI 自己决定记什么）；联网工具按用户开关决定。
         val tools = if (z) buildTools() else null
         // 【思考框】计时起点：这一刻算「模型开始思考」。
-        // 【坑】非流式请求（stream=false）拿不到思考阶段的起止，只能量整段往返；
-        //       工具轮里每次重发 askModel 都会重置，所以显示的是「最后一轮」的耗时。
+        // 【r13·流式】走流式时这个值只作兜底 —— 真实思考耗时由 SSE 侧量（首个思考增量 →
+        //   首个正文增量），比「整段往返」准得多；非流式仍是估算（见 [handleReply]）。
         askStartMs = System.currentTimeMillis()
         task = DeepSeekClient.Task()
         // 【规格书】请求按「供应商 + 模型」组装：地址与协议头全走 ApiClient。
@@ -1043,6 +1271,11 @@ class ChatPanel(
         val key = PetPrefs.apiKey(context)
         val baseUrl = PetPrefs.baseUrl(context)
         val modelId = PetPrefs.model(context)
+        // 【r13·流式】用户可在设置里关掉；关掉即整条走原来的非流式路径（零行为差异）。
+        if (useStream && PetPrefs.streamOutput(context)) {
+            askModelStream(pv, key, baseUrl, modelId, jSONArray, tools, i, z)
+            return
+        }
         DeepSeekClient.chatRaw(pv, key, baseUrl, modelId, jSONArray, tools, samplingParams(false), task, object : DeepSeekClient.RawCallback {
             override fun onMessage(jSONObject: JSONObject?, str: String?) {
                 // 用户主动停止：静默收尾，不要当故障报出来。
@@ -1084,6 +1317,171 @@ class ChatPanel(
                 handleReply(contentText, reasoningText, costMs)
             }
         })
+    }
+
+    /**
+     * 【r13·流式】SSE 路径：边收边刷思考框与气泡，收尾后再走既有 [handleReply] 落盘。
+     *
+     * 【为什么还要复用 handleReply】落盘 / 人偶气泡 / 空内容兜底 / 工具轮分流这些既有规则
+     *   一条都不能少（用户要求「不要丢功能」）。流式只负责「把它做得更早、更细地显示」，
+     *   收尾仍交给同一条收口路径 —— 行为差异被压到最小。
+     *
+     * 【降级】三处让路，全部只影响本次请求：
+     *   ① 供应商开了 Responses 接口 → 客户端直接拒绝（事件格式不同，本版不做）；
+     *   ② 「流式不支持」类错误 → 本次改走非流式重试一次；
+     *   ③ 已经收到正文再出错 → 不重试（避免同一句话出现两遍），按错误收尾。
+     */
+    private fun askModelStream(pv: Provider?, key: String?, baseUrl: String?, modelId: String?,
+                               body: JSONArray, tools: JSONArray?, i: Int, z: Boolean) {
+        streamText = StringBuilder()
+        streamThink = StringBuilder()
+        lastFlushMs = 0L
+        // 【在途气泡】先铺一个空气泡占位：用户能立刻看到「她开始打字了」。
+        //   【为什么不用 thinking 占位】那是一条「正在思考…」的灰条，与流式正文并不冲突 ——
+        //   思考阶段仍显示灰条，正文一到就撤掉并换空气泡。
+        var liveIndex = -1
+        DeepSeekClient.chatStream(pv, key, baseUrl, modelId, body, tools, samplingParams(false), task,
+            object : DeepSeekClient.StreamCallback {
+                override fun onDelta(kind: DeepSeekClient.StreamKind, text: String, toolIndex: Int,
+                                     toolId: String?, toolName: String?, toolArgs: String?) {
+                    when (kind) {
+                        DeepSeekClient.StreamKind.THINK -> {
+                            streamThink?.append(text)
+                            // 思考阶段：把灰条文案换成实时推理（点开思考框前先给个「在动」的反馈）。
+                            flushStream(force = true)
+                        }
+                        DeepSeekClient.StreamKind.TEXT -> {
+                            streamText?.append(text)
+                            if (liveIndex < 0) {
+                                // 首段正文到达：撤掉「正在思考…」灰条，铺一条空气泡承载流式正文。
+                                removeThinking()
+                                liveIndex = ChatState.items.size
+                                ChatState.items = ChatState.items + ChatItem(
+                                    role = "assistant",
+                                    text = "",
+                                    image = null,
+                                    index = -1,
+                                    isPrev = false,
+                                    isSummary = false
+                                )
+                            }
+                            flushStream(force = false)
+                        }
+                        DeepSeekClient.StreamKind.TOOL -> {
+                            // 工具分片本身不进气泡；标签提示一下就够（真正的执行在收尾后走 runTools）。
+                            setThinkingLabel("我去查一下…")
+                        }
+                    }
+                }
+            },
+            object : DeepSeekClient.StreamDone {
+                override fun onDone(message: JSONObject?, error: String?, thinkMs: Long) {
+                    val fullText = streamText?.toString() ?: ""
+                    val fullThink = streamThink?.toString() ?: ""
+                    // 【收尾】去掉流式占位气泡：最终内容统一由 handleReply / runTools 重新铺，
+                    //   避免「流式气泡 + 落盘气泡」出现两条重复消息。
+                    if (liveIndex >= 0) {
+                        val cur = ChatState.items
+                        if (liveIndex < cur.size) {
+                            ChatState.items = cur.subList(0, liveIndex).toList()
+                        }
+                        liveIndex = -1
+                    }
+                    streamText = null
+                    streamThink = null
+                    if (error != null) {
+                        if (DeepSeekClient.STOPPED == error) {
+                            // 用户主动停止：把已收到的部分照常落盘，不要丢。
+                            if (fullText.trim().isNotEmpty()) {
+                                handleReply(fullText, fullThink, thinkMs)
+                            } else {
+                                setWaiting(false)
+                                removeThinking()
+                            }
+                            return
+                        }
+                        // 【降级】还没吐正文就失败 → 本次改走非流式重试一次。
+                        //   RESPONSES_NO_STREAM 也算此类：那家接口本就不支持这种流。
+                        if (fullText.isEmpty() && fullThink.isEmpty() && useStream) {
+                            Logs.i("DollhouseMemo", "[stream] 降级非流式：" + error)
+                            useStream = false
+                            setWaiting(false)
+                            removeThinking()
+                            askModel(body, i, z)
+                            return
+                        }
+                        // 【工具不支持】与流式无关，交给既有降级（剥掉 tools 重试）。
+                        if (error.startsWith("TOOLS_UNSUPPORTED") && z) {
+                            askModel(body, i, false)
+                            return
+                        }
+                        // 【思考参数被拒】与流式无关，剥参数重试一次。
+                        if (!thinkDegraded
+                                && ThinkLevel.shouldInject(PetPrefs.thinkLevel(context))
+                                && error.indexOf("400") >= 0) {
+                            thinkDegraded = true
+                            askModel(body, i, z)
+                            return
+                        }
+                        finishWithError(error)
+                        return
+                    }
+                    val msg = message
+                    if (msg != null) {
+                        val tc = msg.optJSONArray("tool_calls")
+                        if (tc != null && tc.length() > 0 && i < MAX_TOOL_ROUNDS) {
+                            // 工具轮：思考内容先挂上（这一轮到此为止，正文要等工具跑完的下一轮）。
+                            TokenStat.recordFrom(context, msg)
+                            runTools(body, tc, msg, i)
+                            return
+                        }
+                        TokenStat.recordFrom(context, msg)
+                    }
+                    val contentText = msg?.optString("content", "") ?: ""
+                    val reasoningText = msg?.optString("reasoning_content", "") ?: ""
+                    // 【耗时】流式给了真实思考段耗时（thinkMs）；拿不到就退回整段近似。
+                    val cost = if (thinkMs > 0) thinkMs else System.currentTimeMillis() - askStartMs
+                    handleReply(contentText, reasoningText, cost)
+                }
+            })
+    }
+
+    /**
+     * 【r13·流式】把累积中的正文刷到流式气泡上。
+     *
+     * 【节流】正文按 60ms 窗口合并；思考在「首个增量」时强制刷一次（让灰条立刻有内容），
+     *   之后随正文一起走同一节奏 —— 思考内容变化不需要逐字可见。
+     */
+    private fun flushStream(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastFlushMs < 60) {
+            return
+        }
+        lastFlushMs = now
+        val txt = streamText?.toString() ?: ""
+        val think = streamThink?.toString() ?: ""
+        if (think.isNotEmpty()) {
+            ChatState.streamThink = think
+        }
+        if (txt.isEmpty()) {
+            return
+        }
+        // 找到流式占位气泡（最后一条 index == -1 的 assistant）并原地更新文本。
+        val cur = ChatState.items
+        if (cur.isEmpty()) {
+            return
+        }
+        val last = cur[cur.size - 1]
+        if (last.role == "assistant" && last.index < 0 && !last.isSummary) {
+            ChatState.items = cur.subList(0, cur.size - 1).toList() +
+                    last.copy(text = txt, think = think.ifEmpty { null })
+        } else {
+            ChatState.items = cur + ChatItem("assistant", txt, null, -1, false, false,
+                    think.ifEmpty { null }, 0L)
+        }
+        if (!ChatState.holdScroll) {
+            ChatState.requestScrollBottom()
+        }
     }
 
     private fun samplingParams(z: Boolean): JSONObject {
@@ -1221,19 +1619,15 @@ class ChatPanel(
                 body = think
                 think = ""
             } else {
+                // 【r13·思考过程】纯思考内容（正文为空）：不再只挂一个「内存里的思考框」——
+                //   改为「正文为空 + 带推理」落盘。重铺时那条气泡不渲染文字（[ChatUi.Bubble]
+                //   对空正文不画 Text），只渲染它上方的思考框 —— 观感与改造前一致，
+                //   但**切成历史后仍然看得到**，这正是本轮要的「思考可回看」。
+                setWaiting(false)
+                removeThinking()
+                ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
                 if (isAttachedToWindow) {
-                    setWaiting(false)
-                    removeThinking()
-                    ChatState.thinkingBox = ThinkingBox(think, costMs)
-                } else {
-                    // 【r13·不中断】纯思考内容（自聊池）离屏时没有思考框可挂，
-                    //   但回复本身不能丢 —— 落到历史里，回来重铺就能看到。
-                    setWaiting(false)
-                    removeThinking()
-                    val t0 = think.trim()
-                    if (t0.isNotEmpty()) {
-                        ChatHistoryStore.push(this, "assistant", t0)
-                    }
+                    appendBubble("", false, null, history.length() - 1)
                 }
                 return
             }
@@ -1243,6 +1637,9 @@ class ChatPanel(
         if (trim.isEmpty()) {
             trim = body.trim()
         }
+        // 【r13·角色设定】输出替换里「影响历史」的那一批：在写库前就应用 ——
+        //   于是模型下一轮看到的也是清洗后的文本（这正是勾掉「只影响显示」的语义）。
+        trim = ChatHistoryStore.stripRules(context, boundDollId(), trim, true, false)
         // 【r13 修 bug·「返回再进来就中断 AI 发话」】落盘**必须无条件执行**。
         //
         // 【曾经的 bug】原实现在本方法开头写了 `if (!isAttachedToWindow) return` ——
@@ -1252,7 +1649,7 @@ class ChatPanel(
         //
         // 【修法】落盘与视图无关，先落；界面更新才判 `isAttachedToWindow`。
         //   离屏期间照常写历史，回来时 [reloadHistory] 重铺即可看到完整一轮。
-        ChatHistoryStore.push(this, "assistant", trim)
+        ChatHistoryStore.push(this, "assistant", trim, null, if (think.isEmpty()) null else think, costMs)
         if (!isAttachedToWindow) {
             // 离屏：没有气泡可加，收掉等待态即可（回来由 reloadHistory 重铺）。
             setWaiting(false)
@@ -1261,9 +1658,8 @@ class ChatPanel(
         }
         setWaiting(false)
         removeThinking()
-        if (!pet && think.isNotEmpty()) {
-            ChatState.thinkingBox = ThinkingBox(think, costMs)
-        }
+        // 【r13·思考过程】不再往「内存思考框」写：推理已随消息落盘（见上面的 push），
+        //   本条气泡经 appendBubble 落到 [ChatState.items] 后，思考框由 [ChatUi] 按 think 渲染。
         appendBubble(trim, false, null, history.length() - 1)
         if (pet) {
             PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L)
@@ -1303,9 +1699,17 @@ class ChatPanel(
         // 【瞬态作废】占位与思考框都只对「当前这一轮请求」有效：重铺即换了一份历史，
         //   旧引用一律作废（等价于旧 View 版 removeAllViews 把节点整批摘掉）。
         ChatState.thinking = null
-        ChatState.thinkingBox = null
+        ChatState.streamThink = null
         var tailIndex = -1
         val list = ArrayList<ChatItem>()
+        // 【r13·角色设定】输出替换里「只影响显示」的那一批：渲染时清洗，不动历史。
+        //   【为什么在这里读一次】下面要逐条消息用规则；每条都去解析一次 spec JSON
+        //   会让长会话的首帧明显变慢。读一次、传进循环，成本从 O(条数) 降到 O(1)。
+        val outSpec = try {
+            DollProfile.spec(context, boundDollId())
+        } catch (ignored: Throwable) {
+            null
+        }
         // 【v2.8】入口放在「空历史」判断之前：自动收回后若一条正文都不剩，也得能从界面上点回来。
         ChatState.hasPrev = ChatHistoryStore.hasPrev(context)
         if (history.length() == 0) {
@@ -1317,19 +1721,42 @@ class ChatPanel(
             }
             return
         }
+        // 【r13·摘要条只显示最新一条】每插一次总结就多一条 kind=summary，全渲染出来会在
+        //   聊天顶部堆成一摞分割条（用户截图里堆了 4 条）。这里只渲染**最后一条**。
+        //   【为什么数据一条不删】旧摘要仍留在 history 里、仍由 appendSummaries 注入上下文 ——
+        //     它代表「它之前那整段对话」，删掉就等于把更早的内容从模型记忆里抹掉。
+        //     对界面它是噪音，对上下文它是必需，所以只藏显示、不删数据。
+        //   【为什么最新的就够】摘要生成本就是「从最近一条摘要往后压」，越新覆盖越靠后、
+        //     信息越全；界面上只需要一条「此前全部对话的当前概括」。
+        val lastSummary = findLastSummaryIndex(history, history.length() - 1)
         // 【v2.8·P3】补回批不再按下标推导（见 mergePrev 打的 _prev 标记），这里只判「有没有摘要头」。
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i) ?: continue
-            // 【新增】头部摘要（kind=summary）原本被 !"system" 判据静默跳过，现在渲染成可展开的分割标题。
+            val role = o.optString("role")
             if ("summary" == o.optString("kind")) {
-                list.add(ChatItem("summary", o.optString("content"), null, i, false, true))
+                // 【只渲染最新】更早的摘要跳过渲染（数据仍原样留在 history 里）。
+                if (i != lastSummary) {
+                    continue
+                }
+                // 【r13】带上覆盖条数，由分割条显示成「历史对话摘要 · 覆盖 N 条」。
+                list.add(ChatItem("summary", o.optString("content"), null, i, false, true,
+                        null, 0L, o.optInt("cover", 0)))
                 summaryIndex = list.size - 1
                 continue
             }
-            val role = o.optString("role")
             if ("system" != role) {
                 val isPrev = ChatHistoryStore.isPrevItem(o)
-                list.add(ChatItem(role, o.optString("content"), o.optString("image", null), i, isPrev, false))
+                // 【r13·思考过程】把这条消息当初的推理一并带出（老数据没有该键 → null，正常退化）。
+                val think = o.optString("think", null)
+                val thinkMs = o.optLong("thinkMs", 0L)
+                // 【r13·角色设定】「只影响显示」的输出替换：在这里应用，历史原文不动。
+                //   `forHer = "assistant" == role`，与写入侧的同名判据一致。
+                var text = o.optString("content")
+                if (outSpec != null && outSpec.rules.isNotEmpty()) {
+                    text = PersonaBuilder.applyRules(outSpec, text, true, "assistant" == role, "user" == role)
+                }
+                list.add(ChatItem(role, text, o.optString("image", null), i, isPrev, false,
+                        if (think.isNullOrEmpty()) null else think, thinkMs))
                 // 【v2.8·P3】补回批的尾部节点按来源标记认。
                 if (isPrev) {
                     tailIndex = list.size - 1

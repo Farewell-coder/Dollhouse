@@ -39,6 +39,38 @@ object ChatHistoryStore {
         return if (s == null) "" else LEGACY_AFFECTION.matcher(s).replaceAll("").trim()
     }
 
+    /**
+     * 【r13·角色设定】按这只人偶的「输出替换」规则清洗文本。
+     *
+     * 【为什么放在数据层】清洗有两个时机、两处调用点：
+     *   · **落盘前**（`visual=false`）：把「影响历史」的规则应用到写库的文本上，
+     *     模型下一轮也就看不到被替换掉的内容；
+     *   · **渲染时**（`visual=true`）：只改显示，历史原文保留。
+     *   两条路必须用同一套实现，否则「同一句话在气泡里和存档里不一样」这种诡异差异会冒出来。
+     *
+     * 【性能】没配规则时直接返回原串（`spec.rules` 为空即短路），
+     *   不给每条历史消息都做一次 JSON 解析 —— 长列表滚动时才不会卡。
+     *
+     * @param forHer true = 她说的话
+     */
+    @JvmStatic
+    fun stripRules(ctx: Context, dollId: String?, text: String?, forHer: Boolean, visual: Boolean): String {
+        val t = text ?: ""
+        if (t.isEmpty()) {
+            return t
+        }
+        try {
+            val spec = DollProfile.spec(ctx, dollId)
+            if (spec.rules.isEmpty()) {
+                return t
+            }
+            return PersonaBuilder.applyRules(spec, t, visual, forHer, !forHer)
+        } catch (ignored: Throwable) {
+            // 清洗失败按原样返回：宁可多显示一点，也不能让她的话整段消失。
+            return t
+        }
+    }
+
     // 从偏好恢复「当前会话」的对话历史。
     // 【坑】多会话改造后不再读 chat_history，改读 conv_<当前会话 id>；
     //        ChatSessions.ensure 负责旧档迁移与兜底建会话。
@@ -353,6 +385,46 @@ object ChatHistoryStore {
         }
     }
 
+    /**
+     * 【r13·对齐 Operit】把一批消息**追加**进「更早历史」暂存位。返回是否写入成功。
+     *
+     * 【为什么必须追加，不能覆盖】[pushPrevTail] 是「覆盖写」（它服务的是自动归档：
+     *   旧批的要点已并入新摘要，留着没意义）。但插入总结这条路上，本方法要挪走的原文
+     *   属于**不同的时间段**，暂存位里可能还压着更早的一批 —— 覆盖会把那批直接抹掉，
+     *   等于用户点「加载更早」时数据凭空少一段。数据只增不减是这里的硬约束。
+     *
+     * 【顺序】暂存位里已有的排在时间轴更早处，本批接着往后放 —— 顺序天然正确，
+     *   [prependPrev] 补回时整批插到正文最前，时间轴依旧成立。
+     *
+     * 【失败即不删】调用方必须先用返回值判断：只有 true（已落盘）才允许把原文从正文里删掉；
+     *   写盘失败还照删，就是真丢数据。
+     */
+    @JvmStatic
+    fun stashToPrev(ctx: Context, id: String, msgs: JSONArray?): Boolean {
+        if (msgs == null || msgs.length() == 0) {
+            return true
+        }
+        return try {
+            val prev = try {
+                JSONArray(PetPrefs.convPrev(ctx, id))
+            } catch (_: Throwable) {
+                JSONArray()
+            }
+            for (i in 0 until msgs.length()) {
+                val o = msgs.optJSONObject(i) ?: continue
+                val c = JSONObject(o.toString())
+                // 补回批标记不能带进暂存位（它描述的是"当前正在展开"，跨批次无意义）。
+                c.remove("_prev")
+                prev.put(c)
+            }
+            PetPrefs.setConvPrev(ctx, id, prev.toString())
+            true
+        } catch (t: Throwable) {
+            Logs.w("DollhouseMemo", "stashToPrev 失败", t)
+            false
+        }
+    }
+
     /** 是否还有「更早的历史」可补（供聊天记录顶部决定要不要显示入口）。 */
     @JvmStatic
     fun hasPrev(ctx: Context): Boolean {
@@ -542,12 +614,41 @@ object ChatHistoryStore {
     }
     @JvmStatic
     fun push(host: ChatPanel, str: String, str2: String, str3: String?) {
+        push(host, str, str2, str3, null, 0L)
+    }
+
+    /**
+     * 【r13·思考过程落盘】带推理内容的完整版。
+     *
+     * 【为什么思考要跟着消息一起存】用户要求「连内容连思考的回复我，并且思考是可以展开的」——
+     *   只留在内存（[com.dollhouse.app.ui.chat.ThinkingBox]）的话，重开 / 切会话即消失，
+     *   历史上每一条回复都无法再看它当时的推理。存进消息对象后，重铺时按条取用即可。
+     *
+     * 【为什么不污染请求体】组装请求时只取 `role` / `content` / `image` 三个键
+     *   （见 [appendTailMessages]），`think` 多带一个键不会被发出去；
+     *   推理回传与否仍由供应商的 resendHistoryReasoning 单独控制。
+     *
+     * 【长度上限】推理可能很长（推理型模型动辄数千字），单条存档做硬截断，
+     *   避免一份历史把 SharedPreferences 撑爆（上限 4000 字，超出留头部）。
+     *
+     * @param think 思考内容；null / 空串则不写该字段（普通模型没有推理，历史里不留空键）
+     * @param thinkMs 「思考了 X 毫秒」，流式下是真实思考段耗时；0 表示未知
+     */
+    @JvmStatic
+    fun push(host: ChatPanel, str: String, str2: String, str3: String?, think: String?, thinkMs: Long) {
         try {
             val jSONObject = JSONObject()
             jSONObject.put("role", str)
             jSONObject.put("content", str2)
             if ("assistant" == str) {
                 jSONObject.put("rating", 0)
+                val t = think?.trim() ?: ""
+                if (t.isNotEmpty()) {
+                    jSONObject.put("think", clipThink(t))
+                    if (thinkMs > 0) {
+                        jSONObject.put("thinkMs", thinkMs)
+                    }
+                }
             }
             if (str3 != null) {
                 jSONObject.put("image", str3)
@@ -633,8 +734,8 @@ object ChatHistoryStore {
      * 【独立版】给 ChatPanel 之外的使用者（迷你聊天框）追加一条消息并落盘。
      * 【共用点】saveHistory 内部走 PetPrefs.convHistory(ctx, ChatSessions.currentId(ctx))，
      *   与全屏聊天页同一个键，所以两边的消息会汇入同一份对话。
-     * 【取舍】本方法不调 MemSummarizer.maybeAuto：人偶池的迷你框（PetTalk）在
-     *   落盘完成后自行调用无 UI 版（PetTalk.maybeAutoSummarize），避免同一次 push 触发两遍。
+     * 【取舍】自动抽取长期记忆挂在 host 版（[push] 的 ChatPanel 重载）上：
+     *   迷你框（PetTalk）走本方法，由它在落盘完成后自行触发，避免同一次 push 跑两遍。
      */
     @JvmStatic
     fun push(ctx: Context, history: JSONArray, role: String, content: String) {
@@ -702,6 +803,25 @@ object ChatHistoryStore {
         }
     }
     /** 纯函数：向历史数组追加一条消息，不落盘。 */
+    /**
+     * 【r13·思考过程】推理文本的落盘上限。
+     *
+     * 【为什么需要】推理型模型的 reasoning_content 动辄数千字，而整份历史是序列化成一个
+     *   SharedPreferences 字符串存的（见 `conv_<id>`）——放开了存会让读写都变卡，
+     *   极端情况下还会撞上 prefs 的单值上限。超长时留头部：推理的开头通常已经说清思路。
+     */
+    private const val THINK_MAX = 4000
+
+    /** 按 [THINK_MAX] 截断推理文本（超出补省略号，让用户知道这里被截过）。 */
+    @JvmStatic
+    fun clipThink(s: String?): String {
+        val t = s?.trim() ?: ""
+        if (t.length <= THINK_MAX) {
+            return t
+        }
+        return t.substring(0, THINK_MAX) + "…（推理过长，已截断）"
+    }
+
     @JvmStatic
     fun put(history: JSONArray, role: String, content: String, image: String?) {
         try {
@@ -767,6 +887,8 @@ object ChatHistoryStore {
                 val c = JSONObject(o.toString())
                 if ("assistant" == c.optString("role")) {
                     c.put("content", oneLine(c.optString("content")))
+                    // 【r13·思考过程】推理内容不跟着压平：它本来就是多行长文本，
+                    //   压成单行会毁掉排版；它也不会进请求体，无需与 content 同口径。
                 }
                 out.put(c)
             } catch (_: Throwable) {
@@ -818,14 +940,25 @@ object ChatHistoryStore {
         val who = if (dollId.isNullOrEmpty()) DollStore.DEFAULT_ID else dollId
         val jSONArray = JSONArray()
         try {
-            // 【r11 起】人设按人偶取：这只人偶的「性格内容」。为空就整条不发（等于无约束），
-            //   模型退化成通用助手，而不是拿一份写死的文本硬演。
-            val persona = DollProfile.persona(ctx, who)
-            if (!persona.isEmpty()) {
-                val jSONObject = JSONObject()
-                jSONObject.put("role", "system")
-                jSONObject.put("content", persona)
-                jSONArray.put(jSONObject)
+            // 【r13·角色设定】人设不再只是一段文本：分段（性格 / 世界观 / 说话风格 / 称呼）
+            //   + 常驻注入 + 命中的世界书，统一由 [PersonaBuilder] 按「位置 → 优先级」拼好。
+            //   【共用一条路径】人格页的「提示词预览」调的是同一个方法，所以预览必然与实际一致。
+            //   【兼容】没写过结构化设定时，[PersonaBuilder.composePersona] 的行为与改造前一致：
+            //   只有那段自由文本 → 输出一条 system / content=persona 的消息。
+            val dollName = DollStore.byId(ctx, who)?.name
+            val built = PersonaBuilder.build(ctx, who, dollName, history, lastUserText(history))
+            val personaMsgs = built.messages
+            for (i in 0 until personaMsgs.length()) {
+                jSONArray.put(personaMsgs.opt(i))
+            }
+            // 【对话示例】单独一条，紧跟人设之后（不与注入抢位置）。
+            val spec = DollProfile.spec(ctx, who)
+            val example = PersonaBuilder.exampleText(spec)
+            if (example.isNotEmpty()) {
+                val exObj = JSONObject()
+                exObj.put("role", "system")
+                exObj.put("content", example)
+                jSONArray.put(exObj)
             }
             // 【设备操作】lamda 服务在跑时，追加一条独立 system 消息，告诉模型她手上还有 device 工具。
             // 【为什么独立一条】人设正文属用户可编辑内容，不该被运行时状态污染（与下面「回复格式」同款做法）；
@@ -859,10 +992,53 @@ object ChatHistoryStore {
             appendMemory(ctx, jSONArray, who, lastUserText(history))
             appendSummaries(jSONArray, history)
             appendLearnExamples(ctx, jSONArray)
+            // 【r13·角色设定】「最新消息前」的注入：紧贴对话末尾，权重最高的一档。
+            //   放在尾部消息**之前**，确保它比对话更靠近「当前这一问」。
+            appendBottomInjections(ctx, jSONArray, who, history)
             appendTailMessages(ctx, jSONArray, history)
+            // 【r13·角色设定】后置指令：整份请求的最后一条，模型最容易照做。
+            //   【为什么放最末】它的用途就是「压过前面所有话」的硬约束（如「永远不要跳出角色」），
+            //   放在中间等于自废武功。
+            val post = DollProfile.spec(ctx, who).postscript.trim()
+            if (post.isNotEmpty()) {
+                val postObj = JSONObject()
+                postObj.put("role", "system")
+                postObj.put("content", post)
+                jSONArray.put(postObj)
+            }
         } catch (_: Throwable) {
         }
         return jSONArray
+    }
+
+    /**
+     * 【r13·角色设定】把「最新消息前」的注入追加进请求。
+     *
+     * 【分工】「人设之前 / 之后」两种位置由 [PersonaBuilder.build] 处理（它们在头部），
+     *   这里只补第三、四种位置 —— 它们必须**贴着对话末尾**才有意义。
+     */
+    private fun appendBottomInjections(ctx: Context, arr: JSONArray, dollId: String?, history: JSONArray) {
+        try {
+            val spec = DollProfile.spec(ctx, dollId)
+            if (spec.injections.isEmpty() && spec.lore.isEmpty()) {
+                return
+            }
+            val list = PersonaBuilder.collectInjections(spec, history, lastUserText(history), null)
+            for (it in list) {
+                if (InjectPos.TOP != it.position && InjectPos.BOTTOM != it.position) {
+                    continue
+                }
+                val text = it.content.trim()
+                if (text.isEmpty()) {
+                    continue
+                }
+                val o = JSONObject()
+                o.put("role", if ("user" == it.role) "user" else "system")
+                o.put("content", text)
+                arr.put(o)
+            }
+        } catch (ignored: Throwable) {
+        }
     }
 
     /** 长期记忆注入：新版记忆库（条目 + 资料文档），按当前问题做相关性检索。 */

@@ -17,7 +17,7 @@ import org.json.JSONObject
  *        当前处于哪个池存 conv_pool。历史内容本身仍由 ChatPanel.history 持有，本类只搬 id 与清单。
  *
  * 【池的作用】人偶池的 assistant 回复落库时压成单行（见 ChatHistoryStore 的 byPool），自聊池原样保留；
- *        两池共用同一个记忆库（MemStore），自动压缩按各自会话 id 归档。
+ *        长期记忆按**人偶**分库（见 [com.dollhouse.app.data.Mem]），与池的划分无关。
  *
  * 【坑】旧版单会话数据放在 chat_history 键里，首次调用 ensure() 时会迁移一次；
  *        迁完不再写回 chat_history，避免两份数据打架。
@@ -203,7 +203,7 @@ object ChatSessions {
      * 【为什么需要】两池拆分后 currentId(ctx) 只代表「当前池」：人偶池的会话在
      *   当前池为 self 时会被误判成「已切换」；反过来若拿 currentId 当锚点，
      *   人偶池压缩就会把摘要/暂存写到 self 池名下（静默串池）。
-     *   MemSummarizer 的守卫①用它核对锚定会话。
+     *   需要「按 id 反查它属于哪个池」的那些调用点用它做锚点核对。
      * 【返回 null】id 不存在（被删）或池内一条都没有时，调用方应放弃。
      */
     @JvmStatic

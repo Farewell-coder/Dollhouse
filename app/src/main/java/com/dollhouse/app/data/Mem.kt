@@ -101,6 +101,32 @@ object Mem {
         }
     }
 
+    /**
+     * 【r13】整表回写（供「文件夹改名 / 删除」这类**批量**改动使用）。
+     *
+     * 【为什么需要它】[update] 一次只改一条，而「文件夹改名」要同时改它下面所有条目 ——
+     *   逐条 update 会写 N 次盘（每次都是全量 JSON 序列化），100 条就是 100 次重写。
+     *   这里一次性落盘，成本从 O(N²) 降到 O(N)。
+     *
+     * 【边界】调用方负责保证数组结构合法（从 [list] 拿出、改字段、再交回来）。
+     *   条数上限同样在这里兜一次，避免调用方绕过 [add] 的限制。
+     */
+    @JvmStatic
+    fun replaceAll(ctx: Context, dollId: String?, arr: JSONArray?) {
+        try {
+            var out = arr ?: JSONArray()
+            if (out.length() > MAX_ENTRIES) {
+                val cut = JSONArray()
+                for (i in out.length() - MAX_ENTRIES until out.length()) {
+                    cut.put(out.opt(i))
+                }
+                out = cut
+            }
+            save(ctx, dollId, out)
+        } catch (unused: Throwable) {
+        }
+    }
+
     /** 按 id 删除。 */
     @JvmStatic
     fun remove(ctx: Context, dollId: String?, id: String?) {
