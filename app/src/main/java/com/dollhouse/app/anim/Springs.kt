@@ -9,7 +9,7 @@ import android.view.animation.Interpolator
 /**
  * 弹簧预置与驱动器。
  *
- * 【来源】预置参数照搬 morphicons 的 SPRING_PRESETS（MIT），ζ = c / (2√k)：
+ * 【预置】按阻尼比 ζ = c / (2√k) 分三档：
  *   smooth  ζ=1.00  临界阻尼，无过冲
  *   snappy  ζ=0.73  快，轻微过冲
  *   bouncy  ζ=0.40  活泼，明显回弹

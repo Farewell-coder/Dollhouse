@@ -3,10 +3,6 @@ package com.dollhouse.app.anim
 /**
  * 阻尼谐振子（弹簧）积分器。
  *
- * 【来源】移植自 morphicons（MIT，<https://github.com/guillermolg00/morphicons>）
- *   的 src/core/spring.ts（48 行）。原实现用于图标形变的进度驱动，此处作为全 App
- *   统一的动效进度源。
- *
  * 【算法】ẍ = k·(1−x) − c·ẋ，用半隐式欧拉积分，子步 h = 1/240 s。
  *   子步数 clamp 到 [1,16]：dt 过大（后台切回）时不会因单步过大而发散。
  *   稳定性边界 ω·h ≲ 2，以 k=420 计 ω≈20.5、ω·h≈0.085，余量充足。
