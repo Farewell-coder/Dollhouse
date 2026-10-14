@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,12 +27,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.update.UpdateChannel
+import com.dollhouse.app.update.UpdateCheckResult
+import com.dollhouse.app.update.UpdateChecker
+import com.dollhouse.app.update.UpdatePrefs
 
 /**
  * 【职责】「关于」独立页：软件介绍 + 关于本软件（作者 / 反馈群 / 版本）。
@@ -134,7 +145,246 @@ object AboutPage {
                 InfoRow("反馈群", GROUP, pill = true)
                 DhKit.Divider()
                 InfoRow("版本", "v" + versionName(act), pill = false)
+                // 【更新检查】入口行放版本下方 —— 用户找「我是不是最新版」时视线就在这里。
+                UpdateEntry(act)
             }
+        }
+    }
+
+    /* ============================ 检测更新 ============================ */
+
+    /**
+     * 「检测更新」入口行 + 结果弹窗。
+     *
+     * 【为什么整块自包含】关于页的其余部分只读展示；更新这块带状态（检查中 / 内容）、
+     *   带弹窗。把它收进一个私有 @Composable，[AboutContent] 保持「一行一个卡片」的可读性。
+     *
+     * 【状态放哪】用 `remember` 存在本页组合里：离开关于页即释放，不引入 ViewModel ——
+     *   检查本身是「一次性查询」，没有需要跨页保活的状态。后台调度与节流都在
+     *   [UpdateChecker]，与界面生命周期无关。
+     *
+     * 【三态呈现】Available / UpToDate / Failed 严格分开（需求 4.1）：
+     *   · Available → 弹窗展示「当前版本 → 新版本」+ 更新日志 + 「去下载 / 稍后」；
+     *   · UpToDate   → 弹窗告知已是最新；
+     *   · Failed     → 弹窗展示失败原因（手动检查必须给反馈）。
+     */
+    @Composable
+    private fun UpdateEntry(act: Activity) {
+        var checking by remember { mutableStateOf(false) }
+        var result by remember { mutableStateOf<UpdateCheckResult?>(null) }
+        var channel by remember { mutableStateOf(UpdatePrefs.channel(act)) }
+
+        // ---- 结果弹窗 ----
+        val r = result
+        if (r != null) {
+            when (r) {
+                is UpdateCheckResult.Available -> UpdateAvailableDialog(
+                    act = act,
+                    available = r,
+                    onDismiss = { result = null },
+                    onSkip = {
+                        UpdatePrefs.setSkippedVersion(act, r.candidate.versionName)
+                        result = null
+                    }
+                )
+                is UpdateCheckResult.UpToDate -> DhForm.Alert(
+                    title = "已是最新版本",
+                    onDismiss = { result = null },
+                    posText = "好",
+                    onPos = { result = null }
+                ) {
+                    Text(
+                        text = "当前 v" + r.currentVersion + " 已是「" + r.channel.label + "」的最新版本。",
+                        color = DhTokens.colors.sub,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fonts,
+                        lineHeight = (UiKit.FS_BTN + 8f).sp
+                    )
+                }
+                is UpdateCheckResult.Failed -> DhForm.Alert(
+                    title = "检查更新失败",
+                    onDismiss = { result = null },
+                    posText = "好",
+                    onPos = { result = null }
+                ) {
+                    Text(
+                        text = r.error.message,
+                        color = DhTokens.colors.sub,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fonts,
+                        lineHeight = (UiKit.FS_BTN + 8f).sp
+                    )
+                }
+            }
+        }
+
+        // ---- 通道切换 ----
+        // 【为什么放这里】双通道（稳定版 / 公测版）是「这次更新想跟哪条线」的选择，
+        //   与「检测」动作强相关；放进设置页深处反而找不到。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "更新通道",
+                modifier = Modifier.weight(1f),
+                color = DhTokens.colors.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fonts
+            )
+            ChannelChip(
+                text = UpdateChannel.STABLE.label,
+                selected = channel == UpdateChannel.STABLE
+            ) {
+                channel = UpdateChannel.STABLE
+                UpdatePrefs.setChannel(act, UpdateChannel.STABLE)
+            }
+            Spacer(Modifier.width(8.dp))
+            ChannelChip(
+                text = UpdateChannel.BETA.label,
+                selected = channel == UpdateChannel.BETA
+            ) {
+                channel = UpdateChannel.BETA
+                UpdatePrefs.setChannel(act, UpdateChannel.BETA)
+            }
+        }
+
+        // ---- 检测按钮 ----
+        DhKit.ActionRow(
+            label = if (checking) "正在检查…" else "检测更新",
+            iconRes = Icons.IC_REFRESH,
+            desc = channel.label + " · 需要联网",
+            enabled = !checking,
+            onClick = {
+                checking = true
+                // 【回调必回主线程】UpdateChecker 内部已 post 到 MAIN，这里直接改状态即可。
+                UpdateChecker.manualCheck(act) { res ->
+                    checking = false
+                    result = res
+                }
+            }
+        )
+    }
+
+    /**
+     * 通道选择药丸。
+     *
+     * 【为什么不用 [DhKit.OutlineChip]】它只有「未选」一种长相，表达不了选中态；
+     *   这里需要「选中 = 主题色实底 + 反白字」的明确对比（与底栏选中态同语言）。
+     */
+    @Composable
+    private fun ChannelChip(text: String, selected: Boolean, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (selected) c.acc else c.cardUp)
+                .then(if (selected) Modifier else Modifier.border(1.dp, c.line, RoundedCornerShape(999.dp)))
+                .pressable(onClick)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = text,
+                color = if (selected) c.onAcc else c.title,
+                fontSize = UiKit.FS_CHIP.sp,
+                fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
+                fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.Bold
+                else androidx.compose.ui.text.font.FontWeight.Normal
+            )
+        }
+    }
+
+    /**
+     * 「发现新版本」弹窗：当前版本 → 新版本、更新日志、「去下载」「稍后」。
+     *
+     * 【为什么按钮是「稍后」而不是「取消」】用户已经知道有新版本了，这一栏表达的是
+     *   「这次先不装」，不是「我没看到」。
+     *
+     * 【为什么没有「不再提醒」主按钮】它属于低频且不可逆（会吞掉后续同类提醒），
+     *   放成第三个文字入口，避免误触。
+     */
+    @Composable
+    private fun UpdateAvailableDialog(
+        act: Activity,
+        available: UpdateCheckResult.Available,
+        onDismiss: () -> Unit,
+        onSkip: () -> Unit
+    ) {
+        val c = DhTokens.colors
+        DhForm.Alert(
+            title = "发现新版本",
+            onDismiss = onDismiss,
+            posText = "去下载",
+            onPos = {
+                openDownload(act, available)
+            },
+            negText = "稍后",
+            content = {
+                Text(
+                    text = "v" + available.currentVersion + "  →  v" + available.candidate.versionName +
+                            "（" + available.channel.label + "）",
+                    color = c.acc,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+                val notes = available.candidate.notes
+                if (notes.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(c.soft)
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = notes,
+                            color = c.sub,
+                            fontSize = UiKit.FS_TINY.sp,
+                            fontFamily = DhTokens.fonts,
+                            lineHeight = (UiKit.FS_TINY + 6f).sp
+                        )
+                    }
+                }
+                // 「不再提醒」做成一行低调文字，与主按钮拉开层级。
+                Text(
+                    text = "不再提醒此版本",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .pressable(onSkip),
+                    color = c.sub,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        )
+    }
+
+    /**
+     * 打开下载：优先 APK 直链，没有则回退到 Release 页面（需求 5「第一阶段仅跳转」）。
+     *
+     * 【为什么只跳浏览器】应用内下载要处理 FileProvider、存储权限、签名校验、
+     *   安装 Intent 与未知来源授权，风险面大得多；系统浏览器 + 系统安装器这条链路
+     *   自带签名校验与用户确认，是更稳的第一阶段形态（需求原文即如此）。
+     */
+    private fun openDownload(act: Activity, available: UpdateCheckResult.Available) {
+        val url = available.candidate.apkUrl.ifEmpty { available.candidate.releaseUrl }
+        if (url.isEmpty()) {
+            return
+        }
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.setData(android.net.Uri.parse(url))
+            act.startActivity(intent)
+        } catch (t: Throwable) {
+            // 没有浏览器 / 无可处理该链接的应用：不崩，只记日志。
+            Logs.w(LOG_TAG, "ignored", t)
         }
     }
 

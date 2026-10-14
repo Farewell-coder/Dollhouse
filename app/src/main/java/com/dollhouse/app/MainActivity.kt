@@ -16,6 +16,8 @@ import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.ThemeRefresh
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.update.UpdateChecker
+import com.dollhouse.app.update.UpdatePrompt
 import rikka.shizuku.Shizuku
 
 /**
@@ -253,6 +255,11 @@ class MainActivity : Activity() {
             ShizukuBridge.addBinderListener(shizukuBinderListener)
         }
         ticker.postDelayed(tick, 800L)
+        // 【更新检查】冷启动自动检查：24h 节流 + 3s 延迟，只有真正发现新版本才弹窗。
+        //   幂等（UpdateChecker 内部保证一次进程只跑一次），失败静默，绝不影响启动。
+        UpdateChecker.autoCheck(this) { available ->
+            UpdatePrompt.show(this, available)
+        }
     }
 
     override fun onPause() {
