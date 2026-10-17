@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -154,7 +155,12 @@ object ChatUi {
                 text = "Dollhouse",
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 4.dp),
+                    .padding(start = 4.dp)
+                    // 【r19·聊天搜索】长按标题唤出搜索框（不占布局空间）。
+                    .pressable(
+                        onClick = {},
+                        onLongClick = { host.showSearchDialog() }
+                    ),
                 color = c.title,
                 fontSize = 16.sp,
                 fontFamily = DhTokens.fonts
@@ -361,7 +367,7 @@ object ChatUi {
                 if (item.text.trim().isNotEmpty()) {
                     Text(
                         text = item.text,
-                        color = if (mine) c.card else c.title,
+                        color = if (mine) c.onAcc else c.title,
                         fontSize = UiKit.FS_BTN.sp,
                         fontFamily = DhTokens.fonts
                     )
@@ -431,6 +437,13 @@ object ChatUi {
             actions.add { host.replyTo(idx) }
         }
 
+        // ---- 【r19】对话分支（双方都有）----
+        // 把当前会话「前 idx 条」复制成一个新会话，从那里继续聊 ——
+        //   与「回滚到此处」的区别：回滚会**删掉**后面的消息（不可逆），
+        //   分支是**复制**（原会话保留，新会话独立）。
+        labels.add("从这里分支")
+        actions.add { host.branchAt(idx) }
+
         // ---- 删除（双方都有）----
         labels.add("删除")
         actions.add { host.deleteAt(idx) }
@@ -438,7 +451,10 @@ object ChatUi {
         // 标题用消息摘要本身，让用户确认「操作的是哪一条」。
         val head = item.text.trim().replace('\n', ' ')
         val title = if (head.length > 14) head.substring(0, 14) + "…" else head
-        MessageMenu.show(act, title.ifEmpty { "消息" }, labels, actions)
+        // 【r17·图标】「删除」配垃圾桶图标（与列表页的删除按钮同一语义图标）。
+        val icons = IntArray(labels.size)
+        icons[labels.size - 1] = Icons.IC_TRASH
+        MessageMenu.show(act, title.ifEmpty { "消息" }, labels, actions, icons)
     }
     /** 气泡里的图片附件：异步解码（不卡首帧），12dp 圆角裁切。 */
     @Composable
@@ -690,7 +706,9 @@ object ChatUi {
                 .padding(end = 6.dp)
                 .clip(RoundedCornerShape(UiKit.RADIUS_CHIP.dp))
                 .background(c.chatChipOff)
-                .pressable(onClick)
+                // 【r19·修复点击无反应】pressable 的 clickable(interactionSource, indication=null)
+                //   在 ChatPanel 边界下可能吞事件；改为显式 clickable（与发送按钮同款修复）。
+                .clickable { onClick() }
                 .padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -778,17 +796,21 @@ object ChatUi {
                 .padding(bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DhKit.IconButton(iconRes = Icons.IC_SETTINGS, sizeDp = 20f, color = c.title) {
+            // 【r15·图标+文字】工具条右侧有 weight(1f) 弹性空间 → 三枚按钮都加文字。
+            // 【同时修正语义错配】原用齿轮图标（IC_SETTINGS）但功能是 host.showModels()
+            //   （打开模型选择），图标与功能对不上；改用 IC_LAYERS
+            //   （Design 里登记的语义正是「模型集合」，详情页「模型」tab 同款）。
+            DhKit.IconButton(iconRes = Icons.IC_LAYERS, sizeDp = 20f, color = c.title, label = "模型") {
                 host.showModels()
             }
             Spacer(Modifier.width(2.dp))
-            DhKit.IconButton(iconRes = Icons.IC_BRAIN, sizeDp = 20f, color = c.sub) {
+            DhKit.IconButton(iconRes = Icons.IC_BRAIN, sizeDp = 20f, color = c.sub, label = "思考") {
                 host.showThink()
             }
             Spacer(Modifier.width(2.dp))
             // 【r13·需求改造】原加号（弹功能面板）改为直接的「发图」按钮。
             //   用户定案「甲」：功能面板整页删掉，「发图」挪出来。图标即功能，少一次点击。
-            DhKit.IconButton(iconRes = Icons.IC_IMAGE_PLUS, sizeDp = 20f, color = c.sub) {
+            DhKit.IconButton(iconRes = Icons.IC_IMAGE_PLUS, sizeDp = 20f, color = c.sub, label = "图片") {
                 host.openPicker()
             }
             Spacer(Modifier.weight(1f))
@@ -804,12 +826,22 @@ object ChatUi {
                     fontFamily = DhTokens.fonts,
                     maxLines = 1
                 )
-                DhKit.IconButton(iconRes = Icons.IC_COPY, sizeDp = 20f, color = c.title) {
+                DhKit.IconButton(
+                    iconRes = Icons.IC_COPY,
+                    sizeDp = 20f,
+                    color = c.title,
+                    label = "复制"
+                ) {
                     host.copyMany(MultiSelect.picked())
                     MultiSelect.reset()
                 }
                 Spacer(Modifier.width(2.dp))
-                DhKit.IconButton(iconRes = Icons.IC_CLOSE, sizeDp = 20f, color = c.sub) {
+                DhKit.IconButton(
+                    iconRes = Icons.IC_CLOSE,
+                    sizeDp = 20f,
+                    color = c.sub,
+                    label = "退出"
+                ) {
                     MultiSelect.reset()
                 }
                 Spacer(Modifier.width(4.dp))
@@ -844,7 +876,7 @@ object ChatUi {
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)
                 .padding(start = 10.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = Alignment.CenterVertically
         ) {
             BasicTextField(
                 value = ChatState.input,
@@ -877,21 +909,29 @@ object ChatUi {
                 }
             )
             Spacer(Modifier.width(8.dp))
-            DhKit.IconButton(
-                iconRes = if (ChatState.waiting) Icons.IC_CLOSE else Icons.IC_SEND,
-                sizeDp = 20f,
-                color = c.onAcc,
+            // 【r19·修点击】发送按钮从 IconButton 换成显式 Box + clickable。
+            //   原写法 IconButton 内部走 pressable → clickable(interactionSource, indication=null)，
+            //   在 ChatPanel（LinearLayout 嵌 ComposeView）的边界下点击事件可能被吞。
+            //   显式 Box 的 clickable 区域就是整个圆形背景，不依赖 interactionSource 的命中判定。
+            Box(
                 modifier = Modifier
                     .size(UiKit.HIT_DP.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(c.acc)
+                    .clickable {
+                        if (ChatState.waiting) {
+                            host.stopGenerating()
+                        } else {
+                            host.onSend()
+                        }
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                // 【交互】同一个按钮两副面孔：空闲时「发送」，等待回复时「停止」。
-                if (ChatState.waiting) {
-                    host.stopGenerating()
-                } else {
-                    host.onSend()
-                }
+                DhKit.Icon(
+                    iconRes = if (ChatState.waiting) Icons.IC_CLOSE else Icons.IC_SEND,
+                    sizeDp = 20f,
+                    color = c.onAcc
+                )
             }
         }
     }

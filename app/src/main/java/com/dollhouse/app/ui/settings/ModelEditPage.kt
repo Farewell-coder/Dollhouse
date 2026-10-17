@@ -127,7 +127,7 @@ object ModelEditPage {
 
             // —— 模型类型 ——
             DhKit.Card {
-                DhKit.SectionLabel("模型类型")
+                DhKit.SectionLabel("模型类型", iconRes = Icons.IC_LAYERS)
                 ChipRow(
                     labels = Array(AiModel.KINDS.size) { i -> AiModel.kindLabel(AiModel.KINDS[i]) },
                     selected = Array(AiModel.KINDS.size) { i -> AiModel.KINDS[i] == sel.kind }
@@ -139,7 +139,7 @@ object ModelEditPage {
             // —— 输入 / 输出模态 ——
             DhKit.Card {
                 val emb = AiModel.KIND_EMBEDDING == sel.kind
-                DhKit.SectionLabel("输入模态")
+                DhKit.SectionLabel("输入模态", iconRes = Icons.IC_BLOCKS)
                 ChipRow(
                     labels = Array(ModelEditKit.MODS.size) { i -> AiModel.modLabel(ModelEditKit.MODS[i]) },
                     selected = Array(ModelEditKit.MODS.size) { i -> sel.`in`[i] },
@@ -150,7 +150,7 @@ object ModelEditPage {
                     sel = normalize(next)
                 }
                 Spacer(Modifier.height(10.dp))
-                DhKit.SectionLabel("输出模态")
+                DhKit.SectionLabel("输出模态", iconRes = Icons.IC_BLOCKS)
                 ChipRow(
                     labels = Array(ModelEditKit.MODS.size) { i -> AiModel.modLabel(ModelEditKit.MODS[i]) },
                     selected = Array(ModelEditKit.MODS.size) { i -> sel.out[i] },
@@ -166,7 +166,7 @@ object ModelEditPage {
             // —— 能力开关 ——
             DhKit.Card {
                 val emb = AiModel.KIND_EMBEDDING == sel.kind
-                DhKit.SectionLabel("能力")
+                DhKit.SectionLabel("能力", iconRes = Icons.IC_SPARKLES)
                 CapRow("视觉（VISION）", "能理解图片输入", sel.vision, emb) {
                     sel = normalize(copySel(sel).also { s -> s.vision = !s.vision })
                 }

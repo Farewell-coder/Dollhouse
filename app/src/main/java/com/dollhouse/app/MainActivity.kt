@@ -75,6 +75,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 【r18·启动性能】后台预热 25MB 全局字体，避免首帧渲染时主线程被字体解码阻塞。
+        //   幂等：多次调用只触发一次；字体就绪前调用方走系统默认回退（功能零损失）。
+        com.dollhouse.app.ui.theme.Fonts.warmUp(this)
         // 【r13·三 Tab】解锁 Tab 恢复闸门：Activity 重建后要让 AppNav 重新读一次偏好，
         //   否则会停在内存里的默认值（聊天），把用户重建前停留的 Tab 丢掉。
         com.dollhouse.app.ui.home.AppNav.unlock()
@@ -205,28 +208,28 @@ class MainActivity : Activity() {
      * 按 [savePageStack] 存下的 key 逐层重建。
      * 【顺序】自底向上重建，底层先入栈，上层后压 —— 与重建前的层序完全一致。
      * 【供应商模块】它一层壳里还有自己的业务路由栈，先回填其记账再建页，否则会退化成列表页。
-     * 【不播动画】重建应「静止在终点」，全程用 reset 之外的静默路径（push 会滑入，故随后静置）。
+     * 【r17·导航迁移】层序真源已换成 Nav3（[com.dollhouse.app.ui.nav.NavHost]）。
+     *   这里改成一次性把整条 key 列表交给 NavHost 恢复：不再逐层 push，
+     *   也就不会为「恢复」而登记构造器（那些构造器本该只属于真实入栈）。
+     *   页面构造交给 `RouteContent` 的回落路径（PageRegistry 按 key 解析参数）。
      */
     private fun restorePageStack(state: Bundle) {
         if (isFinishing) {
             return
         }
         val content = findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
-        PageStack.reset(this)
+        com.dollhouse.app.ui.nav.NavHost.reset(this)
         val keys = state.getStringArrayList(KEY_PAGE_STACK)
         if (keys.isNullOrEmpty()) {
             // 没有层：只把首页 / 设置页之间的过场状态静置（与旧逻辑的兜底一致）。
             ThemeRefresh.settleAfterRestore(content)
             return
         }
-        for (key in keys) {
-            if (ProviderNav.TAG_PAGE == key) {
-                ProviderNav.setRoutes(state.getStringArrayList(KEY_PROVIDER_ROUTES))
-            }
-            PageStack.push(this, key) { PageRegistry.build(this, key) }
+        // 供应商模块的内部业务路由先回填，再恢复页面栈。
+        if (keys.contains(ProviderNav.TAG_PAGE)) {
+            ProviderNav.setRoutes(state.getStringArrayList(KEY_PROVIDER_ROUTES))
         }
-        // 【静置】以上入栈都带 300ms 滑入；就地取消并复位，让恢复后停在最终位置。
-        ThemeRefresh.settleAfterRestore(content)
+        com.dollhouse.app.ui.nav.NavHost.restore(this, keys)
     }
 
     override fun onResume() {

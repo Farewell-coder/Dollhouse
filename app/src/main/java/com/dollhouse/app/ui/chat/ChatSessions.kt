@@ -328,18 +328,10 @@ object ChatSessions {
             PetPrefs.setConvDoll(ctx, want, dollId)
             return want
         }
-        // ② 继承一条未绑定的老会话（仅当它确实聊过）
-        val adopt = findAdoptablePetConv(ctx)
-        if (adopt != null) {
-            val old = adopt.optString("id")
-            if (old.isNotEmpty() && old != want) {
-                if (renameConvId(ctx, old, want)) {
-                    PetPrefs.setConvDoll(ctx, want, dollId)
-                    Logs.i(TAG, "[绑定] 老会话 " + old + " → " + want)
-                    return want
-                }
-            }
-        }
+        // ② 【r19·空白模板不继承】新建模板人偶的会话必须全空。
+        //   旧逻辑会「继承一条未绑定的老会话」（把默认配置的历史带过来），
+        //   导致「新添加的空白模板有开场白」—— 与用户要的「每只人偶完全独立」冲突。
+        //   现在：直接新建空会话，不再继承。
         // ③ 新建 —— 【必须用确定性 id】
         //   【曾经的 bug】这里原来调 createIn(ctx, POOL_PET, D_PREFIX, ...)，
         //   而 createIn 内部生成的是 `prefix + 时间戳`（`d_1759...`），**不是** `d_<dollId>`。
@@ -798,6 +790,9 @@ object ChatSessions {
             PetPrefs.removeConvHistory(ctx, id)
             PetPrefs.removeConvPrev(ctx, id)
             PetPrefs.setConvRead(ctx, id, 0)
+            // 【r19·清空后不再铺开场白】用户清空聊天记录后，seedGreetingIfEmpty 会检测到空会话又铺开场白。
+            //   这里标记「已清空」，铺开场白时跳过。
+            PetPrefs.setConvCleared(ctx, id, true)
         } catch (unused: Throwable) {
         }
     }

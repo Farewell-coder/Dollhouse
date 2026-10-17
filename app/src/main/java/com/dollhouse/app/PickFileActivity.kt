@@ -89,6 +89,8 @@ class PickFileActivity : Activity() {
         }
         val wantMulti = intent != null && intent.getBooleanExtra(EXTRA_MULTI, false)
         val wantFiles = intent != null && intent.getBooleanExtra(EXTRA_FILES, false)
+        // 【r20】「只要相册」的请求走 `startRawImages`，它**不设** EXTRA_FILES ——
+//   于是本页走默认的 `pickImageIntent`（相册 / 照片选择器），而结果仍由 raw 监听收回（保原图）。
         try {
             if (wantFiles) {
                 startActivityForResult(fileIntent(wantMulti), REQ)
@@ -576,6 +578,23 @@ class PickFileActivity : Activity() {
             val intent = Intent(context, PickFileActivity::class.java)
             intent.flags = 335544320
             intent.putExtra(EXTRA_MULTI, true)
+            context.startActivity(intent)
+        }
+
+        /**
+         * 【r20】拉起**相册**，把选中图的原始字节交回 [RawListener]。
+         *
+         * 【为什么不是 startFiles】`startFiles` 拉的是系统文件选择器（不限 MIME），
+         *   用户想换头像得在文件树里翻 —— 那不是找头像该走的路。
+         *   本方法不设 [EXTRA_FILES]，于是本页按默认分支拉起相册 / 照片选择器；
+         *   而结果仍由 [RawListener] 接收（保原图，不经过有损 JPEG 转码）。
+         *
+         * 【用法】先 [setRawListener]，再调本方法。
+         */
+        @JvmStatic
+        fun startRawImages(context: Context) {
+            val intent = Intent(context, PickFileActivity::class.java)
+            intent.flags = 335544320
             context.startActivity(intent)
         }
 

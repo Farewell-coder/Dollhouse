@@ -231,7 +231,8 @@ object ChatListScreen {
                 //   用户不再能凭空造出孤儿对话 —— 所以这个入口从语义上就该消失，
                 //   而不是留在那里点了报错。
                 //   想开新对话的正确路径：去「人偶」新建/导入一只人偶，它自带一个对话框。
-                DhKit.IconButton(Icons.IC_USERS, Design.SZ_MD, c.title) {
+                // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
+                DhKit.IconButton(Icons.IC_USERS, Design.SZ_MD, c.title, label = "人偶") {
                     com.dollhouse.app.ui.doll.DollListScreen.open(act)
                 }
             }
@@ -346,6 +347,15 @@ object ChatListScreen {
                     renaming = menuRow.id
                     renameDraft = menuRow.title
                     menuFor = null
+                }
+                // 【r19·置顶】把该会话顶到列表最前（ updated 时间戳改为当前，触发排序上浮）。
+                DhKit.ActionRow(
+                    label = "置顶",
+                    iconRes = Icons.IC_CHEVRON_UP
+                ) {
+                    ChatListData.pinToTop(act, menuRow.id)
+                    menuFor = null
+                    ChatState.bumpList()
                 }
             }
         }

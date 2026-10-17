@@ -145,6 +145,29 @@ object ImageStore {
         return if (str == null || str.isEmpty() || !fileFor(context, str).isFile) false else true
     }
 
+    /**
+     * 删掉一张已入库的图片（按相对路径）。
+     *
+     * 【用途】「我的资料」页的草稿语义（r17）：用户换了头像但点了返回，暂存文件要丢掉；
+     *   以及保存后清理上一张不再使用的旧头像 —— 否则每换一次都会在私有目录留一份垃圾。
+     *
+     * 【为什么只删文件、不删目录】目录是共享的（[DIR]），删目录会波及同目录下其它图片。
+     *
+     * @return 真删掉了返回 true；本来就不存在也返回 false（调用方按幂等处理）
+     */
+    @JvmStatic
+    fun delete(context: Context?, str: String?): Boolean {
+        if (context == null || str.isNullOrEmpty()) {
+            return false
+        }
+        return try {
+            val f = fileFor(context, str)
+            f.isFile && f.delete()
+        } catch (ignored: Throwable) {
+            false
+        }
+    }
+
     // 从外部 Uri 落盘一张图并返回内部文件名。
     @JvmStatic
     @Throws(Exception::class)
@@ -206,10 +229,20 @@ object ImageStore {
                     inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, maxDim)
                 }
                 bmp = BitmapFactory.decodeFile(srcPath, opts) ?: return ""
-                bmp = scaleToLongEdge(bmp!!, maxDim) ?: bmp
+                // 【r15·收敛 !!】bmp 是外层 var（finally 里要回收，不能改成 val），
+                //   于是旧代码写成了 `bmp!!` 两次。这里用局部 val 承接，语义不变、断言消失。
+                val decoded = bmp
+                if (decoded == null) {
+                    return ""
+                }
+                bmp = scaleToLongEdge(decoded, maxDim) ?: decoded
                 val target = File(dir(context, subDir), "img_" + System.currentTimeMillis() + ".jpg")
+                val toWrite = bmp
+                if (toWrite == null) {
+                    return ""
+                }
                 FileOutputStream(target).use { out ->
-                    bmp!!.compress(Bitmap.CompressFormat.JPEG, Math.max(0, Math.min(100, quality)), out)
+                    toWrite.compress(Bitmap.CompressFormat.JPEG, Math.max(0, Math.min(100, quality)), out)
                 }
                 prune(context, subDir)
                 subDir + "/" + target.name

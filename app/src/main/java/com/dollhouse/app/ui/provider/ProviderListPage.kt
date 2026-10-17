@@ -36,6 +36,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 
@@ -147,11 +148,11 @@ object ProviderListPage {
                 onDismiss = { menuFor = null }
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    MenuItem(text = "重命名") {
+                    MenuItem(text = "重命名", iconRes = Icons.IC_SIGNATURE) {
                         menuFor = null
                         renameFor = p
                     }
-                    MenuItem(text = "删除") {
+                    MenuItem(text = "删除", iconRes = Icons.IC_TRASH) {
                         menuFor = null
                         deleteFor = p
                     }
@@ -229,19 +230,33 @@ object ProviderListPage {
         }
     }
 
-    /** 弹窗里的纯文字行。← `ApiPageKit.menuItem`。 */
+    /**
+     * 弹窗里的纯文字行（可带左侧语义图标）。← `ApiPageKit.menuItem`。
+     *
+     * 【r17·图标】[iconRes] 非 0 时在文字左侧挂一枚 Lucide 图标（如「删除」→ 垃圾桶）。
+     *   默认 0 = 纯文字，与改造前逐像素一致。
+     */
     @Composable
-    private fun MenuItem(text: String, onClick: () -> Unit) {
-        Text(
-            text = text,
+    private fun MenuItem(text: String, iconRes: Int = 0, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .pressable(onClick)
                 .padding(horizontal = 8.dp, vertical = 14.dp),
-            color = DhTokens.colors.title,
-            fontSize = UiKit.FS_BTN.sp,
-            fontFamily = DhTokens.fonts
-        )
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (iconRes != 0) {
+                DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = text,
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
     }
 
     /** 一行：首字头像 + 名称 + 状态/模型数徽标 + 更多菜单。← `ProviderListPage.providerRow`。 */

@@ -14,7 +14,11 @@ import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.ChatSettingsPage
 import com.dollhouse.app.ui.settings.AppearancePage
+import com.dollhouse.app.ui.settings.DeveloperOptionsPage
 import com.dollhouse.app.ui.settings.MemSettingsPage
+import com.dollhouse.app.ui.settings.SleepSettingsPage
+import com.dollhouse.app.ui.settings.VisionModelPage
+import com.dollhouse.app.ui.settings.WanderSettingsPage
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
 
@@ -98,22 +102,77 @@ object SettingsScreen {
      */
     @Composable
     private fun ExperimentCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "实验") {
+        DhKit.Card(collapsibleTitle = "实验", titleIcon = Icons.IC_WAND_SPARKLES) {
             DhForm.Note("这里收纳还没正式归入上面几类、但已经能用的功能。")
-            DhKit.ActionRow(label = "lamda 设备控制") {
+            DhKit.ActionRow(
+                label = "lamda 设备控制",
+                iconRes = Icons.IC_GAMEPAD_2,
+                desc = "用手机控制另一台设备"
+            ) {
                 ProviderNav.openAt(act, ProviderNav.R_EXPERIMENT)
             }
             // 【r13·新记忆系统】全局记忆策略入口。
             //   【为什么放这里】用户定案：「多出来的全局设置放在实验卡片的下级」。
             //   记忆数据本身按人偶分库（人偶编辑页里另有入口），这里只管抽取/检索策略。
-            DhKit.ActionRow(label = "记忆库设置") {
+            DhKit.ActionRow(
+                label = "记忆库设置",
+                iconRes = Icons.IC_BOOK_OPEN,
+                desc = "抽取与检索策略"
+            ) {
                 MemSettingsPage.open(act)
             }
             // 【r13·流式 + 思考过程】对话显示策略入口。
             //   【为什么也放这里】同样是「全局、与具体人偶无关」的设置，
             //   与记忆库设置并列，符合用户定案「多出来的全局设置放实验卡片下级」。
-            DhKit.ActionRow(label = "对话显示") {
+            DhKit.ActionRow(
+                label = "对话显示",
+                iconRes = Icons.IC_MESSAGE_SQUARE_HEART,
+                desc = "流式输出、思考过程"
+            ) {
                 ChatSettingsPage.open(act)
+            }
+            // 【r15·识图模型】图片处理策略入口。
+            //   【为什么放这里】同上：全局设置、与具体人偶无关。
+            //   用户定案 3C 要求「当前模型不会看图时自动用指定识图模型」，
+            //   这个「指定」的落点就是本页。
+            DhKit.ActionRow(
+                label = "识图模型",
+                iconRes = Icons.IC_BOT,
+                desc = "用哪个模型来看图片"
+            ) {
+                VisionModelPage.open(act)
+            }
+            // 【r15·开发者选项】日志开关 + 崩溃记录入口。
+            //   【为什么放这里】同上：全局、与具体人偶无关的排障设置。
+            //   日志开关默认关；崩溃记录是本轮新加的进程级兜底产物，给用户一个能看能清的地方。
+            DhKit.ActionRow(
+                label = "开发者选项",
+                iconRes = Icons.IC_TERMINAL,
+                desc = "日志开关 / 崩溃记录"
+            ) {
+                DeveloperOptionsPage.open(act)
+            }
+            // 【r19·随机走位】人偶在屏幕范围内缓慢游走（每 8 秒走一步）。
+            //   【为什么放实验】新功能、默认关闭，由用户决定是否启用。
+            //   【功能说明】开启后人偶会自己在框内缓慢移动，像活物一样；
+            //     睡觉 / 拖动 / 有气泡时自动暂停，摘窗后停止。
+            DhKit.ActionRow(
+                label = "随机走位",
+                iconRes = Icons.IC_SPARKLES,
+                desc = "人偶自己在屏幕上缓慢游走"
+            ) {
+                WanderSettingsPage.open(act)
+            }
+            // 【r19·睡觉模式】人偶进入低功耗休眠（帧率降到最低）。
+            //   【为什么放实验】新功能、默认关闭，由用户决定是否启用。
+            //   【功能说明】开启后人偶播 sleep 循环动作（或闭眼表情兜底），
+            //     任何点击 / 拖动 / 长按都会唤醒；适合长时间不用时省电。
+            DhKit.ActionRow(
+                label = "睡觉模式",
+                iconRes = Icons.IC_SPARKLES,
+                desc = "人偶低功耗休眠，点击唤醒"
+            ) {
+                SleepSettingsPage.open(act)
             }
         }
     }
@@ -122,7 +181,7 @@ object SettingsScreen {
 
     @Composable
     private fun PermissionCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "权限") {
+        DhKit.Card(collapsibleTitle = "权限", titleIcon = Icons.IC_SHIELD_CHECK) {
             // Shizuku：四态（已授权 / 未授权 / 服务未运行 / 未安装）。
             val sh = HomeState.shizuku
             DhKit.PermRow(
@@ -164,7 +223,7 @@ object SettingsScreen {
 
     @Composable
     private fun ChatCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "聊天") {
+        DhKit.Card(collapsibleTitle = "聊天", titleIcon = Icons.IC_MESSAGE_SQUARE_HEART) {
             DhKit.ValueRow(label = "提供商", value = "›") {
                 ProviderNav.open(act)
             }
@@ -186,7 +245,7 @@ object SettingsScreen {
 
     @Composable
     private fun DollCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "人偶") {
+        DhKit.Card(collapsibleTitle = "人偶", titleIcon = Icons.IC_USERS) {
             // 人偶管理入口：人偶列表 + 启停 + 编辑都在独立页里。
             DhKit.ValueRow(label = "自定义人偶", value = "›") {
                 DollListScreen.open(act)
@@ -220,7 +279,7 @@ object SettingsScreen {
      */
     @Composable
     private fun LookCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "外观") {
+        DhKit.Card(collapsibleTitle = "外观", titleIcon = Icons.IC_PALETTE) {
             // 【状态摘要】让用户不用点进去就知道当前是什么状态。
             DhKit.ActionRow(
                 label = "外观设置",

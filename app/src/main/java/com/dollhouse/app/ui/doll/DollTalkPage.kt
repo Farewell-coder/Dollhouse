@@ -98,7 +98,7 @@ object DollTalkPage {
                             hint = "第 " + (i + 1) + " 条台词"
                         )
                         Spacer(Modifier.width(6.dp))
-                        DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.sub) {
+                        DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.sub, label = "删除") {
                             lines.removeAt(i)
                             flush()
                             tick++

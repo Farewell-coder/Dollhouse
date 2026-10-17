@@ -13,7 +13,13 @@ import android.os.SystemClock
 import android.text.TextPaint
 import android.view.View
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.pet.behavior.ActionSemantic
+import com.dollhouse.app.pet.behavior.PetBehaviorController
+import com.dollhouse.app.pet.render.PetDisplayHost
+import com.dollhouse.app.pet.render.PetMetrics
+import com.dollhouse.app.pet.render.PetTransform
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -125,6 +131,36 @@ class PetView(context: Context) : View(context) {
     }
 
     /** 【v2.10.2】熄屏低功耗标志：true 时不推进动画、不绘制，只跑 HEARTBEAT_MS 心跳自检。 */
+    /**
+     * 【r16·三链收敛】几何度量的视图侧实现。
+     *
+     * 【为什么用内部类而不是让 PetView 直接实现 PetMetrics】
+     *   `PetMetrics` 的 `petWidth()/fullHeight()/bobAmp()/jumpAmp()` 与本类现有成员
+     *   **同名但类型不同**（Int vs Float、属性 vs 函数），Kotlin 不允许这样共存
+     *   （报 Conflicting declarations）。用一个内部类隔开，两边都保持原样、零冲突。
+     *
+     * 【为什么 pivot 要按 peek 分叉】改造前 `onDraw` 里趴姿与普通态用的是**不同锚点**：
+     *   趴姿用「窗口水平中心 / 窗口底边」、普通态用视图自报的 pivot。
+     *   这里把那条分支收进度量，于是 [PetTransform] 拿到的永远是「该用哪个锚点」的
+     *   最终答案，不必自己判断姿态。
+     */
+    private inner class Metrics(private val peekMode: Boolean) : PetMetrics {
+        override fun petWidth(): Float = this@PetView.petWidth().toFloat()
+        override fun fullHeight(): Float = this@PetView.fullHeight().toFloat()
+        override fun pivotLocalX(): Float =
+            if (peekMode) width / 2.0f else this@PetView.pivotLocalX()
+        override fun pivotLocalY(): Float =
+            if (peekMode) {
+                ((height - baseHeight()) + this@PetView.fullHeight()).toFloat()
+            } else {
+                this@PetView.pivotLocalY()
+            }
+        override fun bobAmp(): Float = this@PetView.bobAmp
+        override fun jumpAmp(): Float = this@PetView.jumpAmp
+        override fun ahogeRu(): Float = AHOGE_RU
+        override fun dragTiltMaxPx(): Float = dp(DRAG_TILT_MAX)
+    }
+
     internal var lowPower = false
 
     /**
@@ -324,20 +360,39 @@ class PetView(context: Context) : View(context) {
         return snapActiveCheck?.invoke() == true
     }
 
-    /** 当前是否有动作需要全速帧（触摸 / 吸附 / 拖拽 / 跳跃 / 落地 / 眨眼 / 待机动作 / 表情 / 收敛中）。 */
+    /**
+     * 当前是否有动作需要全速帧。
+     * 【r16·帧率收敛】判定逻辑已搬进 [PetFramePolicy.needsFullSpeed] —— 纯逻辑、可单测。
+     *   本方法保留为薄壳：一是不改对外调用点（PetAnimator / PetWindow 多处依赖），
+     *   二是把「视图字段 → 判定输入」这一步留在视图层（判定本身不认识 PetView）。
+     */
     internal fun frameBusy(): Boolean {
-        return touchBusy
-                || snapActive()
-                || dragging
-                || jumpT >= 0.0f
-                || landT >= 0.0f
-                || blinkT >= 0.0f
-                || idleAction != 0
-                || idleT >= 0.0f
-                || expression != 0
-                || dragLift > 0.002f
-                || Math.abs(tilt) > 0.05f
-                || Math.abs(gaze - gazeTarget) > 0.004f
+        // 【r16】动作在播 → 必须全速。这是**纯新增**分支：
+        //   改造前不存在「动作在播」这种状态，所以对原有行为零影响；
+        //   而少了它，动作帧率会被待机档的 32ms 拖成 15fps（用户会看到卡顿）。
+        if (action?.isAnimated() == true) {
+            return true
+        }
+        return PetFramePolicy.needsFullSpeed(currentState())
+    }
+
+    /** 把当前视图状态打包成帧率判定的输入（[PetFramePolicy.State]）。 */
+    private fun currentState(): PetFramePolicy.State {
+        return PetFramePolicy.State(
+            touchBusy = touchBusy,
+            snapActive = snapActive(),
+            dragging = dragging,
+            jumpT = jumpT,
+            landT = landT,
+            blinkT = blinkT,
+            idleAction = idleAction,
+            idleT = idleT,
+            expression = expression,
+            dragLift = dragLift,
+            tilt = tilt,
+            gaze = gaze,
+            gazeTarget = gazeTarget
+        )
     }
 
     /** 设置触摸忙标志；由忙转闲不唤醒（让帧循环自然落回待机档）。 */
@@ -366,30 +421,26 @@ class PetView(context: Context) : View(context) {
         postDelayed(frame, 16L)
     }
 
+    /**
+     * 下一帧延迟（毫秒）。
+     * 【r16·帧率收敛】五档判定已搬进 [PetFramePolicy.delayMs]。
+     *   改造前这里的 `250L` 出现两次、语义完全不同（屏灭兜底 / 贴边低耗），
+     *   是本工程最容易改错的地方之一；现在两个 250 变成两个有名字的常量。
+     */
     internal fun nextFrameDelay(): Long {
-        // 【v2.10.2】低功耗档（熄屏）：1s 心跳。不再是旧实现的 250ms —— 熄屏时既不推进动画
-        //   也不重绘，250ms 纯属空转；1s 足以保证亮屏后被 checkAwake 及时发现。
-        if (lowPower) {
-            return HEARTBEAT_MS
+        // 【r16】动作在播 → 直接给最快档，跳过「贴边 250ms 低耗」那一档。
+        //   否则人偶贴着边播动画时会掉到 4fps —— 正是贴边那档的省电策略，
+        //   但用户此刻**明确要求**看动作，省这个电是错的。
+        if (action?.isAnimated() == true) {
+            return PetFramePolicy.MS_TOUCH_BUSY
         }
-        // 屏幕灭时 4fps 兜底（真正的低功耗在 enterLowPower，这里防的是
-        // 广播晚到或个别 ROM 不发广播的情况）。isShown() 只看「已 attach + visibility」，
-        // 熄屏时它仍为 true，所以必须再问一次屏幕开关，否则屏灭后桌宠照旧 30fps 空转。
-        if (!isShown || !screenOn()) {
-            return 250L
-        }
-        // 触摸 / 贴边吸附期间强制全速：这两种要么起手要么落位，最怕掉帧。
-        if (frameBusy()) {
-            return 16L
-        }
-        // 【v2.10.2】贴边偷看且无任何动作：降到最低帧率。
-        //   人偶吸在屏幕边缘 = 用户正在别处操作，此时只有低频呼吸与尾巴摆动，
-        //   4fps 看不出差别；眨眼与待机小动作已由 PetAnimator 在 lean != 0 时压掉，
-        //   连续相位也在 tick() 里冻结，所以本档不会被顶回全速、也不会跳。
-        if (lean != 0.0f) {
-            return EDGE_IDLE_MS
-        }
-        return 32L
+        return PetFramePolicy.delayMs(
+            s = currentState(),
+            lowPower = lowPower,
+            shown = isShown,
+            screenOn = screenOn(),
+            lean = lean
+        )
     }
 
     /**
@@ -933,51 +984,55 @@ class PetView(context: Context) : View(context) {
         if (w <= 0 || h <= 0 || bmp == null) {
             return
         }
+        // 【r16·成败判据接线】有 DollAnim 动作在播时，把绘制让给 [ActionPlayerCore]。
+        //
+        // 【为什么放在这里、且放在变换之前】动作层画的是别人给的成品帧图
+        //   （或 Lottie 自绘），**不能**再套一遍网格形变与姿态变换 ——
+        //   否则导入的圆脸会被拉成作者没画过的形状。
+        //   放在 `mesh()` / `PetTransform` 之前，就等于「有动作时走另一条完整分支」，
+        //   不掺进原几何链的任何一步。
+        //
+        // 【零影响保证】`action` 为 null（编辑器预览、通知预览、旧路径）或没内容时，
+        //   这一句只是两次引用比较 + 一次 `hasContent()`，原有绘制路径**一行都没变**。
+        val act = action
+        if (act != null && act.hasContent()) {
+            act.draw(canvas)
+            return
+        }
         val pw = petWidth()
         val fh = fullHeight()
         // 【回退 v2.5】v2.4 曾在此强制按「界面最大比例」绘制精灵，导致人偶被调小后
         //   趴姿反而被放大 2 倍（用户报「框上面的人怎么也是最大模型的」），已撤销。
         //   趴姿与普通态同用当前缩放率；框宽也跟着取 petWidth()，两者边缘对齐。
-        val sin = Math.sin(phase.toDouble()).toFloat() * bobAmp
-        val f2 = jumpT
-        val sin2 = if (f2 >= 0.0f) Math.sin(f2 * 3.141592653589793).toFloat() * jumpAmp else 0.0f
+        // 【r16·三链收敛】本处的几何变换已改走 [PetTransform] —— 全工程唯一的几何事实来源。
+        //   改造前这里与 bakeDraw / bakeBounds 各自实现同一套变换、靠注释人肉同步，
+        //   历史上已因 pre*/post* 写反导致烘帧裁切事故。现在三处共用同一份推导。
         val f3 = fh.toFloat()
         mesh(pw.toFloat(), f3)
-        val pivotLocalX: Float
-        val pivotLocalY: Float
-        if (peek) {
-            pivotLocalX = w / 2.0f
-            pivotLocalY = ((h - baseHeight()) + fh).toFloat()
-        } else {
-            pivotLocalX = pivotLocalX()
-            pivotLocalY = pivotLocalY()
-        }
-        val f4 = pivotLocalY
-        val lift = (dragLift * dp(DRAG_TILT_MAX)) + idleLiftPx
-        val f5 = (dragLift * 0.05f) + 1.0f
-        val f6 = landT
-        val f = if (f6 >= 0.0f) {
-            1.0f - (Math.sin(f6 * 3.141592653589793).toFloat() * AHOGE_RU)
-        } else {
-            1.0f
-        }
-        val f7 = f * f5 * idleScaleY
+        // 锚点：趴姿时用窗口中心/底边，普通态用视图自报的 pivot。
+        val tf = PetTransform.build(
+            params = PetTransform.Params(
+                phase = phase,
+                jumpT = jumpT,
+                dragLift = dragLift,
+                idleLiftPx = idleLiftPx,
+                idleScaleY = idleScaleY,
+                landT = landT,
+                lean = lean,
+                tilt = tilt + idleTilt
+            ),
+            metrics = Metrics(peek),
+            flipped = flipped,
+            sinPhase = phase.toDouble()
+        )
+        // f4 = 表情的纵向基准（趴姿取「窗口底边 + 全高」，普通态取视图 pivot）。
+        val f4 = if (peek) ((h - baseHeight()) + fh).toFloat() else pivotLocalY()
         canvas.save()
-        canvas.translate(pivotLocalX, ((sin + f4) - sin2) - lift)
-        // 【r11】面朝方向：水平镜像。缩放取负后所有后续绘制（含气泡尾巴偏移）
-        //   会自动跟着翻到另一侧，不必逐处改坐标。
-        if (flipped) {
-            canvas.scale(-f5, f7)
-        } else {
-            canvas.scale(f5, f7)
-        }
-        canvas.rotate(lean)
-        canvas.rotate(tilt + idleTilt)
-        canvas.translate((-pw) / 2.0f, -fh.toFloat())
-        val f8 = pivotLocalX
+        tf.applyTo(canvas)
+        val f8 = if (peek) w / 2.0f else pivotLocalX()
         canvas.drawBitmapMesh(bmp, MX, MY, verts, 0, null, 0, bmpPaint)
         canvas.restore()
-        drawEmote(canvas, f8, (f4 - f3) - lift)
+        drawEmote(canvas, f8, (f4 - f3) - tf.lift)
         if (!bubble.hasContent() || bubble.height() <= 0) {
             return
         }
@@ -1109,38 +1164,18 @@ class PetView(context: Context) : View(context) {
         if (pw <= 0.0f || fh <= 0.0f) {
             return false
         }
-        val sin = Math.sin(v[0].toDouble()).toFloat() * bobAmp
-        val sin2 = if (v[1] >= 0.0f) Math.sin(v[1] * 3.141592653589793).toFloat() * jumpAmp else 0.0f
-        val pop = v[2] * 0.05f + 1.0f
-        val squash = if (v[5] >= 0.0f) {
-            1.0f - (Math.sin(v[5] * 3.141592653589793).toFloat() * AHOGE_RU)
-        } else {
-            1.0f
-        }
-        val scaleY = if (v[4] > 0.0f) v[4] else 1.0f
-        val lift = (v[2] * dp(DRAG_TILT_MAX)) + v[3]
-        val pvx = pivotLocalX()
-        val pvy = pivotLocalY()
-        val p = ((sin + pvy) - sin2) - lift
-
-        // 【必须用 post* 而不是 pre*】Canvas 的 translate/scale/rotate 是 preConcat
-        //   （先调用的在更外层）；Matrix 里与之等价的是 postConcat（M' = M × X），
-        //   所以要用 post*，并且**调用顺序与 Canvas 逐行一致**。
-        //
-        // 【为什么矩阵里没有 (pvx, P) 这一层】bakeDraw 的完整链是
-        //   `T(-dx,-dy) · T(pvx,P) · S · R6 · R7 · T(-pw/2,-fh)`。
-        //   展开点变换后 (pvx, P) 与 T(-dx,-dy) 中的 -pvx / +fh 部分**互相抵消**，
-        //   净效果就是：
-        //     x = sa + pw/2 + ox
-        //     y = sb + fh + sin - sin2 - lift + oy
-        //   其中 (sa, sb) = S·R6·R7·T3 作用于网格点的结果。
-        //   所以矩阵只放 `S · R6 · R7 · T3` 四层，之后统一 `offset(pw/2, fh+sin-sin2-lift)`
-        //   —— 多加一层 (pvx, P) 会让结果整体再偏 (pvx, P)，人偶被推出画布。
-        val m = android.graphics.Matrix()
-        m.postScale(pop, squash * pop * scaleY)
-        m.postRotate(v[6])
-        m.postRotate(v[7])
-        m.postTranslate((-pw) / 2.0f, -fh)
+        // 【r16·三链收敛】包围盒走 [PetTransform.mapBounds] —— 与 [applyTo] **严格同源**。
+        //   改造前这里是第三条独立实现：一段 8 行数学推导 + 手写 post* 矩阵。
+        //   当年正是在这条链上把 pre* 误用成 post*，等价于把变换链倒过来，
+        //   导致烘出的帧人偶被裁掉。现在矩阵与 offset 都由 PetTransform 给出，
+        //   「两处必须一致」不再是靠注释提醒的纪律，而是**结构上不可能不一致**。
+        val tf = PetTransform.buildForBake(
+            params = PetTransform.Params.ofArray(v),
+            metrics = Metrics(false),
+            sinPhase = v[0].toDouble(),
+            ox = 0.0f,
+            oy = 0.0f
+        )
 
         // 精灵本体的矩形：0..pw × 0..fh。再叠上形变后网格顶点的包围盒兜一层
         // （呼吸/尾巴等形变会让顶点略超出本体矩形）。
@@ -1168,11 +1203,7 @@ class PetView(context: Context) : View(context) {
                 k += 2
             }
         }
-        m.mapRect(out, r)
-
-        // 【窗口局部 → 画布坐标】见上文推导：x += pw/2，y += fh + sin - sin2 - lift。
-        //   这一层平移正是 bakeDraw 里 T(-dx,-dy) 抵消掉 (pvx, P) 之后剩下的部分。
-        out.offset(pw / 2.0f, fh + sin - sin2 - lift)
+        tf.mapBounds(out, r)
 
         // 【表情也要算进去】drawEmoteAt 画在精灵之外（头顶上方 + 横向偏移），
         //   它不在网格顶点里，不并进来同样会被画布裁掉。
@@ -1182,11 +1213,9 @@ class PetView(context: Context) : View(context) {
         //   字号 = pw * EMOTE_SIZE_RATIO；字形以基线为原点，向上约 1.4 个字高、
         //   向下约 0.5 个字高，横向左右各留 1 个字宽。取最极端（t=1）的位置。
         if (expr != 0) {
-            val size = pw * EMOTE_SIZE_RATIO
-            val ex = (pw * AHOGE_U) + pw / 2.0f
-            val ey = (sin - sin2 - lift) + dp(6.0f) - dp(10.0f)
-            val er = RectF(ex - size, ey - size * 1.4f, ex + size, ey + size * 0.5f)
-            out.union(er)
+            // 表情的包围盒同样由 PetTransform 给（内部取「飘到最高」的极端位置，
+            //   否则烘帧时符号顶部会被画布裁掉）。
+            tf.emoteBounds(out, AHOGE_U, pw * EMOTE_SIZE_RATIO, dp(6.0f), dp(10.0f))
         }
         return out.width() > 0f && out.height() > 0f
     }
@@ -1218,39 +1247,29 @@ class PetView(context: Context) : View(context) {
         expression = expr
         buildMesh(pw, fh, v[0], v[9], v[10], v[11])
         expression = saved
-        val sin = Math.sin(v[0].toDouble()).toFloat() * bobAmp
-        val sin2 = if (v[1] >= 0.0f) Math.sin(v[1] * 3.141592653589793).toFloat() * jumpAmp else 0.0f
-        // 【与 onDraw 逐参数对齐】onDraw 的三层缩放与两层抬升：
-        //   scaleX = dragLift*0.05+1（拖拽时整体放大一点）
-        //   scaleY = 落地压扁(landT) × scaleX × idleScaleY
-        //   lift   = dragLift*DP(DRAG_TILT_MAX) + idleLiftPx
-        val pop = v[2] * 0.05f + 1.0f
-        val squash = if (v[5] >= 0.0f) {
-            1.0f - (Math.sin(v[5] * 3.141592653589793).toFloat() * AHOGE_RU)
-        } else {
-            1.0f
-        }
-        val scaleY = if (v[4] > 0.0f) v[4] else 1.0f
-        val lift = (v[2] * dp(DRAG_TILT_MAX)) + v[3]
-        // 把「精灵左上角」从窗口局部坐标搬到画布 (ox, oy)：
-        //   窗口局部里它位于 (pivotLocalX - pw/2, pivotLocalY - fh)。
-        val pvx = pivotLocalX()
-        val pvy = pivotLocalY()
-        val dx = pvx - (pw / 2.0f) - ox
-        val dy = pvy - fh - oy
+        // 【r16·三链收敛】几何走 [PetTransform] —— 与 onDraw **调用同一份 applyTo**。
+        //   改造前这里手工复制了 onDraw 的整条变换链（连注释都在提醒「与 onDraw 逐参数对齐」
+        //   「必须用 post*」），是三条链里最容易走样的一条。现在公式只在 PetTransform 里存在。
+        val tf = PetTransform.buildForBake(
+            params = PetTransform.Params.ofArray(v),
+            metrics = Metrics(false),
+            sinPhase = v[0].toDouble(),
+            ox = ox,
+            oy = oy
+        )
         canvas.save()
-        canvas.translate(-dx, -dy)
-        canvas.translate(pvx, ((sin + pvy) - sin2) - lift)
-        canvas.scale(pop, squash * pop * scaleY)
-        canvas.rotate(v[6])
-        canvas.rotate(v[7])
-        canvas.translate((-pw) / 2.0f, -fh)
+        tf.applyTo(canvas)
         canvas.drawBitmapMesh(bmp, MX, MY, verts, 0, null, 0, bmpPaint)
         canvas.restore()
         if (expr != 0) {
+            // 表情的锚点同样由 PetTransform 给 —— 改造前这里是手算的 `pvy - fh + sin - sin2 - lift`。
             canvas.save()
+            val pvx = pivotLocalX()
+            val pvy = pivotLocalY()
+            val dx = pvx - (pw / 2.0f) - ox
+            val dy = pvy - fh - oy
             canvas.translate(-dx, -dy)
-            drawEmoteAt(canvas, pvx, ((pvy - fh) + sin) - sin2 - lift, expr, t)
+            drawEmoteAt(canvas, pvx, tf.emoteAnchor(AHOGE_U, dp(6.0f), dp(10.0f), t)[1], expr, t)
             canvas.restore()
         }
     }
@@ -1275,6 +1294,11 @@ class PetView(context: Context) : View(context) {
         // 【释放】摘窗 / 暂离 / detach 都经由此处：清触摸忙标志，否则中途摘窗收不到 UP，
         //   下次挂载会带着 touchBusy=true 满速空转。
         touchBusy = false
+        // 【r16】一并停动作（但**不释放**播放层）：
+        //   暂离（awayHide → awayShow）复用同一个 PetView，若在此处释放，
+        //   回来时动作层已死、必须重建 —— 白白多一次帧图解码。
+        //   真正的释放在 [disableActions]，由 PetWindow.detach 调用。
+        stopAction()
         anim.stopAnim()
     }
 
@@ -1312,5 +1336,176 @@ class PetView(context: Context) : View(context) {
 
     fun tick() {
         anim.tick()
+        // 【r16】动作层跟随**同一个帧时钟**推进。
+        //   任务书 §3.5 硬约束「不新建第二套调度器」—— 所以这里不 post、不排定时器，
+        //   只是借用已经存在的帧循环多推进一步；帧间隔仍由 [nextFrameDelay] 统一决定。
+        val a = action
+        if (a != null && a.isPlaying()) {
+            a.tick(SystemClock.uptimeMillis())
+        }
+    }
+
+    // ---------- 【r16】动作播放层：让桌宠真正用上 DollAnim ----------
+    //
+    // 【这一节的地位】任务书 §1.4 的成败判据 ——
+    //   「桌宠能够实际使用动作系统，而不是只有编辑器和预览界面」。
+    //   改造前 PetView / PetWindow / PetAnimator 对 DollAnim 零引用，
+    //   用户在动作页配的动作桌宠一个都不播。
+
+    /** 动作播放层；为 null 表示「本视图不播动作」（编辑页预览、通知预览等）。 */
+    private var action: ActionPlayerCore? = null
+
+    /** 本视图当前绑定的动作来源（人偶 id），用于把语义解析成动作。 */
+    private var actionDollId: String? = null
+
+    /**
+     * 语义仲裁层 —— 「此刻该播什么动作」的唯一决策者。
+     *
+     * 【为什么必须有它（而不是让 PetView 直接调度动作）】
+     *   优先级规则（交互 > 出现/消失 > 待机）是**对外契约**
+     *   （见模型包规范与 `ActionSemantic.priority`）。散在视图里就没人保证它被遵守；
+     *   收在一处，规则改了只改一个地方，且能单测（`BehaviorPriorityTest`）。
+     */
+    private var behavior: PetBehaviorController? = null
+
+    /**
+     * 启用动作播放。
+     *
+     * 【为什么由外部显式打开而不是构造时就建】不是所有 PetView 都该播动作：
+     *   编辑页预览（`DollPreviewOverlay`）要的是「当前帧的静态效果」，
+     *   通知预览要的是形象图本身。让它们保持原样，是「不波及无关功能」的底线。
+     *
+     * @param dollId 人偶 id（动作按人偶分库，见 DollAnim.KEY_PREFIX）。
+     */
+    fun enableActions(dollId: String?) {
+        if (action != null && actionDollId == dollId) {
+            return
+        }
+        // 换人偶：旧播放层必须释放（帧图是本类自己解码的，不释放就是泄漏）。
+        action?.release()
+        behavior?.release()
+        actionDollId = dollId
+
+        val player = ActionPlayerCore(
+            requestDraw = { invalidate() },
+            hostProvider = { displayHost })
+        action = player
+
+        // 【r16·仲裁层必须真的接上】改造过程中一度漏掉这一步：
+        //   `PetBehaviorController` 写好了却没被任何生产代码引用，
+        //   R8 直接把它当死代码删掉（mapping.txt 里 0 次出现）。
+        //   后果不是「少个功能」，而是**优先级规则完全没生效** ——
+        //   循环的待机默认动作会一直占着画面，拖动倾斜/贴边趴姿全被盖住。
+        //   现在把它绑成「语义 → 动作」的唯一通道。
+        val b = PetBehaviorController()
+        b.bind(
+            // 解析：语义 → 动作 id（数据层问答，动作层不依赖数据层）。
+            PetBehaviorController.ActionResolver { semantic ->
+                DollAnim.bySemantic(context, dollId, semantic)?.id
+            },
+            // 播放：真正落到 ActionPlayerCore 上。
+            object : PetBehaviorController.ActionPlayer {
+                override fun play(actionId: String, semantic: String) {
+                    DollAnim.byId(context, dollId, actionId)?.let { player.play(it) }
+                }
+
+                override fun stop() {
+                    player.stop()
+                }
+            }
+        )
+        // 【播完回落的唯一入口】非循环动作播完时由播放层回调，
+        //   交给仲裁层决定是「回待机」还是「停下来把画面还给基础形变」。
+        player.onFinish = { b.onActionFinished() }
+        behavior = b
+    }
+
+    /** 关闭动作播放并释放资源（人偶被移除 / 服务销毁）。 */
+    fun disableActions() {
+        action?.release()
+        behavior?.release()
+        action = null
+        behavior = null
+        actionDollId = null
+    }
+
+    /** 当前动作层（供 PetWindow 决定要不要写默认动作 / 派发交互动作）。 */
+    internal fun actionPlayer(): ActionPlayerCore? = action
+
+    /**
+     * **【交互必须通知动作层】**交互开始（手指按下 / 拖动开始 / 长按到点）。
+     *
+     * 【不调会怎样】动作层是「有内容就独占绘制」的：循环待机动作会把
+     *   拖动倾斜、贴边趴姿、跳跃表情**全部盖住**，用户拖人偶时看不到任何反馈。
+     *   所以交互一开始就要把待机档让出来（哪怕该语义没配动作）。
+     *
+     * @return 是否播上了该语义的动作。
+     */
+    internal fun interactionStart(semantic: String): Boolean {
+        return behavior?.onInteractionStart(semantic) ?: false
+    }
+
+    /** **【交互必须通知动作层】**交互结束（抬手 / 拖动放下）。 */
+    internal fun interactionEnd() {
+        behavior?.onInteractionEnd()
+    }
+
+    /** 供渲染器（Lottie / 动图）查询宿主能力：重绘、可见性、屏幕状态。 */
+    private val displayHost: PetDisplayHost = object : PetDisplayHost {
+        override fun context(): Context = this@PetView.context
+        override fun requestDraw() {
+            this@PetView.invalidate()
+        }
+
+        override fun onSizeChanged(w: Int, h: Int) {
+            // 【为什么空实现】尺寸由 WindowManager 的 LayoutParams 决定，
+            //   渲染器只能「建议」，实际变更必须走 PetWindow 那条路（它要同步 lp）。
+            //   容器尺寸与 lp 不一致会画出界，宁可不动。
+        }
+
+        override fun isShown(): Boolean = this@PetView.isShown
+
+        override fun isScreenOn(): Boolean = this@PetView.screenOn()
+    }
+
+    /**
+     * 播一个语义动作（`idle` / `tap` / `drag` / `longpress` / `appear` / `disappear`）。
+     *
+     * @return 是否真的开始播（没配这个语义的动作时返回 false）。
+     */
+    internal fun playSemantic(semantic: String): Boolean {
+        val b = behavior ?: return false
+        // 【必须先记住「原来在播什么」】仲裁层可能因为优先级不够而**拒绝**这次请求
+        //   （例如交互进行中来了待机请求）。若不做这个对比，就会把「被拒绝」
+        //   误报成「播上了」，上层会据此做出错误判断。
+        val before = b.currentSemantic
+        b.play(semantic)
+        if (b.currentSemantic == semantic) {
+            return true
+        }
+        // 只有在「原本就在播这个语义」时才算成功（幂等调用不该被当成失败）。
+        return before == semantic
+    }
+
+    /** 播一个指定 id 的动作（动作页「试演」用）。 */
+    internal fun playActionId(actionId: String): Boolean {
+        val a = action ?: return false
+        val target = DollAnim.byId(context, actionDollId, actionId) ?: return false
+        a.play(target)
+        return true
+    }
+
+    /** 是否正在播动作（供 PetWindow 判断要不要打断 / 是否已回落）。 */
+    internal fun isActionPlaying(): Boolean = action?.isPlaying() == true
+
+    /** 停止播动作（回落到原网格形变管线）。 */
+    internal fun stopAction() {
+        action?.stop()
+    }
+
+    /** 【r19·调试】当前行为层状态摘要（语义 / 动作 id / 播放状态）。 */
+    internal fun behaviorDebugInfo(): String {
+        val b = behavior ?: return "未初始化"
+        return (b.currentSemantic ?: "idle") + "/" + (b.currentActionId ?: "无") + "/" + b.state
     }
 }

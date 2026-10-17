@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.dollhouse.app.MainActivity
+import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.pet.GestureActions
 import com.dollhouse.app.pet.GestureCore
@@ -14,6 +15,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「操作」子页：这只人偶的四个手势各自触发哪些动作。
@@ -27,6 +29,26 @@ import com.dollhouse.app.ui.compose.PageStack
  *   否则返回后行尾的「单击 交谈 + 继续」还是旧文案。
  */
 object DollGesturePage {
+    /**
+     * 【r16·手势图标】四种手势各配一枚语义对得上的 Lucide 图标。
+     *
+     * 【为什么写在本文件而不是 GestureCore】GestureCore 是全工程唯一「不依赖任何
+     *   Android 类」的纯逻辑类（可用 kotlinc 单独编译），把 R 常量引进去就破坏了那条
+     *   边界。图标属于「展示」，归 UI 层，故放在页面里。
+     *
+     * 【为什么不重复】四枚图标几何各不相同，且与页面其他位置用到的图标也不重：
+     *   单击=鼠标指针（一次点按）、双击=鼠标指针加圈（点在点上）、
+     *   三击=点击手势（多点）、长按=手指按住。
+     */
+    @JvmStatic
+    private fun gestureIcon(gesture: String): Int {
+        return when (gesture) {
+            GestureCore.G_SINGLE -> Icons.IC_MOUSE_POINTER_2
+            GestureCore.G_DOUBLE -> Icons.IC_CROSSHAIR
+            GestureCore.G_TRIPLE -> Icons.IC_HAND
+            else -> Icons.IC_CLOCK_3
+        }
+    }
     /** 页面 key 前缀：`doll:gesture:<dollId>`。 */
     const val PREFIX = "doll:gesture:"
 
@@ -57,6 +79,7 @@ object DollGesturePage {
                 val set = remember(id, tick, g) { DollProfile.gestureActions(act, id, g) }
                 DhKit.ActionRow(
                     label = GestureActions.gestureName(g),
+                    iconRes = gestureIcon(g),
                     trailing = GestureActions.label(set)
                 ) { picking = g }
             }
@@ -95,6 +118,18 @@ object DollGesturePage {
             GestureActions.AWAY_LABEL
         )
         val set = remember(gesture, tick) { DollProfile.gestureActions(act, id, gesture) }
+        // 【r16·可播动作清单】把这只人偶**当前能播**的动作列出来。
+        //   【为什么过滤掉空动作】没有帧、也没有入口资源的动作播放起来什么都不会发生；
+        //   让用户绑一个「绑了等于没绑」的选项，比不给他这个选项更糟。
+        val playable = remember(tick, id) {
+            val out = ArrayList<DollAnim.Action>()
+            for (a in DollAnim.all(act, id)) {
+                if (a.frames.isNotEmpty() || a.assetPath.isNotEmpty()) {
+                    out.add(a)
+                }
+            }
+            out
+        }
 
         DhForm.Alert(
             title = GestureActions.gestureName(gesture),
@@ -116,6 +151,44 @@ object DollGesturePage {
                     tick++
                     onChanged()
                 }
+            }
+
+            // ---------- r16：播放动作 ----------
+            //
+            // 【为什么放同一个弹窗而不是新开一页（任务书 §3.8 明令）】
+            //   「在现有弹窗里增加「播放动作」选项组（**不新建独立页面**）」
+            //   理由也实在：手势配置的全部信息就在这一个弹窗里，
+            //   跳出去再跳回来，用户会忘了自己刚在配哪个手势。
+            DhForm.Gap()
+            DhKit.SectionLabel("播放动作（可多选，只播最后一个）")
+            if (playable.isEmpty()) {
+                DhForm.Note("这只人偶还没有可播放的动作。先到「动作」页添加动作，或导入一个模型包。")
+            } else {
+                for (a in playable) {
+                    val value = GestureActions.actValue(a.id)
+                    val on = set.contains(value)
+                    DhKit.CheckRow(
+                        // 【为什么标注「默认」】默认动作在待机时本来就会播；
+                        //   用户可能只是想把它也绑到某个手势上（比如点一下重播），
+                        //   标出来能避免「怎么两个一样的」这种困惑。
+                        text = a.name + (if (a.isDefault) "（默认）" else ""),
+                        selected = on
+                    ) {
+                        val now = DollProfile.gestureActions(act, id, gesture)
+                        if (on) {
+                            now.remove(value)
+                        } else {
+                            now.add(value)
+                        }
+                        DollProfile.setGestureActions(act, id, gesture, now)
+                        tick++
+                        onChanged()
+                    }
+                }
+                DhForm.Note(
+                    "绑了动作后，如果同一条手势还勾了「交谈」，两个都会生效：" +
+                        "一边弹提示、一边播动作。"
+                )
             }
         }
     }

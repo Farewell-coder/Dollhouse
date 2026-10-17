@@ -5,6 +5,8 @@ import com.dollhouse.app.agent.ChatToolRegistry
 import com.dollhouse.app.ai.MemExtractor
 import com.dollhouse.app.ai.MemSearch
 import com.dollhouse.app.ai.ThinkLevel
+import com.dollhouse.app.ai.VisionAnalyzer
+import com.dollhouse.app.core.ImageEncoder
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.device.LamdaManager
 import com.dollhouse.app.device.OcrEngine
@@ -148,7 +150,7 @@ object ChatHistoryStore {
         }
         try {
             PetPrefs.setConvPrev(ctx, id, batch.toString())
-            PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, history)!!.toString())
+            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, history).toString())
         } catch (_: Throwable) {
         }
     }
@@ -189,7 +191,7 @@ object ChatHistoryStore {
         }
         stripPrevTags(history)
         try {
-            PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, history)!!.toString())
+            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, history).toString())
         } catch (_: Throwable) {
         }
     }
@@ -332,14 +334,14 @@ object ChatHistoryStore {
         val before = host.history.length()
         if (host.prevCount > 0) {
             Logs.i("DollhouseMemo", "[save] 展开态全量落盘 len=" + before)
-            PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history)!!.toString())
+            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, host.history).toString())
             return
         }
         host.history = trimForSave(ctx, id, host.history)
         if (before != host.history.length()) {
             Logs.i("DollhouseMemo", "[save] 裁剪 before=" + before + " after=" + host.history.length())
         }
-        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history)!!.toString())
+        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, host.history).toString())
     }
     /**
      * 【v2.9】把 src[0, end) 里的非摘要消息**追加**进「更早历史」暂存位（不覆盖已有内容）。
@@ -457,7 +459,7 @@ object ChatHistoryStore {
         // 【v2.8·N1】这里的 _prev 标记要跟着落盘：迷你框（PetTalk）那条旁路读的就是这份数组，
         //   它需要靠标记知道「现在处于展开态、别把补回批重新回填进暂存位」。
         //   残留风险已由 loadHistory → collapsePrevOnLoad 在载入时就地收回并消费掉标记来闭合。
-        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, trimForDisplay(host.history))!!.toString())
+        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, trimForDisplay(host.history)).toString())
         return prev.length()
     }
 
@@ -527,7 +529,7 @@ object ChatHistoryStore {
         val id = ChatSessions.currentId(ctx)
         PetPrefs.setConvPrev(ctx, id, prev.toString())
         // 【坑】同样不能走 saveHistory：那会把刚写回的暂存批又当成溢出批捞出来重填一遍。
-        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, host.history)!!.toString())
+        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, host.history).toString())
         return true
     }
 
@@ -605,7 +607,7 @@ object ChatHistoryStore {
     // 【v0.0.1】显式 id 版：给人偶专属会话（PetTalk）用，不再借当前会话的槽。
     @JvmStatic
     fun saveHistory(ctx: Context, history: JSONArray, id: String) {
-        PetPrefs.setConvHistory(ctx, id, byPool(ctx, id, trimForSave(ctx, id, history))!!.toString())
+        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, trimForSave(ctx, id, history)).toString())
     }
     // 向历史数组追加一条消息。
     @JvmStatic
@@ -897,6 +899,18 @@ object ChatHistoryStore {
         }
         return out
     }
+
+    /**
+     * 【r15·收敛 !!】byPool 的安全版：绝不返回 null，调用方不再需要 `!!`。
+     *   旧代码 7 处写成 `byPool(ctx, id, X)!!.toString()`。byPool 只在
+     *   history == null 时返回 null（其余分支一定给 JSONArray），虽然当前所有
+     *   调用点传的都是非空数组，但这种「靠调用点保证」的契约一旦有人改调用就炸；
+     *   收口成本几乎为零，直接加固。
+     */
+    @JvmStatic
+    fun byPoolSafe(ctx: Context, id: String, history: JSONArray?): JSONArray {
+        return byPool(ctx, id, history) ?: history ?: JSONArray()
+    }
     @JvmStatic
     fun buildRequest(host: ChatPanel): JSONArray {
         // 兼容入口：保留给仍按 host 调用的旧位置。
@@ -1163,12 +1177,22 @@ object ChatHistoryStore {
 
     /**
      * 尾部窗口：最近 12 条对话。
-     * 【OCR】图片不再以 image_url 上送，改成本地扫成文字拼进正文；带图消息有配额（i 初值 2）。
+     *
+     * 【r15·视觉直送】图片的处理按模型能力分两条路：
+     *   · 模型 `capVision = true`（或配了专门的识图模型）→ **原图直送**：
+     *     `{"role":"user","content":[{"type":"text",...},{"type":"image_url",...}]}`
+     *     模型自己看图，能识别画面内容（不只是文字）。
+     *   · 否则 → **本地 OCR 兜底**：把图扫成文字拼进正文，任何纯文本模型都能看懂。
+     * 判定与编码在 [visionPlan] / [ImageEncoder] 里，这里只负责按计划组装。
+     *
+     * 【发图配额】历史窗口内最多带 [VISION_HISTORY_IMAGES] 张图（用户定案 2B：
+     *   当轮新图 + 最近 2~3 轮历史图），防止多图长聊时 token 爆炸。
      */
     @Throws(Exception::class)
     private fun appendTailMessages(ctx: Context, arr: JSONArray, history: JSONArray) {
-        var i = 2
-        var z = false
+        // 【r15】先算本次请求的图片策略（用哪个模型看图、能不能直送）。
+        val plan = visionPlan(ctx)
+        var i = 0
         var max = Math.max(0, history.length() - (if (0 != 0) 6 else 12))
         while (max < history.length()) {
             val optJSONObject2 = history.optJSONObject(max)
@@ -1176,14 +1200,29 @@ object ChatHistoryStore {
                 val optString = optJSONObject2.optString("role")
                 val optString2 = optJSONObject2.optString("content")
                 val optString3 = optJSONObject2.optString("image", null)
-                if (if (optString3 == null || optString3.isEmpty() || "user" != optString || i <= 0 || !ImageStore.exists(ctx, optString3)) z else true) {
-                    // 【OCR】图片不再以 image_url 原样上送，改成本地扫成文字拼进正文。
-                    //   原链路碰上不支持图片的模型会整条请求失败；换成 text 后任何模型都能看懂。
-                    val jSONObject8 = JSONObject()
-                    jSONObject8.put("role", optString)
-                    jSONObject8.put("content", withOcrCaption(ctx, optString2, optString3))
-                    arr.put(jSONObject8)
-                    i--
+                val hasImg = optString3 != null && !optString3.isEmpty()
+                        && "user" == optString && ImageStore.exists(ctx, optString3)
+                if (hasImg && MODE_DIRECT == plan && i < VISION_HISTORY_IMAGES) {
+                    // 【视觉直送】content 用数组承载「文字 + 图片」，与 OpenAI 多模态格式一致。
+                    val dataUri = ImageEncoder.toDataUri(ctx, optString3)
+                    if (dataUri != null) {
+                        arr.put(visionMessage(optString, optString2, dataUri))
+                        i++
+                    } else {
+                        // 编码失败 → 这一条退回 OCR，不能让请求少一条消息。
+                        arr.put(textMessage(ctx, optString, optString2, optString3))
+                    }
+                } else if (hasImg && MODE_VISION_MODEL == plan && i < VISION_HISTORY_IMAGES) {
+                    // 【3C·识图模型】当前模型不会看图，但用户配了识图模型 →
+                    //   用那个模型把图分析成文字注入正文（保留 current 模型继续聊）。
+                    val msg = JSONObject()
+                    msg.put("role", optString)
+                    msg.put("content", withVisionCaption(ctx, optString2, optString3))
+                    arr.put(msg)
+                    i++
+                } else if (hasImg) {
+                    // 【OCR 兜底】既没有视觉能力、也没配识图模型，或已超发图配额。
+                    arr.put(textMessage(ctx, optString, optString2, optString3))
                 } else {
                     val jSONObject9 = JSONObject()
                     jSONObject9.put("role", optString)
@@ -1192,9 +1231,131 @@ object ChatHistoryStore {
                 }
             }
             max++
-            z = false
         }
     }
+
+    /** 发图配额：整个历史窗口最多带几张原图（含当轮）。 */
+    private const val VISION_HISTORY_IMAGES = 4
+
+    /** 纯文本消息（不带图 / OCR 已并入正文）。 */
+    @Throws(Exception::class)
+    private fun textMessage(ctx: Context, role: String, text: String?, imagePath: String?): JSONObject {
+        val o = JSONObject()
+        o.put("role", role)
+        o.put("content", withOcrCaption(ctx, text, imagePath))
+        return o
+    }
+
+    /**
+     * 多模态消息：content 为数组，文字与图片各占一段。
+     *
+     * 【格式依据】OpenAI Chat Completions 的多模态写法，也是 Operit
+     *   （参考源码 OpenAIProvider.kt:983）采用的形态：
+     *   `content: [{"type":"text","text":...}, {"type":"image_url","image_url":{"url":"data:..."}}]`
+     *
+     * 【为什么文字段放最前】多数中转站按顺序解析，文字在前更稳；且模型先拿到
+     *   用户的问句再看到图，回答更贴题。
+     */
+    @Throws(Exception::class)
+    private fun visionMessage(role: String, text: String?, dataUri: String): JSONObject {
+        val content = JSONArray()
+        val body = if (text == null) "" else text.trim()
+        if (body.isNotEmpty()) {
+            val t = JSONObject()
+            t.put("type", "text")
+            t.put("text", body)
+            content.put(t)
+        }
+        val img = JSONObject()
+        img.put("type", "image_url")
+        val url = JSONObject()
+        url.put("url", dataUri)
+        img.put("image_url", url)
+        content.put(img)
+
+        val o = JSONObject()
+        o.put("role", role)
+        o.put("content", content)
+        return o
+    }
+
+    /**
+     * 本次请求的图片处理模式：
+     *   · [MODE_DIRECT] —— 当前模型自己会看图，原图直送；
+     *   · [MODE_VISION_MODEL] —— 当前模型不会看图、但用户配了识图模型，
+     *     用识图模型把图分析成文字后注入正文（用户定案 3C 的「自动改用识图模型」）；
+     *   · null —— 都不行，退回本地 OCR。
+     */
+    private const val MODE_DIRECT = "direct"
+    private const val MODE_VISION_MODEL = "vision_model"
+
+    /**
+     * 【r15】当前是否走「原图直送」——供发送前的 OCR 预扫判断要不要跳过。
+     *
+     * 【为什么要跳过】视觉直送时图片以 base64 原样上送，本地 OCR 的结果根本用不上；
+     *   照旧扫一遍等于白白花几秒、白耗一次电，还会让界面多停在「正在看图…」。
+     *   识图模型通道（[MODE_VISION_MODEL]）同样不需要本地 OCR，但**需要**等网络分析，
+     *   所以那边由 [withVisionCaption] 自己处理。
+     */
+    @JvmStatic
+    fun usesDirectVision(ctx: Context?): Boolean {
+        if (ctx == null) {
+            return false
+        }
+        return MODE_DIRECT == visionPlan(ctx)
+    }
+
+    private fun visionPlan(ctx: Context): String? {
+        val cur = ProviderStore.activeModelRecord(ctx)
+        if (cur != null && cur.capVision) {
+            return MODE_DIRECT
+        }
+        // 【3C】当前模型不会看图 → 若配了可用的识图模型，走「识图模型分析」通道。
+        if (PetPrefs.visionModel(ctx).isNotEmpty()) {
+            return MODE_VISION_MODEL
+        }
+        return null
+    }
+
+    /**
+     * 【3C】用识图模型把图「翻译」成文字，拼进正文。
+     *
+     * 【为什么同步等】请求组装本身在后台线程（ChatPanel 的发送链路），
+     *   而这里必须拿到文字才能把消息拼进 JSON —— 所以用 CountDownLatch 同步等待。
+     *   超时设 20 秒：识图比 OCR 慢（要走一趟网络），但也不能让用户无限等。
+     *
+     * 【失败怎么办】拿不到描述就退回本地 OCR —— 用户至少还能看到图上的文字。
+     */
+    private fun withVisionCaption(ctx: Context, text: String?, imagePath: String?): String? {
+        var desc = ""
+        try {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            VisionAnalyzer.analyze(ctx, imagePath, null, VisionAnalyzer.Callback { d ->
+                desc = d
+                latch.countDown()
+            })
+            latch.await(20, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (t: Throwable) {
+            Logs.w("Dollhouse", "识图模型分析失败，退回 OCR", t)
+        }
+        if (desc.trim().isEmpty()) {
+            // 识图没结果 → 退回本地 OCR（原有路径，保留不删）。
+            return withOcrCaption(ctx, text, imagePath)
+        }
+        val body = if (text == null) "" else text.trim()
+        val head = if (body.isEmpty()) "【图片内容】" else body + "\n\n【图片内容】"
+        return head + "\n" + desc.trim()
+    }
+
+    /**
+     * 本次请求是否能把原图直接发给模型；能则返回 null 表示不走视觉、退回 OCR。
+     *
+     * 【判定顺序（用户定案 3C：优先当前模型；当前模型不会看图时，自动用指定的识图模型）】
+     *   ① 当前对话模型自己 `capVision = true` → 用它，直送原图（[MODE_DIRECT]）；
+     *   ② 否则若设置了「识图模型」→ 走 [MODE_VISION_MODEL]：用那个模型把图分析成文字，
+     *      结果注入正文；聊天本身仍由当前模型负责（不换模型、不打断上下文）；
+     *   ③ 都没有 → 退回本地 OCR（[withOcrCaption]，ML Kit 离线识别）。
+     */
 
     /**
      * 【OCR】把图片扫出来的文字拼进要发给模型的正文。
@@ -1202,7 +1363,7 @@ object ChatHistoryStore {
      *   改为本地 OCR 出文字、当正文发出去后，任何纯文本模型都能看懂图里写了什么。
      * 【还没扫过时】不添乱，原样返回用户写的话（发请求前 OcrEngine 会先补扫）。
      */
-    private fun withOcrCaption(ctx: Context, text: String?, imagePath: String): String? {
+    private fun withOcrCaption(ctx: Context, text: String?, imagePath: String?): String? {
         val ocr = OcrEngine.text(ctx, imagePath)
         if (ocr == null) {
             return text

@@ -98,6 +98,17 @@ class PetAnimator(private val host: PetView) {
     }
 
     private fun tickIdle(f: Float) {
+        // 【r18·拖动原比例】拖动 / peek / 倾斜期间，待机贡献必须**平滑衰减到零**，
+        //   而不是瞬跳回 1.0 —— 否则呼吸态（idleScaleY 最高 1.05）会在拖动开始那一帧
+        //   被掐断，视觉上就是「人偶突然缩小了一下」（用户实测反馈的「长按缩小」）。
+        //   衰减与 dragLift 同速率（11×dt），保证「呼吸收回去」与「拖动抬起来」同步完成。
+        if (host.dragging || host.peek || host.lean != 0.0f) {
+            host.idleScaleY = decayTo(host.idleScaleY, 1.0f, f)
+            host.idleLiftPx = decayTo(host.idleLiftPx, 0.0f, f)
+            host.idleEyeScale = decayTo(host.idleEyeScale, 1.0f, f)
+            host.idleTilt = decayTo(host.idleTilt, 0.0f, f)
+            return
+        }
         host.idleScaleY = 1.0f
         host.idleLiftPx = 0.0f
         host.idleEyeScale = 1.0f
@@ -137,14 +148,22 @@ class PetAnimator(private val host: PetView) {
                 return
             }
         }
-        if (host.dragging || host.peek || host.lean != 0.0f) {
-            return
-        }
+        // 【拖动期间不再触达此处】上面的前置分支已把 idle 贡献平滑衰减并 return。
         val f4 = host.idleNextIn - f
         host.idleNextIn = f4
         if (f4 <= 0.0f) {
             startIdleAction()
         }
+    }
+
+    /**
+     * 把当前值向目标值按帧时长平滑推进（指数趋近，与 dragLift 同速率 11×dt）。
+     * 用于拖动开始时把待机贡献（呼吸 / 抬升 / 眨眼 / 倾斜）平滑收回，
+     * 避免「瞬跳回默认值」造成的视觉缩小。
+     */
+    private fun decayTo(cur: Float, target: Float, dt: Float): Float {
+        val k = Math.min(1.0f, 11.0f * dt)
+        return cur + (target - cur) * k
     }
 
     fun setExpression(i: Int, j: Long) {
@@ -165,8 +184,13 @@ class PetAnimator(private val host: PetView) {
         host.dragging = z
         if (z) {
             setExpression(1, 900L)
+            // 【r19·拖动不压扁】拖动期间 landT 恒为 -1（不触发落地压扁），
+            //   否则拖动结束瞬间 squash 从 1 降到 1-ahogeRu()，视觉上「变小」。
+            host.landT = -1.0f
         } else {
-            host.landT = 0.0f
+            // 【r19·拖动不压扁】拖动结束也不触发落地压扁（landT 保持 -1）。
+            //   原逻辑 landT=0 会播一段压扁动画，但用户明确「不要变小」。
+            host.landT = -1.0f
             setExpression(3, 1100L)
         }
         host.invalidate()

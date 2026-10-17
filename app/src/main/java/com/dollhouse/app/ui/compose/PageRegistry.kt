@@ -63,8 +63,15 @@ object PageRegistry {
                 || MemPage.TAG_PAGE == key
                 || com.dollhouse.app.ui.settings.MemSettingsPage.TAG_PAGE == key
                 || com.dollhouse.app.ui.settings.ChatSettingsPage.TAG_PAGE == key
+                // 【r15·补登记】识图模型 / 开发者选项两页原先漏登记 ——
+                //   后果是「系统重建后这两页回不来」（栈里有 key、表里不认得，该层被跳过）。
+                || com.dollhouse.app.ui.settings.VisionModelPage.TAG_PAGE == key
+                || com.dollhouse.app.ui.settings.DeveloperOptionsPage.TAG_PAGE == key
                 || com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE == key
                 || ProviderNav.TAG_PAGE == key
+                // 【r19·实验卡片下级】随机走位 / 睡觉模式设置页
+                || com.dollhouse.app.ui.settings.WanderSettingsPage.TAG_PAGE == key
+                || com.dollhouse.app.ui.settings.SleepSettingsPage.TAG_PAGE == key
     }
 
     /**
@@ -123,6 +130,11 @@ object PageRegistry {
             return AboutPage.buildPage(act)
         }
         if (MemPage.TAG_PAGE == key) {
+            // 【r17·数据不丢】记忆库页的 dollId 不在 key 里，而在 `MemPage.open` 的闭包中
+            //   （`push(ctx, TAG_PAGE) { buildPage(ctx, dollId) }`）。
+            //   入栈路径由 NavHost 的「构造器登记表」兜住；进程被杀后恢复时闭包已不存在，
+            //   这里回落到 `buildPage(ctx)` —— 它内部读 `MemPage.currentDollId`
+            //   （每次 `open(ctx, dollId)` 都会更新它），语义与用户离开时看到的那只人偶一致。
             return MemPage.buildPage(act)
         }
         // 【r13·新记忆系统】「记忆库设置」页（设置 → 实验 → 记忆库设置）。
@@ -132,12 +144,26 @@ object PageRegistry {
         if (com.dollhouse.app.ui.settings.ChatSettingsPage.TAG_PAGE == key) {
             return com.dollhouse.app.ui.settings.ChatSettingsPage.buildPage(act)
         }
+        // 【r15·补登记】识图模型页 / 开发者选项页（设置 → 实验 → 对应入口）。
+        if (com.dollhouse.app.ui.settings.VisionModelPage.TAG_PAGE == key) {
+            return com.dollhouse.app.ui.settings.VisionModelPage.buildPage(act)
+        }
+        if (com.dollhouse.app.ui.settings.DeveloperOptionsPage.TAG_PAGE == key) {
+            return com.dollhouse.app.ui.settings.DeveloperOptionsPage.buildPage(act)
+        }
         // 【r13】设置页从「底座」改成「覆盖层」后，要能在重建时恢复（见 SettingsScreen.open）。
         if (com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE == key) {
             return com.dollhouse.app.ui.home.SettingsScreen.build(act)
         }
         if (ProviderNav.TAG_PAGE == key) {
             return ProviderNav.buildPage(act)
+        }
+        // 【r19·实验卡片下级】随机走位 / 睡觉模式设置页（含真实开关与说明文案）。
+        if (com.dollhouse.app.ui.settings.WanderSettingsPage.TAG_PAGE == key) {
+            return com.dollhouse.app.ui.settings.WanderSettingsPage.build(act)
+        }
+        if (com.dollhouse.app.ui.settings.SleepSettingsPage.TAG_PAGE == key) {
+            return com.dollhouse.app.ui.settings.SleepSettingsPage.build(act)
         }
         return null
     }

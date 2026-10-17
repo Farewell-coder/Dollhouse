@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.Design
 
 /**
  * 【职责】Compose 侧的表单 / 弹层构件：输入框、标签、徽标、主色药丸、分隔间距、确认弹窗。
@@ -296,20 +297,40 @@ object DhForm {
 
     /** 描边药丸（行内次操作）。← `UiKit.outlineChip`。 */
     @Composable
-    fun OutlineChip(text: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    fun OutlineChip(
+        text: String,
+        modifier: Modifier = Modifier,
+        // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
+        iconRes: Int = 0,
+        onClick: (() -> Unit)? = null
+    ) {
         val c = DhTokens.colors
-        Text(
-            text = text,
-            modifier = modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
-                .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            color = c.title,
-            fontSize = UiKit.FS_CHIP.sp,
-            fontFamily = DhTokens.fonts
-        )
+        val base = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(c.card)
+            .border(1.dp, c.line, RoundedCornerShape(999.dp))
+            .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+        if (iconRes == 0) {
+            Text(
+                text = text,
+                modifier = base,
+                color = c.title,
+                fontSize = UiKit.FS_CHIP.sp,
+                fontFamily = DhTokens.fonts
+            )
+        } else {
+            Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
+                DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = text,
+                    color = c.title,
+                    fontSize = UiKit.FS_CHIP.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
+        }
     }
 
     /** 主色药丸（行内主操作）。← `UiKit.primaryChip`（实色 acc + ON_ACC 字）。 */
@@ -353,6 +374,12 @@ object DhForm {
         posText: String? = null,
         onPos: (() -> Unit)? = null,
         negText: String? = null,
+        // 【r15·补·可自定义的负向按钮】原先 negText 只有「取消」一种语义（点了就关）。
+        //   但有些弹窗需要「负向按钮做别的事」——例如「编辑记忆」里把负向位让给「删除」
+        //   （点了要先弹二次确认，而不是直接关窗）。
+        //   【为什么加可选参数而不是改语义】全工程有几十处 Alert 调用，加可选参数
+        //   （默认 null → 与原行为逐字节一致）零影响；改语义会波及所有既有弹窗。
+        onNeg: (() -> Unit)? = null,
         content: @Composable ColumnScope.() -> Unit
     ) {
         val c = DhTokens.colors
@@ -390,7 +417,13 @@ object DhForm {
                         Spacer(Modifier.weight(1f))
                         if (negText != null) {
                             DialogButton(text = negText, primary = false) {
-                                onDismiss()
+                                // 【r15】带 onNeg 时由调用方决定行为（例如「删除」要先二次确认，
+                                //   不能顺手关窗）；不带则沿用老语义「点了就关」。
+                                if (onNeg != null) {
+                                    onNeg.invoke()
+                                } else {
+                                    onDismiss()
+                                }
                             }
                         }
                         if (posText != null) {

@@ -47,6 +47,23 @@ object DollAnim {
     /** 自动播放时，循环以外的动作「跑完一遍」后停留多久（毫秒）。 */
     const val HOLD_MS = 400L
 
+    /* ---------- 【r16·模型框架】引擎标识 ---------- */
+
+    /**
+     * 引擎标识 —— 与 `pet/render/Engine.kt` 的常量**取值一致**。
+     *
+     * 【为什么这里重复定义字符串而不直接引用 Engine】`DollAnim` 是**数据层**，
+     *   渲染层在它之上。数据层引用渲染层会形成反向依赖（数据 → 渲染 → 数据），
+     *   以后想单独复用数据层就拆不开了。故：**取值同源、引用解耦**，
+     *   并由 `ModelValidator` 校验取值合法性（写错的引擎名进不了库）。
+     */
+    const val ENGINE_SPRITE = "sprite"
+    const val ENGINE_LOTTIE = "lottie"
+    const val ENGINE_ANIMIMAGE = "animimage"
+
+    /** 全部已知引擎（校验 / UI 列举用）。 */
+    val ENGINES: List<String> = listOf(ENGINE_SPRITE, ENGINE_LOTTIE, ENGINE_ANIMIMAGE)
+
     /**
      * 【种子版本】内置动作清单的版本号。
      *
@@ -92,7 +109,20 @@ object DollAnim {
      * @param frames  帧图绝对路径，**按播放顺序**排列。**允许为空**（先建壳、后加帧）。
      * @param fps     播放速度（帧 / 秒）。
      * @param loop    是否循环播放（false = 跑完一遍停在最后一帧）。
-     * @param builtin 内置动作（工程烘焙出来的动画）；不可删除。
+     * @param builtin 内置动作（工程烘焙出来的动画）。**【r16 语义变更】**
+     *                从「权限标记」（不可删）降为**「来源标记」**（说明它是工程自带的）。
+     *                原因：任务书 §3.6 要求解除删除豁免 —— 用户明确不想要某个内置动作时，
+     *                应该能删；删错了可以用 [restoreBuiltin] 一键补回。这比「永远不让删」更合理。
+     * @param engine  **【r16 新增】**渲染引擎，取值见 [ENGINE_SPRITE] 等。
+     *                默认 `sprite` = 现有的网格形变帧序列，**旧档案读到缺字段即回落此值**。
+     * @param isDefault **【r16 新增】**是否为该人偶的「待机默认动作」。
+     *                同一人偶内**至多一个**（由 [setDefault] 保证互斥）。
+     *                语义：桌宠无交互时优先播它，让「动作页配的动作」真正跑在桌面上。
+     * @param sourceId **【r16 新增】**来源模型包标识（来自 manifest 的 `id`）。
+     *                空 = 非模型包来源（用户手导 / 内置）。用于「资源管理」页显示出处，
+     *                以及卸载模型包时定位它带了哪些动作。
+     * @param assetPath **【r16 新增】**非帧序列引擎的**入口资源**（如 Lottie 的 `.json`）。
+     *                `sprite` 引擎不用它（其素材是 [frames]）。
      */
     data class Action(
         val id: String,
@@ -102,7 +132,11 @@ object DollAnim {
         val frames: List<String> = emptyList(),
         val fps: Int = FPS_DEFAULT,
         val loop: Boolean = true,
-        val builtin: Boolean = false
+        val builtin: Boolean = false,
+        val engine: String = ENGINE_SPRITE,
+        val isDefault: Boolean = false,
+        val sourceId: String = "",
+        val assetPath: String = ""
     )
 
     /* ============================ 内置动作定义 ============================ */
@@ -218,7 +252,8 @@ object DollAnim {
                     list.add(
                         Action(
                             id = p.id, name = p.name, desc = p.desc, group = p.group,
-                            fps = p.fps, loop = p.loop, builtin = true
+                            fps = p.fps, loop = p.loop, builtin = true,
+                            engine = ENGINE_SPRITE, isDefault = false, sourceId = "", assetPath = ""
                         )
                     )
                     changed = true
@@ -367,7 +402,19 @@ object DollAnim {
         }
     }
 
-    /** 删除一个动作；内置项不可删，返回是否真的删掉了。 */
+    /**
+     * 删除一个动作，返回是否真的删掉了。
+     *
+     * 【r16 语义变更·解除内置豁免】改造前这里写着 `|| hit.builtin` ——
+     *   内置动作永远删不掉。任务书 §3.6 要求把 `builtin` 从「权限标记」
+     *   降为「来源标记」：它只说明「这个动作是工程自带的」，
+     *   不该因此剥夺用户「我就是不想要它」的权利。
+     *   删错了一键 [restoreBuiltin] 就回来了 —— 比「永远不让删」更合理。
+     *
+     * 【连带影响】删除时会一并删掉该动作的帧图目录（见下），
+     *   所以内置动作删掉后帧图也没了；[restoreBuiltin] 会重新登记，
+     *   帧图由 `AnimBaker.ensure` 在首次播放时按需重烘（它本来就是幂等的）。
+     */
     @JvmStatic
     @Synchronized
     fun remove(ctx: Context, dollId: String?, id: String?): Boolean {
@@ -382,7 +429,7 @@ object DollAnim {
                 break
             }
         }
-        if (hit == null || hit.builtin) {
+        if (hit == null) {
             return false
         }
         list.remove(hit)
@@ -404,6 +451,190 @@ object DollAnim {
         }
         return true
     }
+
+    /**
+     * **【r16 新增】**把工程自带的 19 个内置动作补回（幂等）。
+     *
+     * 【为什么要它】[remove] 现在允许删内置动作了。删是用户的权利，
+     *   但必须给一条「反悔」的路 —— 否则误删之后就再也没有了
+     *   （内置动作的 Plan 定义在代码里，用户手上没有源素材可导）。
+     *
+     * 【幂等】已存在的按 id 跳过，不会重复添加，也不会覆盖用户改过的名字 / 速度。
+     *
+     * @return 本次补回的数量。
+     */
+    @JvmStatic
+    @Synchronized
+    fun restoreBuiltin(ctx: Context, dollId: String?): Int {
+        if (dollId.isNullOrEmpty()) {
+            return 0
+        }
+        val list = load(ctx, dollId)
+        var n = 0
+        for (p in PLANS) {
+            var found = false
+            for (a in list) {
+                if (a.id == p.id) {
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                list.add(
+                    Action(
+                        id = p.id, name = p.name, desc = p.desc, group = p.group,
+                        fps = p.fps, loop = p.loop, builtin = true
+                    )
+                )
+                n++
+            }
+        }
+        if (n > 0) {
+            save(ctx, dollId, list)
+            // 【必须落种子版本】否则下次 [all] 见到「版本为 0」还会再补一遍，
+            //   与本方法重复劳动；标成当前版本即可。
+            setSeedVersion(ctx, dollId, SEED_VERSION)
+        }
+        return n
+    }
+
+    /**
+     * **【r16 新增】**设为该人偶的「待机默认动作」（同人偶内互斥）。
+     *
+     * 【为什么必须互斥】语义是「无交互时播哪一个」。允许两个同时为默认，
+     *   就得再定一套「先播谁」的规则，而这规则对用户完全不可见 ——
+     *   不如从数据层保证只有一个。
+     *
+     * @param id 目标动作；传 null 表示**取消默认**（回到「只跑基础形变」的老行为）。
+     */
+    @JvmStatic
+    @Synchronized
+    fun setDefault(ctx: Context, dollId: String?, id: String?) {
+        if (dollId.isNullOrEmpty()) {
+            return
+        }
+        val list = load(ctx, dollId)
+        var changed = false
+        for (i in list.indices) {
+            val want = (id != null && list[i].id == id)
+            if (list[i].isDefault != want) {
+                list[i] = list[i].copy(isDefault = want)
+                changed = true
+            }
+        }
+        if (changed) {
+            save(ctx, dollId, list)
+        }
+    }
+
+    /** **【r16 新增】**取该人偶的待机默认动作；没设过返回 null。 */
+    @JvmStatic
+    fun defaultAction(ctx: Context, dollId: String?): Action? {
+        for (a in all(ctx, dollId)) {
+            if (a.isDefault) {
+                return a
+            }
+        }
+        return null
+    }
+
+    /** **【r16 新增】**按语义 ID 找动作（`idle` / `tap` / `drag` / `longpress` / `appear` / `disappear`）。 */
+    @JvmStatic
+    fun bySemantic(ctx: Context, dollId: String?, semantic: String): Action? {
+        if (semantic.isBlank()) {
+            return null
+        }
+        // 约定：动作 id 若与语义同名（模型包导入时按此约定生成），直接命中；
+        // 否则退回「属性分组匹配」—— 待机组的第一个动作即被视作待机默认动作。
+        val direct = byId(ctx, dollId, semantic)
+        if (direct != null) {
+            return direct
+        }
+        if (semantic == "idle") {
+            return defaultAction(ctx, dollId)
+        }
+        return null
+    }
+
+    /**
+     * **【r16 新增】**登记一个「非帧序列」动作（模型包导入用）。
+     *
+     * 【为什么与 [add] 分开】[add] 是「用户自己的那组帧图」这条路，
+     *   它无条件把 group 设为「自定义」；模型包导入要**指定分组 / 引擎 / 入口资源 /
+     *   来源标识**，参数集不同，混在一个方法里会让两条路互相牵制。
+     */
+    @JvmStatic
+    @Synchronized
+    fun addEngineAction(ctx: Context, dollId: String?, action: Action): Boolean {
+        if (dollId.isNullOrEmpty()) {
+            return false
+        }
+        val list = load(ctx, dollId)
+        var engine = action.engine
+        if (!ENGINES.contains(engine)) {
+            engine = ENGINE_SPRITE
+        }
+        val item = action.copy(
+            id = if (action.id.isBlank()) newId() else action.id,
+            name = uniqueName(list, action.name.ifBlank { "新动作" }),
+            engine = engine,
+            fps = clampFps(action.fps)
+        )
+        // 同 id 覆盖（模型包重装 / 升级时走这条，避免留下两份同名动作）。
+        for (i in list.indices) {
+            if (list[i].id == item.id) {
+                list[i] = item.copy(builtin = list[i].builtin)
+                save(ctx, dollId, list)
+                return true
+            }
+        }
+        list.add(item)
+        save(ctx, dollId, list)
+        return true
+    }
+
+    /**
+     * **【r16 新增】**删除某个模型包带来的全部动作（卸载模型包）。
+     *
+     * @return 被删掉的动作数。
+     */
+    @JvmStatic
+    @Synchronized
+    fun removeBySource(ctx: Context, dollId: String?, sourceId: String): Int {
+        if (dollId.isNullOrEmpty() || sourceId.isBlank()) {
+            return 0
+        }
+        val list = load(ctx, dollId)
+        val keep = ArrayList<Action>(list.size)
+        var n = 0
+        for (a in list) {
+            if (a.sourceId == sourceId) {
+                n++
+                // 【顺手清帧图】与 [remove] 同口径，不留孤儿目录。
+                try {
+                    val d = File(File(animRoot(ctx), dollId), a.id)
+                    val kids = d.listFiles()
+                    if (kids != null) {
+                        for (f in kids) {
+                            f.delete()
+                        }
+                    }
+                    d.delete()
+                } catch (ignored: Throwable) {
+                }
+            } else {
+                keep.add(a)
+            }
+        }
+        if (n > 0) {
+            save(ctx, dollId, keep)
+        }
+        return n
+    }
+
+    /** **【r16 新增】**某只人偶是否设了待机默认动作（供帧率策略 / 行为控制器查询）。 */
+    @JvmStatic
+    fun hasDefault(ctx: Context, dollId: String?): Boolean = defaultAction(ctx, dollId) != null
 
     /* ============================ 文件布局 ============================ */
 
@@ -489,6 +720,15 @@ object DollAnim {
                     val p = planOf(id)
                     group = if (p != null) p.group else GROUP_CUSTOM
                 }
+                // 【r16·零迁移】四个新字段全部 optXxx 取默认：
+                //   旧档案根本没有这些键 → 落到 `sprite` / `false` / `""` / `""`，
+                //   语义正好等于改造前的行为。**不写任何迁移代码**（任务书 §8.4）。
+                // 【引擎名净化】档案可能被手工改过或来自旧版本，写进非法值时回落 sprite，
+                //   否则渲染层会拿到一个「查不到的引擎」而人偶直接不显示。
+                var engine = o.optString("engine", ENGINE_SPRITE)
+                if (!ENGINES.contains(engine)) {
+                    engine = ENGINE_SPRITE
+                }
                 out.add(
                     Action(
                         id = id,
@@ -498,7 +738,11 @@ object DollAnim {
                         frames = frames,
                         fps = clampFps(o.optInt("fps", FPS_DEFAULT)),
                         loop = o.optBoolean("loop", true),
-                        builtin = o.optBoolean("builtin", false)
+                        builtin = o.optBoolean("builtin", false),
+                        engine = engine,
+                        isDefault = o.optBoolean("is_default", false),
+                        sourceId = o.optString("source_id", ""),
+                        assetPath = o.optString("asset_path", "")
                     )
                 )
             }
@@ -523,6 +767,12 @@ object DollAnim {
                 o.put("fps", a.fps)
                 o.put("loop", a.loop)
                 o.put("builtin", a.builtin)
+                // 【r16】多写四个字段：旧版本 APK 读到不认识会忽略（JSON 宽松解析），
+                //   所以「装了新版又退回旧版」不会丢数据，只是新字段暂时不生效。
+                o.put("engine", a.engine)
+                o.put("is_default", a.isDefault)
+                o.put("source_id", a.sourceId)
+                o.put("asset_path", a.assetPath)
                 val fa = JSONArray()
                 for (p in a.frames) {
                     fa.put(p)

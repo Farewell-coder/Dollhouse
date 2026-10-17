@@ -84,15 +84,18 @@ class PetTalkInput internal constructor(
             return
         }
         build()
-        lp = WindowManager.LayoutParams(w, UiKit.dp(ctx, HEIGHT_DP), overlayType(), 16777248, -3)
-        lp!!.gravity = 8388659
+        // 【r15·收敛 !!】原为 `lp = WindowManager.LayoutParams(...)` 后连用 lp!!。
+        //   lp 是本类的可空字段（hide/release 会清），全部 !! 换成局部变量，语义完全一致。
+        val params = WindowManager.LayoutParams(w, UiKit.dp(ctx, HEIGHT_DP), overlayType(), 16777248, -3)
+        lp = params
+        params.gravity = 8388659
         // 【坑】16 = 只有 ADJUST_RESIZE，没有 STATE_VISIBLE，悬浮窗的键盘可能不弹。
         //   20 = ADJUST_RESIZE | STATE_VISIBLE。
-        lp!!.softInputMode = 20
-        lp!!.x = Math.max(0, x)
-        lp!!.y = Math.max(0, y)
+        params.softInputMode = 20
+        params.x = Math.max(0, x)
+        params.y = Math.max(0, y)
         try {
-            wm.addView(root, lp)
+            wm.addView(root, params)
             added = true
         } catch (unused: Throwable) {
             added = false
@@ -168,14 +171,16 @@ class PetTalkInput internal constructor(
 
     /** 人偶移动 / 比例变化后重新落位（坐标由宿主算好）。 */
     internal fun moveTo(x: Int, y: Int, w: Int) {
-        if (!added || lp == null) {
+        // 【r15·收敛 !!】同 show()：字段 lp 可空，改用局部引用。
+        val params = lp
+        if (!added || params == null) {
             return
         }
-        lp!!.width = w
-        lp!!.x = Math.max(0, x)
-        lp!!.y = Math.max(0, y)
+        params.width = w
+        params.x = Math.max(0, x)
+        params.y = Math.max(0, y)
         try {
-            wm.updateViewLayout(root, lp)
+            wm.updateViewLayout(root, params)
         } catch (unused: Throwable) {
         }
     }

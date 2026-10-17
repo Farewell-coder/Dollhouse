@@ -1,6 +1,16 @@
 plugins {
-    id 'com.android.application' version '8.5.2' apply false
-    id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
-    id 'org.jetbrains.kotlin.kapt' version '1.9.24' apply false
-    id 'com.google.dagger.hilt.android' version '2.51.1' apply false
+    // 【r17·导航架构升级】AGP 8.5.2 → 8.9.1、Kotlin 1.9.24 → 2.2.10。
+    //   驱动原因：Jetpack Navigation 3 的 aar 元数据要求 AGP >= 8.9.1 + compileSdk 36。
+    //   1.2.0 更要求 AGP 9.1.0 + compileSdk 37，但 AGP 9 与 Kotlin Gradle 插件存在
+    //   「kotlin 扩展重复注册」的插件模型冲突（已实测），故取可用的最高稳定组合：
+    //   AGP 8.9.1 + Gradle 8.11.1 + Kotlin 2.2.10 + Navigation3 1.1.0 + compileSdk 36。
+    //   该组合已在独立探针工程上实测通过（assembleDebug 成功、kapt/Hilt 正常）。
+    id 'com.android.application' version '8.9.1' apply false
+    id 'org.jetbrains.kotlin.android' version '2.2.10' apply false
+    // 【Kotlin 2.0 起 Compose 编译器插件随 Kotlin 版本发布】原先的
+    //   `kotlinCompilerExtensionVersion` 写法已废弃，改为独立 Gradle 插件。
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.2.10' apply false
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.2.10' apply false
+    id 'org.jetbrains.kotlin.kapt' version '2.2.10' apply false
+    id 'com.google.dagger.hilt.android' version '2.57.2' apply false
 }

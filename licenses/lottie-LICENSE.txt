@@ -1,0 +1,36 @@
+lottie-android
+Copyright 2017 Airbnb, Inc.
+Licensed under the Apache License, Version 2.0
+
+Source: https://github.com/airbnb/lottie-android
+Version used by this project: 6.7.1
+
+Full license text: see ../licenses/Apache-2.0.txt
+
+------------------------------------------------------------------
+为什么选用它（记录决策依据，便于日后复核）
+------------------------------------------------------------------
+
+- 许可：Apache-2.0，可自由分发，与本工程的 GPL-3.0 兼容。
+- 依赖：纯 Java/Kotlin，**不含 native 库** —— 与本工程「零 native」的
+  口径一致，也不会给 ABI 分包带来额外架构负担。
+- 活跃度：截至 2026-10 有 35.7k stars，持续维护。
+- 反面对照（本次评估后未采用，理由见交付报告 04_引擎评估报告.md）：
+  · PAG / Rive / Spine —— 含 C++ 或商业授权；
+  · Live2D Cubism —— 官方「SDK Release License」，非自由分发；
+  · Petto —— MIT 但 0 star 且是完整应用而非可复用库。
+
+------------------------------------------------------------------
+使用方式（供后续维护者参考）
+------------------------------------------------------------------
+
+本工程**不使用** `LottieAnimationView`（那是 android.view.View，
+会引入另一套 View 层级与 appcompat 主题依赖），只用
+`LottieDrawable` + 自绘，见：
+
+    app/src/main/java/com/dollhouse/app/pet/render/LottieRenderer.kt
+
+该文件同时负责：
+  · 解析失败 / 资源缺失 / 超出限制 三类异常的可读报错；
+  · `release()` 时断开回调与 composition 引用（防泄漏）；
+  · 通过 `ImageAssetDelegate` 按需加载 json 同目录 `images/` 下的分离图。

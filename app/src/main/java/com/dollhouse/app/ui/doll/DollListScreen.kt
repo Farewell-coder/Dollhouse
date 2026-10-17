@@ -159,9 +159,10 @@ object DollListScreen {
             onBack = { PageStack.pop(act) },
             scrollable = false,
             actions = {
-                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title) { sheet = true }
+                // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
+                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "新建") { sheet = true }
                 // 【r12】右上角三个点 → 弹出小卡片，第一项「列数」。
-                DhKit.IconButton(Icons.IC_MORE, 20f, DhTokens.colors.title) {
+                DhKit.IconButton(Icons.IC_MORE, 20f, DhTokens.colors.title, label = "更多") {
                     menu = if (menu == 0) -1 else 0
                 }
             }
@@ -307,11 +308,17 @@ object DollListScreen {
             ) {
                 DhForm.Note("封面只影响列表里这张卡片，不影响桌面上的人偶长相。")
                 // 二选一：动作库的某一帧 / 自己的图片。
-                DhKit.ActionRow(label = "从动作库选一帧") {
+                DhKit.ActionRow(
+                    label = "从动作库选一帧",
+                    iconRes = Icons.IC_LIBRARY
+                ) {
                     coverAsk = false
                     coverFromAnim = true
                 }
-                DhKit.ActionRow(label = "用自己的图片") {
+                DhKit.ActionRow(
+                    label = "用自己的图片",
+                    iconRes = Icons.IC_IMAGE_PLUS
+                ) {
                     coverAsk = false
                     val id = coverId
                     coverId = null
@@ -457,6 +464,10 @@ object DollListScreen {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    // 【r16·修·窄槽不加文字】卡片底部三枚按钮处在「等分窄槽」里：
+                    //   列数 3 时每槽仅约 36dp，而「图标+文字」需要约 70dp ——
+                    //   加了文字会挤出卡片或被裁。此处保持纯图标（符合 DhKit.IconButton 的
+                    //   「宽裕处才加 label」约定），文字语义由卡片整体可点区域承载。
                     DhKit.IconButton(
                         iconRes = if (doll.enabled) Icons.IC_SQUARE else Icons.IC_PLAY,
                         sizeDp = btnDp,
@@ -468,6 +479,7 @@ object DollListScreen {
                     }
                 }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    // 【r16·修】同上一槽：窄槽内保持纯图标。
                     DhKit.IconButton(
                         iconRes = Icons.IC_EDIT,
                         sizeDp = btnDp,
@@ -476,6 +488,7 @@ object DollListScreen {
                     )
                 }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    // 【r16·修】同上：窄槽内保持纯图标。
                     DhKit.IconButton(
                         iconRes = Icons.IC_MORE,
                         sizeDp = btnDp,
@@ -512,8 +525,8 @@ object DollListScreen {
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                DhKit.IconButton(Icons.IC_LAYOUT_TEMPLATE, 24f, c.title, onClick = onTemplate)
-                DhKit.IconButton(Icons.IC_FOLDER_OPEN, 24f, c.title, onClick = onImport)
+                DhKit.IconButton(Icons.IC_LAYOUT_TEMPLATE, 24f, c.title, label = "模板", onClick = onTemplate)
+                DhKit.IconButton(Icons.IC_FOLDER_OPEN, 24f, c.title, label = "导入", onClick = onImport)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -549,14 +562,16 @@ object DollListScreen {
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 // 【r13·需求B】前两个是新加的：命名（Lucide signature）、改封面（Lucide image-plus）。
-                DhKit.IconButton(Icons.IC_SIGNATURE, 24f, c.title, onClick = onRename)
-                DhKit.IconButton(Icons.IC_IMAGE_PLUS, 24f, c.title, onClick = onCover)
-                DhKit.IconButton(Icons.IC_COPY, 24f, c.title, onClick = onCopy)
+                // 【r16·图标+文字】底部面板横向空间宽裕，五枚按钮都补上文字，
+                //   不用再靠图标猜功能（用户需求：图标要符合文字描述）。
+                DhKit.IconButton(Icons.IC_SIGNATURE, 24f, c.title, label = "命名", onClick = onRename)
+                DhKit.IconButton(Icons.IC_IMAGE_PLUS, 24f, c.title, label = "改封面", onClick = onCover)
+                DhKit.IconButton(Icons.IC_COPY, 24f, c.title, label = "复制", onClick = onCopy)
                 // 内置默认配置不可删除：不渲染删除键。
                 if (!doll.builtin) {
-                    DhKit.IconButton(Icons.IC_TRASH, 24f, c.title, onClick = onDelete)
+                    DhKit.IconButton(Icons.IC_TRASH, 24f, c.title, label = "删除", onClick = onDelete)
                 }
-                DhKit.IconButton(Icons.IC_DOWNLOAD, 24f, c.title, onClick = onExport)
+                DhKit.IconButton(Icons.IC_DOWNLOAD, 24f, c.title, label = "导出", onClick = onExport)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -599,7 +614,8 @@ object DollListScreen {
                     for (i in actions.indices) {
                         val a = actions[i]
                         DhKit.ActionRow(
-                            label = a.name + "（" + a.frames.size + " 帧）"
+                            label = a.name + "（" + a.frames.size + " 帧）",
+                            iconRes = Icons.IC_BLOCKS
                         ) { picked = i }
                     }
                 }

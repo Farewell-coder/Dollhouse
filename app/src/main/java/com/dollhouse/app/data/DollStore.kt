@@ -674,12 +674,10 @@ object DollStore {
     }
 
     private fun decodeFile(path: String): Bitmap? {
-        return try {
-            val f = File(path)
-            if (!f.exists()) null else BitmapFactory.decodeFile(path)
-        } catch (t: Throwable) {
-            null
-        }
+        // 【r18·内存】统一走 ImageDecode 采样解码。
+        //   下游 scaleDown 本来就压到 ≤1024，解码时直接采样到 1024 量级
+        //   可省掉「全尺寸解码 → 再缩放」的中间全尺寸 Bitmap（峰值内存减半以上）。
+        return com.dollhouse.app.core.ImageDecode.file(path, reqWidth = 1024, reqHeight = 1024)
     }
 
     private fun scaleDown(src: Bitmap): Bitmap {

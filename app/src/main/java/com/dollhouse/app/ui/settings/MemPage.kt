@@ -165,6 +165,8 @@ object MemPage {
         var editing by remember { mutableStateOf<Memory?>(null) }
         var editingNew by remember { mutableStateOf(false) }
         var detail by remember { mutableStateOf<Memory?>(null) }
+        /** 【r19·长按删除】长按节点要删的条目（弹确认框用）。 */
+        var delAskFor by remember { mutableStateOf<Memory?>(null) }
         // 文件夹管理弹窗（= 右上角文件夹图标进的「分类界面」）。
         var folderMgr by remember { mutableStateOf(false) }
         // 【r14】点中的边（显示关系详情）。
@@ -236,11 +238,12 @@ object MemPage {
             actions = {
                 // 【右上角文件夹图标 → 分类界面】用户定案：
                 //   「纯替换成图谱 + 可以通过右上角的一个文件夹图标进入分类界面」。
-                DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title) {
+                // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
+                DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分类") {
                     folderMgr = true
                 }
                 // 新建节点。图标用 circle-dot（图谱里的一个节点），与「新建文件夹」区分开。
-                DhKit.IconButton(Icons.IC_CIRCLE_DOT, Design.SZ_MD, c.title) {
+                DhKit.IconButton(Icons.IC_CIRCLE_DOT, Design.SZ_MD, c.title, label = "新建") {
                     editingNew = true
                     editing = Memory()
                 }
@@ -305,6 +308,14 @@ object MemPage {
                                 if (m != null) {
                                     editingNew = false
                                     editing = m
+                                }
+                            }
+                            // 【r19·长按删除】长按节点弹删除确认（用户反馈「删除按键失效」）。
+                            onNodeLongClick = { title ->
+                                val m = shownMems.firstOrNull { it.title == title }
+                                if (m != null) {
+                                    // 复用编辑弹窗的删除确认逻辑（先删边、再删条目）。
+                                    delAskFor = m
                                 }
                             }
                             onBlankClick = {
@@ -421,16 +432,8 @@ object MemPage {
                 }
             }
 
-            Text(
-                text = "节点是她记下的事，连线是它们之间的关系（聊天时 AI 会自动抽，也可以手动连）。\n"
-                    + "拖动节点可以摆位置，双指缩放；点节点看详情 / 编辑，点连线看关系。\n"
-                    + "共 " + all.size + " 条，最多保留 " + Mem.MAX_ENTRIES + " 条。数据只在这台设备上。",
-                modifier = Modifier.padding(start = 2.dp, top = 10.dp, end = 2.dp),
-                color = c.sub,
-                fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts,
-                lineHeight = (UiKit.FS_TINY + 5f).sp
-            )
+            // 【r19·删描述】底部三行说明文字全部删除（用户要求「那一堆描述文字不需要」）。
+            //   只保留「共 N 条 / 最多保留 M 条」这一行统计信息（用户需要知道容量）。
         }
 
         // ---- 新建 / 编辑条目（含「关联」区 = 手动连线）----
@@ -445,6 +448,11 @@ object MemPage {
                 knownTags = allTags,
                 allMemories = all,
                 onDismiss = { editing = null },
+                onAskDelete = { target ->
+                    // 【r20】先把编辑弹窗关掉，再弹确认框 —— 同一时刻只存在一个 Dialog。
+                    editing = null
+                    delAskFor = target
+                },
                 onSaved = {
                     editing = null
                     refresh++
@@ -470,6 +478,33 @@ object MemPage {
                     refresh++
                 }
             )
+        }
+
+        // ---- 长按节点删除确认（r19·修复「删除按键失效」）----
+        val del = delAskFor
+        if (del != null) {
+            DhForm.Alert(
+                title = "删除记忆",
+                onDismiss = { delAskFor = null },
+                posText = "删除",
+                onPos = {
+                    // 【删之前先把关系边清掉】边是按标题连的，条目没了边还在的话，
+                    //   图谱里会残留一条指向「不存在的标题」的悬空线。
+                    Mem.removeLinksOfTitle(act.applicationContext, dollId, del.title)
+                    Mem.remove(act.applicationContext, dollId, del.id)
+                    MemoryIds.invalidate()
+                    delAskFor = null
+                    refresh++
+                },
+                negText = "取消"
+            ) {
+                Text(
+                    text = "确定删除「" + del.title + "」吗？这条记忆和它的连线会一起删掉。",
+                    color = DhTokens.colors.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
         }
 
         // ---- 分类界面（右上角文件夹图标）----
@@ -681,6 +716,8 @@ object MemPage {
         knownTags: List<String>,
         allMemories: List<Memory>,
         onDismiss: () -> Unit,
+        /** 【r20】编辑态点「删除」时的请求：交回外层关掉本弹窗并弹一次确认框。 */
+        onAskDelete: (Memory) -> Unit,
         onSaved: () -> Unit
     ) {
         val c = DhTokens.colors
@@ -695,11 +732,23 @@ object MemPage {
             mutableStateOf(if (isNew) emptySet<String>() else readOutLinks(act, dollId, m.title))
         }
         var linkPicker by remember { mutableStateOf(false) }
-
+        // 【r20·修「删除按键失效」】原先这里自己再弹一个 `DhForm.Alert` 做二次确认，
+//   有两个明确后果：
+//   ① **删成功了也不刷新**：确认框的 onPos 只调 `onDismiss()`（= editing = null），
+//      没有让外层的 `refresh++`。而图谱数据是 `remember(refresh, dollId)` 缓存的，
+//      refresh 不变就不会重算 —— 条目其实已经从盘上删掉了，屏幕上那条还在，
+//      用户看到的就是「点了删除没反应、删不掉」。
+//   ② 两个 Dialog 叠在同一个宿主里，上层确认框的点击命中不稳定。
+//   现在改成**向外层请求删除**：外层先关掉本编辑弹窗，再弹一次确认框。
+//   始终只有一个 Dialog，且删除成功后走的是外层那条带 refresh++ 的分支。
         DhForm.Alert(
             title = if (isNew) "新建记忆" else "编辑记忆",
             onDismiss = onDismiss,
             posText = "保存",
+            // 【r15·补删除按钮】编辑态把「取消」换成「删除」会误导，所以：
+            //   保留 pos=保存，neg 若是编辑态则显示「删除」，点击交给外层弹确认框。
+            negText = if (isNew) "取消" else "删除",
+            onNeg = if (isNew) null else ({ onAskDelete(m) }),
             onPos = {
                 if (content.trim().isEmpty() && title.trim().isEmpty()) {
                     onDismiss()
@@ -738,7 +787,8 @@ object MemPage {
                 }
                 onSaved()
             },
-            negText = "取消"
+            // 【r15】negText 已在上方按「新建=取消 / 编辑=删除」给过，这里不再重复传，
+            //   否则 Kotlin 报「An argument is already passed for this parameter」。
         ) {
             DhForm.Input(
                 value = title,

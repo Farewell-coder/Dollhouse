@@ -126,7 +126,7 @@ object DollPersonaPage {
             onBack = { PageStack.pop(act) }
         ) {
             /* ==================== ① 基础 ==================== */
-            DhKit.Card(collapsibleTitle = "基础") {
+            DhKit.Card(collapsibleTitle = "基础", titleIcon = Icons.IC_BOOK_HEART) {
                 DhForm.Note("这几段合起来构成「她是谁」，会作为人设整段交给模型。")
                 DhForm.Input(
                     value = brief,
@@ -183,7 +183,7 @@ object DollPersonaPage {
             }
 
             /* ==================== ② 对话 ==================== */
-            DhKit.Card(collapsibleTitle = "对话") {
+            DhKit.Card(collapsibleTitle = "对话", titleIcon = Icons.IC_MESSAGE_SQUARE) {
                 DhForm.Note("影响「一开口」的样子，不改变她是谁。")
                 DhForm.InputMultiline(
                     value = greeting,
@@ -219,7 +219,7 @@ object DollPersonaPage {
             }
 
             /* ==================== ③ 高级 ==================== */
-            DhKit.Card(collapsibleTitle = "高级") {
+            DhKit.Card(collapsibleTitle = "高级", titleIcon = Icons.IC_SLIDERS_HORIZONTAL) {
                 DhForm.Note("这几项控制设定「怎么进请求」，看不懂可以完全不填。")
 
                 // ---- 后置指令 ----
@@ -233,7 +233,7 @@ object DollPersonaPage {
                 DhForm.Note("后置指令放在请求最末尾，权重最高 —— 适合写「铁的规矩」。")
 
                 // ---- 常驻注入 ----
-                DhKit.CardTitle("常驻注入")
+                DhKit.CardTitle("常驻注入", iconRes = Icons.IC_PLUG)
                 DhForm.Note("不看对话内容，每轮都塞进去。适合放铁的规则。")
                 val injs = remember(id, tick) { DollProfile.spec(act, id).injections }
                 for (inj in injs) {
@@ -250,7 +250,7 @@ object DollPersonaPage {
                 }
 
                 // ---- 世界书 ----
-                DhKit.CardTitle("世界书")
+                DhKit.CardTitle("世界书", iconRes = Icons.IC_BOOK_OPEN)
                 DhForm.Note("关键词命中才注入 —— 不聊到就不占上下文。适合放支线设定。")
                 val lores = remember(id, tick) { DollProfile.spec(act, id).lore }
                 for (e in lores) {
@@ -265,7 +265,7 @@ object DollPersonaPage {
                 }
 
                 // ---- 输出替换 ----
-                DhKit.CardTitle("输出替换")
+                DhKit.CardTitle("输出替换", iconRes = Icons.IC_REFRESH)
                 DhForm.Note("按正则清洗对话文本，用于去掉多余的旁白、动作描写等。")
                 val rules = remember(id, tick) { DollProfile.spec(act, id).rules }
                 for (r in rules) {
@@ -282,7 +282,7 @@ object DollPersonaPage {
             }
 
             /* ==================== ④ 提示词与角色卡 ==================== */
-            DhKit.Card(collapsibleTitle = "提示词与角色卡") {
+            DhKit.Card(collapsibleTitle = "提示词与角色卡", titleIcon = Icons.IC_QUOTE) {
                 DhKit.ActionRow(label = "查看实际提示词", iconRes = Icons.IC_EYE, trailing = "›") {
                     DollPromptPreview.show(act, id)
                 }

@@ -37,9 +37,14 @@ object MessageMenu {
      * @param title   标题（这里是消息摘要，让用户确认操作的是哪一条）
      * @param labels  各菜单项文案
      * @param actions 与 [labels] 一一对应的动作；点完自动关弹窗
+     * @param iconRes 与 [labels] 一一对应的图标资源（Icons.IC_*）；0 = 该项不配图标。
+     *                【r17】用户要求「删除」这类按键用垃圾桶图标而非纯文字。
+     *                传 null / 长度不足时按 0 处理，与原行为逐像素一致。
      */
     @JvmStatic
-    fun show(act: Activity?, title: String?, labels: List<String>, actions: List<() -> Unit>) {
+    @JvmOverloads
+    fun show(act: Activity?, title: String?, labels: List<String>, actions: List<() -> Unit>,
+             iconRes: IntArray? = null) {
         if (act == null || labels.isEmpty()) {
             return
         }
@@ -67,7 +72,8 @@ object MessageMenu {
         list.orientation = LinearLayout.VERTICAL
         sc.addView(list)
         for (i in labels.indices) {
-            list.addView(menuRow(act, labels[i], i == 0) { v ->
+            val icon = iconRes?.getOrNull(i) ?: 0
+            list.addView(menuRow(act, labels[i], icon, i == 0) { v ->
                 dlg.dismiss()
                 try {
                     actions.getOrNull(i)?.invoke()
@@ -88,24 +94,39 @@ object MessageMenu {
         dlg.show()
     }
 
-    /** 一行菜单项：整行可点、左对齐、按下有反馈色。 */
-    private fun menuRow(act: Activity, text: String, first: Boolean, onClick: (View) -> Unit): View {
+    /**
+     * 一行菜单项：整行可点、左对齐、按下有反馈色。
+     *
+     * 【r17·图标】[iconRes] 非 0 时在文字左侧挂一枚 Lucide 图标（如「删除」→ 垃圾桶），
+     *   整行仍是同一个可点区域，不改变点击语义与行高。
+     */
+    private fun menuRow(act: Activity, text: String, iconRes: Int, first: Boolean,
+                        onClick: (View) -> Unit): View {
+        val row = LinearLayout(act)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.isClickable = true
+        row.setOnClickListener(onClick)
+        row.setPadding(UiKit.dp(act, 14), UiKit.dp(act, 13), UiKit.dp(act, 14), UiKit.dp(act, 13))
+        if (iconRes != 0) {
+            val iv = com.dollhouse.app.ui.theme.Icons.view(act, iconRes, 18f, UiKit.TITLE)
+            val ivp = LinearLayout.LayoutParams(UiKit.dp(act, 18), UiKit.dp(act, 18))
+            ivp.rightMargin = UiKit.dp(act, 10)
+            row.addView(iv, ivp)
+        }
         val tv = TextView(act)
         tv.text = text
         tv.textSize = 15f
         tv.setTextColor(UiKit.TITLE)
         tv.gravity = Gravity.CENTER_VERTICAL
-        tv.setPadding(UiKit.dp(act, 14), UiKit.dp(act, 13), UiKit.dp(act, 14), UiKit.dp(act, 13))
-        tv.isClickable = true
-        tv.setBackgroundColor(Color.TRANSPARENT)
-        tv.setOnClickListener(onClick)
+        row.addView(tv)
         // 【分隔线】第一项不加（紧贴标题），其余加一条淡线，视觉上把条目切开。
         val lp = LinearLayout.LayoutParams(-1, -2)
         if (!first) {
             lp.topMargin = UiKit.dp(act, 2)
         }
-        tv.layoutParams = lp
-        return tv
+        row.layoutParams = lp
+        return row
     }
 
     /**

@@ -166,6 +166,16 @@ object HomeUi {
             drawer.isClickable = false
             drawer.isFocusable = false
             content.addView(drawer)
+            // 【r17·导航迁移】装上 Navigation 3 渲染层（覆盖层页面栈）。
+            //   【层级】必须放在底座与抽屉**之后** —— 后加的盖在上面，故覆盖层在最顶。
+            //   这符合预期语义「覆盖页独占屏幕」：栈非空时它盖住三个 Tab、底栏与抽屉。
+            //   【栈空时零影响】`NavHost` 内部在「只有底座」时什么都不画
+            //   （见 `NavHost.install` 的 `stack.size > 1` 守卫），
+            //   此时它是一层不消费触摸的空 ComposeView，抽屉与底栏照常工作。
+            //   【抽屉不需要盖在覆盖层之上】抽屉的唤出入口是聊天列表页左上角头像，
+            //   而聊天列表页属于底座；覆盖页开着时用户根本看不到那个入口，
+            //   两者不会同时需要交互，无需把抽屉提到最顶。
+            com.dollhouse.app.ui.nav.NavHost.install(activity)
             sync(activity)
             // 【路由恢复】冷启动进「上次停留的 Tab」；第一次启动时偏好里没有记录，
             //   [AppNav] 会落到默认值（聊天），即需求要求的「默认页面改为聊天列表」。

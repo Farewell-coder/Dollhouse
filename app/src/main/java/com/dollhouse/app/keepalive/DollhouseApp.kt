@@ -1,5 +1,7 @@
 package com.dollhouse.app.keepalive
 
+import com.dollhouse.app.core.CrashGuard
+import com.dollhouse.app.core.Logs
 import android.app.Application
 import com.dollhouse.app.ui.compose.ComposeHost
 import dagger.hilt.android.HiltAndroidApp
@@ -23,6 +25,12 @@ class DollhouseApp : Application() {
     lateinit var keepAlive: KeepAliveFacade
     override fun onCreate() {
         super.onCreate()
+        // 【r15·日志开关】尽早装上下文，让 Logs 能读运行期开关。
+        //   放在最前：后面的初始化若有异常，日志已经可用了。
+        Logs.install(this)
+        // 【r15·崩溃兜底】装未捕获异常处理器：崩溃时落一份现场到 cacheDir/crash/。
+        //   【为什么必须最早装】越早才能逮到越多；装在 super.onCreate 之后、其余初始化之前。
+        CrashGuard.install(this)
         // 【Compose 生命周期桥】本工程 Activity 全部继承原生 `android.app.Activity`，
         //   不会自动装 `ViewTreeLifecycleOwner`；而 Compose 的帧时钟只在 Lifecycle
         //   走到 ON_START 时才恢复。这里挂一次进程级回调，把真实的前后台变化转发给

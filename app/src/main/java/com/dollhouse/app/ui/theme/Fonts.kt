@@ -25,6 +25,34 @@ object Fonts {
     @Volatile
     private var tried = false
 
+    /**
+     * 【r18·启动性能】后台异步预热字体，避免首帧渲染时主线程被 25MB 字体解码阻塞。
+     *
+     * 【为什么需要】`ui()` 是「调用即要」的同步接口，首次调用（HomeUi 渲染首帧）
+     *   会同步 `ResourcesCompat.getFont` —— 25MB 字体解码在主线程要几百 ms，首帧必掉。
+     *   预热把这次解码挪到后台线程提前完成：主线程首次调用时若缓存已就绪则零阻塞；
+     *   若还没好则照旧走同步路径（回退系统默认），**功能与观感零损失**（最多首帧用默认字体，
+     *   下一帧缓存就绪自动换）。
+     *
+     * 【幂等】多次调用只触发一次真实加载（`tried` 标记 + 同步块内二次检查）。
+     * 【调用时机】由 MainActivity.onCreate 在首帧渲染前调用（见调用点注释）。
+     */
+    @JvmStatic
+    fun warmUp(ctx: Context?) {
+        if (ctx == null || cached != null || tried) {
+            return
+        }
+        val appCtx = ctx.applicationContext
+        Thread {
+            // 触发一次 ui() 即可把字体装进缓存；返回值不用管（缓存已写）。
+            ui(appCtx)
+        }.apply {
+            name = "dh-font-warmup"
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY // 不抢首帧渲染的 CPU
+        }.start()
+    }
+
     /** 全局 UI 字体；加载失败返回系统默认（Typeface.DEFAULT），调用方无需判空。 */
     @JvmStatic
     fun ui(ctx: Context?): Typeface {

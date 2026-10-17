@@ -41,6 +41,8 @@ class MemGraphView(context: Context) : View(context) {
 
     /** 点击（未拖动）命中节点时的回调（传节点标题）。 */
     var onNodeClick: ((String) -> Unit)? = null
+    /** 【r19·长按删除】长按节点时回调标题（用于弹删除确认）。 */
+    var onNodeLongClick: ((String) -> Unit)? = null
 
     /** 点击空白处（用来收起详情 / 关闭搜索高亮）。 */
     var onBlankClick: (() -> Unit)? = null
@@ -71,6 +73,9 @@ class MemGraphView(context: Context) : View(context) {
     private var downX = 0f
     private var downY = 0f
     private var moved = false
+    /** 【r19·长按删除】长按计时任务（500ms 未移动触发）。 */
+    private var longPressJob: Runnable? = null
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
     // ---------------- 双指缩放状态 ----------------
     private var pinch = false
@@ -265,6 +270,15 @@ class MemGraphView(context: Context) : View(context) {
                 val hit = MemGraphLayout.hitTest(res, w, h)
                 if (hit >= 0) {
                     dragging = hit
+                    // 【r19·长按删除】按下节点后启动长按计时（500ms 未移动触发）。
+                    longPressJob?.let { handler.removeCallbacks(it) }
+                    val job = Runnable {
+                        if (!moved && dragging == hit) {
+                            onNodeLongClick?.invoke(res.nodes[hit].title)
+                        }
+                    }
+                    longPressJob = job
+                    handler.postDelayed(job, 500)
                 } else {
                     dragging = -1
                     panning = true
@@ -322,6 +336,7 @@ class MemGraphView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_UP -> {
+                longPressJob?.let { handler.removeCallbacks(it) }
                 val wasPinch = pinch
                 val wasDragging = dragging
                 val hitTitle: String?
@@ -355,6 +370,7 @@ class MemGraphView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                longPressJob?.let { handler.removeCallbacks(it) }
                 pinch = false
                 dragging = -1
                 panning = false

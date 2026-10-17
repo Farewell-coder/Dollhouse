@@ -821,7 +821,7 @@ object UiKit {
         )
         g.cornerRadius = dp(c, 999).toFloat()
         b.background = g
-        b.setImageResource(R.drawable.ic_send)
+        b.setImageResource(Icons.IC_SEND)
         val d = b.drawable
         if (d != null) {
             try {

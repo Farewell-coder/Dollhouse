@@ -123,12 +123,13 @@ object ContactScreen {
                 )
                 // 【分组管理】用户定案：「手动分组」，入口在**列表页顶部**。
                 //   图标用 folder-tree（分组的层级语义），与「新建人偶」的 user-plus 区分开。
-                DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title) {
+                // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
+                DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分组") {
                     DollGroupPage.open(act) { grpRev++ }
                 }
                 Spacer(Modifier.width(4.dp))
                 // 新手偶：建一个新角色。
-                DhKit.IconButton(Icons.IC_USER_PLUS, Design.SZ_MD, c.title) {
+                DhKit.IconButton(Icons.IC_USER_PLUS, Design.SZ_MD, c.title, label = "新建") {
                     DollListScreen.open(act)
                 }
             }

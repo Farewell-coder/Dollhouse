@@ -248,6 +248,8 @@ object Design {
 
         /** 删除（危险）。 */
         val DELETE = Icons.IC_TRASH
+        /** 保存（Lucide save）。 */
+        val SAVE = Icons.IC_SAVE
 
         /** 连接 / 网络 / 终端。 */
         val PLUG = Icons.IC_PLUG

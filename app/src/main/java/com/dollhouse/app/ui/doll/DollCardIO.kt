@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.io.File
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】角色卡的导入 / 导出入口（r13 新增）。
@@ -94,12 +95,19 @@ object DollCardIO {
         dlgRef = DhForm.show(act, "导出角色卡") {
             val name = DollStore.byId(act, dollId)?.name ?: ""
             DhForm.Note("选择导出格式：")
-            DhKit.ActionRow(label = "Dollhouse 格式", trailing = "字段最全") {
+            DhKit.ActionRow(
+                    label = "Dollhouse 格式",
+                    iconRes = Icons.IC_PACKAGE,
+                    trailing = "字段最全"
+                ) {
                 write(act, dollId, name, false)
                 dlgRef?.dismiss()
             }
             DhForm.Note("本软件专用，含注入位置、输出替换等全部设置，换手机 / 备份用这个。")
-            DhKit.ActionRow(label = "酒馆（Tavern）格式") {
+            DhKit.ActionRow(
+                    label = "酒馆（Tavern）格式",
+                    iconRes = Icons.IC_EXTERNAL
+                ) {
                 write(act, dollId, name, true)
                 dlgRef?.dismiss()
             }

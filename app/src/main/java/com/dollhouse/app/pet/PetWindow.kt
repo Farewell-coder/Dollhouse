@@ -15,9 +15,14 @@ import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PetService
 import com.dollhouse.app.anim.Springs
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.pet.behavior.ActionSemantic
+import com.dollhouse.app.ui.chat.MessageMenu
+import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.doll.DollActionPage
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -110,6 +115,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (g != null) {
             dispatchGesture(g)
         }
+        // 【点完要回落待机档】`dispatchGesture` 可能播了一个交互动作；
+        //   非循环的会由播放层回调 `onActionFinished` 自行回落，
+        //   但**循环的交互动作**（用户自己设成 loop 的）不会自动结束 ——
+        //   这里补一次「交互结束」，交回待机档，避免人偶永远卡在那个动作上。
+        petView?.interactionEnd()
     }
 
     /** 长按到点：判定为长按手势（即便配置为「无」也消费这一次按压）。 */
@@ -117,6 +127,9 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         val g = gesture.onLongPressTimeout()
         if (g != null) {
             ui.removeCallbacks(tapResolve)
+            // 【长按也算交互】先让动作层腾位（长按常配「聊天/继续」这类 UI 行为，
+            //   此时人偶不该继续播着循环待机动画）。
+            petView?.interactionStart(ActionSemantic.LONG_PRESS)
             dispatchGesture(g)
         }
     }
@@ -155,6 +168,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         petView.setSprite(DollStore.spriteOf(host, doll))
         petView.setFlipped(DollProfile.flip(host, doll.id))
         petView.snapActiveCheck = { snapAnim?.isRunning == true }
+        // 【r16·成败判据接线】打开动作播放层 —— 从此桌宠会读 DollAnim。
+        //   是否真的会播，取决于该人偶有没有「待机默认动作」；
+        //   没有配置时动作层 `hasContent()` 恒为 false，绘制路径与改造前逐行一致。
+        petView.enableActions(doll.id)
         val layoutParams = WindowManager.LayoutParams(petView.windowWidth(), petView.petHeight(), overlayType(), 776, -3)
         lp = layoutParams
         layoutParams.gravity = 8388659
@@ -224,8 +241,14 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             added = true
             petView.screenTick = Runnable { checkScreenChanged() }
             petView.startAnim()
+            // 【r16】挂载后先播「出现」，播完（非循环动作）由 onFinish 回落到待机默认动作；
+            //   没有配出现动作时，playSemantic 返回 false，于是直接进待机档。
+            //   注意顺序：必须在 startAnim() 之后 —— 帧循环才是动作真正的推进力。
+            startSemanticWithIdleFallback(ActionSemantic.APPEAR)
             PetBus.register(busListener)
             updateTouchable()
+            // 【r19·随机走位】挂载后启动（若用户在设置里开了开关）。
+            startWander()
         } catch (unused: Throwable) {
             added = false
             // 主窗挂载失败才停服务（与旧行为一致）；副窗失败只记日志，不影响其它人偶。
@@ -240,6 +263,7 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     /** 从 WindowManager 摘掉 PetView 并复位状态（本窗口独占的资源一并释放）。 */
     fun detach() {
         PetBus.unregister(busListener)
+        stopWander() // 【r19】摘窗时停走位
         cancelAway()
         ui.removeCallbacksAndMessages(null)
         snapAnim?.cancel()
@@ -255,6 +279,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
                 } catch (unused: Throwable) {
                 }
             }
+            // 【r16】彻底释放动作层（本窗口被丢弃，PetView 不再复用）。
+            //   与 awayHide 的区别：那是「暂时离场」，PetView 会被 awayShow 重新挂回，
+            //   所以那里只 stopAnim 不释放。
+            petView.disableActions()
             this.petView = null
         }
         added = false
@@ -332,6 +360,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (pivot == null) {
             return
         }
+        // 【r15·收敛 !!】本函数原先裸用 petView!!，但 detach() 会把 petView 置空 ——
+        //   转屏 / 分屏回调若恰在摘窗后到达，这里就是一次 NPE。
+        //   统一改成顶部一次取值 + 判空返回：后面全部走局部变量，语义不变、崩溃路径消失。
+        val pv = petView ?: return
         val screenH = host.resources.displayMetrics.heightPixels
         val edge = Math.round(host.resources.displayMetrics.density * 8.0f)
         // 【r12】转屏 / 分屏后按**新方向的那套虚线框**复位（不再是屏幕边缘）。
@@ -339,8 +371,8 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         val sig = (box[0].toInt() * 31) xor (box[1].toInt() * 17) xor (box[2].toInt() * 7) xor box[3].toInt()
         boxSig = sig
         if (edgePeek) {
-            val petWidth = petView!!.petWidth()
-            val inset = petView!!.edgeInsetPx()
+            val petWidth = pv.petWidth()
+            val inset = pv.edgeInsetPx()
             // 【r12】与 snapToEdge 同口径：贴虚线框的边；框坐标是 Float，窗口 x 需取整。
             val wPivot = Math.round(
                 if (edgeAtLeft) (box[0] - inset) + (petWidth / 2) else (box[2] + inset) - (petWidth / 2)
@@ -349,8 +381,8 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             rememberPivot()
             return
         }
-        val half = petView!!.petWidth() / 2
-        val x = if (box[2] - box[0] <= petView!!.petWidth()) {
+        val half = pv.petWidth() / 2
+        val x = if (box[2] - box[0] <= pv.petWidth()) {
             Math.round(box[2] - half)
         } else {
             Math.max(Math.round(box[0] + half), Math.min(Math.round(box[2] - half), pivot[0]))
@@ -379,11 +411,12 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
 
     fun safeUpdate() {
         val petView = petView
-        if (petView == null || !added) {
+        val lp = lp
+        if (petView == null || lp == null || !added) {
             return
         }
         try {
-            wm.updateViewLayout(petView, lp!!)
+            wm.updateViewLayout(petView, lp)
         } catch (unused: Throwable) {
         }
     }
@@ -501,7 +534,9 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
      *   边界改由虚线框给出，与屏幕尺寸解耦。
      */
     fun clampFeetY(i: Int, i2: Int, i3: Int): Int {
-        val petView = petView!!
+        // 【r15·收敛 !!】原来 `val petView = petView!!`，摘窗后若被调用即 NPE。
+        //   本函数只做纯几何夹取，无视图时直接放行原值（等价于「不夹」），行为最安全。
+        val petView = petView ?: return i
         val box = boundsBox()
         val headMin = Math.round(box[1] + petView.pivotLocalY() + bubbleHeightIfUp())
         val minY = Math.max(petView.bubbleSpace() + Math.round(petView.pivotLocalY()), headMin)
@@ -513,10 +548,15 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     }
 
     fun settle() {
+        // 【r15·收敛 !!】这是**真实崩溃路径**：手指抬起（handleTouch 的 ACTION_UP）会走到这里，
+        //   而 detach() 恰好在同一帧把 petView / lp 置空时，旧代码四处 !! 会直接抛 NPE。
+        //   统一在顶部一次取值 + 判空返回。
+        val pv = petView ?: return
+        val params = lp ?: return
         val i2 = host.resources.displayMetrics.heightPixels
         val round = Math.round(host.resources.displayMetrics.density * 8.0f)
-        val round2 = Math.round(lp!!.x + petView!!.pivotLocalX())
-        val feetY = Math.round(lp!!.y + petView!!.pivotLocalY() + bubbleHeightIfUp())
+        val round2 = Math.round(params.x + pv.pivotLocalX())
+        val feetY = Math.round(params.y + pv.pivotLocalY() + bubbleHeightIfUp())
         val clampFeetY = clampFeetY(feetY, i2, round)
         // 【r12】吸附区与落位边界改由虚线框决定（不再用屏幕边缘）。
         //   需求定案：拖出去之后「会被拉回到虚线处」= 吸到最近的框边。
@@ -534,8 +574,8 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         }
         exitEdgePeek()
         // 框比人偶还窄时（极端缩放）直接贴右，保证不越界。
-        val half = petView!!.petWidth() / 2
-        val x = if (right - left <= petView!!.petWidth()) {
+        val half = pv.petWidth() / 2
+        val x = if (right - left <= pv.petWidth()) {
             Math.round(right - half)
         } else {
             Math.max(Math.round(left + half), Math.min(Math.round(right - half), round2))
@@ -545,31 +585,32 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     }
 
     fun snapToEdge(z: Boolean, i: Int) {
-        petView?.wakeFrame()
-        val petView = petView!!
-        val petWidth = petView.petWidth()
+        // 【r15·收敛 !!】贴边动画的每一帧回调也在用 lp!!，摘窗后动画没停就会 NPE。
+        val pv = petView ?: return
+        val params = lp ?: return
+        pv.wakeFrame()
+        val petWidth = pv.petWidth()
         // 【r12】贴的是**虚线框**的左右边，不再是屏幕边缘（需求定案）。
         val box = boundsBox()
         val i3 = Math.max(1, box[2].toInt())
         enterEdgePeek(z)
-        val edgeInsetPx = petView.edgeInsetPx()
+        val edgeInsetPx = pv.edgeInsetPx()
         // 【r12】框坐标是 Float，窗口 x 必须是 Int：这里就取整，后面直接当像素用。
         val i2 = Math.round(if (z) {
             (box[0] - edgeInsetPx) + (petWidth / 2)
         } else {
             (box[2] + edgeInsetPx) - (petWidth / 2)
         })
-        val round2 = Math.round(i2 - petView.pivotLocalX())
-        val lp = lp!!
-        val space = if (bubbleUp && !peek && petView.hasBubbleContent())
-            petView.neededBubbleSpaceFor(petView.windowWidth(), round2) else 0
+        val round2 = Math.round(i2 - pv.pivotLocalX())
+        val space = if (bubbleUp && !peek && pv.hasBubbleContent())
+            pv.neededBubbleSpaceFor(pv.windowWidth(), round2) else 0
         if (space > 0) {
-            petView.setBubbleHeight(space)
+            pv.setBubbleHeight(space)
         }
-        lp.width = petView.windowWidth()
-        lp.height = petView.baseHeight() + space
-        lp.y = Math.round(i - petView.pivotLocalY() - space)
-        petTopY = lp.y + space
+        params.width = pv.windowWidth()
+        params.height = pv.baseHeight() + space
+        params.y = Math.round(i - pv.pivotLocalY() - space)
+        petTopY = params.y + space
         safeUpdate()
         val screenW = Math.max(1, host.resources.displayMetrics.widthPixels)
         val screenH = Math.max(1, host.resources.displayMetrics.heightPixels)
@@ -580,16 +621,22 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         prefs.edit().putInt(key("rest_px"), i2).putInt(key("rest_fy"), i)
                 .putFloat(key("rest_rx"), i2 / screenW.toFloat())
                 .putFloat(key("rest_ry"), i / screenH.toFloat()).apply()
-        val fromX = lp.x
+        val fromX = params.x
         snapAnim = Springs.drive(Springs.snappy(), object : Springs.Listener {
             override fun onUpdate(p: Float) {
-                lp!!.x = Springs.lerpInt(fromX, round2, p)
-                safeUpdate()
+                // 【r15·收敛 !!】动画回调里原来直接 lp!! —— 摘窗后动画若在跑就 NPE。
+                //   改成每帧重新取（取不到就自然停下，不再 update）。
+                lp?.let {
+                    it.x = Springs.lerpInt(fromX, round2, p)
+                    safeUpdate()
+                }
             }
 
             override fun onEnd() {
-                lp!!.x = round2
-                safeUpdate()
+                lp?.let {
+                    it.x = round2
+                    safeUpdate()
+                }
             }
         })
     }
@@ -640,8 +687,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     }
 
     fun expandBubble(i: Int) {
+        // 【r15·收敛 !!】原写法 `if (lp == null || petView == null) return` 之后再全程 lp!! ——
+        //   中间任何一处调用（relayoutBubble 等）若回调里摘窗，后面的 !! 就会 NPE。统一取局部。
         val petView = petView
-        if (lp == null || petView == null) {
+        val params = lp
+        if (params == null || petView == null) {
             return
         }
         var space = if (i <= 0) petView.bubbleSpace() else i
@@ -654,14 +704,14 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             val box = boundsBox()
             val insetPx = petView.edgeInsetPx()
             val minX = Math.round(box[0] - insetPx)
-            val maxX = Math.round(box[2] + insetPx) - lp!!.width
-            lp!!.x = Math.max(minX, Math.min(Math.max(minX, maxX), lp!!.x))
+            val maxX = Math.round(box[2] + insetPx) - params.width
+            params.x = Math.max(minX, Math.min(Math.max(minX, maxX), params.x))
         }
-        petView.relayoutBubble(lp!!.width, lp!!.x)
-        space = petView.neededBubbleSpaceFor(lp!!.width, lp!!.x)
+        petView.relayoutBubble(params.width, params.x)
+        space = petView.neededBubbleSpaceFor(params.width, params.x)
         petView.setBubbleHeight(space)
-        lp!!.height = petView.baseHeight() + space
-        lp!!.y = petTopY - space
+        params.height = petView.baseHeight() + space
+        params.y = petTopY - space
         bubbleUp = true
         safeUpdate()
     }
@@ -682,19 +732,17 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
 
     fun collapseBubble() {
         val petView = petView
-        if (lp == null || petView == null || !bubbleUp) {
-            val petView2 = petView
-            if (petView2 != null) {
-                petView2.clearBubble()
-            }
+        val params = lp
+        if (params == null || petView == null || !bubbleUp) {
+            petView?.clearBubble()
             return
         }
         petView.clearBubble()
         petView.setBubbleHeight(0)
-        lp!!.height = petView.baseHeight()
-        lp!!.y = petTopY
+        params.height = petView.baseHeight()
+        params.y = petTopY
         if (edgePeek && !peek) {
-            lp!!.x = edgePeekX()
+            params.x = edgePeekX()
         }
         bubbleUp = false
         safeUpdate()
@@ -737,7 +785,8 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
      */
     fun applyScale() {
         val petView = petView
-        if (petView == null || lp == null || !added) {
+        val params = lp
+        if (petView == null || params == null || !added) {
             return
         }
         val target = DollProfile.scale(host, doll.id) / 100.0f
@@ -757,13 +806,13 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             return
         }
         val wasBubbleUp = bubbleUp
-        val bubbleSpace = if (wasBubbleUp) Math.max(0, lp!!.height - petView.baseHeight()) else petView.bubbleSpace()
+        val bubbleSpace = if (wasBubbleUp) Math.max(0, params.height - petView.baseHeight()) else petView.bubbleSpace()
         if (wasBubbleUp) {
             petView.setBubbleHeight(0)
             bubbleUp = false
         }
-        var pivotX: Float = lp!!.x + petView.pivotLocalX()
-        val pivotY = lp!!.y + petView.pivotLocalY()
+        var pivotX: Float = params.x + petView.pivotLocalX()
+        val pivotY = params.y + petView.pivotLocalY()
         if (edgePeek) {
             exitEdgePeek()
         }
@@ -948,7 +997,8 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
 
     /** 首次进 peek：锁死锚点（脚底 Y / 水平中心），清气泡、关贴边、切趴姿。 */
     private fun enterPeek(petView: PetView) {
-        val lpv = lp!!
+        // 【r15·收敛 !!】lp 为空时原代码 NPE；这里改成直接返回（没窗口就没得锁锚点）。
+        val lpv = lp ?: return
         talkFeetY = lpv.y + lpv.height
         talkAnchorX = lpv.x + Math.max(1, lpv.width) / 2
         peek = true
@@ -972,7 +1022,7 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             }
             return
         }
-        val x = lp!!.x
+        val x = lp?.x ?: return
         if (input.isShowing()) {
             input.moveTo(x, talkY, width)
         } else {
@@ -1007,13 +1057,15 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             val i = host.resources.displayMetrics.widthPixels
             val i2 = host.resources.displayMetrics.heightPixels
             val round = Math.round(f * 8.0f)
-            val petView = petView!!
-            petView.setPeek(false)
-            petView.clearBubble()
-            petView.setBubbleHeight(0)
-            petView.setEdgePeek(edgePeek, edgeAtLeft)
+            // 【r15·收敛 !!】原为 `val petView = petView!!`：判空检查在本函数开头，
+            //   但这中间调用了 applyPetShown（可能触发窗口更新），保险起见再取一次并判空。
+            val pv = petView ?: return
+            pv.setPeek(false)
+            pv.clearBubble()
+            pv.setBubbleHeight(0)
+            pv.setEdgePeek(edgePeek, edgeAtLeft)
             bubbleUp = false
-            val petWidth = petView.petWidth() / 2
+            val petWidth = pv.petWidth() / 2
             val rest = restorePivot()
             var i3 = if (rest != null) rest[0] else (i - round) - petWidth
             val i4 = if (rest != null) rest[1] else Math.round(i2 * 0.8f)
@@ -1032,7 +1084,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
 
     /** 兼容旧 PetWindowController.layoutPeek 的趴姿布局（当前无调用方，保留对外契约）。 */
     fun layoutPeek(i: Int, i2: Int, i3: Int, i4: Int) {
-        if (petView == null || lp == null || !added) {
+        // 【r15·收敛 !!】整段原来散着 7 处 !!，现在开头一次取、判空返回，全走局部。
+        val pv = petView ?: return
+        val params = lp ?: return
+        if (!added) {
             return
         }
         if (!peek) {
@@ -1042,26 +1097,24 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
                 valueAnimator.cancel()
             }
             ui.removeCallbacks(hideBubble)
-            petView!!.clearBubble()
-            petView!!.setBubbleHeight(0)
+            pv.clearBubble()
+            pv.setBubbleHeight(0)
             bubbleUp = false
-            petView!!.setEdgePeek(false, false)
-            petView!!.setPeek(true)
+            pv.setEdgePeek(false, false)
+            pv.setPeek(true)
         }
         val f = host.resources.displayMetrics.density
         val i5 = host.resources.displayMetrics.widthPixels
-        val petView = petView!!
-        val windowWidth = petView.windowWidth()
-        val baseHeight = petView.baseHeight()
-        val round = Math.max(Math.round(8.0f * f), Math.round(petView.petWidth() * PetView.PEEK_OVERLAP_RATIO))
+        val windowWidth = pv.windowWidth()
+        val baseHeight = pv.baseHeight()
+        val round = Math.max(Math.round(8.0f * f), Math.round(pv.petWidth() * PetView.PEEK_OVERLAP_RATIO))
         applyPetShown(true)
         val minTop = Math.round(f * 4.0f)
         petTopY = Math.max(minTop, (i2 - baseHeight) + round)
-        val lp = lp!!
-        lp.width = windowWidth
-        lp.height = baseHeight
-        lp.x = Math.max(0, Math.min(i5 - windowWidth, i + ((i3 - windowWidth) / 2)))
-        lp.y = petTopY
+        params.width = windowWidth
+        params.height = baseHeight
+        params.x = Math.max(0, Math.min(i5 - windowWidth, i + ((i3 - windowWidth) / 2)))
+        params.y = petTopY
         safeUpdate()
     }
 
@@ -1123,8 +1176,8 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             downRawY = motionEvent.rawY
             lastRawX = downRawX
             lastMoveAt = System.currentTimeMillis()
-            val lpv = lp!!
-            val pv = petView!!
+            val lpv = lp ?: return false
+            val pv = petView ?: return false
             downPivotX = lpv.x + pv.pivotLocalX()
             val pivotLocalY = lpv.y + pv.pivotLocalY() + bubbleSpaceIfUp()
             downPivotY = pivotLocalY
@@ -1132,6 +1185,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             curPivotY = pivotLocalY
             dragging = false
             snapAnim?.cancel()
+            // 【r19·睡觉唤醒】按下即唤醒（点击 / 拖动 / 长按都算）。
+            if (sleeping) {
+                exitSleep()
+            }
             pv.setTouchBusy(true)
             gesture.onDown()
             ui.removeCallbacks(tapResolve)
@@ -1158,14 +1215,20 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
                         collapseBubble()
                     }
                     exitEdgePeek()
-                    petView!!.setDragging(true)
+                    // 【r15·收敛 !!】拖拽期间理论上不会摘窗，但摘窗 + 手指同帧的边界下
+                    //   原来的 petView!! 就是一次 NPE；这里改成安全调用，行为完全不变。
+                    petView?.setDragging(true)
+                    // 【r16·交互要让出绘制位】拖动一开始就通知动作层腾位，
+                    //   否则循环的待机默认动作会一直占着画面 ——
+                    //   用户按住人偶拖，却看不到倾斜与抬升（明显的功能退化）。
+                    petView?.interactionStart(ActionSemantic.DRAG)
                 }
                 if (dragging) {
                     curPivotX = downPivotX + rawX
                     curPivotY = downPivotY + rawY
                     applyDragPlacement()
-                    petView!!.setDragVelocity(rawX2)
-                    petView!!.lookAt(Math.max(-1.0f, Math.min(1.0f, rawX2 / 900.0f)))
+                    petView?.setDragVelocity(rawX2)
+                    petView?.lookAt(Math.max(-1.0f, Math.min(1.0f, rawX2 / 900.0f)))
                 }
                 return true
             }
@@ -1179,14 +1242,23 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             ui.removeCallbacks(tapResolve)
         }
         if (dragging) {
-            petView!!.setDragging(false)
+            petView?.setDragging(false)
             placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
             settle()
+            // 【交互结束必须回落】拖动放下 → 回到待机档（若有默认动作就续播它）。
+            petView?.interactionEnd()
         } else if (actionMasked == 1) {
             ui.removeCallbacks(longPressTick)
+            // 【r19·摸头反馈】单击且落点在头部 1/3 区域时，额外触发 tap 动作。
+            //   「头部」= 人偶精灵图的上 1/3 区域（以 PetView 坐标系计）。
             if (gesture.onUp()) {
                 ui.removeCallbacks(tapResolve)
                 ui.postDelayed(tapResolve, PetService.TAP_WINDOW_MS)
+                val pv = petView
+                if (pv != null && motionEvent.y < pv.height / 3f) {
+                    // 摸头 = 点了一下头 —— 播 tap 语义动作（用户配的摸头反应）。
+                    pv.playSemantic(ActionSemantic.TAP)
+                }
             }
             talkOnSend = false
         }
@@ -1201,6 +1273,50 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     }
 
     /**
+     * **【r16 新增】**播掉手势配置里的 `act:<actionId>` 条目。
+     *
+     * 【为什么可能一次播多个】存储结构是集合，允许同一个手势同时绑多个动作
+     *   （用户完全可能「双击 = 播个挥手 + 再播个眨眼」）。逐个 play 时后一个覆盖前一个，
+     *   所以这里**只播最后一个**，并把顺序固定为存储顺序（稳定、可预期）。
+     *   不并发播多个的理由：三个引擎共用一个 ActionPlayerCore 的一个绘制位，
+     *   同时播只能显示一个，并发反而让人以为「有 bug 只播了最后一个」。
+     */
+    private fun playGestureActions(actions: Set<String>) {
+        val pv = petView ?: return
+        var last: String? = null
+        for (one in actions) {
+            val id = GestureActions.actId(one)
+            if (id != null) {
+                last = id
+            }
+        }
+        if (last != null) {
+            pv.playActionId(last)
+        }
+    }
+
+    /**
+     * **【r16 新增】**播一个语义动作；该人偶没配这个语义时回落到待机默认动作。
+     *
+     * 【为什么需要「回落」这一步】以 [ActionSemantic.APPEAR] 为例：
+     *   人偶挂载时理应出现，但绝大多数人不会去配「出现动作」。
+     *   若不回落，挂载后就停在「什么都没播」状态，默认动作也永远不会启动 ——
+     *   用户看到的是「设了默认动作，重启后不生效」。
+     */
+    private fun startSemanticWithIdleFallback(semantic: String) {
+        val pv = petView ?: return
+        if (!pv.playSemantic(semantic)) {
+            pv.playSemantic(ActionSemantic.IDLE)
+            return
+        }
+        // 播的是非循环动作时，播完要回到待机档 —— 否则人偶保持最后一帧不动，
+        // 看起来像「卡住了」（交互结束必须回落，这是动作语义契约的一部分）。
+        pv.actionPlayer()?.onFinish = {
+            pv.playSemantic(ActionSemantic.IDLE)
+        }
+    }
+
+    /**
      * 手势响应派发：按用户配置的动作集合执行（交谈 / 聊天 / 继续 / 暂离）。
      * 【顺序】继续（仅在有气泡或加载中时独占）> 交谈 > 聊天；暂离最先判定并独占。
      */
@@ -1209,6 +1325,15 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (actions.isEmpty()) {
             return
         }
+        // 【r16·手势绑动作】`act:<actionId>` 条目 —— 手势直接播一个动作。
+        //
+        // 【为什么排在「暂离 / 继续」之后、与交谈 / 聊天并列】
+        //   交谈（弹气泡）与聊天（开迷你聊天窗）是「手势的主功能」，
+        //   播动作是**附加效果**。若先 return，用户选了「交谈 + 播动作」
+        //   就只能得到其中一个；这里让两者都能生效，符合「多选」这一既有语义
+        //   （存储层本来就是集合，见 GestureActions.parse）。
+        //   例外是「暂离」—— 它会把窗口摘掉，播动作没意义，所以仍在它之后。
+        playGestureActions(actions)
         // 记录「当前交互的窗口」，让 PetActionRegistry 的 tap / 三击落到本窗口而不是主窗。
         host.activeWindow = this
         if (actions.contains(GestureActions.A_AWAY)) {
@@ -1226,6 +1351,174 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (actions.contains(GestureActions.A_CHAT)) {
             openMiniTalk()
         }
+        // 【r19·快捷菜单】手势配了 menu 时弹出快捷菜单（聊天 / 动作 / 设置 / 睡觉）。
+        if (actions.contains(GestureActions.A_MENU)) {
+            showQuickMenu()
+        }
+    }
+
+    /**
+     * 【r19·快捷菜单】在人偶旁边弹一个悬浮菜单：聊天 / 动作列表 / 设置 / 睡觉。
+     *
+     * 【为什么用 UiKit.showDialog 而不是 Compose 弹窗】这里是命令式回调（非 Composable 作用域），
+     *   且菜单要悬浮在桌宠之上（WindowManager 层），原生 Dialog 与既有确认框同一套壳。
+     * 【位置】菜单跟着人偶走 —— 用窗口坐标定位，而不是屏幕居中。
+     */
+    private fun showQuickMenu() {
+        val act = UiKit.findActivity(host) ?: return
+        val labels = listOf("聊天", "动作", "设置", "睡觉", "调试状态")
+        val actions = listOf<() -> Unit>(
+            { openMiniTalk() },
+            { openActionList() },
+            { openPanel() },
+            { enterSleep() },
+            { showDebugInfo(act) }
+        )
+        MessageMenu.show(act, "快捷菜单", labels, actions, IntArray(labels.size))
+    }
+
+    /** 【r19·调试状态】弹窗显示当前人偶的运行状态（动作 / 帧率 / 内存 / 坐标）。 */
+    private fun showDebugInfo(act: android.app.Activity) {
+        val pv = petView ?: return
+        val runtime = Runtime.getRuntime()
+        val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / 1048576L
+        val info = buildString {
+            append("人偶：").append(doll.name).append('\n')
+            append("动作：").append(pv.behaviorDebugInfo()).append('\n')
+            append("睡觉：").append(if (sleeping) "是" else "否").append('\n')
+            append("拖动中：").append(if (dragging) "是" else "否").append('\n')
+            append("坐标：(").append(lp?.x ?: 0).append(", ").append(lp?.y ?: 0).append(")\n")
+            append("内存：").append(usedMb).append(" MB\n")
+            append("帧尺寸：").append(pv.width).append("×").append(pv.height)
+        }
+        UiKit.showDialog(act, "调试状态", android.widget.TextView(act).apply {
+            text = info
+            setPadding(24, 16, 24, 16)
+        }, "关闭", null, null, null)
+    }
+
+    /** 打开该人偶的动作列表页（先回主页，再 push 动作页）。 */
+    private fun openActionList() {
+        // PetWindow 的宿主是 PetService（不是 Activity），findActivity 拿不到。
+        // 先打开主界面（singleTask 唤回 MainActivity），再在里面 push 动作页。
+        openPanel()
+        val act = UiKit.findActivity(host) as? MainActivity ?: return
+        PageStack.push(act, "doll:action:" + doll.id) { DollActionPage.buildPage(act, doll.id) }
+    }
+
+    /**
+     * 【r19·睡觉模式】进入低功耗休眠：播 sleep 语义动作（循环），帧率降到最低档。
+     *
+     * 【为什么是「播动作」而不是「停帧」】睡觉也得有呼吸感 —— 完全静止像死机。
+     *   sleep 动作由用户在动作页配置（循环动作，建议 1~2fps 的缓慢呼吸帧）；
+     *   没配时回退到「待机帧率最低档 + 闭眼表情」，零配置也能用。
+     * 【唤醒】任何交互（点击 / 拖动 / 长按）都会触发 `exitSleep` ——
+     *   睡觉语义优先级最低（5），任何交互动作都能顶掉它。
+     */
+    internal fun enterSleep() {
+        sleeping = true
+        // 优先播用户配的 sleep 动作；没配则走「待机 + 闭眼」兜底。
+        if (!petView?.playSemantic(ActionSemantic.SLEEP)!!) {
+            petView?.setExpression(4, 3600000L) // 闭眼表情，1 小时超时
+        }
+        petView?.invalidate()
+    }
+
+    /** 唤醒：退出睡觉，回待机档。 */
+    internal fun exitSleep() {
+        if (!sleeping) {
+            return
+        }
+        sleeping = false
+        petView?.clearExpression()
+        // 回待机：由 behavior.onInteractionEnd 自然回落。
+        petView?.interactionEnd()
+    }
+
+    /** 当前是否在睡觉。 */
+    internal var sleeping = false
+        private set
+
+    // ============================ 【r19】随机走位 ============================
+
+    /**
+     * 随机走位定时器：每隔 WANDER_INTERVAL_MS 在框内随机挑一个点附近缓慢移动。
+     *
+     * 【为什么是「点附近」而不是「全屏随机」】人偶是「活物」而不是弹球，
+     *   全屏瞬移会出戏。每次在当前位置 ±WANDER_RANGE_DP 范围内挑点，
+     *   用 ValueAnimator 缓慢滑过去（时长与距离成正比，模拟「走」而不是「飞」）。
+     * 【省电】睡觉时暂停走位；拖动 / 贴边 / 有气泡时也暂停（避免干扰交互）。
+     */
+    private val wanderTick = object : Runnable {
+        override fun run() {
+            if (!added || sleeping || dragging || peek || talk?.hasBubble() == true) {
+                scheduleWander() // 条件不满足也要续上，否则永远停了
+                return
+            }
+            wanderStep()
+            scheduleWander()
+        }
+    }
+
+    private var wanderAnimator: ValueAnimator? = null
+
+    /** 启动随机走位（由 PetPrefs.wanderEnabled 控制）。 */
+    internal fun startWander() {
+        if (!PetPrefs.wanderEnabled(host)) {
+            return
+        }
+        scheduleWander()
+    }
+
+    /** 停止随机走位。 */
+    internal fun stopWander() {
+        ui.removeCallbacks(wanderTick)
+        wanderAnimator?.cancel()
+        wanderAnimator = null
+    }
+
+    private fun scheduleWander() {
+        ui.removeCallbacks(wanderTick)
+        ui.postDelayed(wanderTick, WANDER_INTERVAL_MS)
+    }
+
+    /** 走一步：在当前位置 ±WANDER_RANGE_DP 内挑点，缓慢滑过去。 */
+    private fun wanderStep() {
+        val pv = petView ?: return
+        val lpv = lp ?: return
+        val b = boundsBox()
+        val range = pv.dp(WANDER_RANGE_DP)
+        // 目标点 = 当前位置 ± range，夹到框内。
+        val tx = Math.max(b[0], Math.min(b[2], (lpv.x + (Math.random() * 2 - 1) * range).toFloat()))
+        val ty = Math.max(b[1], Math.min(b[3], (lpv.y + (Math.random() * 2 - 1) * range).toFloat()))
+        val sx = lpv.x.toFloat()
+        val sy = lpv.y.toFloat()
+        val dist = Math.hypot((tx - sx).toDouble(), (ty - sy).toDouble()).toFloat()
+        if (dist < 1f) {
+            return
+        }
+        // 时长与距离成正比（每 100px 约 800ms），模拟「走」的速度感。
+        val dur = Math.max(400L, (dist / 100f * 800f).toLong())
+        wanderAnimator?.cancel()
+        val anim = ValueAnimator.ofFloat(0f, 1f)
+        anim.duration = dur
+        anim.interpolator = android.view.animation.DecelerateInterpolator()
+        anim.addUpdateListener { a ->
+            val t = a.animatedValue as Float
+            placeByPivot(
+                Math.round(sx + (tx - sx) * t),
+                Math.round(sy + (ty - sy) * t)
+            )
+        }
+        anim.start()
+        wanderAnimator = anim
+    }
+
+    private companion object {
+        /** 走位间隔（ms）：每 8 秒走一步。 */
+        const val WANDER_INTERVAL_MS = 8000L
+        /** 单步最大位移（dp）：避免全屏瞬移。 */
+        const val WANDER_RANGE_DP = 120f
     }
 
     internal fun petJump() {

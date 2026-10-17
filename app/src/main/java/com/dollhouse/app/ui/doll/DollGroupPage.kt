@@ -96,8 +96,8 @@ object DollGroupPage {
             sub = "把 " + groups.sumOf { it.second.size } + " 只人偶分组归置",
             onBack = { PageStack.pop(act) },
             actions = {
-                // 新建分组：右上角 +。
-                DhKit.IconButton(Icons.IC_FOLDER_PLUS, Design.SZ_MD, c.title) {
+                // 新建分组：右上角 +。【r15·图标+文字】顶栏空间宽裕 → 加文字。
+                DhKit.IconButton(Icons.IC_FOLDER_PLUS, Design.SZ_MD, c.title, label = "新建分组") {
                     input = ""
                     adding = true
                 }
@@ -115,7 +115,7 @@ object DollGroupPage {
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        DhKit.Icon(Icons.IC_FOLDER_TREE, Design.SZ_XL, c.line)
+                        DhKit.Icon(Icons.IC_TAGS, Design.SZ_XL, c.line)
                         Spacer(Modifier.height(12.dp))
                         Text(
                             text = if (allNames.isEmpty()) "还没有分组" else "分组还是空的",
@@ -140,12 +140,12 @@ object DollGroupPage {
                 DhKit.Card(collapsibleTitle = name + "  ·  " + dolls.size + " 只") {
                     if (!isNone) {
                         Row(modifier = Modifier.fillMaxWidth()) {
-                            DhKit.OutlineChip(text = "重命名") {
+                            DhKit.OutlineChip(text = "重命名", iconRes = Icons.IC_SIGNATURE) {
                                 input = name
                                 renaming = name
                             }
                             Spacer(Modifier.width(8.dp))
-                            DhKit.OutlineChip(text = "删除分组") {
+                            DhKit.OutlineChip(text = "删除分组", iconRes = Icons.IC_TRASH) {
                                 deleting = name
                             }
                         }

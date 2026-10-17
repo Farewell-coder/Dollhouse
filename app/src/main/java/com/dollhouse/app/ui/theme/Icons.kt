@@ -65,6 +65,9 @@ object Icons {
     val IC_EDIT = R.drawable.ic_edit
     @JvmField
     val IC_TRASH = R.drawable.ic_trash
+    /** 保存（Lucide save）：把当前编辑落盘并返回。 */
+    @JvmField
+    val IC_SAVE = R.drawable.ic_save
     @JvmField
     val IC_COPY = R.drawable.ic_copy
     @JvmField
@@ -259,6 +262,79 @@ object Icons {
     /** 报纸（Lucide newspaper）：说说动态流。 */
     @JvmField
     val IC_NEWSPAPER = R.drawable.ic_newspaper
+
+    /* ================= 【r16·图标扩充层】Lucide 全量补充 =================
+     * 【来源】全部取自 lucide-icons/lucide 官方仓库（ISC 协议）main 分支，
+     *   经 /root/dh_lucide/convert.py 转成 VectorDrawable，与本工程既有图标同一风格
+     *   （24dp 视口 / 线宽 2 / 圆角端点 / 白色占位描边，运行期由 [get] 上色）。
+     *
+     * 【为什么扩充】用户要求「充分利用 Lucide、尽量大量应用新图标、不要重复、
+     *   图标要符合文字描述、不要奇怪突兀」。本次先盘点出**全部无图标的功能入口**
+     *   （实验卡片 5 个入口、记忆规则保存、开发者选项、动作来源选择、人格格式选择等），
+     *   再按每处**文字的实际语义**挑一枚意思对得上的 Lucide 图标 —— 不是为凑数硬塞。
+     *
+     * 【命名约定】一律 IC_ + Lucide 原名（连字符转下划线）。
+     * 【不重复原则】同一个图标的两个名字是本项目刻意避免过的（见 triangle-alert 注释），
+     *   所以下面每个常量都对应**一个不同几何**，已核对与上面各段无重名同形。
+     */
+
+    // ---- 实验卡片的 5 个入口 ----
+    /** 游戏手柄（Lucide gamepad-2）：设备控制类入口（lamda 设备控制）。 */
+    @JvmField
+    val IC_GAMEPAD_2 = R.drawable.ic_gamepad_2
+    /** 连线插头（Lucide cable）：服务连接 / 设备桥接语义。 */
+    @JvmField
+    val IC_CABLE = R.drawable.ic_cable
+    /** 书本（Lucide book-open）：记忆库 / 知识库设置。 */
+    @JvmField
+    val IC_BOOK_OPEN = R.drawable.ic_book_open
+    /** 聊天气泡与心（Lucide message-square-heart）：对话情感 / 对话显示策略。 */
+    @JvmField
+    val IC_MESSAGE_SQUARE_HEART = R.drawable.ic_message_square_heart
+    /** 机器人（Lucide bot）：模型 / AI 能力相关设置。 */
+    @JvmField
+    val IC_BOT = R.drawable.ic_bot
+
+    // ---- 动作 / 资源来源 ----
+    /** 仪表盘（Lucide gauge）：速度 / 性能类调节（动作速度）。 */
+    @JvmField
+    val IC_GAUGE = R.drawable.ic_gauge
+    /** 积木块（Lucide blocks）：动作模块 / 组件化的集合。 */
+    @JvmField
+    val IC_BLOCKS = R.drawable.ic_blocks
+    /** 图书馆（Lucide library）：动作库 / 内置资源库。 */
+    @JvmField
+    val IC_LIBRARY = R.drawable.ic_library
+    /** 打包箱（Lucide package）：模型包 / 素材包（与 package-open 是「箱合 vs 箱开」两个状态）。 */
+    @JvmField
+    val IC_PACKAGE = R.drawable.ic_package
+    /** 标签组（Lucide tags）：分组 / 分类标记。 */
+    @JvmField
+    val IC_TAGS = R.drawable.ic_tags
+    /** 魔法棒（Lucide wand-sparkles）：AI 生成 / 智能配置。 */
+    @JvmField
+    val IC_WAND_SPARKLES = R.drawable.ic_wand_sparkles
+
+    // ---- 安全 / 凭据 ----
+    /** 盾牌对勾（Lucide shield-check）：安全 / 已校验 / 凭据保护。 */
+    @JvmField
+    val IC_SHIELD_CHECK = R.drawable.ic_shield_check
+    /** 钥匙（Lucide key-round）：API 密钥 / 凭据。 */
+    @JvmField
+    val IC_KEY_ROUND = R.drawable.ic_key_round
+
+    // ---- 人格 / 情感 ----
+    /** 带心的书（Lucide book-heart）：人设 / 性格设定。 */
+    @JvmField
+    val IC_BOOK_HEART = R.drawable.ic_book_heart
+    /** 握手（Lucide heart-handshake）：互动 / 陪伴语义。 */
+    @JvmField
+    val IC_HEART_HANDSHAKE = R.drawable.ic_heart_handshake
+
+    // ---- 时间 / 其他 ----
+    /** 时钟（Lucide clock-3）：时间 / 定时相关（暂离倒计时、自动保活周期）。 */
+    @JvmField
+    val IC_CLOCK_3 = R.drawable.ic_clock_3
     /** 取图并按 color 上色。返回的 Drawable 每次都是新实例，可安全用于不同 View。 */
     @JvmStatic
     fun get(ctx: Context?, resId: Int, color: Int): Drawable? {

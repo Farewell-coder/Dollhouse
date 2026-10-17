@@ -144,7 +144,24 @@ class PetTalk(private val ctx: Context, private val host: Host) {
                 ChatSessions.ensurePet(this.ctx)
             }
         }
-        return this.petConvId!!
+        return this.petConvId ?: ""
+    }
+
+    /**
+     * 【r15·收敛 !!】取当前历史数组，绝不返回 null。
+     * 原代码在 push / buildRequest / finish 三处直接 `this.history!!`，
+     * 而 history 的初值是 null、只在 reloadHistory() 里被赋值 —— 一旦某条路径
+     * 先于 reloadHistory 走到这几处（例如快速连点、或 reload 抛异常被吞），
+     * 就是一次 NPE。统一收口到本方法：null 时补一个空数组，语义与"没有历史"一致。
+     */
+    private fun hist(): JSONArray {
+        val h = this.history
+        if (h != null) {
+            return h
+        }
+        val fresh = JSONArray()
+        this.history = fresh
+        return fresh
     }
 
     private var task: DeepSeekClient.Task? = null
@@ -239,7 +256,7 @@ class PetTalk(private val ctx: Context, private val host: Host) {
             ChatSessions.ensurePet(this.ctx)
         }
         reloadHistory()
-        ChatHistoryStore.push(this.ctx, this.history!!, "user", trim, convId())
+        ChatHistoryStore.push(this.ctx, hist(), "user", trim, convId())
         // 新一轮对话清掉上一轮的翻页状态，避免旧游标串到新回复上。
         this.bubbleFull = null
         this.pageIndex = 0
@@ -255,6 +272,11 @@ class PetTalk(private val ctx: Context, private val host: Host) {
         this.host.onBusy(true)
         // 【OCR】发请求前先把历史里还没扫过的图在后台扫成文字（扫完才真正发）；
         //   请求正文里的图片文字就来自这份缓存。扫描期间气泡停在「思考中…」。
+        // 【r15】当前模型会看图（原图直送）时跳过预扫：图不经 OCR，扫了也用不上。
+        if (ChatHistoryStore.usesDirectVision(this.ctx)) {
+            this.request()
+            return
+        }
         val mine = this.generation
         OcrEngine.recognizePending(this.ctx, this.history, Runnable {
             // 【守卫】扫描期间用户取消 / 又发了一条：代号变了就作废，不再发请求。
@@ -369,7 +391,7 @@ class PetTalk(private val ctx: Context, private val host: Host) {
 
     private fun doRequest() {
         // 【OCR】图片已在 talk() 里先扫成文字，这里按纯文本组装即可，不再需要「本次是否带图」。
-        val body = ChatHistoryStore.buildRequest(this.ctx, this.history!!)
+        val body = ChatHistoryStore.buildRequest(this.ctx, hist())
         // 【Shizuku】上一轮工具执行产出的追加消息（assistant(tool_calls) + role=tool）挂回请求体，
         //   否则服务端会因为没有与 tool 消息配对的 tool_calls 而判非法。
         if (this.toolFollowUp != null) {
@@ -461,7 +483,13 @@ class PetTalk(private val ctx: Context, private val host: Host) {
                 }
                 return
             }
-            runTools(jSONObject!!, calls)
+            // 【r15·收敛 !!】上面已经判过 jSONObject == null（calls 取自它），
+//   但 calls 与 jSONObject 之间没有强关联保证，编译器也不认；这里显式判空更稳。
+            jSONObject?.let { runTools(it, calls) } ?: run {
+                this.phase = PHASE_IDLE
+                this.host.onBusy(false)
+                fail("工具调用解析失败")
+            }
             return
         }
         if (content.isEmpty()) {
@@ -601,7 +629,7 @@ class PetTalk(private val ctx: Context, private val host: Host) {
             storeText = raw.trim()
         }
         val text = ChatHistoryStore.oneLine(storeText)
-        ChatHistoryStore.push(this.ctx, this.history!!, "assistant", storeText, convId())
+        ChatHistoryStore.push(this.ctx, hist(), "assistant", storeText, convId())
         // 【v0.0.1】一轮回复落盘完毕，走无 UI 通道触发自动压缩（原先迷你框这条旁路不触发）。
         maybeAutoSummarize()
         // 【分页 v2.7】首屏只显示第一页=前两句完整的话（按句末标点切，超三行退一句），

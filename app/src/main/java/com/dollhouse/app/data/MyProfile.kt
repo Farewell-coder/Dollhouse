@@ -209,8 +209,76 @@ object MyProfile {
     /** 头像文件的最长边（px）。 */
     private const val AVATAR_MAX = 512
 
+    /** 暂存头像的文件名前缀（未点「保存」前的新头像停在这里，丢弃即删）。 */
+    private const val PREFIX_AVATAR_PENDING = "my_avatar_pending_"
+
     /**
-     * 解码头像成小位图（边长按 [maxDim] 上限缩放）。
+     * 【r17·草稿语义】把用户新选的头像**暂存**起来，先不生效。
+     *
+     * 【为什么需要暂存】用户定案：右上角「保存」才落盘、左上角返回直接放弃。
+     *   若选图当场写进 `my_avatar`，返回就等于保存了，与口径冲突。
+     *   暂存做法：文件先落到 `my_avatar_pending_*`，页面只持有这个相对路径；
+     *   [commitAvatar] 才把它转正（写 pref），[dropPendingAvatar] 直接删文件。
+     *
+     * @return 相对路径；失败返回空串（调用方按「没换成」处理，保持原头像）。
+     */
+    fun stageAvatar(ctx: Context?, path: String?): String {
+        if (ctx == null || path.isNullOrEmpty()) {
+            return ""
+        }
+        return try {
+            ImageStore.saveScaledFile(ctx, path, PREFIX_AVATAR_PENDING, AVATAR_MAX, 88)
+        } catch (ignored: Throwable) {
+            Logs.w(TAG, "ignored", ignored)
+            ""
+        }
+    }
+
+    /**
+     * 把暂存头像转正：写进 `my_avatar`，并删掉上一张真正在用的旧图。
+     *
+     * 【为什么要删旧图】头像文件是「复制入库」的独立副本（见 [ImageStore]），
+     *   不删就会每换一次留一份垃圾在私有目录里，越积越多。
+     *
+     * @return 成功返回 true
+     */
+    fun commitAvatar(ctx: Context?, pendingRel: String?): Boolean {
+        if (ctx == null || pendingRel.isNullOrEmpty()) {
+            return false
+        }
+        return try {
+            val old = avatarPath(ctx)
+            PetPrefs.get(ctx).edit().putString("my_avatar", pendingRel).apply()
+            if (old.isNotEmpty() && old != pendingRel) {
+                try {
+                    ImageStore.delete(ctx, old)
+                } catch (ignored: Throwable) {
+                }
+            }
+            true
+        } catch (ignored: Throwable) {
+            Logs.w(TAG, "ignored", ignored)
+            false
+        }
+    }
+
+    /** 丢弃暂存头像（用户没点保存就返回时调用）；文件不存在也视为成功。 */
+    fun dropPendingAvatar(ctx: Context?, pendingRel: String?) {
+        if (ctx == null || pendingRel.isNullOrEmpty()) {
+            return
+        }
+        try {
+            ImageStore.delete(ctx, pendingRel)
+        } catch (ignored: Throwable) {
+        }
+    }
+
+    /** 该相对路径是不是「暂存态」的头像（重建 / 恢复时用于区分已生效与未生效）。 */
+    fun isPendingAvatar(rel: String?): Boolean {
+        return rel != null && rel.contains(PREFIX_AVATAR_PENDING)
+    }
+
+    /** 解码头像成小位图（边长按 [maxDim] 上限缩放）。
      *
      * 【为什么不缓存】头像只有两处显示（抽屉顶部 + 设定页预览），量极小；
      *   加缓存反而要处理「换头像后缓存失效」，得不偿失。
@@ -247,6 +315,24 @@ object MyProfile {
         return try {
             val f = ImageStore.fileFor(ctx, p)
             if (f != null && f.exists()) f else null
+        } catch (ignored: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * 按**相对路径**解码头像成小位图（草稿态预览用）。
+     *
+     * 【为什么要这一条】草稿态的头像还没写进 `my_avatar`，只有 [stageAvatar] 返回的相对路径；
+     *   [avatarBitmap] 只认「已生效」的那个键，预览不了未保存的新头像。
+     */
+    fun bitmapOf(ctx: Context?, rel: String?, maxDim: Int): Bitmap? {
+        if (ctx == null || rel.isNullOrEmpty()) {
+            return null
+        }
+        return try {
+            val b = ImageStore.loadScaled(ctx, rel, maxDim)
+            if (b == null || b.isRecycled) null else b
         } catch (ignored: Throwable) {
             null
         }

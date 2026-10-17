@@ -89,3 +89,12 @@ lamda 是运行时按需下载的外部工具，不随此 APK 分发，遵循其
 | `com.google.dagger:dagger-lint-aar:2.51.1` | Apache 2.0 | 未附独立文件 |
 | `com.google.dagger:hilt-core:2.51.1` | Apache 2.0 | 未附独立文件 |
 | `com.google.code.findbugs:jsr305:3.0.2` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `com.airbnb.android:lottie:6.7.1` | The Apache Software License, Version 2.0 | [lottie-LICENSE.txt](licenses/lottie-LICENSE.txt) |
+| `androidx.appcompat:appcompat:1.6.1` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `androidx.fragment:fragment:1.3.6` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `androidx.emoji2:emoji2:1.2.0` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `androidx.emoji2:emoji2-views-helper:1.2.0` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `androidx.activity:activity:1.6.0` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `androidx.core:core:1.9.0` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `androidx.lifecycle:lifecycle-runtime:2.5.1` | The Apache Software License, Version 2.0 | 未附独立文件 |
+| `com.squareup.okio:okio:1.17.6` | The Apache Software License, Version 2.0 | 未附独立文件 |

@@ -108,6 +108,88 @@ object ProfileDrawer {
     }
 
     /**
+     * 【r20·数据驱动】抽屉里的一个功能入口。
+     *
+     * 【为什么做成数据而不是七个手写 ActionRow】
+     *   旧实现每个入口的点击体都是「close() + 跳转」，七个写七遍。
+     *   于是「跳转不该关抽屉」这条规则只能靠人记住 —— 漏写一次就复现
+     *   「点进子页 → 返回 → 抽屉不见了」。改成数据表之后，规则由 [closesDrawer]
+     *   的**默认值**表达，渲染器统一执行，写新入口时无需再想这件事。
+     *
+     * @param label        行标题（取函数而非常量：开关人偶要随运行状态变文案）
+     * @param icon         行图标（同上，播放/停止二选一）
+     * @param desc         副标题；null = 不显示
+     * @param closesDrawer 点击后是否**主动关闭**抽屉。
+     *   · false（默认，导航类）：只导航。「我的资料 / 外观 / 记忆库设置 / 人偶管理 / 设置 / 关于」
+     *     都属于这类 —— 目标页是覆盖层，层级上就在抽屉**之上**（见 `HomeUi.apply` 的
+     *     「顺序即层级」：抽屉先加、NavHost 覆盖层后加），它自己会盖住抽屉；
+     *     返回时覆盖层被弹掉，抽屉**原地露出**，展开状态与滚动位置一点没丢。
+     *     【关键】此时绝不能调 close() —— 那等于把「跳转」误记成「用户主动关闭」，
+     *     返回后抽屉不在了，正是用户报的那个 bug。
+     *   · true（动作类）：没有目标页面的即时操作（如启停人偶），抽屉必须让开，
+     *     否则用户看不到操作结果。
+     * @param onPick       点击动作
+     */
+    private class Entry(
+        val label: (MainActivity) -> String,
+        val icon: (MainActivity) -> Int,
+        val desc: String? = null,
+        val closesDrawer: Boolean = false,
+        val onPick: (MainActivity) -> Unit
+    )
+
+    /**
+     * 【唯一真源】抽屉的全部功能入口。
+     *
+     * 【新增入口只需在这里加一条】不要再去 `Host` 里手写 `DhKit.ActionRow` ——
+     *   那样会绕过 [Entry.closesDrawer] 的默认值保护。
+     * 【顺序即展示顺序】与用户给的参考图（QQ）一致：资料 / 外观 / 人偶 → 记忆 / 人偶管理 → 设置 / 关于。
+     */
+    private val ENTRIES: List<Entry> = listOf(
+        Entry(
+            label = { "我的资料" },
+            icon = { Icons.IC_CIRCLE_USER },
+            desc = "头像、昵称、个性签名"
+        ) { act -> MyProfilePage.open(act) },
+
+        Entry(
+            label = { "外观" },
+            icon = { Icons.IC_PALETTE },
+            desc = "主题、背景、聊天气泡、弹窗"
+        ) { act -> AppearancePage.open(act) },
+
+        // 【动作类】不跳页面，只切桌宠启停 —— 抽屉必须让开才能看到结果。
+        Entry(
+            label = { if (HomeState.running) "关闭人偶" else "启动人偶" },
+            icon = { if (HomeState.running) Icons.IC_SQUARE else Icons.IC_PLAY },
+            desc = "让她们出现在桌面上",
+            closesDrawer = true
+        ) { act -> HomeUi.togglePet(act, !HomeState.running) },
+
+        Entry(
+            label = { "记忆库设置" },
+            icon = { Icons.IC_BRAIN },
+            desc = "抽取与检索策略"
+        ) { act -> MemSettingsPage.open(act) },
+
+        Entry(
+            label = { "人偶管理" },
+            icon = { Icons.IC_LAYERS },
+            desc = "编辑、启停、封面、动作"
+        ) { act -> DollListScreen.open(act) },
+
+        Entry(
+            label = { "设置" },
+            icon = { Icons.IC_SETTINGS }
+        ) { act -> SettingsScreen.open(act) },
+
+        Entry(
+            label = { "关于" },
+            icon = { Icons.IC_INFO }
+        ) { act -> AboutPage.open(act) }
+    )
+
+    /**
      * 抽屉本体。宿主（[HomeUi]）把它叠在**所有内容之上**（含底栏）。
      *
      * 【为什么宿主来调用而不是自带一层窗口】它需要同时盖住三个 Tab 与悬浮底栏 ——
@@ -144,62 +226,24 @@ object ProfileDrawer {
                     Spacer(Modifier.height(18.dp))
                     DhKit.Divider()
                     Spacer(Modifier.height(10.dp))
-                    // ---------- 功能入口 ----------
-                    // 【图标语义】每一行都配一枚**意思各不相同**的 Lucide 图标：
-                    //   我的资料 → 用户头像；开关人偶 → 播放/停止；设置 → 齿轮；关于 → 信息。
-                    DhKit.ActionRow(
-                        label = "我的资料",
-                        iconRes = Icons.IC_CIRCLE_USER,
-                        desc = "头像、昵称、个性签名"
-                    ) {
-                        close()
-                        MyProfilePage.open(act)
-                    }
-                    DhKit.ActionRow(
-                        label = "外观",
-                        iconRes = Icons.IC_PALETTE,
-                        desc = "主题、背景、聊天气泡、弹窗"
-                    ) {
-                        close()
-                        AppearancePage.open(act)
-                    }
-                    DhKit.ActionRow(
-                        label = if (HomeState.running) "关闭人偶" else "启动人偶",
-                        iconRes = if (HomeState.running) Icons.IC_SQUARE else Icons.IC_PLAY,
-                        desc = "让她们出现在桌面上"
-                    ) {
-                        close()
-                        HomeUi.togglePet(act, !HomeState.running)
-                    }
-                    DhKit.ActionRow(
-                        label = "记忆库设置",
-                        iconRes = Icons.IC_BRAIN,
-                        desc = "抽取与检索策略"
-                    ) {
-                        close()
-                        MemSettingsPage.open(act)
-                    }
-                    DhKit.ActionRow(
-                        label = "人偶管理",
-                        iconRes = Icons.IC_LAYERS,
-                        desc = "编辑、启停、封面、动作"
-                    ) {
-                        close()
-                        DollListScreen.open(act)
-                    }
-                    DhKit.ActionRow(
-                        label = "设置",
-                        iconRes = Icons.IC_SETTINGS
-                    ) {
-                        close()
-                        SettingsScreen.open(act)
-                    }
-                    DhKit.ActionRow(
-                        label = "关于",
-                        iconRes = Icons.IC_INFO
-                    ) {
-                        close()
-                        AboutPage.open(act)
+                    // ---------- 功能入口（【r20】统一由 ENTRIES 渲染）----------
+                    // 【为什么不再手写七个 ActionRow】见 [Entry] 与 [ENTRIES] 的注释：
+                    //   手写时每个入口都要自己调 close()，「跳转不该关抽屉」这条规则只能靠人记住。
+                    //   现在渲染器统一执行 [Entry.closesDrawer]，新增入口只需往 ENTRIES 加一条。
+                    for (e in ENTRIES) {
+                        DhKit.ActionRow(
+                            label = e.label(act),
+                            iconRes = e.icon(act),
+                            desc = e.desc
+                        ) {
+                            // 【顺序固定为「先关（如需）→ 再导航」】动作类（如启停人偶）必须先让开，
+                            //   否则用户看不到操作结果；导航类不关，覆盖页会盖在抽屉之上，
+                            //   返回时抽屉原地露出，展开态 / 滚动位置全保留。
+                            if (e.closesDrawer) {
+                                close()
+                            }
+                            e.onPick(act)
+                        }
                     }
                     Spacer(Modifier.height(28.dp))
                 }

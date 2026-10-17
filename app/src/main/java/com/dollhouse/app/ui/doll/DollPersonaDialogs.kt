@@ -108,8 +108,21 @@ object DollInjectDialog {
         DhKit.SwitchRow(name = "启用", checked = enabled) { enabled = it; persist() }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
+            // 【r15·补删除按钮】编辑既有条目时才出现 —— 新增时没有可删的东西。
+            //   删除即落盘（与其余字段同一条 persist 通道），删完直接关窗。
+            if (injectId != null) {
+                DhForm.DialogButton(text = "删除", primary = false) {
+                    val cur = DollProfile.spec(act, dollId)
+                    cur.injections.removeAll { it.id == injectId }
+                    DollProfile.setSpec(act, dollId, cur)
+                    onClose()
+                }
+            }
             Spacer(Modifier.weight(1f))
-            DhForm.DialogButton(text = "关闭", primary = true) { onClose() }
+            // 【r15·补保存按钮】用户反馈「很多功能缺少保存按钮」——
+            //   本弹窗原按钮是「关闭」：虽然每个字段改了就已经落盘，但按钮叫「关闭」
+            //   会让人不确定「到底存了没有」。改叫「保存」，语义与行为对齐（点它 = 确认改完了）。
+            DhForm.DialogButton(text = "保存", primary = true) { onClose() }
         }
     }
 }
@@ -192,8 +205,21 @@ object DollLoreDialog {
         DhKit.SwitchRow(name = "启用", checked = enabled) { enabled = it; persist() }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
+            // 【r15·补删除按钮】编辑既有条目时才出现 —— 新增时没有可删的东西。
+            //   删除即落盘（与其余字段同一条 persist 通道），删完直接关窗。
+            if (loreId != null) {
+                DhForm.DialogButton(text = "删除", primary = false) {
+                    val cur = DollProfile.spec(act, dollId)
+                    cur.lore.removeAll { it.id == loreId }
+                    DollProfile.setSpec(act, dollId, cur)
+                    onClose()
+                }
+            }
             Spacer(Modifier.weight(1f))
-            DhForm.DialogButton(text = "关闭", primary = true) { onClose() }
+            // 【r15·补保存按钮】用户反馈「很多功能缺少保存按钮」——
+            //   本弹窗原按钮是「关闭」：虽然每个字段改了就已经落盘，但按钮叫「关闭」
+            //   会让人不确定「到底存了没有」。改叫「保存」，语义与行为对齐（点它 = 确认改完了）。
+            DhForm.DialogButton(text = "保存", primary = true) { onClose() }
         }
     }
 }
@@ -276,8 +302,21 @@ object DollRuleDialog {
         DhKit.SwitchRow(name = "启用", checked = enabled) { enabled = it; persist() }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
+            // 【r15·补删除按钮】编辑既有条目时才出现 —— 新增时没有可删的东西。
+            //   删除即落盘（与其余字段同一条 persist 通道），删完直接关窗。
+            if (ruleId != null) {
+                DhForm.DialogButton(text = "删除", primary = false) {
+                    val cur = DollProfile.spec(act, dollId)
+                    cur.rules.removeAll { it.id == ruleId }
+                    DollProfile.setSpec(act, dollId, cur)
+                    onClose()
+                }
+            }
             Spacer(Modifier.weight(1f))
-            DhForm.DialogButton(text = "关闭", primary = true) { onClose() }
+            // 【r15·补保存按钮】用户反馈「很多功能缺少保存按钮」——
+            //   本弹窗原按钮是「关闭」：虽然每个字段改了就已经落盘，但按钮叫「关闭」
+            //   会让人不确定「到底存了没有」。改叫「保存」，语义与行为对齐（点它 = 确认改完了）。
+            DhForm.DialogButton(text = "保存", primary = true) { onClose() }
         }
     }
 }

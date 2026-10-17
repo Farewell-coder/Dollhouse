@@ -44,17 +44,24 @@ import com.dollhouse.app.ui.theme.UiKit
  * 【为什么是独立页而不是就地编辑】用户定案：「我的资料」是一个**二级页**。
  *   就地编辑会让抽屉里混进输入框与保存按钮，抽屉就不再是「瞄一眼就走」的轻量层。
  *
- * 【为什么没有「保存」按钮】三项都是**改了即存**（与全工程其它设置页同一口径）：
- *   头像选完立刻落盘、昵称 / 签名在失焦 / 返回时落盘。
- *   多一个保存按钮只会制造「我改了没保存？」的疑虑。
+ * 【保存口径·r17】用户定案：
+ *   · 右上角**保存按钮**：点击 → 落盘 → 返回；
+ *   · 左上角**返回按钮**：点击 → 不落盘 → 直接返回（放弃本次改动）；
+ *   · **系统返回键 / 手势返回**：与左上角返回同义（不落盘、直接返回）。
+ *
+ * 【为什么返回路径也要落盘（历史 bug 的教训）】改造前只有 `DhKit.Page(onBack=…)` 里调
+ *   `commit()`，而系统返回走 `MainActivity.onBackPressed → PageStack.handleBack → pop()`，
+ *   `pop()` 只跑 `fireLeave(key)`、**不经过 onBack lambda** —— commit() 永不执行、昵称丢失。
+ *   现在把「保存」提为唯一入口（按钮显式调用），返回路径一律走 [discard]（不落盘），
+ *   语义单一，不再依赖「返回时顺手保存」这种隐式行为。
  */
 object MyProfilePage {
 
     /** 页面 key（进页面栈用）。 */
     const val KEY = "settings:myprofile"
-
     /** 预览头像边长（dp）。 */
     private const val PREVIEW_DP = 84
+
 
     /** 打开本页（压栈）。 */
     fun open(act: MainActivity) {
@@ -75,26 +82,78 @@ object MyProfilePage {
         val tick = ProfileState.tick
         var name by remember(tick) { mutableStateOf(MyProfile.name(act).let { if (it == MyProfile.DEFAULT_NAME) "" else it }) }
         var bio by remember(tick) { mutableStateOf(MyProfile.bio(act)) }
-        var avatar by remember(tick) { mutableStateOf(MyProfile.avatarBitmap(act, 384)) }
+        // 【草稿态头像】null = 未改动（沿用已生效的头像）；"" = 用户点了「移除」；
+        //   其它 = 暂存文件的相对路径（还没写进 my_avatar）。点「保存」才转正。
+        var pendingAvatar by remember(tick) { mutableStateOf<String?>(null) }
+        // 预览位图：草稿优先，其次回落到已生效头像。用 remember 缓存，避免每帧解码。
+        val avatar = remember(tick, pendingAvatar) {
+            val p = pendingAvatar
+            when {
+                p == null -> MyProfile.avatarBitmap(act, 384)
+                p.isEmpty() -> null
+                else -> MyProfile.bitmapOf(act, p, 384)
+            }
+        }
+        // 「移除头像」的可见性：已生效有头像，或草稿态有图（且未标记移除）时都该能点。
+        val canRemove = (pendingAvatar?.isNotEmpty() == true) ||
+                (pendingAvatar == null && MyProfile.hasAvatar(act))
+
         /**
-         * 落盘昵称 / 签名。
+         * 落盘昵称 / 签名 / 头像。
          *
-         * 【为什么在返回时统一落盘而不是边打字边存】输入过程中每一帧都写 SharedPreferences
-         *   会产生大量无意义的磁盘写（apply 虽异步，但队列会堆积）。
-         *   离开页面时写一次，语义上也正好是「编辑完成」。
+         * 【只在「保存」按钮里调用】用户口径：右上角保存 = 落盘并返回；左上角返回 = 不落盘直接返回。
+         *   改造前把 commit() 挂在 onBack 上，而系统返回路径（PageStack.pop → fireLeave）
+         *   并不经过 onBack lambda —— commit() 永不执行，这就是「填了名字存不上」的根因。
+         *   现在 commit 只由显式按钮触发，返回路径一律不落盘，语义唯一、不再依赖隐式行为。
+         *
+         * 【为什么只写一次而不是边打字边存】输入过程中每帧写 SharedPreferences 会产生
+         *   大量无意义磁盘写；点「保存」写一次，语义上也正好是「编辑完成」。
          */
         fun commit() {
             MyProfile.setName(act, name)
             MyProfile.setBio(act, bio)
+            // 头像：草稿态才需要动盘；null 表示用户没碰头像。
+            val p = pendingAvatar
+            if (p != null) {
+                if (p.isEmpty()) {
+                    MyProfile.clearAvatar(act)
+                } else {
+                    MyProfile.commitAvatar(act, p)
+                }
+                pendingAvatar = null
+            }
             ProfileState.bump()
+        }
+
+        /** 放弃本次改动：把还没转正的暂存头像文件删掉（已生效的头像不受影响）。 */
+        fun discard() {
+            val p = pendingAvatar
+            if (p != null && p.isNotEmpty()) {
+                MyProfile.dropPendingAvatar(act, p)
+            }
+            pendingAvatar = null
         }
 
         DhKit.Page(
             title = "我的资料",
             sub = "这些是「你」的资料，不是人偶的",
+            // 【左上角返回 = 放弃】丢弃草稿、不落盘，直接退一层。系统返回键 / 手势走同一条路径
+            //   （MainActivity.onBackPressed → PageStack.handleBack → pop）。
             onBack = {
-                commit()
+                discard()
                 PageStack.pop(act)
+            },
+            actions = {
+                // 【右上角保存 = 落盘并返回】图标按钮（Lucide save），语义与左上角返回明确区分。
+                DhKit.IconButton(
+                    iconRes = Icons.IC_SAVE,
+                    sizeDp = Design.SZ_MD,
+                    color = c.title,
+                    label = "保存"
+                ) {
+                    commit()
+                    PageStack.pop(act)
+                }
             }
         ) {
             // ---------- 头像 ----------
@@ -132,20 +191,35 @@ object MyProfilePage {
                         //   否则会把右侧撑出屏幕（Row 的 weight 在固定宽容器里才生效）。
                         modifier = Modifier.width(180.dp)
                     ) {
-                        pickAvatar(act) {
-                            avatar = MyProfile.avatarBitmap(act, 384)
-                            ProfileState.bump()
+                        // 【草稿】只暂存、不落盘；点右上角「保存」才真正生效。
+                        pickAvatar(act) { path ->
+                            val staged = MyProfile.stageAvatar(act, path)
+                            if (staged.isNotEmpty()) {
+                                pendingAvatar = staged
+                            }
                         }
                     }
-                    if (MyProfile.hasAvatar(act)) {
+                    // 【r19·引导】用户反馈「找不到头像入口」，加一行小字说明点击哪里。
+                    Text(
+                        text = "点击「更换头像」→ 从相册选一张",
+                        color = c.sub,
+                        fontSize = UiKit.FS_TINY.sp,
+                        fontFamily = DhTokens.fonts,
+                        modifier = Modifier.padding(top = 4.dp, start = 2.dp)
+                    )
+                    if (canRemove) {
                         DhKit.ActionRow(
                             label = "移除头像",
                             iconRes = Icons.IC_TRASH,
                             modifier = Modifier.width(180.dp)
                         ) {
-                            MyProfile.clearAvatar(act)
-                            avatar = null
-                            ProfileState.bump()
+                            // 【草稿】先标记为「移除」，保存时才真正清掉；直接返回则原头像仍在。
+                            //   若之前暂存过一张新图，把它删掉，免得留下孤儿文件。
+                            val p = pendingAvatar
+                            if (p != null && p.isNotEmpty()) {
+                                MyProfile.dropPendingAvatar(act, p)
+                            }
+                            pendingAvatar = ""
                         }
                     }
                 }
@@ -191,24 +265,29 @@ object MyProfilePage {
     }
 
     /**
-     * 选一张头像。
+     * 选一张头像（【r20】只从相册选）。
      *
-     * 【为什么走 PickFileActivity 的「原始文件」通道】工程已有一条成熟的
-     *   「选文件 → 复制到缓存 → 回调本地路径」通道，动作导入 / 人偶导入都在用。
-     *   复用它可以让头像也支持「相册 + 文件管理器」两条来源，而不必只认相册。
+     * 【为什么只给相册】用户定案：「相册就行了，没有人会去文件里找头像」。
+     *   原来走的是 `startFiles`（系统文件选择器，不限 MIME）—— 用户要在文件树里翻，
+     *   那不符合换头像的心智模型。
+     *
+     * 【为什么仍走 raw 通道】默认通道会把图交给 `ImageStore` 存成 **JPEG**（有损、
+     *   丢掉透明通道），不适合头像这类用户资产。raw 通道回传的是原件字节副本，
+     *   再由 [MyProfile.stageAvatar] 自己缩放落盘。
+     *   所以改用 `setRawListener + startRawImages`：选择器是相册，保真度不变。
      */
-    private fun pickAvatar(act: MainActivity, onDone: () -> Unit) {
-        val listener = object : PickFileActivity.FileListener {
-            override fun onFiles(paths: List<String>, failed: Boolean) {
-                if (!failed && paths.isNotEmpty()) {
-                    if (MyProfile.setAvatarFromFile(act, paths[0])) {
-                        act.runOnUiThread { onDone() }
-                    }
+    private fun pickAvatar(act: MainActivity, onPicked: (String) -> Unit) {
+        // 【必须写成 object 表达式】[PickFileActivity.RawListener] 是普通 interface（不是
+        //   `fun interface`），Kotlin 不认 lambda 写法 —— 直接塞 lambda 会报
+        //   "Argument type mismatch ... but RawListener? was expected"。
+        PickFileActivity.setRawListener(object : PickFileActivity.RawListener {
+            override fun onRaw(path: String?) {
+                if (!path.isNullOrEmpty()) {
+                    act.runOnUiThread { onPicked(path) }
                 }
             }
-        }
+        })
         PickFileActivity.setPurpose("my_avatar")
-        PickFileActivity.setFileListener(listener)
-        PickFileActivity.startFiles(act, false)
+        PickFileActivity.startRawImages(act)
     }
 }

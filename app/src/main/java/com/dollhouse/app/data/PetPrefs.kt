@@ -533,6 +533,17 @@ object PetPrefs {
         get(context).edit().putBoolean("web_search", z).apply()
     }
 
+    /** 【r19·随机走位】是否开启人偶随机游走。默认关闭（省电优先）。 */
+    @JvmStatic
+    fun wanderEnabled(context: Context): Boolean {
+        return get(context).getBoolean("wander_enabled", false)
+    }
+
+    @JvmStatic
+    fun setWanderEnabled(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("wander_enabled", z).apply()
+    }
+
     @JvmStatic
     fun touchThrough(context: Context): Boolean {
         return get(context).getBoolean("touch_through", false)
@@ -747,6 +758,24 @@ object PetPrefs {
             return
         }
         get(context).edit().remove("conv_read_" + id).apply()
+    }
+
+    /** 【r19·清空后不再铺开场白】标记某会话「已被用户清空」，seedGreetingIfEmpty 跳过。 */
+    @JvmStatic
+    fun setConvCleared(context: Context, id: String?, cleared: Boolean) {
+        if (id == null || id.isEmpty()) {
+            return
+        }
+        get(context).edit().putBoolean("conv_cleared_" + id, cleared).apply()
+    }
+
+    /** 【r19·清空后不再铺开场白】读回「是否已被清空」。 */
+    @JvmStatic
+    fun isConvCleared(context: Context, id: String?): Boolean {
+        if (id == null || id.isEmpty()) {
+            return false
+        }
+        return get(context).getBoolean("conv_cleared_" + id, false)
     }
 
     /**
@@ -1109,10 +1138,24 @@ object PetPrefs {
         }
     }
 
+    /**
+     * 【r15·识图模型】用户指定的「专门用来看图的模型」id（AiModel.id，内部标识，不出网）。
+     * 空串 = 未指定，此时一切都由「当前对话模型自己是否支持视觉」决定。
+     *
+     * 【用途】当前对话用的模型不会看图（capVision=false），但用户又想让图片被看懂时，
+     *   用这里指定的模型单独分析图片，把分析结果当成文字注入对话（用户定案 3C）。
+     */
     @JvmStatic
     fun visionModel(context: Context): String {
         val trim = (get(context).getString("vision_model", "") ?: "").trim()
         return if (trim.isEmpty()) "" else trim
+    }
+
+    /** 设置识图模型；传空串 = 清除（回到「只用当前模型能力」的行为）。 */
+    @JvmStatic
+    fun setVisionModel(context: Context, id: String?) {
+        val v = if (id == null) "" else id.trim()
+        get(context).edit().putString("vision_model", v).apply()
     }
 
 

@@ -19,6 +19,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「记忆库设置」页：全局记忆策略（自动保存 / 间隔 / 提取规则 / 检索 / 权重 / 模式）。
@@ -124,7 +125,11 @@ object MemSettingsPage {
                     minHeight = 80
                 )
                 Spacer(Modifier.height(8.dp))
-                DhKit.ActionRow(label = "保存规则", trailing = "›") {
+                DhKit.ActionRow(
+                    label = "保存规则",
+                    iconRes = Icons.IC_CHECK,
+                    trailing = "›"
+                ) {
                     PetPrefs.setMemExtractRule(act, rule)
                     tick++
                 }

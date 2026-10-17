@@ -29,6 +29,11 @@ class ChatActivity : Activity() {
         // 【接收处夹紧】apply 后立刻夹紧正文/副标题/提示对比度，并记基线供就地换主题重映射。
         UiKit.clampPaletteContrast()
         ThemeRefresh.rememberPalette()
+        // 【r20·撤掉「自动切会话」】r19 曾在这里加过「currentId 没绑人偶就切到第一只启用人偶」，
+        //   那是误判：真凶是 ChatPanel.renderHistory 的硬编码占位气泡（已删），不在会话选择上。
+        //   【为什么必须撤】自聊池（conv_current）的会话本就不绑人偶，dollOfConv 返回空即触发，
+        //   结果会把主动想自聊的用户强制切到人偶会话 —— 属于修 bug 时新造的回归。
+        //   会话切换仍由用户在各入口显式选择（聊天列表 / 卡片），本页不再自作主张。
         val chatPanel = ChatPanel(this, object : ChatPanel.Controller {
             override fun onDrag(f: Float, f2: Float) {
             }

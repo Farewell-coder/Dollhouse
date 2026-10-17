@@ -13,6 +13,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -37,6 +41,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -54,6 +62,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.PetPrefs
@@ -186,6 +195,10 @@ object DhKit {
         modifier: Modifier = Modifier,
         spacingBottom: Boolean = true,
         collapsibleTitle: String? = null,
+        // 【r16·图标】卡片折叠标题左侧的可选语义图标（Icons.IC_*）。
+        //   默认 0 = 不画图标，与改造前**逐像素一致** —— 全工程 40 多处 Card 调用零影响，
+        //   只有显式传图标的那几处（设置页 5 张主卡片）才多一枚。
+        titleIcon: Int = 0,
         flat: Boolean = false,
         content: @Composable ColumnScope.() -> Unit
     ) {
@@ -231,6 +244,16 @@ object DhKit {
                         .padding(top = 14.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 【r16·卡片标题图标】传了 titleIcon 才画：图标在左、标题紧随其后。
+                    //   间距 10dp 与 ActionRow 的图标-文字间距同口径，视觉上连成一体。
+                    if (titleIcon != 0) {
+                        Icon(
+                            iconRes = titleIcon,
+                            sizeDp = Design.SZ_SM,
+                            color = c.acc
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
                     Text(
                         text = title,
                         modifier = Modifier.weight(1f),
@@ -271,15 +294,37 @@ object DhKit {
 
     /** 卡片内标题（与 `HomeCards.buildCard` 的 head 文案同规格：15sp 粗、TITLE）。 */
     @Composable
-    fun CardTitle(text: String, modifier: Modifier = Modifier) {
-        Text(
-            text = text,
-            modifier = modifier,
-            color = DhTokens.colors.title,
-            fontSize = UiKit.FS_BTN.sp,
-            fontFamily = DhTokens.fontsBold,
-            fontWeight = FontWeight.Bold
-        )
+    fun CardTitle(text: String, modifier: Modifier = Modifier, iconRes: Int = 0) {
+        val c = DhTokens.colors
+        if (iconRes == 0) {
+            Text(
+                text = text,
+                modifier = modifier,
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
+        } else {
+            // 【r16·图标】卡片内小标题也可带图标；默认 0 = 与改造前逐像素一致。
+            // 【r16·修·防溢出】与 SectionLabel 同口径：文字拿 weight 占满剩余宽，
+            //   避免日后有人传入较长标题时把 Row 撑破（当前三处标题都很短，属预防性加固）。
+            Row(
+                modifier = modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = text,
+                    modifier = Modifier.weight(1f),
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 
     /* ============================ 顶栏 ============================ */
@@ -347,6 +392,8 @@ object DhKit {
         value: String? = null,
         valueTint: Color? = null,
         modifier: Modifier = Modifier,
+        // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
+        iconRes: Int = 0,
         onClick: (() -> Unit)? = null
     ) {
         val c = DhTokens.colors
@@ -360,6 +407,10 @@ object DhKit {
                 .padding(horizontal = PAD_ROW.dp, vertical = PAD_ROW.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (iconRes != 0) {
+                Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
                 text = label,
                 modifier = Modifier.weight(1f),
@@ -537,14 +588,43 @@ object DhKit {
 
     /** 分组小标题（比正文小一号、SUB 色，用于卡片内分区）。 */
     @Composable
-    fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-        Text(
-            text = text,
-            modifier = modifier.padding(top = 12.dp, bottom = 2.dp),
-            color = DhTokens.colors.sub,
-            fontSize = UiKit.FS_SUB.sp,
-            fontFamily = DhTokens.fonts
-        )
+    fun SectionLabel(
+        text: String,
+        modifier: Modifier = Modifier,
+        // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
+        iconRes: Int = 0
+    ) {
+        val c = DhTokens.colors
+        if (iconRes == 0) {
+            Text(
+                text = text,
+                modifier = modifier.padding(top = 12.dp, bottom = 2.dp),
+                color = c.sub,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts
+            )
+        } else {
+            // 有图标时「图标 + 文字」横排；图标用 SUB 色与文字同色，视觉是一个整体。
+            Row(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 【r16·修·防溢出】图标必须 shrink 不出去，文字拿 weight 占满剩余宽并允许换行。
+                //   不加 weight 时，长标签（如「常用端点（点一下填进上面的 API Base Url）」）
+                //   会把 Row 撑破 —— Compose 的 Row 默认不裁剪子项，文字会画到卡片外面去。
+                Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = text,
+                    modifier = Modifier.weight(1f),
+                    color = c.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
+        }
     }
 
     /* ============================ 滑条（r14 新增公共构件） ============================ */
@@ -676,23 +756,53 @@ object DhKit {
         )
     }
 
-    /** 可点击图标（命中区固定 [HIT]dp，与 `UiKit.iconView` 一致）。 */
+    /**
+     * 可点击图标（命中区固定 [HIT]dp，与 `UiKit.iconView` 一致）。
+     *
+     * 【r15·图标+文字】新增可选 [label]：位置够宽时传入文字，按钮变成「图标 + 文字」横排。
+     *   默认 null = 纯图标，与改造前逐像素一致（现有 45 处调用零影响）。
+     *
+     * 【为什么不做成自动判断】Compose 里拿不到「位置够不够」这种布局后信息
+     *   （测量发生在组合之后，且会触发重组）。所以由调用点按页面已知的信息决定 ——
+     *   顶栏 / 工具条这类宽裕处显式传 label，卡片内三等分这类窄处保持纯图标。
+     *
+     * @param label 可选文字；null / 空 = 纯图标
+     */
     @Composable
     fun IconButton(
         iconRes: Int,
         sizeDp: Float,
         color: Color,
         modifier: Modifier = Modifier,
+        label: String? = null,
         onClick: () -> Unit
     ) {
-        Box(
+        val hasLabel = !label.isNullOrEmpty()
+        Row(
             modifier = modifier
-                .size(HIT.dp)
+                // 【尺寸】有文字时不再固定 HIT 方形，改为内容宽 + 固定高，
+                //   否则「图标 + 文字」会被 HIT(40dp) 的正方形裁掉后半截文字。
+                .then(
+                    if (hasLabel) Modifier.height(HIT.dp)
+                    else Modifier.size(HIT.dp)
+                )
                 .clip(RoundedCornerShape(999.dp))
-                .pressable(onClick),
-            contentAlignment = Alignment.Center
+                .pressable(onClick)
+                .then(if (hasLabel) Modifier.padding(horizontal = 8.dp) else Modifier),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(iconRes = iconRes, sizeDp = sizeDp, color = color)
+            if (hasLabel) {
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = label!!,
+                    color = color,
+                    fontSize = UiKit.FS_CHIP.sp,
+                    fontFamily = DhTokens.fonts,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+            }
         }
     }
 
@@ -769,10 +879,42 @@ object DhKit {
         }
     }
 
+    /* ---------------- 【r20】底部胶囊导航的尺寸令牌 ---------------- */
     /**
-     * 底部胶囊导航项：图标 + 文字。
+     * 导航项高度（dp）。
+     *
+     * 【为什么是「固定」高度】用户定案「固定高度 + 横向滚动 + 图标在上文字在下」：
+     *   所有项等高才能排成一条整齐的胶囊；高度不统一时选中底块会高一块低一块。
+     *   实现用 `heightIn(min = ...)` 而非 `height(...)`：正常字号下它就是 54dp（等值固定），
+     *   而系统字体放大到极端档位时允许长高 —— 换成硬 `height` 会**裁切文字**，
+     *   那正好违反同一条需求里的「不裁切文字」。两者取后者，视觉等值、极端情况不坏。
+     */
+    const val NAV_ITEM_H = 54
+
+    /**
+     * 导航项最小宽度（dp）。
+     *
+     * 【为什么要下限】中文两字标签自然宽度约 24dp，不加下限会挤成一条细长胶囊、
+     *   点击区太小。下限保证「统一规则」：所有项至少这么宽，等长标签自然等宽。
+     * 【为什么不用固定宽度】字体放大到 200% 时固定宽会把标签裁成「…」；
+     *   用 `widthIn(min)` 让宽度跟着文字长，规则仍然统一（同样是 min + 同内边距）。
+     */
+    const val NAV_ITEM_W = 72
+
+    /** 导航项左右内边距（dp）。所有项同一值 —— 这是「排列整齐」的另一半。 */
+    const val NAV_ITEM_PAD_H = 12
+
+    /** 导航项图标边长（dp）。比正文图标（20dp）略小，给文字留出呼吸空间。 */
+    const val NAV_ICON = 19
+
+    /**
+     * 底部胶囊导航项：**图标在上、文字在下**（用户定案，不得改回横向）。
+     *
      * 选中态用 OPTION 底 + ACC 字图（与设置页多选项「淡紫底 + 加粗」同一套语义色），
      * 未选中用 SUB 字图 —— 保证换主题 / 莫奈 / 纯黑下都随主题走。
+     *
+     * 【为什么纵向】横向时「图标 + 文字」会让每项宽到 70dp 以上，四项就占满屏；
+     *   改纵向后同样的宽度能塞下更多项，也符合用户给的参考形态。
      */
     @Composable
     fun NavItem(
@@ -784,59 +926,149 @@ object DhKit {
     ) {
         val c = DhTokens.colors
         val tint = if (selected) c.acc else c.sub
-        Row(
+        Column(
             modifier = modifier
+                .heightIn(min = NAV_ITEM_H.dp)
+                .widthIn(min = NAV_ITEM_W.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(if (selected) c.option else Color.Transparent)
                 .pressable(onClick)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = NAV_ITEM_PAD_H.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = tint)
-            Spacer(Modifier.width(6.dp))
+            Icon(iconRes = iconRes, sizeDp = NAV_ICON.toFloat(), color = tint)
+            Spacer(Modifier.height(3.dp))
             Text(
                 text = label,
+                // 【不换行 + 不省略】两项都设，才能保证「不压缩字体、不裁切文字」：
+                //   softWrap=false 让文字不折行（否则窄项里会变成两行竖排），
+                //   maxLines=1 上限一行；宽度由 widthIn(min) 的 min + 内边距兜开。
+                maxLines = 1,
+                softWrap = false,
                 color = tint,
                 fontSize = UiKit.FS_CHIP.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                textAlign = TextAlign.Center
             )
         }
     }
 
     /**
-     * 页面底部的**透明胶囊**导航条（内容为若干 [NavItem]）。
+     * 【r20】底部导航的一项（数据描述）。
+     *
+     * 【为什么要有它】用户要求「采用数据驱动的可扩展组件，未来新增任意数量的导航项时
+     *   自动复用相同布局规则，不需要逐个修改 UI」。于是调用方只提供一份 `List<NavItemSpec>`，
+     *   布局 / 滚动 / 自动定位 / 选中态全部由 [NavBar] 统一处理。
+     */
+    class NavItemSpec(val iconRes: Int, val label: String)
+
+    /**
+     * 页面底部的**透明胶囊**导航条（r20 起为「数据驱动 + 横向滚动 + 纵向项」）。
      *
      * 【r13 统一口径】用户报「人偶编辑页的底栏是透明的但没胶囊；配置/模型页是胶囊但底色偏实」，
      *   要求两处**统一成透明胶囊**。本函数即「透明胶囊」的 Compose 侧唯一实现：
      *   胶囊外形（999 圆角）+ 半透明主题底（[UiKit.capsuleFill]）+ 描边 + 选中项高亮。
      *   View 侧的 [com.dollhouse.app.ui.widget.GlassCapsule] 读同一组令牌，两边不会分叉。
      *
-     * 【为什么外层还要一层 Row】胶囊本身只包住三个按钮（宽度自适应），
-     *   而底栏需要「整屏宽 + 居中」，所以外面套一个透明、无内边距的定位层 ——
-     *   与 `ProviderDetailPage` 里 `pill` 只当尺子、胶囊才是唯一背景层的做法一致。
+     * 【r20 为什么改成收一份数据表】用户定案：「采用数据驱动的可扩展组件，未来新增任意数量的
+     *   导航项时自动复用相同布局规则，不需要逐个修改 UI」。调用方只交 `items`（图标 + 文字）
+     *   加 `selected` / `onSelect`，**布局、等高、等距、滚动、选中自动定位全在这里**。
+     *   旧签名收的是 `RowScope` 内容槽 —— 那样每加一项都要在调用处手写一个 NavItem，
+     *   也就必然出现「这一项忘了设 selected」「那项少写了 modifier」这类分叉。
+     *
+     * 【为什么是 Row + horizontalScroll，而不是 LazyRow】
+     *   LazyRow 在**有界宽度**的父容器里一定填满父宽（LazyList 的测量策略如此，
+     *   `wrapContentWidth` 对它无效）。那样四项也会被撑成整条屏宽，胶囊外形就丢了。
+     *   Row + horizontalScroll 的内容区是自然宽度 —— 项少时胶囊自然收缩、居中；
+     *   项多时等于父宽并出现横向滚动，两种形态都对。
+     *   代价是「索引 → 偏移」要自己记：用 `onGloballyPositioned` 把「相对根的位置
+     *   + 当前滚动量」换算成**内容坐标**（滚动时内容坐标不变，位置会变，故要加回滚动量）。
+     *
+     * @param items    导航项（顺序即展示顺序）
+     * @param selected 当前选中项下标（越界自动夹紧，不会崩）
+     * @param onSelect 点击某项的回调
      */
     @Composable
-    fun NavBar(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    fun NavBar(
+        items: List<NavItemSpec>,
+        selected: Int,
+        onSelect: (Int) -> Unit,
+        modifier: Modifier = Modifier
+    ) {
         val c = DhTokens.colors
+        val scroll = rememberScrollState()
+        val safeSelected = if (items.isEmpty()) -1 else selected.coerceIn(0, items.lastIndex)
+        // 每项在**内容坐标系**里的起点与宽度（px）。滚动不改内容坐标，故可缓存复用。
+        val itemX = remember { mutableStateMapOf<Int, Pair<Float, Int>>() }
+        // 胶囊可见宽度（px）—— 由外层 Row 实测，用来判断「选中项是否完整可见」。
+        var viewport by remember { mutableStateOf(0) }
+
+        // 【选中自动定位】只在「选中项不完整可见」时才滚。
+        //   每次切换都无条件滚一次的话，用户手动滑到别处看一眼、再点回原来那项，
+        //   导航条会自己跳一下 —— 属于无谓的动效噪音。
+        //   读 scroll.maxValue 作 key：内容宽度变化（如字体缩放）后需要重算。
+        LaunchedEffect(safeSelected, items.size, viewport, scroll.maxValue) {
+            if (safeSelected < 0 || viewport <= 0) {
+                return@LaunchedEffect
+            }
+            val box = itemX[safeSelected] ?: return@LaunchedEffect
+            val (x, w) = box
+            val left = x - scroll.value
+            // 完整可见：左边界不越出视口左沿，右边界不越出视口右沿。
+            if (left >= 0f && left + w <= viewport) {
+                return@LaunchedEffect
+            }
+            // 【尽量居中】目标滚动量 = 项起点 - (视口 - 项宽) / 2；
+            //   coerceIn 到 [0, maxValue]，首尾项不会滚出空白。
+            val target = (x - (viewport - w) / 2f).toInt().coerceIn(0, scroll.maxValue)
+            scroll.animateScrollTo(target)
+        }
+
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 10.dp),
+                // 【高度固定】项本身是 heightIn(NAV_ITEM_H)，胶囊内边距是常量，
+                //   两者相加是定值 —— 切页时底栏不会上下抖。
+                .padding(top = 6.dp, bottom = 10.dp)
+                .onSizeChanged { viewport = it.width },
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
+                    // 【wrapContentWidth】项少时胶囊收缩到内容宽（居中）；
+                    //   项多时被父宽夹住并出现横向滚动。
+                    .wrapContentWidth()
                     .clip(RoundedCornerShape(999.dp))
                     // 【必须不透明以外还要能透】胶囊底是半透明主题色，背后内容能透出轮廓；
                     //   这里不再叠任何实色底板，否则又退回「实心色块」。
                     .background(c.capsule)
                     .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                content = content
-            )
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    // 【滚动只作用于导航条】滚的是这个 Row 自己的内容，页面内容不受影响。
+                    .horizontalScroll(scroll),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items.forEachIndexed { idx, spec ->
+                    NavItem(
+                        iconRes = spec.iconRes,
+                        label = spec.label,
+                        selected = idx == safeSelected,
+                        modifier = Modifier.onGloballyPositioned { coords ->
+                            // 【换算内容坐标】滚动时 positionInRoot 会变小，加回 scroll.value
+                            //   即得到「不受滚动影响」的内容坐标，可安全缓存。
+                            val x = coords.positionInRoot().x + scroll.value
+                            val w = coords.size.width
+                            val old = itemX[idx]
+                            if (old == null || old.first != x || old.second != w) {
+                                itemX[idx] = x to w
+                            }
+                        }
+                    ) { onSelect(idx) }
+                }
+            }
         }
     }
 
@@ -882,7 +1114,13 @@ object DhKit {
      *   底 / 描边 / 圆角沿用 CARD + LINE + [R_ROW]，与卡片内的行天然同族。
      */
     @Composable
-    fun MiniChip(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    fun MiniChip(
+        text: String,
+        modifier: Modifier = Modifier,
+        // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
+        iconRes: Int = 0,
+        onClick: () -> Unit
+    ) {
         val c = DhTokens.colors
         Box(
             modifier = modifier
@@ -894,13 +1132,30 @@ object DhKit {
                 .padding(vertical = 9.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = text,
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
-            )
+            // 【r16·修·防溢出】MiniChip 常用于「四并排等分槽」（动作详情页的帧操作）：
+            //   每槽仅约 246px，而「图标 + 5 个中文字」约需 258px —— 会顶出槽位。
+            //   故这里让文字拿 weight 占满剩余宽、单行截断（ellipsis），
+            //   保证无论调用方给多窄的槽位，内容都被限制在自己的格子里。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (iconRes != 0) {
+                    Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(
+                    text = text,
+                    modifier = Modifier.weight(1f, fill = false),
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 
@@ -941,7 +1196,13 @@ object DhKit {
 
     /** 描边药丸（实底 + LINE 描边）← `UiKit.outlineChip`。 */
     @Composable
-    fun OutlineChip(text: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    fun OutlineChip(
+        text: String,
+        modifier: Modifier = Modifier,
+        // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
+        iconRes: Int = 0,
+        onClick: (() -> Unit)? = null
+    ) {
         val c = DhTokens.colors
         Box(
             modifier = modifier
@@ -952,12 +1213,18 @@ object DhKit {
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Text(
-                text = text,
-                color = c.title,
-                fontSize = UiKit.FS_CHIP.sp,
-                fontFamily = DhTokens.fonts
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (iconRes != 0) {
+                    Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(
+                    text = text,
+                    color = c.title,
+                    fontSize = UiKit.FS_CHIP.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
         }
     }
 
@@ -990,6 +1257,16 @@ object DhKit {
             label = "swc"
         )
 
+        // 【r15·修·白球与开关不同步】
+        //   旧写法：`.background(Color.White).scale(1f).offsetX(travel * progress)`
+        //   —— 位移排在 background **内层**，而背景绘制用的是本节点（offset 外层）的尺寸与位置，
+        //      于是轨道照常变色、白球却钉在原地不动。用户看到的正是「圆圈和开关不同步」。
+        //   还有第二处隐性错误：`travel` 是 dp 数值（44-24=20），却被直接当 px 传给 IntOffset，
+        //      在 3x 密度屏上只走了 20px≈6.7dp，即便位置对了也走不满行程。
+        //   现在改为：位移用 dp 版 `offset(x = Dp)`，且**排在 background 之前**（外层），
+        //   白球的绘制区间随位移一起走；行程与轨道两端内缩 [pad] 对齐，闭合/开启都严丝合缝。
+        val slide = (pad + travel * progress).dp
+
         Box(
             modifier = modifier
                 .size(w.dp, h.dp)
@@ -1003,12 +1280,12 @@ object DhKit {
         ) {
             Box(
                 modifier = Modifier
-                    .padding(start = pad.dp)
+                    // 顺序关键：offset → size → clip → background。
+                    //   offset 必须在 background 外层，否则移动的只是「更内层的空内容」。
+                    .offset(x = slide)
                     .size((h - pad * 2).dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(Color.White)
-                    .scale(1f)
-                    .offsetX(travel * progress)
             )
         }
     }

@@ -5,8 +5,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -129,11 +132,13 @@ object AppearancePage {
     /* ============================ 顶栏 Tab ============================ */
 
     /**
-     * 自绘分段 Tab（胶囊 + 选中高亮）。
+     * 自绘分段 Tab（胶囊 + 选中高亮 + **横向可滑动**）。
      *
-     * 【为什么四格不用等宽 scrollable】四个中文标签（主题 / 全局背景 / 聊天界面 / 弹窗与卡片）
-     *   总宽度接近屏宽，等宽均分会让长标签被迫换行或缩字。
-     *   这里用**等宽均分**：标签本身已压到最短（两个字一档），均分后视觉最整齐。
+     * 【r19·可滑动】用户反馈「别人都是横着的 就他是竖着的」，要求「可以滑动的 点击就是去哪一个 滑动就是往后滑」。
+     *   四格标签在窄屏上可能挤不下，改成 `horizontalScroll` 后：
+     *   · 点击某格 → 立即切到该 Tab；
+     *   · 左右滑动 → 浏览全部 Tab（不切换内容，只浏览标签）。
+     *   等宽均分改为「内容自适应宽度」，避免长标签被迫换行或缩字。
      */
     @Composable
     private fun TabBar(current: Int, onPick: (Int) -> Unit) {
@@ -143,13 +148,14 @@ object AppearancePage {
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(c.soft)
-                .padding(4.dp),
+                .padding(4.dp)
+                .horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TabCell("主题", Icons.IC_PALETTE, current == TAB_THEME, Modifier.weight(1f)) { onPick(TAB_THEME) }
-            TabCell("背景", Icons.IC_IMAGE, current == TAB_BG, Modifier.weight(1f)) { onPick(TAB_BG) }
-            TabCell("聊天", Icons.IC_MESSAGES_SQUARE, current == TAB_CHAT, Modifier.weight(1f)) { onPick(TAB_CHAT) }
-            TabCell("弹窗", Icons.IC_SQUARE_STACK, current == TAB_DIALOG, Modifier.weight(1f)) { onPick(TAB_DIALOG) }
+            TabCell("主题", Icons.IC_PALETTE, current == TAB_THEME, Modifier) { onPick(TAB_THEME) }
+            TabCell("背景", Icons.IC_IMAGE, current == TAB_BG, Modifier) { onPick(TAB_BG) }
+            TabCell("聊天", Icons.IC_MESSAGES_SQUARE, current == TAB_CHAT, Modifier) { onPick(TAB_CHAT) }
+            TabCell("弹窗", Icons.IC_SQUARE_STACK, current == TAB_DIALOG, Modifier) { onPick(TAB_DIALOG) }
         }
     }
 
@@ -191,7 +197,7 @@ object AppearancePage {
 
     @Composable
     private fun ThemeTab(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "主题模式") {
+        DhKit.Card(collapsibleTitle = "主题模式", titleIcon = Icons.IC_SUN) {
             DhKit.ValueRow(
                 label = "当前模式",
                 value = ThemeManager.MODE_NAMES[HomeState.themeMode]
@@ -208,7 +214,7 @@ object AppearancePage {
             ) { HomeUi.pickMonetWall(act) }
             DhForm.Note("「从壁纸取色」需要系统允许读取壁纸；取不到时会保持当前配色不变。")
         }
-        DhKit.Card(collapsibleTitle = "字体颜色") {
+        DhKit.Card(collapsibleTitle = "字体颜色", titleIcon = Icons.IC_EDIT) {
             FontColorRow(act)
         }
     }
@@ -223,7 +229,7 @@ object AppearancePage {
         val enabled = remember(tick) { PetPrefs.bgEnabled(act) }
         val has = remember(tick) { PetPrefs.chatBackground(act).isNotEmpty() }
 
-        DhKit.Card(collapsibleTitle = "全局背景") {
+        DhKit.Card(collapsibleTitle = "全局背景", titleIcon = Icons.IC_IMAGE) {
             // ---------- 开关（关键：关闭时保留全部配置）----------
             DhKit.SwitchRow(name = "使用自定义背景", checked = enabled) { on ->
                 PetPrefs.setBgEnabled(act, on)
@@ -277,7 +283,7 @@ object AppearancePage {
         }
 
         // ---------- 四个滑条 ----------
-        DhKit.Card(collapsibleTitle = "背景参数") {
+        DhKit.Card(collapsibleTitle = "背景参数", titleIcon = Icons.IC_APERTURE) {
             SliderBlock(
                 title = "背景图透明度",
                 hint = HomeUi.alphaHint(HomeState.bgAlpha),
@@ -357,7 +363,7 @@ object AppearancePage {
         val frost = remember(tick) { PetPrefs.bubbleUserFrost(act) }
         val width = remember(tick) { PetPrefs.bubbleWidth(act) }
 
-        DhKit.Card(collapsibleTitle = "你（用户侧）的气泡") {
+        DhKit.Card(collapsibleTitle = "你（用户侧）的气泡", titleIcon = Icons.IC_MESSAGE_SQUARE) {
             DhForm.Note("「你」的气泡全局统一一套 —— 所有会话里长得一样。人偶那边可以各自不同。")
             DhKit.SwitchRow(name = "显示头像", checked = showAvatar) { on ->
                 PetPrefs.setShowAvatar(act, on)
@@ -381,7 +387,7 @@ object AppearancePage {
         // ---------- 人偶侧默认值 ----------
         // 【为什么要这一组】三层配置里「人偶层」可以各自覆盖；这里给的是**新建人偶的默认值**。
         //   用户定案：「新建人偶自动继承全局默认，想个性化再单独改」。
-        DhKit.Card(collapsibleTitle = "人偶侧默认值") {
+        DhKit.Card(collapsibleTitle = "人偶侧默认值", titleIcon = Icons.IC_USERS) {
             DhForm.Note(
                 "这里设置的是**新建人偶**的初始样式。"
                     + "想改某一只的外观，去「人偶 → 编辑 → 外观」。"
@@ -399,7 +405,7 @@ object AppearancePage {
     @Composable
     private fun DialogTab(act: MainActivity) {
         val c = DhTokens.colors
-        DhKit.Card(collapsibleTitle = "弹窗") {
+        DhKit.Card(collapsibleTitle = "弹窗", titleIcon = Icons.IC_SQUARE_STACK) {
             SliderBlock(
                 title = "弹窗透明度",
                 hint = dialogAlphaHint(HomeState.dlgAlpha),
@@ -446,7 +452,7 @@ object AppearancePage {
             }
         }
 
-        DhKit.Card(collapsibleTitle = "图标与交互") {
+        DhKit.Card(collapsibleTitle = "图标与交互", titleIcon = Icons.IC_SPARKLES) {
             DhKit.SwitchRow(
                 name = "点击穿透（桌宠）",
                 checked = PetPrefs.touchThrough(act)

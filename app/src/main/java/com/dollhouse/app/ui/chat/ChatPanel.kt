@@ -573,6 +573,82 @@ class ChatPanel(
     }
 
     /**
+     * 【r19·对话分支】把当前会话「前 index 条」复制成一个新会话，从那里继续聊。
+     *
+     * 【与回滚的区别】回滚会**删掉**后面的消息（不可逆）；分支是**复制**
+     *   （原会话保留，新会话独立），相当于「从这一段历史岔出一条平行对话」。
+     *
+     * 【落盘】新会话走 `ChatSessions.createIn`（当前池 + 时间戳前缀），
+     *   历史用 `ChatHistoryStore.saveHistory(ctx, arr, newId)` 写入，然后切过去。
+     *   原会话不动 —— 用户随时可以切回去。
+     */
+    fun branchAt(index: Int) {
+        if (index < 0 || index >= history.length()) {
+            return
+        }
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        try {
+            val arr = JSONArray()
+            for (i in 0..index) {
+                arr.put(history.opt(i))
+            }
+            val pool = ChatSessions.pool(context)
+            val title = "分支 · " + (itemAt(index)?.optString("content", "")?.take(8) ?: "对话")
+            val newId = ChatSessions.createIn(context, pool, if ("pet" == pool) "p" else "c", title)
+            ChatHistoryStore.saveHistory(context, arr, newId)
+            ChatSessions.switchTo(context, newId)
+            flashMemo("已分支到新会话")
+        } catch (unused: Throwable) {
+        }
+    }
+
+    /**
+     * 【r19·聊天搜索】弹出搜索框，在当前会话历史里查关键词并高亮定位。
+     *
+     * 【为什么用原生 Dialog 而不是 Compose】这里是命令式调用（长按标题触发），
+     *   且要带输入框 + 结果列表 —— 原生 Dialog 与既有确认框同一套壳，零额外依赖。
+     * 【命中后】滚动到该条并闪烁高亮（由 renderHistory 的 highlightIndex 控制）。
+     */
+    fun showSearchDialog() {
+        val act = UiKit.findActivity(context) ?: return
+        val input = android.widget.EditText(act)
+        input.hint = "搜索聊天内容"
+        input.setPadding(24, 16, 24, 16)
+        UiKit.showDialog(act, "搜索", input, "搜索", View.OnClickListener {
+            val kw = input.text.toString().trim()
+            if (kw.isEmpty()) {
+                return@OnClickListener
+            }
+            val idx = searchHistory(kw)
+            if (idx >= 0) {
+                highlightIndex = idx
+                renderHistory()
+                flashMemo("找到第 " + (idx + 1) + " 条")
+            } else {
+                flashMemo("没找到「" + kw + "」")
+            }
+        }, "取消", null)
+    }
+
+    /** 在历史里搜关键词（从最新往回找），返回下标；没找到返回 -1。 */
+    private fun searchHistory(kw: String): Int {
+        for (i in history.length() - 1 downTo 0) {
+            val o = history.optJSONObject(i) ?: continue
+            val content = o.optString("content", "")
+            if (content.contains(kw, ignoreCase = true)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    /** 搜索命中后要高亮的下标（-1 = 无）。 */
+    internal var highlightIndex = -1
+
+    /**
      * 【编辑并重发】把指定消息的正文回填到输入框，并截断它**之前**的历史。
      *
      * 【为什么截断到它之前】重发等价于「重新说一遍」：原消息本身会由发送动作重新产生，
@@ -1132,6 +1208,10 @@ class ChatPanel(
     private fun seedGreetingIfEmpty() {
         try {
             val id = ChatSessions.currentId(context)
+            // 【r19·清空后不再铺】用户手动清空过会话，不再自动铺开场白。
+            if (PetPrefs.isConvCleared(context, id)) {
+                return
+            }
             val hist = try {
                 JSONArray(PetPrefs.convHistory(context, id))
             } catch (ignored: Throwable) {
@@ -1239,6 +1319,14 @@ class ChatPanel(
         sendPending = true
         // 立刻把附件条文案切成「正在识别」，让人知道后台在干活（不是卡住了）。
         refreshAttachStrip()
+        // 【r15】当前模型会看图（原图直送）时跳过本地 OCR：
+        //   图片将以 base64 直接送模型，本地扫出来的文字用不上，扫了纯属白等几秒。
+        if (ChatHistoryStore.usesDirectVision(context)) {
+            sendPending = false
+            clearAttachment()
+            askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
+            return
+        }
         OcrEngine.recognizePending(context, history, Runnable {
             if (!sendPending || !waiting) {
                 return@Runnable
@@ -1713,7 +1801,17 @@ class ChatPanel(
         // 【v2.8】入口放在「空历史」判断之前：自动收回后若一条正文都不剩，也得能从界面上点回来。
         ChatState.hasPrev = ChatHistoryStore.hasPrev(context)
         if (history.length() == 0) {
-            list.add(ChatItem("assistant", "我是小肥鱼～ 有什么想跟我说的吗？", null, -1, false, false))
+            // 【r19·彻底删掉硬编码占位气泡】原来这里会凭空塞一条：
+            //   ChatItem("assistant", "我是小肥鱼～ 有什么想跟我说的吗？", ...)
+            //   后果有两个，都是用户报过的：
+            //   ① 「新建空白模板也有开场白」—— 数据层明明是空的（conv_xxx = []，persona_spec.greeting = ""），
+            //      界面上却显示一条「她说的」消息。用户要的是「空白模板全空」。
+            //   ② 「重新生成 / 复制按钮点了没反应」—— 这条假气泡 role=assistant 且是最后一条，
+            //      正好命中操作条挂载条件；但真实 history 为空，regenerate() / copyLastReply()
+            //      第一句判空就 return，于是按钮长得能点、点了毫无反馈。
+            // 【现在的口径】空历史 = 空列表，什么都不渲染。
+            //   开场白只走**用户自己设置的那份**（persona_spec.greeting，
+            //   自动铺设见 seedGreetingIfEmpty，手动重放见 DollGreeting.insert）。
             ChatState.items = list
             ChatState.prevTailIndex = -1
             if (!ChatState.holdScroll) {

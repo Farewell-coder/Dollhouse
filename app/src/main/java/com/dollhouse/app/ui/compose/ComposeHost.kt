@@ -209,7 +209,17 @@ object ComposeHost {
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
     }
 
-    /** 安装三个 owner。顺序无关，但必须在任何 `ComposeView` attach 之前完成。 */
+    /**
+     * 安装三个 owner。顺序无关，但必须在任何 `ComposeView` attach 之前完成。
+     *
+     * 【关于 Navigation 3 的第四个 owner】`NavDisplay` 还需要
+     *   `NavigationEventDispatcherOwner`（用于接管系统返回 / 预测性返回手势）。
+     *   本类**刻意不在这里装**：`ViewTreeNavigationEventDispatcherOwner.set` 在 Kotlin
+     *   侧不可见（只有 JVM 符号，无 Kotlin API），编译不过。
+     *   改由 [com.dollhouse.app.ui.nav.NavHost] 在自己的 Compose 子树里用
+     *   `CompositionLocalProvider` 提供 —— 那是 Compose 官方推荐的提供方式，
+     *   作用域更精确（只有导航子树需要），且不污染其它 Compose 页。
+     */
     private fun attachOwners(view: View, owner: HostOwner) {
         view.setViewTreeLifecycleOwner(owner)
         view.setViewTreeSavedStateRegistryOwner(owner)

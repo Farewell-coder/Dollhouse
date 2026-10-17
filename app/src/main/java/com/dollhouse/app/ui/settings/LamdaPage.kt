@@ -385,7 +385,7 @@ object LamdaPage {
             DhForm.Note("服务掉了或手机重启后，自动把它拉回来。")
             // 【技术信息】端口与接口形态属于「查得到但不需要抢注意力」的内容，
             //   用等宽小字单独成行，不用大段说明文字淹没页面。
-            CardHead("服务接口", Design.icons.NETWORK)
+            CardHead("服务接口", Icons.IC_CABLE)
             InfoLine("协议", "HTTP + MCP")
             InfoLine("监听地址", "127.0.0.1:65000")
             DhForm.Note("开机后需要重新启动一次；打开上面的开关后，"

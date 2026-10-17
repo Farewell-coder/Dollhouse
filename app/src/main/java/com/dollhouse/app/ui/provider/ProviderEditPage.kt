@@ -32,6 +32,8 @@ import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.Design
 
 /**
  * 【职责】添加 / 编辑供应商页。
@@ -184,13 +186,19 @@ object ProviderEditPage {
                         )
                     }
                 )
+                // 【r16·图标】密钥属敏感信息，配一枚钥匙图标提醒「这里填的是凭据」。
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    DhKit.Icon(iconRes = Icons.IC_KEY_ROUND, sizeDp = Design.SZ_XS, color = c.sub)
+                    Spacer(Modifier.width(6.dp))
+                    DhForm.Note("密钥只加密存在本机，不会上传到我们这边。")
+                }
                 DhForm.Input(base, { base = it }, label = "API Base Url", hint = "例如：https://api.deepseek.com/v1")
                 DhForm.Input(path, { path = it }, label = "API 路径", hint = "默认 /chat/completions")
             }
 
             // —— 常用端点（一键填入，省得手抄漏 /v1） ——
             DhKit.Card {
-                DhKit.SectionLabel("常用端点（点一下填进上面的 API Base Url）")
+                DhKit.SectionLabel("常用端点（点一下填进上面的 API Base Url）", iconRes = Icons.IC_PLUG)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -210,7 +218,7 @@ object ProviderEditPage {
 
             // —— 开关组 ——
             DhKit.Card {
-                DhKit.SectionLabel("开关")
+                DhKit.SectionLabel("开关", iconRes = Icons.IC_SLIDERS_HORIZONTAL)
                 SwitchRow("启用", "关掉后它名下的模型不会出现在聊天页选择器里（数据保留）", enabled) { v ->
                     enabled = v
                     // 【响应性】供应商一被停用，它名下的模型全部退出可用集，可能直接让「打开聊天」入口失去条件；
@@ -242,7 +250,7 @@ object ProviderEditPage {
             ) {
                 DhForm.OutlineChip(if (embedded) "返回列表" else "取消") { ProviderNav.back(act) }
                 Spacer(Modifier.weight(1f))
-                DhForm.OutlineChip("测试连接") {
+                DhForm.OutlineChip("测试连接", iconRes = Icons.IC_PLUG) {
                     // 只测试不保存：用当前表单值直接打一次 /models，结果就地回显。
                     val raw = key.trim()
                     if (raw.isEmpty()) {

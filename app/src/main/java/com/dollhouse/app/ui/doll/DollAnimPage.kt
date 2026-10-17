@@ -50,6 +50,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.DollAnim
+import com.dollhouse.app.data.DollStore
+import com.dollhouse.app.data.model.ModelExporter
+import com.dollhouse.app.data.model.ModelRepository
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
@@ -83,6 +86,12 @@ object DollAnimPage {
 
     /** 【C2】按键式精调每次的步长（归一化：0.005 = 预览框宽高的 0.5%）。 */
     private const val FINE_STEP = 0.005f
+
+    /** 播放区帧图采样目标边长（px）。播放控件通常 ≤600px，留一倍余量取 1200。 */
+    private const val PLAY_TARGET_PX = 1200
+
+    /** 缩略图采样目标边长（px）。列表项 ~96px，留 2 倍余量取 192。 */
+    private const val THUMB_TARGET_PX = 192
 
     /** 归一化偏移 → 百分比文案（只用于回显）。 */
     private fun pct(v: Float): String {
@@ -137,6 +146,10 @@ object DollAnimPage {
         var speedOpen by remember { mutableStateOf(false) }
         // 【r13】属性选择弹窗开关。
         var groupOpen by remember { mutableStateOf(false) }
+        // 【r16】资源管理弹窗开关（非帧序列引擎的入口资源）。
+        var resOpen by remember { mutableStateOf(false) }
+        // 【r16】导出模型包的结果提示。
+        var exportMsg by remember { mutableStateOf<String?>(null) }
 
         // ---------- 准备帧图 ----------
         LaunchedEffect(actionId) {
@@ -203,7 +216,8 @@ object DollAnimPage {
             scrollable = false,
             actions = {
                 if (action != null && !action!!.builtin) {
-                    DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.err) {
+                    // 【r15·图标+文字】顶栏空间宽裕 → 加文字（删除是危险操作，明确写出来更安全）。
+                    DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.err, label = "删除动作") {
                         DollAnim.remove(act, dollId, actionId)
                         PageStack.pop(act)
                     }
@@ -325,7 +339,7 @@ object DollAnimPage {
                         offTick++
                     }
                     Spacer(Modifier.width(10.dp))
-                    DhKit.OutlineChip("居中") {
+                    DhKit.OutlineChip("居中", iconRes = Icons.IC_CROSSHAIR) {
                         DollProfile.setFrameOffset(act, dollId, 0f, 0f)
                         offTick++
                     }
@@ -352,9 +366,11 @@ object DollAnimPage {
                         }
                     }
                     Spacer(Modifier.width(6.dp))
+                    // 【r16·图标+文字】播放条空间宽裕 → 给出「播放 / 暂停」文字。
                     DhKit.IconButton(
                         if (playing) Icons.IC_SQUARE else Icons.IC_PLAY,
-                        Design.SZ_MD, c.acc
+                        Design.SZ_MD, c.acc,
+                        label = if (playing) "暂停" else "播放"
                     ) { playing = !playing }
                     Spacer(Modifier.width(6.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title) {
@@ -374,7 +390,7 @@ object DollAnimPage {
                 }
 
                 // ============ ② 帧序列条（横向滑动看每一帧） ============
-                DhKit.SectionLabel("帧序列（左右滑动查看）")
+                DhKit.SectionLabel("帧序列（左右滑动查看）", iconRes = Icons.IC_IMAGE)
                 if (frames.isEmpty()) {
                     DhForm.Note("这个动作还没有帧。点下面「添加帧」从相册选图。")
                 } else {
@@ -399,10 +415,11 @@ object DollAnimPage {
                 }
 
                 // ============ ③ 设置区 ============
-                DhKit.SectionLabel("设置")
+                DhKit.SectionLabel("设置", iconRes = Icons.IC_SETTINGS)
 
                 DhKit.ValueRow(
                     label = "名称",
+                    iconRes = Icons.IC_SIGNATURE,
                     value = (action?.name ?: "") + " ›"
                 ) {
                     renameDraft = action?.name ?: ""
@@ -410,6 +427,7 @@ object DollAnimPage {
                 }
                 DhKit.ValueRow(
                     label = "描述",
+                    iconRes = Icons.IC_QUOTE,
                     value = if ((action?.desc ?: "").isEmpty()) "未填写 ›" else "已填写 ›"
                 ) {
                     descDraft = action?.desc ?: ""
@@ -417,6 +435,7 @@ object DollAnimPage {
                 }
                 DhKit.ValueRow(
                     label = "播放速度",
+                    iconRes = Icons.IC_GAUGE,
                     value = (action?.fps ?: DollAnim.FPS_DEFAULT).toString() + " 帧/秒 ›"
                 ) { speedOpen = true }
                 // 【r13·属性归属】用户要求「认真辨利每个动作属于哪个属性」。
@@ -424,8 +443,63 @@ object DollAnimPage {
                 //   想归到别的分组（比如把自绘的「挥手」归进「交互动作」）随时可调。
                 DhKit.ValueRow(
                     label = "属性",
+                    iconRes = Icons.IC_TAGS,
                     value = (action?.group ?: DollAnim.GROUP_CUSTOM) + " ›"
                 ) { groupOpen = true }
+
+                // ---------- r16·默认动作 ----------
+                //
+                // 【这是「桌宠能实际用上动作」的用户入口】设了默认动作的人偶，
+                //   无交互时桌面上的小人就会播它（见 PetView.playSemantic → DollAnim.bySemantic）。
+                //   没有这个开关，用户导入的动作只能在编辑页里看看，桌面上永远不生效 ——
+                //   正是任务书 §1.4 说的「只做框架不接线 = 失败」。
+                DhKit.SwitchRow(
+                    name = "设为待机默认动作",
+                    checked = action?.isDefault ?: false
+                ) { on ->
+                    val a = action ?: return@SwitchRow
+                    // 【为什么传 null 表示取消】见 DollAnim.setDefault 的注释：
+                    //   同人偶内互斥由数据层保证，界面不需要先遍历一遍去清别人。
+                    DollAnim.setDefault(act, dollId, if (on) a.id else null)
+                    HomeUi.notifyPetReload(act)
+                    DollState.bump()
+                    action = DollAnim.byId(act, dollId, actionId)
+                }
+                if (action?.isDefault == true) {
+                    DhForm.Note("桌面上的小人无交互时会一直播这个动作。同一只人偶只能有一个默认动作。")
+                }
+
+                // ---------- r16·资源管理 ----------
+                //
+                // 【为什么必须有】帧序列动作的「资源」就是那一串帧图（在「帧操作」里管）；
+                //   但 Lottie / 动图的资源是**一个入口文件**，用户换图时得能换、能看见路径、
+                //   也能发现「文件没了」。任务书 §3.8 F 项明确要求这块。
+                val cur = action
+                if (cur != null && cur.engine != DollAnim.ENGINE_SPRITE) {
+                    DhKit.SectionLabel("资源管理", iconRes = Icons.IC_CABLE)
+                    val exists = cur.assetPath.isNotEmpty() && File(cur.assetPath).exists()
+                    DhKit.ValueRow(
+                        label = "入口资源",
+                        iconRes = Icons.IC_CABLE,
+                        value = if (cur.assetPath.isEmpty()) "未指定 ›" else
+                            (if (exists) "已就绪 ›" else "文件缺失 ›")
+                    ) { resOpen = true }
+                    DhKit.ValueRow(
+                        label = "来源模型包",
+                        iconRes = Icons.IC_PACKAGE,
+                        value = if (cur.sourceId.isEmpty()) "非模型包 ›" else cur.sourceId + " ›"
+                    ) {}
+                    if (cur.sourceId.isNotEmpty()) {
+                        DhKit.MiniChip("卸载该模型包", iconRes = Icons.IC_TRASH) {
+                            uninstallModel(act, dollId, cur.sourceId) {
+                                action = DollAnim.byId(act, dollId, actionId)
+                                frames = action?.frames ?: emptyList()
+                                DollState.bump()
+                            }
+                        }
+                    }
+                }
+
                 DhKit.SwitchRow(
                     name = "循环播放",
                     checked = action?.loop ?: true
@@ -436,10 +510,10 @@ object DollAnimPage {
                     action = u
                 }
 
-                DhKit.SectionLabel("帧操作")
+                DhKit.SectionLabel("帧操作", iconRes = Icons.IC_BLOCKS)
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("添加帧") { pickFrames(act, dollId, actionId) { onFramesChanged ->
+                        DhKit.MiniChip("添加帧", iconRes = Icons.IC_IMAGE_PLUS) { pickFrames(act, dollId, actionId) { onFramesChanged ->
                             action = DollAnim.byId(act, dollId, actionId)
                             frames = onFramesChanged
                             frameIdx = 0
@@ -447,7 +521,7 @@ object DollAnimPage {
                     }
                     Spacer(Modifier.width(8.dp))
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("删除当前帧") {
+                        DhKit.MiniChip("删除当前帧", iconRes = Icons.IC_TRASH) {
                             if (frames.size <= 1) {
                                 HomeUi.showNotice(act, "不能删", "至少保留一帧。")
                             } else {
@@ -472,7 +546,7 @@ object DollAnimPage {
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("前移一帧") { moveFrame(act, dollId, action, frames, frameIdx, -1) { a2, f2, i2 ->
+                        DhKit.MiniChip("前移一帧", iconRes = Icons.IC_CHEVRON_LEFT) { moveFrame(act, dollId, action, frames, frameIdx, -1) { a2, f2, i2 ->
                             action = a2
                             frames = f2
                             frameIdx = i2
@@ -480,7 +554,7 @@ object DollAnimPage {
                     }
                     Spacer(Modifier.width(8.dp))
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("后移一帧") { moveFrame(act, dollId, action, frames, frameIdx, 1) { a2, f2, i2 ->
+                        DhKit.MiniChip("后移一帧", iconRes = Icons.IC_CHEVRON_RIGHT) { moveFrame(act, dollId, action, frames, frameIdx, 1) { a2, f2, i2 ->
                             action = a2
                             frames = f2
                             frameIdx = i2
@@ -495,6 +569,89 @@ object DollAnimPage {
                     } else {
                         "这是你导入的动作。帧的顺序就是播放顺序，改完即时保存。"
                     }
+                )
+            }
+        }
+
+        // ---------- r16·资源管理弹窗 ----------
+        if (resOpen) {
+            val a = action
+            DhForm.Alert(
+                title = "资源管理",
+                onDismiss = { resOpen = false },
+                posText = "重新指定",
+                onPos = {
+                    resOpen = false
+                    // 【复用既有文件选择通道】替换入口资源 = 换一个 .json / .gif。
+                    //   不做「格式校验后再放行」——格式问题在播的时候由渲染器
+                    //   给出可读原因（LottieRenderer.lastError），比在这里猜更准。
+                    com.dollhouse.app.PickFileActivity.setFileListener { paths, _ ->
+                        if (paths.isEmpty()) {
+                            return@setFileListener
+                        }
+                        val src = File(paths[0])
+                        val dstDir = DollAnim.framesDir(act, dollId, actionId)
+                        val dst = File(dstDir, src.name)
+                        try {
+                            src.copyTo(dst, overwrite = true)
+                        } catch (t: Throwable) {
+                        }
+                        val old = DollAnim.byId(act, dollId, actionId) ?: return@setFileListener
+                        val u = old.copy(assetPath = dst.absolutePath)
+                        DollAnim.update(act, dollId, u)
+                        action = u
+                        // 【回到主线程】文件回调发生在 PickFileActivity 的流程里，
+                        //   直接改 Compose 状态会触发「不在主线程」检查。
+                        act.runOnUiThread { HomeUi.notifyPetReload(act) }
+                    }
+                    com.dollhouse.app.PickFileActivity.startFiles(act, false)
+                },
+                negText = "关闭"
+            ) {
+                val cur = a ?: return@Alert
+                Text(
+                    text = "引擎：" + cur.engine + "\n" +
+                        "路径：" + cur.assetPath.ifEmpty { "（未指定）" } + "\n" +
+                        "状态：" + if (cur.assetPath.isNotEmpty() && File(cur.assetPath).exists())
+                            "文件存在" else "文件不存在或未指定",
+                    color = DhTokens.colors.sub,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                DhForm.Gap()
+                // 【为什么把「导出模型包」放在这里】导出的是「这只人偶 + 它的动作」，
+                //   而用户此刻正在看某个动作 —— 顺势给一个「把它连同这个动作分享出去」的入口，
+                //   比在别处单开一页更贴近他要做的事（任务书要求导出粒度就是单个人偶）。
+                DhForm.PrimaryChip("导出这只人偶为模型包") {
+                    val r = ModelExporter.exportDoll(
+                        act, dollId,
+                        DollStore.byId(act, dollId)?.name ?: dollId,
+                        ModelExporter.suggestOutDir()
+                    )
+                    exportMsg = r.message + if (r.ok) "\n" + r.zipPath else ""
+                    resOpen = false
+                }
+            }
+        }
+
+        // ---------- r16·导出结果 ----------
+        val em = exportMsg
+        if (em != null) {
+            DhForm.Alert(
+                title = "导出模型包",
+                onDismiss = { exportMsg = null },
+                posText = "知道了",
+                onPos = { exportMsg = null }
+            ) {
+                Text(
+                    text = em,
+                    color = DhTokens.colors.sub,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                DhForm.Note(
+                    "包内只有这只人偶的动作素材，不含聊天记录与个人信息。\n" +
+                        "路径在 /sdcard/Download/Dollhouse模型/，可以直接发给别人导入。"
                 )
             }
         }
@@ -790,29 +947,42 @@ object DollAnimPage {
         com.dollhouse.app.PickFileActivity.startFiles(act, true)
     }
 
-    /** 完整解码（播放区用）。 */
-    private fun decodeFull(path: String): Bitmap? {
-        return try {
-            val f = File(path)
-            if (!f.exists()) null else BitmapFactory.decodeFile(path)
-        } catch (t: Throwable) {
-            null
+    /**
+     * 【r16】卸载某个模型包：删它的动作 + 删包记录与资源目录。
+     *
+     * 【为什么要一起删动作】模型包带来的动作是按 `sourceId` 标记的
+     *   （见 `DollAnim.addEngineAction`）。只删包记录的话，
+     *   动作列表里会留下一堆「来源已消失」的动作 —— 点了什么都不播。
+     */
+    private fun uninstallModel(act: MainActivity, dollId: String, sourceId: String, done: () -> Unit) {
+        if (sourceId.isEmpty()) {
+            return
         }
+        DollAnim.removeBySource(act, dollId, sourceId)
+        ModelRepository.remove(act, dollId, sourceId)
+        HomeUi.showNotice(act, "已卸载", "「" + sourceId + "」带来的动作与资源都已删除。")
+        HomeUi.notifyPetReload(act)
+        done()
     }
 
-    /** 缩略图解码：只取 1/4 尺寸，避免一屏几十张把内存吃满。 */
+    /** 完整解码（播放区用）。
+     *
+     * 【r18·内存】改采样解码：播放区控件尺寸远小于帧图原始分辨率
+     *   （帧图普遍 ≥1024²，播放区通常 ≤600px），全尺寸解码纯属浪费内存。
+     *   采样到 PLAY_TARGET_PX 后绘制阶段仍精确缩放，视觉零差异。
+     *   与 decodeSmall 的区别只在目标尺寸（播放区要清晰，缩略图要省）。 */
+    private fun decodeFull(path: String): Bitmap? {
+        return com.dollhouse.app.core.ImageDecode.file(
+            path, reqWidth = PLAY_TARGET_PX, reqHeight = PLAY_TARGET_PX)
+    }
+
+    /** 缩略图解码：只取 1/4 尺寸，避免一屏几十张把内存吃满。
+     *
+     * 【r18·收口】统一走 ImageDecode（采样策略与全工程一致）。
+     *   缩略图目标边长取 THUMB_TARGET_PX（列表项 ~96px 的 2 倍余量）。 */
     private fun decodeSmall(path: String): ImageBitmap? {
-        return try {
-            val f = File(path)
-            if (!f.exists()) {
-                return null
-            }
-            val opt = BitmapFactory.Options()
-            opt.inSampleSize = 4
-            val b = BitmapFactory.decodeFile(path, opt)
-            if (b == null) null else b.asImageBitmap()
-        } catch (t: Throwable) {
-            null
-        }
+        val b = com.dollhouse.app.core.ImageDecode.file(
+            path, reqWidth = THUMB_TARGET_PX, reqHeight = THUMB_TARGET_PX)
+        return b?.asImageBitmap()
     }
 }

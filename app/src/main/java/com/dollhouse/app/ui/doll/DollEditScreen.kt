@@ -70,6 +70,23 @@ object DollEditScreen {
     private const val TAB_LOOK = 3
 
     /**
+     * 【r20·唯一真源】编辑页底部导航的项清单。
+     *
+     * 【顺序即下标】TAB_CTRL / TAB_ACT / TAB_PERSONA / TAB_LOOK 就是这里的下标，
+     *   所以「加一项」= 在这里加一行 + 在 `Content` 的 when 里加一个分支，
+     *   不需要再动布局（旧的 `RowScope` 写法每项都要在调用处手写一遍 NavItem）。
+     *
+     * 【图标语义】「外观」用调色板（Lucide palette）—— 它管的是颜色与背景，
+     *   与设置页的外观入口同图标，用户一眼就能把两处对上。
+     */
+    private val TABS: List<DhKit.NavItemSpec> = listOf(
+        DhKit.NavItemSpec(Icons.IC_SLIDERS_HORIZONTAL, "控制"),
+        DhKit.NavItemSpec(Icons.IC_SPARKLES, "活动"),
+        DhKit.NavItemSpec(Icons.IC_USER_ROUND, "人格"),
+        DhKit.NavItemSpec(Icons.IC_PALETTE, "外观")
+    )
+
+    /**
      * 打开编辑页。
      *
      * 【r12 定案 Q29】先把正在跑的桌宠全关掉再进编辑页。
@@ -138,10 +155,13 @@ object DollEditScreen {
                 //     第 2 下按「人偶消失」判据给它打点，下次再开就走回归判定回初始位置。
                 //   图标两态：眼睛（未预览）/ 眼睛+斜线（预览中）。
                 var previewing by remember(id) { mutableStateOf(DollPreviewOverlay.isShowing(id)) }
+                // 【r16·图标+文字】顶栏只此一枚按钮，空间充足 → 写明「预览」，
+     //   不必让用户从眼睛图标去猜（用户需求：图标要符合文字描述）。
                 DhKit.IconButton(
                     iconRes = if (previewing) Icons.IC_EYE_OFF else Icons.IC_EYE,
                     sizeDp = Design.SZ_MD,
-                    color = c.title
+                    color = c.title,
+                    label = if (previewing) "结束预览" else "预览"
                 ) {
                     if (previewing) {
                         // 【必须走带 ctx 的重载】它会给这只人偶记下「消失时刻」——
@@ -183,33 +203,11 @@ object DollEditScreen {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // 【底部胶囊导航】四项各带图标 + 文字；选中态用 OPTION 底 + ACC 字图（与设置页多选同套语义色）。
-            // 【r14·为什么从三项变四项】新增「外观」——人偶层的背景 / 气泡配置入口（用户定案）。
-            //   四格仍用同一条胶囊，宽度自适应；中文两字标签不会挤。
-            DhKit.NavBar {
-                DhKit.NavItem(
-                    iconRes = Icons.IC_SLIDERS_HORIZONTAL,
-                    label = "控制",
-                    selected = tab == TAB_CTRL
-                ) { tab = TAB_CTRL }
-                DhKit.NavItem(
-                    iconRes = Icons.IC_SPARKLES,
-                    label = "活动",
-                    selected = tab == TAB_ACT
-                ) { tab = TAB_ACT }
-                DhKit.NavItem(
-                    iconRes = Icons.IC_USER_ROUND,
-                    label = "人格",
-                    selected = tab == TAB_PERSONA
-                ) { tab = TAB_PERSONA }
-                // 【图标语义】用调色板（Lucide palette）——「外观」这一格管的是颜色与背景，
-                //   与设置页的外观入口同图标，用户一眼就能把两处对上。
-                DhKit.NavItem(
-                    iconRes = Icons.IC_PALETTE,
-                    label = "外观",
-                    selected = tab == TAB_LOOK
-                ) { tab = TAB_LOOK }
-            }
+            // 【r20】底部胶囊导航改成「数据驱动」：调用方只交一份清单，布局 / 等高 / 滚动 /
+            //   选中自动定位全在 DhKit.NavBar 里统一处理。以后加第五、第六格只需往 TABS 里加一条。
+            //   【必须显式命名 onSelect】NavBar 的最后一个参数是 modifier（不是函数类型），
+            //   trailing lambda 语法在这里不成立 —— 会报 "No value passed for parameter 'onSelect'"。
+            DhKit.NavBar(items = TABS, selected = tab, onSelect = { idx -> tab = idx })
         }
     }
 
@@ -223,7 +221,7 @@ object DollEditScreen {
         //   用户会以为坏了。用户定过「没必要的就不做」，故整体移除。
         DhKit.ActionRow(
             label = "动作",
-            iconRes = Icons.IC_PLAY,
+            iconRes = Icons.IC_BLOCKS,
             desc = "这只人偶的全部动画，可预览每一帧、改名、调速"
         ) { DollActionPage.open(act, id) }
         DhKit.ActionRow(
@@ -233,7 +231,7 @@ object DollEditScreen {
         ) { DollGesturePage.open(act, id) }
         DhKit.ActionRow(
             label = "暂离",
-            iconRes = Icons.IC_MOUSE_POINTER_2,
+            iconRes = Icons.IC_HEART_HANDSHAKE,
             desc = "多久没人理她就开始休息、什么时候回来"
         ) { DollNumDialog.show(act, id, DollNumDialog.KIND_AWAY, null) }
     }
@@ -325,6 +323,7 @@ object DollEditScreen {
         val ret = remember(id, retTick) { DollProfile.returnSeconds(act, id) }
         DhKit.ActionRow(
             label = "回归时间",
+            iconRes = Icons.IC_CLOCK_3,
             trailing = if (ret <= 0) "每次回到初始位置" else ret.toString() + " 秒"
         ) {
             DollNumDialog.show(act, id, DollNumDialog.KIND_RETURN) { retTick++ }

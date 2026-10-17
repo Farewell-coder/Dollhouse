@@ -116,6 +116,32 @@ object GestureActions {
     const val A_CHAT = "chat"
     const val A_CONTINUE = "continue"
     const val A_AWAY = "away"
+    /** 【r19·新增】快捷菜单：弹出一个悬浮菜单（聊天 / 动作列表 / 设置 / 睡觉）。 */
+    const val A_MENU = "menu"
+
+    /**
+     * **【r16 新增】**「播放动作」条目的前缀 —— `act:<actionId>`。
+     *
+     * 【为什么用前缀而不是新开一个存储键】手势响应本来就是一个「集合」
+     *   （`talk,continue` 这样存）。把「播某个动作」也做成集合里的一个条目，
+     *   · 不用改存储结构 → 旧档案零迁移；
+     *   · 天然支持「一边弹聊天框一边播动作」这种组合；
+     *   · 旧版本 APK 读到 `act:xxx` 会当成无法识别而忽略（[parse] 已过滤），
+     *     不会崩、也不会误触发别的行为 —— **前后兼容都是安全的**。
+     */
+    const val P_ACT = "act:"
+
+    /** 构造一个「播放动作」条目。 */
+    fun actValue(actionId: String): String = P_ACT + actionId
+
+    /** 该条目是不是「播放动作」；是则返回动作 id，否则 null。 */
+    fun actId(value: String?): String? {
+        if (value == null || !value.startsWith(P_ACT)) {
+            return null
+        }
+        val id = value.substring(P_ACT.length)
+        return if (id.isEmpty()) null else id
+    }
 
     /** 分发顺序：交谈 -> 聊天（继续单独先行判定）。暂离是配置项，不参与手势分发。 */
     val ORDER = arrayOf(A_TALK, A_CHAT)
@@ -127,7 +153,15 @@ object GestureActions {
     const val CONTINUE_LABEL = "继续"
     const val AWAY_LABEL = "暂离"
 
-    /** 解析存储串；非法项忽略。原有三项（交谈 / 聊天 / 继续）顺序与默认值保持不变。 */
+    /**
+     * 解析存储串；非法项忽略。原有四项（交谈 / 聊天 / 继续 / 暂离）顺序与默认值保持不变。
+     *
+     * 【r16】新增接受 `act:<actionId>` 条目（见 [P_ACT]）。
+     * 【为什么 id 里不可能有逗号】动作 id 由 [DollAnim.newId] 生成
+     *   （`a` + 36 进制时间戳 + uuid 前 4 位）或来自模型包 manifest 的 `id`，
+     *   两者都不含逗号 —— 逗号是分隔符，含逗号的 id 会把一条拆成两条。
+     *   这里额外做一次防御：id 里出现空格或逗号就丢弃。
+     */
     fun parse(raw: String?): MutableSet<String> {
         val out = LinkedHashSet<String>()
         if (raw == null) {
@@ -135,7 +169,12 @@ object GestureActions {
         }
         for (part in raw.split(",")) {
             val s = part.trim()
-            if (s == A_TALK || s == A_CHAT || s == A_CONTINUE || s == A_AWAY) {
+            if (s == A_TALK || s == A_CHAT || s == A_CONTINUE || s == A_AWAY || s == A_MENU) {
+                out.add(s)
+                continue
+            }
+            val act = actId(s)
+            if (act != null && !act.contains(' ') && !act.contains(',')) {
                 out.add(s)
             }
         }
@@ -165,15 +204,40 @@ object GestureActions {
             }
             sb.append(A_AWAY)
         }
+        // 【r16】最后追加「播放动作」条目。排序输出（按 id 字典序）：
+        //   集合本身无序，若不排序，同一个配置每次存盘顺序都可能不同，
+        //   造成「没改任何东西但 prefs 一直在变」的假象（也会干扰对比排查）。
+        val acts = ArrayList<String>()
+        for (one in set) {
+            if (actId(one) != null) {
+                acts.add(one)
+            }
+        }
+        acts.sort()
+        for (one in acts) {
+            if (sb.isNotEmpty()) {
+                sb.append(',')
+            }
+            sb.append(one)
+        }
         return sb.toString()
     }
 
     /** 行内展示文案：无 + 各项以「 + 」相连。 */
-    fun label(set: Set<String>): String {
+    fun label(set: Set<String>): String = label(set, null)
+
+    /**
+     * 行内展示文案（带动作名解析）。
+     *
+     * @param nameOf 把动作 id 翻成显示名；为 null 时退化为显示原始 id
+     *   （宁可显示 `act:a1x2y3` 也不要显示「一个动作」——后者会让用户
+     *   分不清到底绑了哪个，反而更难排查）。
+     */
+    fun label(set: Set<String>, nameOf: ((String) -> String)?): String {
         if (set.isEmpty()) {
             return NONE_LABEL
         }
-        val names = ArrayList<String>(4)
+        val names = ArrayList<String>(5)
         if (set.contains(A_TALK)) {
             names.add(TALK_LABEL)
         }
@@ -186,8 +250,18 @@ object GestureActions {
         if (set.contains(A_AWAY)) {
             names.add(AWAY_LABEL)
         }
+        val acts = ArrayList<String>()
+        for (one in set) {
+            val id = actId(one) ?: continue
+            acts.add(ACT_LABEL_PREFIX + (nameOf?.invoke(id) ?: id))
+        }
+        acts.sort()
+        names.addAll(acts)
         return names.joinToString(" + ")
     }
+
+    /** 「播放动作」在文案里的前缀。 */
+    const val ACT_LABEL_PREFIX = "播·"
 
     /** 各手势的默认响应（存储串形式）。 */
     fun defaultRaw(gesture: String): String {

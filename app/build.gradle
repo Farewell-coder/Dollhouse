@@ -1,6 +1,11 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    // 【r17】Kotlin 2.0 起 Compose 编译器插件独立发布（不再用 composeOptions 里的
+    //   kotlinCompilerExtensionVersion —— 那个在 Kotlin 2.x 下已废弃）。
+    id 'org.jetbrains.kotlin.plugin.compose'
+    // 【r17·Navigation3】导航 key 需要 @Serializable 才能被 NavBackStack 存档恢复。
+    id 'org.jetbrains.kotlin.plugin.serialization'
     id 'org.jetbrains.kotlin.kapt'
     id 'com.google.dagger.hilt.android'
 }
@@ -16,14 +21,17 @@ if (hasKeystore) {
 
 android {
     namespace 'com.dollhouse.app'
-    compileSdk 35
+    // 【r17·导航架构升级】compileSdk 35 → 36：Navigation3 的 aar 元数据要求
+    //   `minCompileSdk=36`（已在 aar-metadata.properties 中实测确认）。
+    //   targetSdk 保持 34 不变 —— 那关系到运行时行为与商店合规，本次不动。
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.dollhouse.app"
         minSdk 24
         targetSdk 34
-        versionCode 7
-        versionName "0.0.7"
+        versionCode 8
+        versionName "0.0.8"
         // 资源裁剪：本应用文案为中文，en 仅作系统兜底。
         resConfigs "zh", "en"
     }
@@ -57,28 +65,83 @@ android {
             }
         }
     }
+    /**
+     * 【r15·ABI 拆分（建议⑨）】按 CPU 架构出独立 APK，每个包只带自己那套 .so。
+     *
+     * 【为什么】改造前是「fat APK」：一个包里塞了 4 套 libmlkit_google_ocr_pipeline.so
+     *   （arm64 10.5MB + armv7 6.5MB + x86 11MB + x86_64 11.1MB ≈ 39MB 纯 so），
+     *   而真机只用得上其中一套 —— 实测 APK 34MB 里有超过三分之一是白带的。
+     *   拆开之后：arm64 包只带 arm64 的 so，安装体积直接砍掉约 30MB。
+     *
+     * 【为什么不用 abiFilters 只留 arm64】那会在 x86 模拟器上装不上，且会把
+     *   「32 位老机器」直接排除。splits 生成的是一套多包（各带一套 so + 一个 universal），
+     *   兼容性完全不变，代价只是产物体积总量变多（不占用户手机空间）。
+     *
+     * 【关于 universalApk】置 true 是为了**保留一个万能包**：投放/分发时不必先问机型，
+     *   装哪个都能跑（代价就是体积大）。装机时优先装 arm64-v8a 那个。
+     *
+     * 【为什么还要 enable=true 之外的 ABI 列表】x86/x86_64 保留是给模拟器与极少数平板用的；
+     *   不加 abiFilters 就自动跟随依赖里带的 ABI，不写死、不遗漏。
+     */
+    splits {
+        abi {
+            enable true
+            reset()
+            // 【显式列出】不靠 AGP 从依赖推断 —— 显式列出才能保证「一定产出 4 个分包 + 1 个万能包」，
+            //   否则一旦依赖变化（例如某天 ML Kit 去掉 x86），产物数量会静默变化、脚本对不上。
+            include 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+            universalApk true
+        }
+    }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = '17'
+
+    /**
+     * 【r18·存储】剔除打包进 APK 的冗余 META-INF 与平台无关文件。
+     *   这些是依赖库（kotlinx-coroutines、ML Kit、Compose 等）捎带的签名/许可/版本描述，
+     *   对运行零贡献，但每个 ABI 分包都会重复带一份。剔除后每个 APK 瘦 ~200KB。
+     *   【安全】只剔「描述性文件」，不动 `.SF/.RSA/.MF` 签名（v1 签名依赖它们，
+     *   本工程用 v2 签名不受影响，但保险起见保留）。
+     */
+    packaging {
+        resources {
+            excludes += [
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/license.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/notice.txt",
+                "META-INF/ASL2.0",
+                "META-INF/*.kotlin_module",
+                "kotlin/**",
+                "**/*.kotlin_metadata"
+            ]
+        }
     }
 
     // 【Jetpack Compose】常规 UI 迁移到 Compose。
     buildFeatures {
         compose true
     }
-    composeOptions {
-        // Compose 编译器扩展版本必须与 Kotlin 版本严格配对。
-        // Kotlin 1.9.24 ↔ compiler 1.5.14（官方兼容表口径）。
-        kotlinCompilerExtensionVersion '1.5.14'
-    }
+    // 【r17】composeOptions.kotlinCompilerExtensionVersion 已移除 ——
+    //   Kotlin 2.0+ 由 `org.jetbrains.kotlin.plugin.compose` 插件接管，版本随 Kotlin 走。
+    //   留着旧字段会与插件冲突（编译期报 "Compose Compiler 版本不匹配"）。
 
     lint {
         abortOnError false
         checkReleaseBuilds false
+    }
+}
+
+// 【r17·工具链升级】Kotlin 2.x 下 kotlinOptions 已废弃，jvmTarget 改到顶层 kotlin{} 块。
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
@@ -87,7 +150,10 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
     // Shizuku 官方客户端库：api 提供 Shizuku.* 调用面，provider 提供接收 server binder 的 ContentProvider。
     // 两者都是 aar，传递依赖里带 androidx.annotation（仅注解，非运行时必需）——
-    // 本工程 android.useAndroidX=false，故显式排除，避免 AGP 的 AndroidX 检查直接失败。
+    // 【r16·修正】本工程 gradle.properties 里 android.useAndroidX=true；
+    //   此处排除 androidx.annotation 是为了避开 AGP 的 AndroidX 检查（该 aar 只传递注解、非运行时必需）。
+    //   【为什么改成这样写】原注释写成 useAndroidX=false，与 gradle.properties 实际取值相反，
+    //   会误导后来者（任务书 §2.5 第 8 条记录的就是这处）。
     implementation('dev.rikka.shizuku:api:13.1.5') {
         exclude group: 'androidx.annotation'
     }
@@ -102,14 +168,15 @@ dependencies {
     // 【无感保活】保活模块独立使用 Kotlin + Hilt + 协程；存量 Java 不改。
     // 保活全部基于系统 API（JobScheduler / AlarmManager / ConnectivityManager），
     // 不引入任何第三方保活 SDK。
-    implementation 'com.google.dagger:hilt-android:2.51.1'
-    kapt 'com.google.dagger:hilt-android-compiler:2.51.1'
+    implementation 'com.google.dagger:hilt-android:2.57.2'
+    kapt 'com.google.dagger:hilt-android-compiler:2.57.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 
     // 【Jetpack Compose】常规 UI 迁移到 Compose（版本由 BOM 统一，不写死单件版本）。
-    // BOM 2024.06.00 → ui/foundation/animation/runtime 1.6.8、material3 1.2.1，
-    // 与本地 Gradle 缓存里已有的版本一一对应，离线可构建。
-    implementation platform('androidx.compose:compose-bom:2024.06.00')
+    // 【r17·导航架构升级】BOM 2024.06.00 → 2026.01.01：Navigation3 1.1.0 硬依赖
+    //   compose-runtime/ui/animation 1.10 与 lifecycle 2.10，旧 BOM（1.6.8）无法满足。
+    //   新 BOM 的 compose 版本为 1.10.x，与 Nav3 的依赖口径一致。
+    implementation platform('androidx.compose:compose-bom:2026.01.01')
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'
     implementation 'androidx.compose.ui:ui-tooling-preview'
@@ -117,12 +184,48 @@ dependencies {
     implementation 'androidx.compose.animation:animation'
     implementation 'androidx.compose.material3:material3'
     // Activity 承载 Compose 内容（setContent / ComposeView 的宿主所需）。
-    implementation 'androidx.activity:activity-compose:1.8.2'
+    implementation 'androidx.activity:activity-compose:1.12.0'
     // collectAsStateWithLifecycle：让 Compose 侧订阅随生命周期安全启停。
-    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.10.0'
     // ComposeView 手动装 owner 所需：ViewTreeLifecycleOwner / ViewTreeViewModelStoreOwner 在 lifecycle-runtime-ktx，
     // ViewTreeSavedStateRegistryOwner 在 savedstate-ktx。本工程 Activity 是原生 Activity，不自动装，故显式引入。
-    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
-    implementation 'androidx.savedstate:savedstate-ktx:1.2.1'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.10.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0'
+    implementation 'androidx.savedstate:savedstate-ktx:1.4.0'
+
+    // 【r17·导航架构升级】Jetpack Navigation 3（Compose 原生导航）。
+    //   runtime 提供 NavKey / NavBackStack / rememberNavBackStack / entryProvider，
+    //   ui 提供 NavDisplay（含转场动画与预测性返回支持）。
+    //   【版本选择】1.1.0 是当前可用的最高稳定版：1.2.0 要求 AGP 9.1.0 + compileSdk 37，
+    //     而 AGP 9 与 Kotlin Gradle 插件存在插件模型冲突（实测）。
+    //   该组合已在独立探针工程实测通过（assembleDebug 成功）。
+    implementation 'androidx.navigation3:navigation3-runtime:1.1.0'
+    implementation 'androidx.navigation3:navigation3-ui:1.1.0'
+    // 导航 key 的序列化支持（@Serializable data class NavKey）。
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-core:1.7.3'
+
+    // 【r15·测试底座（建议①）】JUnit 4 用于 **JVM 单元测试**（src/test），
+    //   跑的是纯逻辑类（SemVer / Springs / BlinkTimeline），不需要设备也不需要 Robolectric。
+    //   工程此前零测试：改一行更新比较逻辑只能靠手测，回归全靠运气。
+    //   【为什么只加 testImplementation】不引入 androidTest（需要设备/模拟器，
+    //   与本工程「不跑真机测试」的既有约束冲突），纯 JVM 测试在 CI 与本地都能秒级跑完。
+    testImplementation 'junit:junit:4.13.2'
+    // 【r16·模型框架】JVM 版 org.json —— 单元测试专用。
+    //   【为什么必须加】Android 平台自带 org.json，但那是 **android.jar 里的 stub**：
+    //     单元测试直接调 `new JSONObject(...)` 会抛
+    //     「Method ... not mocked. See http://g.co/androidstudio/not-mocked」。
+    //   `ModelPackage.parse/write` 与 `ModelValidator` 的校验规则都是纯数据逻辑，
+    //     值得在 JVM 上单测（任务书 §3.9 明确要求 ModelPackageTest），
+    //     所以给 test 配置补一份真正的实现。
+    //   【为什么是 testImplementation 而不是 implementation】只为测试而加，
+    //     不能进 APK —— 平台已有，重复打进包只会白增体积。
+    testImplementation 'org.json:json:20231013'
+
+    // 【r16·模型框架】Lottie 矢量动画（Apache-2.0）—— 任务书 §3.4 指定的第二引擎。
+    //   【为什么用 LottieDrawable 而不是 LottieAnimationView】
+    //     后者是 android.view.View，会引入另一套 View 层级与 appcompat 主题依赖；
+    //     本工程的人偶是「自绘 View + drawBitmapMesh」，用 Drawable 才能画进同一个 Canvas。
+    //   【传递依赖】appcompat / fragment / emoji2 / okio —— 工程原本没有，
+    //     实测体积影响见交付报告（先原样引入，不做 exclude 裁剪）。
+    implementation 'com.airbnb.android:lottie:6.7.1'
 }

@@ -274,30 +274,13 @@ object ChatListData {
      *   列表里十几张一起解码，低端机直接 OOM。降到 96px 后每张约 36KB。
      */
     private fun decodeSquare(path: String?): Bitmap? {
-        if (path == null || path.isEmpty()) {
+        if (path.isNullOrEmpty()) {
             return null
         }
-        return try {
-            if (!File(path).exists()) {
-                return null
-            }
-            val bounds = BitmapFactory.Options()
-            bounds.inJustDecodeBounds = true
-            BitmapFactory.decodeFile(path, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                return null
-            }
-            var sample = 1
-            val edge = Math.max(bounds.outWidth, bounds.outHeight)
-            while (edge / sample > AVATAR_PX * 2) {
-                sample *= 2
-            }
-            val opts = BitmapFactory.Options()
-            opts.inSampleSize = sample
-            BitmapFactory.decodeFile(path, opts)
-        } catch (unused: Throwable) {
-            null
-        }
+        // 【r18·收口】统一走 ImageDecode（采样逻辑一致，删掉本地重复实现）。
+        //   目标边长取 AVATAR_PX*2（头像显示 2 倍余量保清晰度），与旧实现等价。
+        return com.dollhouse.app.core.ImageDecode.file(
+            path, reqWidth = AVATAR_PX * 2, reqHeight = AVATAR_PX * 2)
     }
 
     /* ============================ 操作 ============================ */
@@ -347,6 +330,19 @@ object ChatListData {
         //   用户去「人偶」跟这只人偶说一句话 → 消息落库 → [ChatHistoryStore.push]
         //   清掉标记 → 条目自动回到列表。这就是 QQ 的行为。
         PetPrefs.setConvHidden(ctx, convId, true)
+    }
+
+    /**
+     * 【r19·置顶】把会话顶到列表最前。
+     *
+     * 【实现】把该会话的 `updated` 时间戳改为当前时间 —— 列表按 `updated` 倒序排，
+     *   改成最大即自然浮到顶部。不动存储结构，与「最新消息自动上浮」同一套机制。
+     */
+    fun pinToTop(ctx: Context, convId: String?) {
+        if (convId == null || convId.isEmpty()) {
+            return
+        }
+        ChatSessions.touch(ctx, convId)
     }
 
     /**
