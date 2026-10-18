@@ -33,13 +33,16 @@ object ImageStore {
         try {
             val o = BitmapFactory.Options()
             o.inJustDecodeBounds = true
-            val input = context.contentResolver.openInputStream(uri)
-            if (input == null) {
-                return null
+            // 【r20·修流泄漏】原来是「open → decodeStream → close」的直线写法：
+            //   decodeStream 一旦抛异常（损坏图 / Uri 权限被回收 / ROM 抛 SecurityException），
+            //   后面那行 close 就永远执行不到 —— 每次失败泄漏一个 fd。
+            //   尺寸探测是高频操作（背景裁剪页拖动时会反复调），泄漏会累积到 EMFILE。
+            //   改用 use{}，异常路径也能关。
+            val dims = context.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, o)
+                if (o.outWidth <= 0 || o.outHeight <= 0) null else intArrayOf(o.outWidth, o.outHeight)
             }
-            BitmapFactory.decodeStream(input, null, o)
-            input.close()
-            return if (o.outWidth <= 0 || o.outHeight <= 0) null else intArrayOf(o.outWidth, o.outHeight)
+            return dims
         } catch (t: Throwable) {
             return null
         }
@@ -57,16 +60,14 @@ object ImageStore {
                  ratio: Float, outW: Int): String {
         var full: Bitmap? = null
         try {
-            val input = context.contentResolver.openInputStream(src)
-            if (input == null) {
-                throw IllegalStateException("读不到这张图")
-            }
-            val decoded = BitmapFactory.decodeStream(input, null, null)
+            // 【r20·修流泄漏】与 size() 同一个毛病：close 夹在 decodeStream 后面，
+            //   decodeStream 抛异常（损坏图 / OOM / Uri 授权失效）时 close 被跳过，
+            //   每次失败泄漏一个 fd。背景裁剪页反复拖选框会反复调到这里。
+            //   用 use{} 把关闭放进异常路径。
+            val decoded = context.contentResolver.openInputStream(src)?.use { input ->
+                BitmapFactory.decodeStream(input, null, null)
+            } ?: throw IllegalStateException("读不到这张图")
             full = decoded
-            input.close()
-            if (decoded == null) {
-                throw IllegalStateException("这张图解不开")
-            }
             return saveCropFrom(context, decoded, left, top, width, height, ratio, outW)
         } finally {
             if (full != null) {
@@ -183,11 +184,20 @@ object ImageStore {
             throw IllegalStateException("这个文件不是图片，或者解不开")
         }
         val file = File(dir(context, str), "img_" + System.currentTimeMillis() + ".jpg")
-        val fileOutputStream = FileOutputStream(file)
-        decodeScaled.compress(Bitmap.CompressFormat.JPEG, 85, fileOutputStream)
-        fileOutputStream.flush()
-        fileOutputStream.close()
-        decodeScaled.recycle()
+        // 【r20·修流泄漏】原写法 compress → flush → close 三步直线，compress 抛异常时
+        //   ① 文件流不关（fd 泄漏，累积到 EMFILE 会让后续文件/网络操作全部静默失败）；
+        //   ② `decodeScaled.recycle()` 被跳过，一张大图常驻堆里。
+        //   use{} 保证关流，finally 保证回收位图。
+        try {
+            FileOutputStream(file).use { out ->
+                decodeScaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                out.flush()
+            }
+        } finally {
+            if (!decodeScaled.isRecycled) {
+                decodeScaled.recycle()
+            }
+        }
         prune(context, str)
         return str + "/" + file.name
     }
@@ -237,10 +247,9 @@ object ImageStore {
                 }
                 bmp = scaleToLongEdge(decoded, maxDim) ?: decoded
                 val target = File(dir(context, subDir), "img_" + System.currentTimeMillis() + ".jpg")
+                // 【r23·清死分支】上面赋过值之后 bmp 已被编译器推断为非空，
+                //   原来那句 `if (toWrite == null) return ""` 永远不执行（编译器已警告）。
                 val toWrite = bmp
-                if (toWrite == null) {
-                    return ""
-                }
                 FileOutputStream(target).use { out ->
                     toWrite.compress(Bitmap.CompressFormat.JPEG, Math.max(0, Math.min(100, quality)), out)
                 }
@@ -295,31 +304,35 @@ object ImageStore {
     private fun decodeScaled(context: Context, uri: Uri, i: Int): Bitmap? {
         val options = BitmapFactory.Options()
         options.inJustDecodeBounds = true
-        val openInputStream = context.contentResolver.openInputStream(uri)
-        if (openInputStream == null) {
-            return null
+        // 【r22·修流泄漏】`decodeStream` 会真的从流里读字节，不是图片 / 流中断都会抛异常。
+        //   原写法是 `openInputStream` → `decodeStream` → `close` 的直线三步，
+        //   一旦 decodeStream 抛异常，close 就永远不执行，漏一个 fd。
+        //   更隐蔽的是「解码返回 null」那条分支：原代码 `return null` 时也没有关流 ——
+        //   这条路径在用户选到损坏图片时是常态，比异常路径更容易踩。
+        //   两处统一改成 use{}。
+        val outW: Int
+        val outH: Int
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            BitmapFactory.decodeStream(input, null, options)
         }
-        BitmapFactory.decodeStream(openInputStream, null, options)
-        openInputStream.close()
-        if (options.outWidth <= 0 || options.outHeight <= 0) {
+        outW = options.outWidth
+        outH = options.outHeight
+        if (outW <= 0 || outH <= 0) {
             return null
         }
         var i2 = 1
         while (true) {
             val i3 = i * 2
-            if (options.outWidth / i2 <= i3 && options.outHeight / i2 <= i3) {
+            if (outW / i2 <= i3 && outH / i2 <= i3) {
                 break
             }
             i2 *= 2
         }
         val options2 = BitmapFactory.Options()
         options2.inSampleSize = i2
-        val openInputStream2 = context.contentResolver.openInputStream(uri)
-        if (openInputStream2 == null) {
-            return null
+        val decodeStream = context.contentResolver.openInputStream(uri)?.use { input ->
+            BitmapFactory.decodeStream(input, null, options2)
         }
-        val decodeStream = BitmapFactory.decodeStream(openInputStream2, null, options2)
-        openInputStream2.close()
         if (decodeStream == null) {
             return null
         }
@@ -347,16 +360,18 @@ object ImageStore {
         }
         val length = file.length().toInt()
         val bArr = ByteArray(length)
-        val fileInputStream = FileInputStream(file)
-        var i = 0
-        while (i < length) {
-            val read = fileInputStream.read(bArr, i, length - i)
-            if (read <= 0) {
-                break
+        // 【r20·修流泄漏】原写法「new → read 循环 → close」：read 抛 IOException 时 close 跳过。
+        //   use{} 保证异常路径也关闭。读取逻辑（循环 + 提前退出）逐行保持。
+        FileInputStream(file).use { fileInputStream ->
+            var i = 0
+            while (i < length) {
+                val read = fileInputStream.read(bArr, i, length - i)
+                if (read <= 0) {
+                    break
+                }
+                i += read
             }
-            i += read
         }
-        fileInputStream.close()
         return "data:image/jpeg;base64," + Base64.encodeToString(bArr, 2)
     }
 
@@ -513,22 +528,22 @@ object ImageStore {
     @JvmStatic
     @Throws(Exception::class)
     fun readTextFile(context: Context, uri: Uri, i: Int): String? {
-        val openInputStream = context.contentResolver.openInputStream(uri)
-        if (openInputStream == null) {
-            return null
-        }
+        // 【r20·修流泄漏】原写法 close 在 do-while 之后：read 抛 IOException / OOM
+        //   （readTextFile 上限 24KB，但 openInputStream 本身仍可能失败）时 close 被跳过。
+        //   用 use{} 包住整个读取过程，异常路径也关闭。
         val byteArrayOutputStream = ByteArrayOutputStream()
-        val bArr = ByteArray(8192)
-        var i2 = 0
-        do {
-            val read = openInputStream.read(bArr)
-            if (read <= 0) {
-                break
-            }
-            byteArrayOutputStream.write(bArr, 0, read)
-            i2 += read
-        } while (i2 < i)
-        openInputStream.close()
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val bArr = ByteArray(8192)
+            var i2 = 0
+            do {
+                val read = input.read(bArr)
+                if (read <= 0) {
+                    break
+                }
+                byteArrayOutputStream.write(bArr, 0, read)
+                i2 += read
+            } while (i2 < i)
+        } ?: return null
         val byteArray = byteArrayOutputStream.toByteArray()
         for (b in byteArray) {
             if (b.toInt() == 0) {

@@ -588,9 +588,10 @@ object DollStore {
             return ""
         }
         return try {
-            val input: InputStream = ctx.contentResolver.openInputStream(uri) ?: return ""
-            val raw = BitmapFactory.decodeStream(input)
-            input.close()
+            // 【r20·修流泄漏】decodeStream 抛异常时原 close 被跳过 → fd 泄漏。
+            val raw = ctx.contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input)
+            } ?: return ""
             if (raw == null) {
                 return ""
             }
@@ -623,19 +624,31 @@ object DollStore {
 
     /** 解码后的位图 → 缩放 → PNG 落盘，返回绝对路径；失败返回空串。两条导入路径共用。 */
     private fun encode(ctx: Context, raw: Bitmap, prefix: String): String {
+        // 【r22·修位图泄漏】原写法只关流、不管位图：compress 抛异常（磁盘满 / OOM）时，
+        //   `scaled` 与 `raw` 都不会被 recycle —— 一张 1024 长边的 ARGB 图约 4MB，
+        //   用户连选几张坏图就能把堆推到 OOM。改成 finally 里统一回收。
+        var scaled: Bitmap? = null
         return try {
-            val scaled = scaleDown(raw)
+            val s = scaleDown(raw)
+            scaled = s
             val file = File(dir(ctx), prefix + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 6) + ".png")
-            val out = FileOutputStream(file)
-            scaled.compress(Bitmap.CompressFormat.PNG, 100, out)
-            out.flush()
-            out.close()
-            if (scaled !== raw) {
-                raw.recycle()
+            // 【r20·修流泄漏】compress 抛异常（磁盘满 / OOM）时原 close 被跳过 → fd 泄漏。
+            FileOutputStream(file).use { out ->
+                s.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.flush()
             }
             file.absolutePath
         } catch (t: Throwable) {
             ""
+        } finally {
+            // 先回收缩放结果（可能与 raw 是同一个实例，所以要在 raw 之前判断）。
+            val s = scaled
+            if (s != null && s !== raw && !s.isRecycled) {
+                s.recycle()
+            }
+            if (!raw.isRecycled) {
+                raw.recycle()
+            }
         }
     }
 
@@ -666,18 +679,39 @@ object DollStore {
      */
     @JvmStatic
     fun coverOf(ctx: Context, doll: Doll?): Bitmap? {
+        return coverOf(ctx, doll, 1024)
+    }
+
+    /**
+     * 【r24·修内存与主线程卡顿】按目标边长解码封面。
+     *
+     * 【为什么需要这个重载】原来只有无参版本，内部写死 1024 —— 于是**所有**调用方
+     * （46dp 的联系人头像、34dp 的群组成员头像、会话列表 96px 头像）都按 1024 解码：
+     * 一张 1024×1024 的 ARGB_8888 = **4MB**。会话列表几十行就是上百 MB，
+     *   而且这些解码还发生在**主线程的组合阶段**（`remember { coverOf(...) }`），
+     *   表现是「进聊天列表 / 联系人页卡一下」。
+     *
+     * 【口径】缩略图一律按「显示 dp × 3」传，取 2 的幂附近的近似值即可；
+     *   `ImageDecode` 内部会把 inSampleSize 向上取整，视觉零差异、内存按平方下降。
+     *
+     * @param reqPx 目标最长边（px）。传 <= 0 表示要原始尺寸（仅导出等场景用）
+     */
+    @JvmStatic
+    fun coverOf(ctx: Context, doll: Doll?, reqPx: Int): Bitmap? {
         val path = if (doll == null) "" else doll.cover
         if (path.isEmpty()) {
             return null
         }
-        return decodeFile(path)
+        return decodeFile(path, reqPx)
     }
 
-    private fun decodeFile(path: String): Bitmap? {
+    private fun decodeFile(path: String, reqPx: Int = 1024): Bitmap? {
         // 【r18·内存】统一走 ImageDecode 采样解码。
         //   下游 scaleDown 本来就压到 ≤1024，解码时直接采样到 1024 量级
         //   可省掉「全尺寸解码 → 再缩放」的中间全尺寸 Bitmap（峰值内存减半以上）。
-        return com.dollhouse.app.core.ImageDecode.file(path, reqWidth = 1024, reqHeight = 1024)
+        // 【r24】具体目标由调用方决定：缩略图传小值，别一律 1024。
+        val target = if (reqPx <= 0) 1024 else reqPx
+        return com.dollhouse.app.core.ImageDecode.file(path, reqWidth = target, reqHeight = target)
     }
 
     private fun scaleDown(src: Bitmap): Bitmap {
@@ -726,10 +760,11 @@ object DollStore {
             meta.put("exportedAt", stamp)
             meta.put("dolls", arr)
             val f = File(base, "dolls.json")
-            val out = FileOutputStream(f)
-            out.write(meta.toString(2).toByteArray(Charsets.UTF_8))
-            out.flush()
-            out.close()
+            // 【r20·修流泄漏】write 抛异常时原 close 被跳过。
+            FileOutputStream(f).use { out ->
+                out.write(meta.toString(2).toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
             base.absolutePath
         } catch (t: Throwable) {
             ""

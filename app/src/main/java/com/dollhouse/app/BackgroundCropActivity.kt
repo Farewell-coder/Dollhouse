@@ -253,9 +253,13 @@ class BackgroundCropActivity : Activity() {
         try {
             val bounds = BitmapFactory.Options()
             bounds.inJustDecodeBounds = true
-            val in1 = contentResolver.openInputStream(uri) ?: return null
-            BitmapFactory.decodeStream(in1, null, bounds)
-            in1.close()
+            // 【r22·修流泄漏】两处都是「open → decodeStream → close」直线写法：
+            //   decodeStream 抛异常（损坏图 / Uri 授权失效 / OOM）时 close 被跳过，
+            //   每次失败漏一个 fd。裁剪页会反复重解码（旋转、切图），泄漏会累积。
+            //   改为 use{}，异常路径也关。另外「尺寸探测返回 null」那条分支原来也没关流。
+            contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            } ?: return null
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
                 return null
             }
@@ -266,10 +270,9 @@ class BackgroundCropActivity : Activity() {
             }
             val opts = BitmapFactory.Options()
             opts.inSampleSize = sample
-            val in2 = contentResolver.openInputStream(uri) ?: return null
-            val bmp = BitmapFactory.decodeStream(in2, null, opts)
-            in2.close()
-            return bmp
+            return contentResolver.openInputStream(uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, opts)
+            }
         } catch (t: Throwable) {
             Logs.w(TAG, "解码失败", t)
             return null

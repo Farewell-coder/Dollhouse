@@ -224,10 +224,11 @@ object LamdaManager {
             return
         }
         try {
-            val fos = FileOutputStream(s)
-            fos.write(stampOf(ctx).toByteArray(Charsets.UTF_8))
-            fos.flush()
-            fos.close()
+            // 【r20·修流泄漏】write 抛异常时原 close 被跳过。
+            FileOutputStream(s).use { fos ->
+                fos.write(stampOf(ctx).toByteArray(Charsets.UTF_8))
+                fos.flush()
+            }
         } catch (ignored: Throwable) {
         }
     }
@@ -904,24 +905,29 @@ object LamdaManager {
                 }
                 val total = c.contentLengthLong
                 val input = c.inputStream
-                val fos = FileOutputStream(tmp)
-                val buf = ByteArray(65536)
+                // 【r20·修流泄漏】原写法 read 循环中途抛异常时 fos / input 都不会关，
+                //   连点几次下载、或一次网络中断就会漏掉 2 个 fd；累积到 EMFILE 后
+                //   整个进程的文件与网络操作都会静默失败（表现为「下载按钮永远转圈」）。
+                //   改为 use{} 嵌套：异常路径也一定会关，正常路径也一样。
                 var done = 0L
-                var n = input.read(buf)
-                var last = 0L
-                while (n > 0) {
-                    fos.write(buf, 0, n)
-                    done += n
-                    val now = System.currentTimeMillis()
-                    if (now - last > 500L) {
-                        last = now
-                        cb.onProgress(done, if (total > 0) total else PKG_SIZE)
+                input.use { ins ->
+                    FileOutputStream(tmp).use { fos ->
+                        val buf = ByteArray(65536)
+                        var n = ins.read(buf)
+                        var last = 0L
+                        while (n > 0) {
+                            fos.write(buf, 0, n)
+                            done += n
+                            val now = System.currentTimeMillis()
+                            if (now - last > 500L) {
+                                last = now
+                                cb.onProgress(done, if (total > 0) total else PKG_SIZE)
+                            }
+                            n = ins.read(buf)
+                        }
+                        fos.flush()
                     }
-                    n = input.read(buf)
                 }
-                fos.flush()
-                fos.close()
-                input.close()
                 if (tmp.length() < PKG_SIZE) {
                     tmp.delete()
                     cb.onDone(false, "下载不完整（" + tmp.length() + " 字节）")

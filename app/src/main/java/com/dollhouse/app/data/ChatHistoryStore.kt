@@ -36,6 +36,28 @@ object ChatHistoryStore {
     private val LEGACY_AFFECTION: java.util.regex.Pattern =
         java.util.regex.Pattern.compile("[\\[【]\\s*好感度\\s*[:：]\\s*[+-]?\\d+\\s*[\\]】]")
 
+    /**
+     * 【r26·修无界增长】「更早历史」暂存位（`conv_<id>_prev`）的条数上限。
+     *
+     * 【为什么必须有】暂存位的语义是「裁下来的更早消息，等用户点『加载更早』一次性补回」。
+     *   原实现只有 `put`，**没有任何上限，也没有任何清空路径**（除了补回时整批清掉）：
+     *   - 用户只要一直往下聊、且从不点「加载更早」，每攒够 60 条就有一批被追加进来；
+     *   - 这些批次全部堆在同一个 SharedPreferences 字符串里；
+     *   - 一条消息平均 300 字 ≈ 0.9KB（UTF-16 存 ≈ 1.8KB），2000 条就是 ≈ 3.6MB。
+     *   而 SharedPreferences 是**整文件读写**：每次 push 都要把这个字符串反序列化成
+     *   JSONArray、追加、再整体序列化写回 —— O(N) 的磁盘写与解析，随聊天变长线性变慢。
+     *   到几 MB 时，发一条消息会出现肉眼可见的卡顿，且整份 prefs 在内存里常驻。
+     *
+     * 【取 600 的理由】正文保留 60 条（见 [trimForSave] 的 keep），
+     *   600 条 = 10 个批次 ≈ 用户「滚回更早历史」的合理深度；
+     *   再早的内容留在磁盘上的成本已经高于它的价值（没人会往回翻 600 条以上）。
+     *   取 600 而不是 60，是为了**不改变正常用户的行为**：正常聊天几个月都到不了 600 条。
+     *
+     * 【超限时丢哪一端】丢**最早**的（数组头部）—— 越往前的内容越不容易被回看，
+     *   且删除顺序与用户「往回翻」的方向相反，不会造成「中间少了一段」的断裂感。
+     */
+    private const val PREV_MAX_ENTRIES = 600
+
     @JvmStatic
     fun stripLegacyAffection(s: String?): String {
         return if (s == null) "" else LEGACY_AFFECTION.matcher(s).replaceAll("").trim()
@@ -305,7 +327,7 @@ object ChatHistoryStore {
                     }
                 }
                 if (prev.length() > 0) {
-                    PetPrefs.setConvPrev(ctx, id, prev.toString())
+                    PetPrefs.setConvPrev(ctx, id, trimPrev(prev).toString())
                 }
             } catch (_: Throwable) {
             }
@@ -419,12 +441,37 @@ object ChatHistoryStore {
                 c.remove("_prev")
                 prev.put(c)
             }
-            PetPrefs.setConvPrev(ctx, id, prev.toString())
+            // 【r26·修无界增长】暂存位只增不减 → 必须先按上限裁剪再落盘。
+            PetPrefs.setConvPrev(ctx, id, trimPrev(prev).toString())
             true
         } catch (t: Throwable) {
             Logs.w("DollhouseMemo", "stashToPrev 失败", t)
             false
         }
+    }
+/**
+     * 【r26】按 [PREV_MAX_ENTRIES] 裁剪暂存位，返回可安全落盘的数组。
+     *
+     * 【为什么抽出来】两处写暂存位的地方（`trimForSave` 的中段退回、`stashToPrev`）
+     *   都必须过同一道闸；写在两处早晚会漏一处。
+     * 【不原地改】入参可能是调用方正在持有的数组，原地 `remove` 会破坏它的语义；
+     *   这里只在超限时才重建一份，未超限原样返回（常见路径零拷贝）。
+     */
+    private fun trimPrev(prev: JSONArray): JSONArray {
+        val n = prev.length()
+        if (n <= PREV_MAX_ENTRIES) {
+            return prev
+        }
+        val out = JSONArray()
+        // 丢**最早**的那一段，保留最近 PREV_MAX_ENTRIES 条。
+        for (i in (n - PREV_MAX_ENTRIES) until n) {
+            val o = prev.opt(i)
+            if (o != null) {
+                out.put(o)
+            }
+        }
+        Logs.i("DollhouseMemo", "暂存位超过上限，丢弃最早 " + (n - PREV_MAX_ENTRIES) + " 条")
+        return out
     }
 
     /** 是否还有「更早的历史」可补（供聊天记录顶部决定要不要显示入口）。 */

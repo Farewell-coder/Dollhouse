@@ -242,6 +242,13 @@ object ModelImporter {
         if (!inspection.canInstall) {
             return Result(inspection.code, m.id, m.name, 0, emptyList(), inspection.summary())
         }
+        // 【r23·清类型隐患】zipPath 是 `String?`，原来直接喂给 `File(zipPath)`：
+        //   Java 互操作下 `File(null)` 会走 String 构造器并抛 NPE，编译期只报一条
+        //   "Java type mismatch" 警告（不报错，因为 ZipFile 构造器吃的是平台类型）。
+        //   这里显式判空并给出明确错误，避免「点导入 → 崩」这种最难查的形态。
+        if (zipPath.isNullOrEmpty()) {
+            return Result(Code.IO_FAIL, m.id, m.name, 0, emptyList(), "找不到模型包文件")
+        }
 
         val tmpDir = File(ModelRepository.rootDir(ctx, dollId), ModelRepository.safeName(m.id) + ".tmp")
         val finalDir = ModelRepository.modelDir(ctx, dollId, m.id)
@@ -255,6 +262,13 @@ object ModelImporter {
         }
 
         var zip: ZipFile? = null
+        // 【r21·修数据丢失】标记「是否已经动过正式目录」。
+        //   原写法在 catch 里无条件 `deleteTree(finalDir)`，而异常可能发生在**解压过程中**
+        //   （磁盘满、IO 错误、压缩包中途损坏）—— 那时正式目录里还是**上一版可用的模型**，
+        //   一句 delete 就把它删了。用户看到的是「导入失败」，损失的是「原来能用的模型没了」，
+        //   与本文档开头承诺的「要么完整成功、要么什么都不变」正好相反。
+        //   现在只有跨过「提交点」（即已经 deleteTree(finalDir)）之后的失败才清理正式目录。
+        var committing = false
         try {
             zip = ZipFile(File(zipPath))
             var total = 0L
@@ -316,6 +330,7 @@ object ModelImporter {
             }
 
             // ---------- 全部解完了，才动「正式目录」 ----------
+            committing = true
             deleteTree(finalDir)
             if (!tmpDir.renameTo(finalDir)) {
                 // 【为什么退化到逐文件复制】部分 ROM 上跨挂载点 rename 会失败；
@@ -339,7 +354,10 @@ object ModelImporter {
         } catch (t: Throwable) {
             Logs.w(TAG, "解压失败", t)
             fail(tmpDir)
-            deleteTree(finalDir)
+            // 【r21·修数据丢失】只有已经删过正式目录时才清它；否则原模型必须原样保留。
+            if (committing) {
+                deleteTree(finalDir)
+            }
             return Result(
                 Code.IO_FAIL, m.id, m.name, 0, emptyList(),
                 "解压失败：" + (t.message ?: t.javaClass.simpleName)

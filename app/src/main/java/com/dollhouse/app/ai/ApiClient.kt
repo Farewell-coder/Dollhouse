@@ -2,7 +2,6 @@ package com.dollhouse.app.ai
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -108,10 +107,14 @@ object ApiClient {
     @JvmStatic
     @Throws(Exception::class)
     fun writeJson(conn: HttpURLConnection, body: String?) {
-        val os: OutputStream = conn.outputStream
-        os.write((if (body == null) "" else body).toByteArray(StandardCharsets.UTF_8))
-        os.flush()
-        os.close()
+        // 【r22·修流泄漏】原写法 write → flush → close 三步直线：write 抛异常
+        //   （连接被 reset、磁盘/网络缓冲失败）时 close 被跳过，漏一个流。
+        //   请求体写失败虽然多半会连带整次请求失败，但这个流挂在 HttpURLConnection 上，
+        //   不关会让连接复用池里的那条连接一直处于脏状态。
+        conn.outputStream.use { os ->
+            os.write((if (body == null) "" else body).toByteArray(StandardCharsets.UTF_8))
+            os.flush()
+        }
     }
 
     /**
@@ -130,15 +133,20 @@ object ApiClient {
         if (inputStream == null) {
             return ""
         }
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(4096)
-        while (true) {
-            val n = inputStream.read(buf)
-            if (n <= 0) {
-                inputStream.close()
-                return String(out.toByteArray(), StandardCharsets.UTF_8)
+        // 【r22·修流泄漏】原写法在「读到 n <= 0」那一刻才 close —— 读超时 / 连接被
+        //   服务端掐断 / 响应体畸形都会抛 IOException，close 永远不会执行。
+        //   而流式对话与长回复正是最容易被超时打断的两条路径，漏得最勤。
+        inputStream.use { input ->
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(4096)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) {
+                    break
+                }
+                out.write(buf, 0, n)
             }
-            out.write(buf, 0, n)
+            return String(out.toByteArray(), StandardCharsets.UTF_8)
         }
     }
 

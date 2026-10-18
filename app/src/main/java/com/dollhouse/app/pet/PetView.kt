@@ -508,7 +508,19 @@ class PetView(context: Context) : View(context) {
             val f = IntentFilter()
             f.addAction(Intent.ACTION_SCREEN_ON)
             f.addAction(Intent.ACTION_SCREEN_OFF)
-            context.registerReceiver(screenReceiver, f)
+            // 【r25·修 8.0+ 注册失败】从 Android 8.0（API 26）起，
+            //   隐式条件广播**必须**用 ContextCompat.registerReceiver 显式声明导出性，
+            //   否则系统会抛 IllegalArgumentException / 或按显式广播语义导致收不到。
+            //   这里用 ContextCompat 并标记 NOT_EXPORTED：
+            //   亮灭屏是系统发出的广播，标记 NOT_EXPORTED 完全不影响接收，
+            //   但杜绝「任意第三方 App 伪造亮灭屏 Intent 让桌宠反复起停帧」的可能。
+            //   【为什么必须换】原写法在 targetSdk 34 的机器上虽然一般能跑，
+            //   但属于「依赖系统宽容」的写法，部分 ROM 会直接静默失联 ——
+            //   届时表现是「熄屏后人偶还在耗电跑帧」，很难定位。
+            androidx.core.content.ContextCompat.registerReceiver(
+                context, screenReceiver, f,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             screenReceiverOn = true
             // 注册时如果屏已经灭着，直接按灭屏处理，别等下一次广播。
             if (!screenOn()) {

@@ -446,30 +446,43 @@ object AnimImport {
      */
     private fun spriteSheetFrames(ctx: Context, img: File, dstDir: File, start: Int): List<String> {
         val sheet = BitmapFactory.decodeFile(img.absolutePath) ?: return emptyList()
-        val desc = findSidecar(img) ?: return emptyList()
-        val rects = parseRects(desc)
-        if (rects.isEmpty()) {
-            return emptyList()
-        }
+        // 【r23·修位图泄漏】这张大图原来**从头到尾没人回收**（decodeFile 之后没有任何
+        //   recycle 调用，全函数三条 return 路径都直接返回）——一张 4096×4096 的精灵图
+        //   是 64MB，导一次动作包就常驻到 GC 才放手，连续导两个就有 OOM 风险。
+        //   改成 try/finally 统一回收。
         val out = ArrayList<String>()
-        for (r in rects) {
-            if (out.size >= DollAnim.FRAMES_MAX - start) {
-                break
+        try {
+            val desc = findSidecar(img) ?: return emptyList()
+            val rects = parseRects(desc)
+            if (rects.isEmpty()) {
+                return emptyList()
             }
-            val x = Math.max(0, r[0])
-            val y = Math.max(0, r[1])
-            val w = Math.min(sheet.width - x, r[2])
-            val h = Math.min(sheet.height - y, r[3])
-            if (w <= 0 || h <= 0) {
-                continue
-            }
-            try {
-                val cut = Bitmap.createBitmap(sheet, x, y, w, h)
-                val saved = writeFrame(ctx, cut, dstDir, start + out.size)
-                if (saved != null) {
-                    out.add(saved)
+            for (r in rects) {
+                if (out.size >= DollAnim.FRAMES_MAX - start) {
+                    break
                 }
-            } catch (t: Throwable) {
+                val x = Math.max(0, r[0])
+                val y = Math.max(0, r[1])
+                val w = Math.min(sheet.width - x, r[2])
+                val h = Math.min(sheet.height - y, r[3])
+                if (w <= 0 || h <= 0) {
+                    continue
+                }
+                try {
+                    val cut = Bitmap.createBitmap(sheet, x, y, w, h)
+                    // 【关键】`createBitmap` 在「切出来的区域 = 整图」时会**直接返回原对象**。
+                    //   此时不能把所有权交给 writeFrame —— 那会把 sheet 回收掉，
+                    //   后面的帧全部炸在「trying to use a recycled bitmap」上。
+                    val saved = writeFrame(ctx, cut, dstDir, start + out.size, owned = cut !== sheet)
+                    if (saved != null) {
+                        out.add(saved)
+                    }
+                } catch (t: Throwable) {
+                }
+            }
+        } finally {
+            if (!sheet.isRecycled) {
+                sheet.recycle()
             }
         }
         return out
@@ -614,48 +627,70 @@ object AnimImport {
             val layers = root.optJSONArray("layers") ?: return Pair(emptyList(), 0)
             // 预解图片资源（refId → Bitmap），同一张图只解一次。
             val bitmaps = HashMap<String, Bitmap>()
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val a = assets.optJSONObject(i) ?: continue
-                    val id = a.optString("id", "")
-                    val bmp = assetBitmap(a, f.parentFile) ?: continue
-                    if (id.isNotEmpty()) {
-                        bitmaps[id] = bmp
+            try {
+                if (assets != null) {
+                    for (i in 0 until assets.length()) {
+                        val a = assets.optJSONObject(i) ?: continue
+                        val id = a.optString("id", "")
+                        val bmp = assetBitmap(a, f.parentFile) ?: continue
+                        if (id.isNotEmpty()) {
+                            bitmaps[id] = bmp
+                        } else {
+                            // 【r23·修位图泄漏】没有 id 的资源位图原来**没人回收**：
+                            //   解出来了、没进 map、也没人引用 —— 纯泄漏。
+                            if (!bmp.isRecycled) {
+                                bmp.recycle()
+                            }
+                        }
                     }
                 }
-            }
-            if (bitmaps.isEmpty()) {
-                // 没有图片资源的工程（纯矢量）—— 明确不支持，别产出空帧。
-                return Pair(emptyList(), 0)
-            }
-            val out = ArrayList<String>()
-            for (fi in frameIdx) {
-                if (out.size >= DollAnim.FRAMES_MAX - start) {
-                    break
+                if (bitmaps.isEmpty()) {
+                    // 没有图片资源的工程（纯矢量）—— 明确不支持，别产出空帧。
+                    return Pair(emptyList(), 0)
                 }
-                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bmp)
-                canvas.drawColor(Color.TRANSPARENT)
-                val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-                // Lottie 的 layers 数组是**从上到下**（索引 0 在最上层），绘制要反着来。
-                for (i in layers.length() - 1 downTo 0) {
-                    val l = layers.optJSONObject(i) ?: continue
-                    val refId = l.optString("refId", "")
-                    val img = bitmaps[refId] ?: continue
-                    val li = l.optInt("ip", ip)
-                    val lo = l.optInt("op", op)
-                    if (fi < li || fi >= lo) {
-                        continue
+                val out = ArrayList<String>()
+                for (fi in frameIdx) {
+                    if (out.size >= DollAnim.FRAMES_MAX - start) {
+                        break
                     }
-                    drawLayer(canvas, img, l, fi, w, h, paint)
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bmp)
+                    canvas.drawColor(Color.TRANSPARENT)
+                    val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+                    // Lottie 的 layers 数组是**从上到下**（索引 0 在最上层），绘制要反着来。
+                    for (i in layers.length() - 1 downTo 0) {
+                        val l = layers.optJSONObject(i) ?: continue
+                        val refId = l.optString("refId", "")
+                        val img = bitmaps[refId] ?: continue
+                        val li = l.optInt("ip", ip)
+                        val lo = l.optInt("op", op)
+                        if (fi < li || fi >= lo) {
+                            continue
+                        }
+                        drawLayer(canvas, img, l, fi, w, h, paint)
+                    }
+                    // writeFrame 默认接管位图所有权（落盘后回收），无需再手动 recycle。
+                    val saved = writeFrame(ctx, bmp, dstDir, start + out.size)
+                    if (saved != null) {
+                        out.add(saved)
+                    }
                 }
-                val saved = writeFrame(ctx, bmp, dstDir, start + out.size)
-                if (saved != null) {
-                    out.add(saved)
+                val fps = if (fr > 0.5) Math.max(1, Math.min(30, Math.round(fr).toInt())) else 0
+                Pair(out, fps)
+            } finally {
+                // 【r23·修位图泄漏】这批资源位图是**逐帧绘制用的底图**，渲染结束就没用了。
+                //   原来全程不回收：一个 1024×1024 的 AE 工程带 20 张素材图 ≈ 80MB 常驻，
+                //   导完不退、再导第二个就直接 OOM。整批渲染完毕立刻回收。
+                for (b in bitmaps.values) {
+                    try {
+                        if (!b.isRecycled) {
+                            b.recycle()
+                        }
+                    } catch (ignored: Throwable) {
+                    }
                 }
+                bitmaps.clear()
             }
-            val fps = if (fr > 0.5) Math.max(1, Math.min(30, Math.round(fr).toInt())) else 0
-            Pair(out, fps)
         } catch (t: Throwable) {
             Logs.w(LOG_TAG, "渲染动画工程失败", t)
             Pair(emptyList(), 0)
@@ -946,24 +981,45 @@ object AnimImport {
         }
     }
 
-    /** 位图 → 缩放 → PNG 落盘（统一入口，避免各处各写一遍）。 */
-    fun writeFrame(ctx: Context, bmp: Bitmap, dstDir: File, index: Int): String? {
+    /**
+     * 【位图 → 缩放 → PNG 落盘（统一入口，避免各处各写一遍）。
+     *
+     * 【r23·修位图泄漏】原写法有两个洞：
+     *   ① `compress` 抛异常（磁盘满 / OOM）时，`scaled` 与被缩放的源图都不会回收；
+     *   ② 源图**不需要缩放**时 `scaled === bmp`，那句 `if (scaled !== bmp) bmp.recycle()`
+     *      直接跳过 —— 于是「导入一张 ≤1024 的小图」每次都留下整张解码位图不释放。
+     *      批量导 120 帧小图 = 一百多张位图堆积，正是导入大动作包时最常见的 OOM 来源。
+     *
+     * 【ownership】默认由本方法接管源图所有权（几乎所有调用方都是「解出来就只为落盘」）；
+     *   唯一例外是精灵图切帧 —— 那里的 `cut` 可能**就是**那张大图本身（整图即一帧），
+     *   由调用方传 `owned = false` 保住它，不能在这里回收。
+     */
+    fun writeFrame(ctx: Context, bmp: Bitmap, dstDir: File, index: Int, owned: Boolean = true): String? {
+        var scaled: Bitmap? = null
         return try {
-            val scaled = scaleDown(bmp)
+            val s = scaleDown(bmp)
+            scaled = s
             if (!dstDir.isDirectory) {
                 dstDir.mkdirs()
             }
             val out = File(dstDir, String.format("i%04d.png", index))
             FileOutputStream(out).use { os ->
-                scaled.compress(Bitmap.CompressFormat.PNG, 100, os)
-            }
-            if (scaled !== bmp) {
-                bmp.recycle()
+                s.compress(Bitmap.CompressFormat.PNG, 100, os)
             }
             if (out.length() > 0) out.absolutePath else null
         } catch (t: Throwable) {
             Logs.w(LOG_TAG, "写帧失败", t)
             null
+        } finally {
+            // 先回收缩放产物（与源不同才单独回收，避免重复 recycle）。
+            val s = scaled
+            if (s != null && s !== bmp && !s.isRecycled) {
+                s.recycle()
+            }
+            // 再按所有权回收源图。`s === bmp` 时上面已跳过，这里回收一次，不会重复。
+            if (owned && !bmp.isRecycled) {
+                bmp.recycle()
+            }
         }
     }
 

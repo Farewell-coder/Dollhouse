@@ -306,8 +306,9 @@ object DollGroupPage {
         onClick: () -> Unit
     ) {
         val c = DhTokens.colors
+        // 【r24·修内存】34dp 头像别再按 1024px 解码（4MB/张），96px 已足够。
         val cover = remember(doll.id, doll.cover) {
-            runCatching { DollStore.coverOf(act, doll) }.getOrNull()
+            runCatching { DollStore.coverOf(act, doll, 96) }.getOrNull()
         }
         Row(
             modifier = Modifier

@@ -248,10 +248,11 @@ object ContactScreen {
     private fun ContactRow(act: MainActivity, doll: DollStore.Doll, onClick: () -> Unit) {
         val c = DhTokens.colors
         val shape = RoundedCornerShape(12.dp)
-        // 【头像是同步解码】封面已按最长边 1024 存；这里只解码一次并缓存。
-        //   列表最长也就几十行，Compose 只渲染可见项，总占用可控。
+        // 【r24·修内存/主线程卡顿】46dp 头像却按 1024px 解码：
+        //   一张 1024×1024 ARGB_8888 = 4MB，联系人列表几十行就是上百 MB，
+        //   而且发生在组合阶段（主线程）。按「46dp × 3 ≈ 138px」取 160 足够清晰。
         val cover = remember(doll.id, doll.cover) {
-            runCatching { DollStore.coverOf(act, doll) }.getOrNull()
+            runCatching { DollStore.coverOf(act, doll, 160) }.getOrNull()
         }
         // 【签名取哪来】复用角色设定的「简介」（[DollProfile.spec].brief）——
         //   它本来就是「一句话介绍这只人偶」，正是签名该有的东西，无需新开字段。

@@ -324,9 +324,12 @@ class CoverCropActivity : Activity() {
         try {
             val bounds = BitmapFactory.Options()
             bounds.inJustDecodeBounds = true
-            val in1 = contentResolver.openInputStream(uri) ?: return null
-            BitmapFactory.decodeStream(in1, null, bounds)
-            in1.close()
+            // 【r20·修流泄漏】两处 openInputStream 原来都是「open → decodeStream → close」：
+            //   decodeStream 抛异常（损坏图 / OOM）时 close 被跳过 → fd 泄漏。
+            //   封面裁剪页反复选图会反复走到这里。
+            contentResolver.openInputStream(uri)?.use { in1 ->
+                BitmapFactory.decodeStream(in1, null, bounds)
+            } ?: return null
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
                 return null
             }
@@ -337,10 +340,9 @@ class CoverCropActivity : Activity() {
             }
             val opts = BitmapFactory.Options()
             opts.inSampleSize = sample
-            val in2 = contentResolver.openInputStream(uri) ?: return null
-            val bmp = BitmapFactory.decodeStream(in2, null, opts)
-            in2.close()
-            return bmp
+            return contentResolver.openInputStream(uri)?.use { in2 ->
+                BitmapFactory.decodeStream(in2, null, opts)
+            }
         } catch (t: Throwable) {
             Logs.w(TAG, "解码失败", t)
             return null

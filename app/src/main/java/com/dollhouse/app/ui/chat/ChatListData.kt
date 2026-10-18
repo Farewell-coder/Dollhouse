@@ -261,7 +261,10 @@ object ChatListData {
         }
         return try {
             val doll = DollStore.byId(ctx, dollId) ?: return null
-            DollStore.coverOf(ctx, doll)
+            // 【r24·修内存】本方法是**列表头像**链路，目标是 AVATAR_PX(96)×2 = 192px。
+            //   原来调 `coverOf(ctx, doll)` 走默认 1024 → 一张 4MB，与上方注释
+            //   「降到 96px 后每张约 36KB」的承诺直接矛盾（差 100 倍）。
+            DollStore.coverOf(ctx, doll, AVATAR_PX * 2)
         } catch (unused: Throwable) {
             null
         }

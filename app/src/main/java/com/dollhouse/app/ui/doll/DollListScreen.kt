@@ -370,7 +370,18 @@ object DollListScreen {
         onMore: () -> Unit
     ) {
         val c = DhTokens.colors
-        val bitmap = remember(doll.id, doll.cover, doll.sprite) { DollStore.coverOf(act, doll) }
+        // 【r24·修内存】原来不论列数都按 1024px 解码：3 列时卡片实际只有 ~350px 宽，
+        //   多出来的像素全部浪费成内存（4MB/张 vs 0.8MB/张）。
+        //   按列数给目标边长：1 列铺满屏宽需要 1024，2 列 720，3 列 512。
+        //   2 的幂附近即可 —— ImageDecode 内部会把 inSampleSize 向上取整。
+        val reqPx = when (cols) {
+            1 -> 1024
+            2 -> 720
+            else -> 512
+        }
+        val bitmap = remember(doll.id, doll.cover, doll.sprite, reqPx) {
+            DollStore.coverOf(act, doll, reqPx)
+        }
         // 【等比缩放因子】一列 = 1.0；两列 = 0.72；三列 = 0.55。
         //   【r13 用户定案】只缩**文字与内边距**，按钮**不再跟着缩**：
         //   「这 三个按钮本来就不大 也没必要缩小了 …… 大小就不用变了」。

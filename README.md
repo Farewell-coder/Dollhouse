@@ -1,10 +1,21 @@
+<div align="center">
+
+<img src="assets/icon.png" width="112" height="112" alt="Dollhouse">
+
 # Dollhouse
 
-[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/Farewell-coder/Dollhouse)](https://github.com/Farewell-coder/Dollhouse/releases)
-[![Android](https://img.shields.io/badge/Android-7.0%2B-3ddc84.svg)](#安装)
-
 Android 桌宠应用，把悬浮人偶、聊天和记忆管理放在一起。
+
+[![最新版](https://img.shields.io/github/v/release/Farewell-coder/Dollhouse?style=flat-square&label=%E6%9C%80%E6%96%B0%E7%89%88&color=6b4ee6)](https://github.com/Farewell-coder/Dollhouse/releases/latest)
+[![Android](https://img.shields.io/badge/Android-7.0%2B-3ddc84?style=flat-square)](#安装)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)](LICENSE)
+
+[![下载最新版本](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC-APK-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Farewell-coder/Dollhouse/releases/latest)
+[![English](https://img.shields.io/badge/Language-English-555555?style=for-the-badge)](README.en.md)
+
+</div>
+
+---
 
 当前人偶是鲸鱼娘「小肥鱼」。她会眨眼、待机摆动、贴边探头；可以拖动，点击弹出台词气泡，三击唤出迷你输入框。在其他应用上也能发起聊天，需要查看历史时再进入完整聊天界面。
 
@@ -38,18 +49,20 @@ Android 桌宠应用，把悬浮人偶、聊天和记忆管理放在一起。
 - ML Kit 及其 Google 依赖适用各自条款和数据处理规则，不能据此承诺应用完全不联网或不产生 SDK 诊断数据。
 - 授权后的设备命令可能读取界面、文件和设置，也可能修改设备状态。模型生成的指令可能出错，不应把工具输出或权限授权视为安全保证。
 
-## v0.0.8
+## v0.0.9
 
-- **动作真正驱动桌宠**：动作页配好的动作现在会播到桌面上（出现 → 待机默认动作）。手势可直接绑定播放某个动作。
-- 动作支持三种来源：**逐帧序列 / 矢量动画 / 动图**。
-- 新增**模型包**：把一只人偶连同她的动作与资源打成一个 zip，可导入导出与备份。
-- 新增**随机走位**与**睡觉模式**（均在设置 → 实验，默认关闭），以及手势触发的**快捷菜单**。
-- 聊天新增**对话分支**；发图按模型能力自动分工（原图直送 / 先用识图模型转成文字 / 本地离线识别）。
-- 新增**识图模型**页与**开发者选项**页（可运行期打开日志）。
-- 页面导航重做，返回层级确定、被盖住的页面状态不丢；侧边栏跳转后返回原样保留。
-- 修复：会话为空时凭空出现一条假消息、记忆删除点了没反应、拖动时人偶缩小。
+本次为稳定性更新：10 轮独立代码审计，共修复 **27 项缺陷**，涉及 17 个文件。
 
-详情见 [更新记录](CHANGELOG.md)。版本：versionName **0.0.8** / versionCode **8**。
+- **崩溃**：睡觉模式下若悬浮窗刚被摘除，会触发空指针并让悬浮进程一起崩溃，桌面上的人偶全部消失，已修。
+- **数据安全**：模型包导入中途失败时，会连带删掉原本可用的旧模型；现改为只有跨过提交点之后才清理，失败时磁盘状态与导入前一致。
+- **安全**：外部应用可发起「逐帧渲图」这类重活（长时间占满 CPU、持续写盘）；现只接受本应用、系统 shell 与 root 的调用，并校验人偶标识真实存在。
+- **资源泄漏 19 处**：文件、网络与位图句柄在异常路径上未释放，积累到上限后表现为「图片选不了、消息发不出去、下载卡在 0%」，已统一收口。
+- **内存与流畅度**：列表缩略图此前一律按 1024px 解码，46dp 头像浪费 55 倍内存、34dp 浪费 100 倍，且发生在主线程；现按真实显示尺寸解码。
+- **待机耗电**：熄屏停帧所依赖的广播注册在高版本系统上不合规而静默失效，熄屏后仍在满帧渲染，已修正。
+- **长用变卡**：「加载更早历史」的暂存区只增不减，且每条消息都要整体重写；现设上限并单点收敛。
+- 其余为可诊断性修正与过期分支清理。
+
+详情见 [更新记录](CHANGELOG.md)。版本：versionName **0.0.9** / versionCode **9**。
 
 ## 构建
 

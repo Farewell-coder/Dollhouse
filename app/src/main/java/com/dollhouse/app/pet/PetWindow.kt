@@ -1418,10 +1418,17 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     internal fun enterSleep() {
         sleeping = true
         // 优先播用户配的 sleep 动作；没配则走「待机 + 闭眼」兜底。
-        if (!petView?.playSemantic(ActionSemantic.SLEEP)!!) {
-            petView?.setExpression(4, 3600000L) // 闭眼表情，1 小时超时
+        // 【r20·修 NPE】这里原来是 `petView?.playSemantic(...)!!` —— 安全调用 + 非空断言的
+        //   矛盾组合：`petView` 为 null 时 `?.` 直接短路返回 **null**，随后的 `!!` 就把这个
+        //   null 拆包 → NullPointerException。而 `petView` 确实会被置 null：
+        //   `removeFromWindow()` / `detach()` 里都有 `this.petView = null`。
+        //   触发路径：人偶窗口已摘除但 PetWindow 实例与快捷菜单回调仍存活时点「睡觉」。
+        //   修法：显式取局部引用并判空，语义与原意一致（没配 sleep 动作即走兜底）。
+        val view = petView
+        if (view != null && !view.playSemantic(ActionSemantic.SLEEP)) {
+            view.setExpression(4, 3600000L) // 闭眼表情，1 小时超时
         }
-        petView?.invalidate()
+        view?.invalidate()
     }
 
     /** 唤醒：退出睡觉，回待机档。 */
