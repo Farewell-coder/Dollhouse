@@ -86,20 +86,22 @@ object PetFramePolicy {
     }
 
     /**
-     * 下一帧延迟（毫秒）—— 5 档判定，**顺序与数值原样保留**。
+     * 下一帧延迟（毫秒）—— 5 档判定，**顺序固定且不可交换**。
      *
      * @param s        当前状态（用于 [needsFullSpeed]）
      * @param lowPower 是否已进入熄屏低功耗
      * @param shown    是否处于前台可见
      * @param screenOn 屏幕是否亮着（有 500ms 缓存，见 PetView.screenOn）
      * @param lean     贴边倾斜角（!= 0 表示正贴边）
+     * @param actionAnimating 是否正在播动作帧动画（默认 false，保持既有调用点零改动）
      */
     fun delayMs(
         s: State,
         lowPower: Boolean,
         shown: Boolean,
         screenOn: Boolean,
-        lean: Float
+        lean: Float,
+        actionAnimating: Boolean = false
     ): Long {
         // ① 熄屏低功耗：1s 心跳（不是 250ms —— 熄屏既不推进动画也不重绘，250ms 纯属空转）。
         if (lowPower) {
@@ -108,19 +110,28 @@ object PetFramePolicy {
         // ② 屏灭兜底：4fps。防的是「广播晚到或个别 ROM 不发广播」。
         //    isShown 只看「已 attach + visibility」，熄屏时它仍为 true，
         //    所以必须再问一次屏幕开关，否则屏灭后桌宠照旧 30fps 空转。
+        //    【本次修复】①② 必须在 `actionAnimating` 之前判 —— 见下面 ③ 的说明。
         if (!shown || !screenOn) {
             return MS_SCREEN_OFF
         }
-        // ③ 忙：全速。要么起手要么落位，最怕掉帧。
+        // ③ 动作帧动画在播：全速。
+        //    【为什么放在「可见且亮屏」之后】动作是给人看的，熄屏/不可见时继续按 60fps
+        //    推进帧序列毫无意义，只会阻止 CPU 休眠。改造前这条判定在 PetView 里被提到了
+        //    最前面、直接 return，把 ①② 一起短路了 —— 熄屏后只要有循环动作就把帧循环
+        //    卡在 60fps，是「放一晚掉电」的直接原因。
+        if (actionAnimating) {
+            return MS_TOUCH_BUSY
+        }
+        // ④ 忙：全速。要么起手要么落位，最怕掉帧。
         if (needsFullSpeed(s)) {
             return MS_TOUCH_BUSY
         }
-        // ④ 贴边偷看且无动作：4fps。眨眼与待机小动作已被 PetAnimator 在 lean != 0 时压掉，
+        // ⑤ 贴边偷看且无动作：4fps。眨眼与待机小动作已被 PetAnimator 在 lean != 0 时压掉，
         //    连续相位也在 tick() 里冻结，所以本档不会被顶回全速、也不会跳。
         if (lean != 0.0f) {
             return MS_EDGE_LOW_POWER
         }
-        // ⑤ 纯站立呼吸态。
+        // ⑥ 纯站立呼吸态。
         return MS_IDLE
     }
 }

@@ -4,7 +4,6 @@ import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +27,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,8 +51,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.data.DollStore
+import com.dollhouse.app.data.MyProfile
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.ImageStore
@@ -87,14 +90,16 @@ object ChatUi {
     @Composable
     private fun ChatContent(host: ChatPanel) {
         val c = DhTokens.colors
-        val shape = RoundedCornerShape(16.dp)
-        // 【圆角】面板根由宿主 ChatPanel 做圆角裁切（clipToOutline），这里只补描边。
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(shape)
-                .border(1.dp, c.chatBorder, shape)
-        ) {
+        // 【r21·去掉整屏 1dp 描边】改造前这里是：
+        //     Column(... .clip(RoundedCornerShape(16.dp)).border(1.dp, c.chatBorder, shape))
+        //   宿主 `ChatPanel` 用 `clipToOutline` 把整块裁成 16dp 圆角，这圈描边又用同样的
+        //   圆角画在最外沿 —— 两者严丝合缝，于是屏幕上表现为「整块界面四周有一道细线」。
+        //   深色主题下 `CHAT_BORDER`(0xFF3A3F52) 比正文底色亮得多，肉眼就是一道淡淡的白边
+        //   （真机截图实测：四边各 3px、RGB≈(57,60,67)，而内容区是 (19,20,22)）。
+        //   【为什么直接去掉而不是换暗色】这圈描边原本是给「浮在桌面上的卡片」用的，
+        //   而这里是**全屏**聊天页 —— 没有卡片浮起的语境，任何颜色的一条边都只是多余。
+        //   卡片类控件的描边（如 `ChatListScreen` 的条目）不受影响，那一处语义正确。
+        Column(modifier = Modifier.fillMaxSize()) {
             TopBarRow(host)
             HintBar(host)
             Messages(host, Modifier.weight(1f))
@@ -113,6 +118,7 @@ object ChatUi {
     @Composable
     private fun TopBarRow(host: ChatPanel) {
         val c = DhTokens.colors
+        val topCtx = androidx.compose.ui.platform.LocalContext.current
         val drag = Modifier.pointerInput(host) {
             var lastX = 0f
             var lastY = 0f
@@ -151,8 +157,31 @@ object ChatUi {
             //   收拢到列表页后：切会话只需「返回 → 点另一条」，路径唯一、样式一致。
             //   【不是删功能】改名 / 删除 / 清空当前对话都在；前两者已由列表页长按菜单承接，
             //   「清空当前对话」保留在聊天页右下角的工具区（见 ChatUi 的 ActionRow）。
-            Text(
-                text = "Dollhouse",
+            // ---------- 人偶身份区：头像 + 名字 + 状态 ----------
+            // 【本轮·修「顶栏写死 Dollhouse」】改造前这里是一行固定文案 "Dollhouse"，
+            //   完全看不出「正在跟谁聊」。需求书要求顶栏展示**人偶头像、名称、状态**，
+            //   而数据层（ChatSessions.dollOfConv → DollStore.byId）本来就齐备，只是没接。
+            //   【保留原有能力】长按这块区域仍然唤出聊天搜索（与原长按标题同一入口）。
+            val convId = remember { ChatSessions.currentId(topCtx) }
+            val dollId = remember(convId) { ChatSessions.dollOfConv(topCtx, convId) }
+            val doll = remember(dollId) {
+                if (dollId.isEmpty()) null else DollStore.byId(topCtx, dollId)
+            }
+            val headAva = remember(convId, dollId) {
+                try {
+                    val custom = PetPrefs.convAvatar(topCtx, convId)
+                    if (custom.isNotEmpty()) {
+                        android.graphics.BitmapFactory.decodeFile(custom)
+                    } else if (doll == null) {
+                        null
+                    } else {
+                        DollStore.coverOf(topCtx, doll, 64)
+                    }
+                } catch (ignored: Throwable) {
+                    null
+                }
+            }
+            Row(
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 4.dp)
@@ -161,10 +190,52 @@ object ChatUi {
                         onClick = {},
                         onLongClick = { host.showSearchDialog() }
                     ),
-                color = c.title,
-                fontSize = 16.sp,
-                fontFamily = DhTokens.fonts
-            )
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 头像：与气泡 / 列表同一取图口径；没有图就退回内置形象。
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.soft),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (headAva != null && !headAva.isRecycled) {
+                        Image(
+                            bitmap = headAva.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        DhKit.Icon(Icons.IC_CIRCLE_USER, Design.SZ_SM, c.sub)
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    // 人偶名：会话绑定的人偶名；未绑定（自由会话）时退回产品名，不显示空白。
+                    val name = doll?.name?.takeIf { it.isNotEmpty() } ?: "Dollhouse"
+                    Text(
+                        text = name,
+                        color = c.title,
+                        fontSize = 16.sp,
+                        fontFamily = DhTokens.fontsBold,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // 状态行：请求在途显示「正在回复」，否则「在线」。
+                    //   【不用假数据】两者都由真实状态派生 —— ChatState.waiting
+                    //   正是发送键切「停止」的同一个标志。
+                    Text(
+                        text = if (ChatState.waiting) "正在回复…" else "在线",
+                        color = if (ChatState.waiting) c.acc else c.sub,
+                        fontSize = UiKit.FS_SUB.sp,
+                        fontFamily = DhTokens.fonts,
+                        maxLines = 1
+                    )
+                }
+            }
             CtxRingView(host)
         }
     }
@@ -288,16 +359,34 @@ object ChatUi {
                 .collect { (idx, atBottom) -> host.onScrolled(idx - offset, atBottom) }
         }
 
+        // 【消息间距】改造前 LazyColumn 没有 verticalArrangement，气泡**首尾紧贴**：
+        //   连续两条消息之间没有任何呼吸，长会话读起来是一整块。
+        //   这里给 8dp 基础间距，并在每个 item 内部对「同一角色连续发言」收窄到 3dp ——
+        //   主流聊天软件的口径（同一个人连发不额外留白，换人说话才拉开）。
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             if (ChatState.hasPrev) {
                 item(key = "loadEarlier") { LoadEarlierRow(host) }
             }
             itemsIndexed(items, key = { i, _ -> "m$i" }) { idx, item ->
-                Column(modifier = Modifier.fillMaxWidth()) {
+                // 【消息间距】改造前相邻气泡之间**没有间距**，连续几条像一整块；
+                //   这里统一给 6dp（与列表页卡片间距 10、行间距 8 同族但更紧，
+                //   因为聊天需要更高信息密度）。首条不加，避免顶部空一截。
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (idx == 0) 0.dp else 6.dp)
+                ) {
+                    // 【换人说话才拉开】上一条是同角色且都不是摘要 → 用小间距；
+                    //   否则补 5dp 让「换人」这一视觉分组成立。
+                    val prevRole = if (idx > 0) items[idx - 1].role else null
+                    if (prevRole != null && prevRole != item.role) {
+                        Spacer(Modifier.height(5.dp))
+                    }
                     // 【r13·思考过程】每条助手回复都在自己的气泡上方挂思考框 ——
                     //   不再只限最后一条（本轮改造前，历史里的回复一律看不到思考）。
                     //   【在途】流式期间正文还没落盘，那条占位气泡的 think 由 ChatState.streamThink 提供。
@@ -321,8 +410,107 @@ object ChatUi {
                     }
                 }
             }
+            // 【空状态】历史为空时不再像改造前那样「什么都不画」—— 一片空白会被读成
+            //   「界面坏了 / 没加载出来」。这里给一句轻提示，且**不伪造任何消息**：
+            //   开场白仍只走用户自己配置的那份（见 ChatPanel.seedGreetingIfEmpty）。
+            if (items.isEmpty() && ChatState.thinking == null) {
+                item(key = "empty") { EmptyHint() }
+            }
             ChatState.thinking?.let { label ->
                 item(key = "thinking") { ThinkingPlaceholder(label) }
+            }
+        }
+    }
+
+    /**
+     * 空会话提示：一枚低对比图标 + 一行说明。
+     *
+     * 【为什么做得这么轻】聊天区是高频界面，空态只出现一瞬（发第一条消息就没了），
+     *   做成大插图或彩色卡片反而每次都晃眼。与「说说」占位页同一克制口径。
+     */
+    @Composable
+    private fun EmptyHint() {
+        val c = DhTokens.colors
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 80.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            DhKit.Icon(Icons.IC_MESSAGE_SQUARE_HEART, Design.SZ_XL, c.line)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "还没有聊过，说点什么吧",
+                color = c.sub,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
+    }
+
+    /** 气泡旁头像边长（dp）—— 与列表头像同口径（[ChatListData] 的 52dp 略小一号）。 */
+    private const val BUBBLE_AVATAR_DP = 34
+
+    /**
+     * 气泡旁的小头像。
+     *
+     * 【为什么这次才加】设置页「显示头像」开关（[PetPrefs.showAvatar]，默认 **开启**）
+     *   早就存在，文案也写得很明确：「打开后：人偶发的消息显示**她**的头像，
+     *   你发的消息显示**你**的头像」。但聊天界面的气泡渲染从来只画了文字 ——
+     *   开关拨来拨去没有任何视觉变化，属于「设置项没有被实现」。
+     *
+     * 【取图口径与列表页一致】人偶侧走 `ChatListData` 用的同一条链
+     *   （自定义会话头像 → 人偶封面 → null），用户侧走 [MyProfile.avatarBitmap]。
+     *   这里只做**一次**降采样（64px），不做缓存：气泡可见数量远小于列表，
+     *   且 Compose 会按 key 复用节点，重复解码的代价可忽略。
+     */
+    @Composable
+    private fun BubbleAvatar(mine: Boolean) {
+        val ctx = LocalContext.current
+        val c = DhTokens.colors
+        val bmp: android.graphics.Bitmap? = remember(mine) {
+            try {
+                if (mine) {
+                    MyProfile.avatarBitmap(ctx, 64)
+                } else {
+                    val convId = ChatSessions.currentId(ctx)
+                    if (convId.isNullOrEmpty()) {
+                        null
+                    } else {
+                        val custom = PetPrefs.convAvatar(ctx, convId)
+                        if (custom.isNotEmpty()) {
+                            android.graphics.BitmapFactory.decodeFile(custom)
+                        } else {
+                            val dollId = PetPrefs.convDoll(ctx, convId)
+                            val doll = if (dollId.isEmpty()) null else DollStore.byId(ctx, dollId)
+                            if (doll == null) null else DollStore.coverOf(ctx, doll, 64)
+                        }
+                    }
+                }
+            } catch (ignored: Throwable) {
+                null
+            }
+        }
+        Box(
+            modifier = Modifier
+                .size(BUBBLE_AVATAR_DP.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(c.soft),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bmp != null && !bmp.isRecycled) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                DhKit.Icon(
+                    iconRes = if (mine) Icons.IC_CIRCLE_USER else Icons.IC_MESSAGE_SQUARE_HEART,
+                    sizeDp = Design.SZ_SM,
+                    color = c.sub
+                )
             }
         }
     }
@@ -334,15 +522,27 @@ object ChatUi {
         val mine = item.role == "user"
         val ctx = LocalContext.current
         val screenW = LocalConfiguration.current.screenWidthDp
-        val maxW = (screenW * 0.72f).dp
+        // 【气泡宽度档位】设置里「聊天 → 气泡宽度」的窄/适中/宽三档，
+        //   改造前这里写死 0.72 恒等于「适中」，另两档拨了没反应。
+        val ratio = when (PetPrefs.bubbleWidth(ctx)) {
+            0 -> 0.60f
+            2 -> 0.84f
+            else -> 0.72f
+        }
+        val maxW = (screenW * ratio).dp
+        val showAva = PetPrefs.showAvatar(ctx)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
         ) {
+            if (showAva && !mine) {
+                BubbleAvatar(false)
+                Spacer(Modifier.width(6.dp))
+            }
             Column(
                 modifier = Modifier
                     .widthIn(max = maxW)
-                    .clip(RoundedCornerShape(15.dp))
+                    .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(if (mine) c.chatBubbleUser else c.card)
                     // 【r13·消息长按】长按弹操作菜单。
                     //   需求：长按 AI 的消息 / 长按自己的消息，各弹出一组操作。
@@ -365,13 +565,22 @@ object ChatUi {
                     Spacer(Modifier.height(6.dp))
                 }
                 if (item.text.trim().isNotEmpty()) {
-                    Text(
-                        text = item.text,
-                        color = if (mine) c.onAcc else c.title,
-                        fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts
-                    )
+                    // 【可选文本】消息正文支持长按选中复制 —— 与长按弹菜单不冲突：
+                    //   选中手势在文字自身，菜单在气泡空白与整块长按，两者各管一段。
+                    SelectionContainer {
+                        Text(
+                            text = item.text,
+                            color = if (mine) c.onAcc else c.title,
+                            fontSize = UiKit.FS_BTN.sp,
+                            fontFamily = DhTokens.fonts,
+                            lineHeight = (UiKit.FS_BTN + 6f).sp
+                        )
+                    }
                 }
+            }
+            if (showAva && mine) {
+                Spacer(Modifier.width(6.dp))
+                BubbleAvatar(true)
             }
         }
     }
@@ -431,6 +640,17 @@ object ChatUi {
         if (isAi) {
             labels.add("单条重新生成")
             actions.add { host.regenerateAt(idx) }
+            // 【v0.1.0·新增】赞 / 学样式：把这一问一答存成学习示例。
+            //   原来全工程没有任何入口能写 learn_examples，导致「学习示例」
+            //   这条功能从上线起就空转（读取端永远拿到空数组）。见 ChatPanel.learnFromAt。
+            labels.add("赞 · 学这个风格")
+            actions.add {
+                if (host.learnFromAt(idx)) {
+                    host.flashMemo("已记住这个回答风格")
+                } else {
+                    host.flashMemo("存不了，请确认之前有你发的提问")
+                }
+            }
             labels.add("修改记忆")
             actions.add { host.saveToMemory(idx) }
             labels.add("回复")
@@ -605,7 +825,7 @@ object ChatUi {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(15.dp))
+                    .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.chatActionBg)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
@@ -634,7 +854,7 @@ object ChatUi {
         ) {
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(15.dp))
+                    .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.chatActionBg)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
@@ -774,7 +994,9 @@ object ChatUi {
                 fontFamily = DhTokens.fonts,
                 maxLines = 1
             )
-            DhKit.IconButton(iconRes = Icons.IC_CLOSE, sizeDp = 14f, color = c.sub) {
+            // 【v0.1.0·修·图标偏小】全工程唯一还写着字面量 14f 的按钮图标（旁侧文字 12sp，
+            //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 40dp 命中区里像个针尖）。
+            DhKit.IconButton(iconRes = Icons.IC_CLOSE, sizeDp = Design.SZ_SM, color = c.sub) {
                 host.clearAttachment()
             }
         }

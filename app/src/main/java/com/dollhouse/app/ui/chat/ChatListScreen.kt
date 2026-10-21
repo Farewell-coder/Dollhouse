@@ -180,62 +180,53 @@ object ChatListScreen {
 
         Column(modifier = Modifier.fillMaxSize()) {
             // ---------- 顶栏 ----------
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = PAD_H)
-                    .padding(top = 14.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // ---------- 我的头像入口（r14·需求 3）----------
-                // 【位置】聊天列表**左上角** —— 用户给的 QQ 参考图正是这个位置。
-                // 【职责】点开「我的资料」抽屉（见 [ProfileDrawer.Host]，宿主在 HomeUi.apply）。
-                // 【为什么重读要挂 ProfileState.tick】头像存在 SharedPreferences 里，
-                //   在「我的资料」页换完头像返回后，本按钮不会自己更新 —— 需要一个重读信号。
-                val ptick = ProfileState.tick
-                val myAva = remember(ptick) { MyProfile.avatarBitmap(act, 128) }
-                Box(
-                    modifier = Modifier
-                        .size(HEAD_AVATAR_DP.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(c.soft)
-                        .pressable { ProfileDrawer.toggle() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    val bmp: android.graphics.Bitmap? = myAva
-                    if (bmp != null && !bmp.isRecycled) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            // 【Cover】圆形裁切区用 Fit 会在圆内留黑边，与列表头像同一口径。
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        DhKit.Icon(iconRes = Icons.IC_CIRCLE_USER, sizeDp = Design.SZ_LG, color = c.sub)
+            // 【统一】改走 [DhKit.TabTopBar]：字号 / 内边距 / 右端对齐由三格共用同一段代码，
+            //   不再每个 Tab 手搓一套（改造前「说说」用 20sp、本页 26sp，切换时标题会跳）。
+            DhKit.TabTopBar(
+                title = "聊天",
+                left = {
+                    // ---------- 我的头像入口（r14·需求 3）----------
+                    // 【位置】聊天列表**左上角** —— 用户给的 QQ 参考图正是这个位置。
+                    // 【职责】点开「我的资料」抽屉（见 [ProfileDrawer.Host]，宿主在 HomeUi.apply）。
+                    // 【为什么重读要挂 ProfileState.tick】头像存在 SharedPreferences 里，
+                    //   在「我的资料」页换完头像返回后，本按钮不会自己更新 —— 需要一个重读信号。
+                    val ptick = ProfileState.tick
+                    val myAva = remember(ptick) { MyProfile.avatarBitmap(act, 128) }
+                    Box(
+                        modifier = Modifier
+                            .size(HEAD_AVATAR_DP.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(c.soft)
+                            .pressable { ProfileDrawer.toggle() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val bmp: android.graphics.Bitmap? = myAva
+                        if (bmp != null && !bmp.isRecycled) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                // 【Cover】圆形裁切区用 Fit 会在圆内留黑边，与列表头像同一口径。
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            DhKit.Icon(iconRes = Icons.IC_CIRCLE_USER, sizeDp = Design.SZ_LG, color = c.sub)
+                        }
+                    }
+                },
+                actions = {
+                    // 【r13·一人偶一对话】原「新建会话」按钮已移除。
+                    //   需求原文：「聊天界面不要无限添加，就像 QQ 好友一样，一个联系人对应的
+                    //   一个对话框，不要无限增加对话框；以后聊天界面的对话框都得绑定人偶」。
+                    //   会话是人偶的投影（见 ChatSessions.idForDoll），由人偶库决定有几条，
+                    //   用户不再能凭空造出孤儿对话 —— 所以这个入口从语义上就该消失，
+                    //   而不是留在那里点了报错。
+                    //   想开新对话的正确路径：去「人偶」新建/导入一只人偶，它自带一个对话框。
+                    DhKit.IconButton(Icons.IC_USERS, Design.SZ_MD, c.title, label = "人偶") {
+                        com.dollhouse.app.ui.doll.DollListScreen.open(act)
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "聊天",
-                    modifier = Modifier.weight(1f),
-                    color = c.title,
-                    fontSize = 26.sp,
-                    fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
-                )
-                // 【r13·一人偶一对话】原「新建会话」按钮已移除。
-                //   需求原文：「聊天界面不要无限添加，就像 QQ 好友一样，一个联系人对应的
-                //   一个对话框，不要无限增加对话框；以后聊天界面的对话框都得绑定人偶」。
-                //   会话是**人偶的投影**（见 ChatSessions.idForDoll），由人偶库决定有几条，
-                //   用户不再能凭空造出孤儿对话 —— 所以这个入口从语义上就该消失，
-                //   而不是留在那里点了报错。
-                //   想开新对话的正确路径：去「人偶」新建/导入一只人偶，它自带一个对话框。
-                // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
-                DhKit.IconButton(Icons.IC_USERS, Design.SZ_MD, c.title, label = "人偶") {
-                    com.dollhouse.app.ui.doll.DollListScreen.open(act)
-                }
-            }
+            )
 
             // ---------- 搜索框 ----------
             Box(
@@ -411,7 +402,9 @@ object ChatListScreen {
     @Composable
     private fun Card(row: ChatListData.Row, onClick: () -> Unit, onLong: () -> Unit) {
         val c = DhTokens.colors
-        val shape = RoundedCornerShape(14.dp)
+        // 【统一】会话卡片属于「一张卡片」，圆角取全 App 卡片口径 [DhKit.R_CARD]（16dp）。
+        //   改造前写的是 14dp —— 与设置页卡片（16）、行（10）都不同族，切换页面时能看出差异。
+        val shape = RoundedCornerShape(DhKit.R_CARD.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

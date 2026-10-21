@@ -23,10 +23,13 @@ object ChatToolRunner {
      * 同步执行一批工具调用。
      *
      * @param toolCalls 模型返回的 tool_calls 数组（可为 null）
+     * @param webSearch 本轮是否允许联网工具（用户开关；见 [ChatToolRegistry.isAllowed]）
+     * @param remember  本轮是否允许记忆写入（用户开关）
      * @return 与 toolCalls 一一对应的 role=tool 消息数组（永不为 null）
      */
     @JvmStatic
-    fun runAll(toolCalls: JSONArray?): JSONArray {
+    @JvmOverloads
+    fun runAll(toolCalls: JSONArray?, webSearch: Boolean = true, remember: Boolean = true): JSONArray {
         val results = JSONArray()
         if (toolCalls == null) {
             return results
@@ -40,7 +43,7 @@ object ChatToolRunner {
             val name = if (fn == null) "" else fn.optString("name", "")
             val args = if (fn == null) "{}" else fn.optString("arguments", "{}")
             val output: String = try {
-                if (name.isEmpty()) "（工具调用缺少函数名）" else ChatToolRegistry.execute(name, args)
+                if (name.isEmpty()) "（工具调用缺少函数名）" else ChatToolRegistry.execute(name, args, webSearch, remember)
             } catch (t: Throwable) {
                 "（工具执行异常：" + t.javaClass.simpleName + "）"
             }

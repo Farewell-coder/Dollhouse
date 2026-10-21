@@ -103,6 +103,107 @@ object DollProfile {
         return PetPrefs.get(ctx)
     }
 
+    /* ============================ 原始读写（尺寸规格等子模块用） ============================ */
+
+    /**
+     * 按**已拼好的完整键**读一个字符串。
+     *
+     * 【为什么开放原始读写】[com.dollhouse.app.data.DollSizeSpec] 有自己的编解码
+     * （`size,ox,oy`），如果这里为它单开一对 `sizeSpec()/setSizeSpec()`，
+     * 每加一个结构化配置就要在 DollProfile 里再开一对方法。
+     * 开放一对「按完整键存取字符串」的底层口子，子模块自己拼键、自己编解码，
+     * 键规则（[key] 的默认人偶裸键约定）仍然只有这一处。
+     *
+     * @param fullKey 已经过 [key] 拼装的完整键
+     */
+    @JvmStatic
+    fun raw(ctx: Context, fullKey: String): String? {
+        return prefs(ctx).getString(fullKey, null)
+    }
+
+    /**
+     * 按**已拼好的完整键**写一个字符串。
+     *
+     * 【为什么用 commit】用户改完设置可能立刻划掉后台，`apply()` 的异步写盘有丢的风险。
+     *   与 [setScale] 保持同一约定。
+     */
+    @JvmStatic
+    fun putRaw(ctx: Context, fullKey: String, value: String) {
+        try {
+            prefs(ctx).edit().putString(fullKey, value).commit()
+        } catch (t: Throwable) {
+            com.dollhouse.app.core.Logs.w("DollProfile", "putRaw failed: " + fullKey, t)
+        }
+    }
+
+    /**
+     * **【本轮·新增】把这**只人偶**的个性化设置复位成「刚装好软件时的样子」。**
+     *
+     * ## 用户定案
+     *
+     * 原话：「这个恢复的功能就是恢复默认配置的备份样子，也就是下载软件的时候自带的样子」。
+     * 所以语义不是「清空」，而是**回到出厂默认值**。
+     *
+     * ## 清哪些、留哪些
+     *
+     * 清（回到各自 DEFAUT 常量）：
+     * - 尺寸规格（[DollSizeSpec]：大小 100% / 位置居中）
+     * - 手势响应（单击 / 双击 / 三击 / 长按 回到内置默认映射）
+     * - 暂离 / 回归时长
+     * - 性格内容、交谈内容
+     * - 聊天背景、气泡色与磨砂
+     * - 帧图中心偏移、初始位置、屏幕范围
+     * - 面朝方向
+     *
+     * 留：**用户自己导出的东西**
+     * - 形象图路径（`DollStore.Doll.sprite`）、封面（`cover`）—— 那是用户换的形象，不是"设置"
+     * - 动作库里的自定义动作 —— 「恢复默认」不该等于删除用户的作品
+     *   （内置动作由 [DollAnim.restoreBuiltin] 单独负责补回）
+     *
+     * ## 为什么用逐个 remove 而不是 clean 整个 SharedPreferences
+     *
+     * 这个 SharedPreferences 是**全 App 共用**的（[PetPrefs.get]），里面还有聊天记录、
+     * 供应商配置、记忆库等大量与「这只人偶的显示设置」无关的数据。
+     * 一旦 clear，等于把用户的聊天和数据全删了 —— 不可接受。
+     * 所以这里**只按本类的键名清单逐条移除**，范围严格可控。
+     */
+    @JvmStatic
+    fun resetToFactory(ctx: Context, dollId: String?) {
+        val bases = listOf(
+            K_AWAY, K_SCALE, K_RETURN,
+            K_HOME_RX, K_HOME_RY,
+            K_BOUND,
+            K_TALK, K_PERSONA, K_FLIP,
+            K_FRAME_OX, K_FRAME_OY,
+            K_CHAT_BG, K_CHAT_BG_ON, K_CHAT_BG_ALPHA, K_CHAT_BG_BLUR,
+            K_BUBBLE_COLOR, K_BUBBLE_FROST,
+            K_SIZE_SPEC,
+            // 手势：五个手势各一条键，名字由 [GestureActions] 决定。
+            "gesture_single", "gesture_double", "gesture_triple",
+            "gesture_long", "gesture_hold"
+        )
+        try {
+            val e = prefs(ctx).edit()
+            for (b in bases) {
+                e.remove(key(dollId, b))
+            }
+            // 「上一次清理」类标志位也一并复位，否则重置后可能带着旧的一次性标记。
+            e.commit()
+        } catch (t: Throwable) {
+            com.dollhouse.app.core.Logs.w("DollProfile", "resetToFactory failed", t)
+        }
+    }
+
+    /**
+     * 尺寸规格的键名（本轮新增），供 [resetToFactory] 使用。
+     *
+     * 【为什么不叫 K_SPEC】`K_SPEC` 已被「性格规格（persona_spec）」占用
+     *   （见下方「性格本体 · 结构化规格」一节）。同名会造成编译期重复声明。
+     * 【为什么放在这里】键名清单只能有一份，否则重置时漏删就是
+     *   「点了恢复默认却还有残留」。
+     */
+    private const val K_SIZE_SPEC = "size_spec"
+
     /* ============================ 手势响应 ============================ */
 
     /** 某只人偶对某个手势配置的响应集合（空集合 = 无）。键不存在时返回默认映射，不写盘。 */
@@ -583,10 +684,18 @@ object DollProfile {
      * 删除某只人偶时清掉它的全部独立配置。
      * 【为什么必须做】否则「新建一只 → 恰好复用旧 id」或列表里新旧交替时，
      *   新的人偶会凭空继承上一只的手势 / 人格，属于可见的数据串味。
+     *
+     * @param force **【v0.1.0】**传 true 时连默认配置也清。
+     *   改造前这里对 [DollStore.DEFAULT_ID] 直接 return —— 因为默认配置不可删，清它没有意义。
+     *   现在「删默认配置 = 彻底重置」，那条路径必须能真的清干净（否则重建出来的人偶
+     *   会继承旧的手势 / 人格 / 背景），所以要能越过这道闸门。
      */
     @JvmStatic
-    fun clear(ctx: Context, dollId: String?) {
-        if (dollId == null || dollId.isEmpty() || dollId == DollStore.DEFAULT_ID) {
+    fun clear(ctx: Context, dollId: String?, force: Boolean = false) {
+        if (dollId == null || dollId.isEmpty()) {
+            return
+        }
+        if (!force && dollId == DollStore.DEFAULT_ID) {
             return
         }
         val p = prefs(ctx)

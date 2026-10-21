@@ -51,6 +51,8 @@ import com.dollhouse.app.MainActivity
 import com.dollhouse.app.CoverCropActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.data.DollAnim
+import com.dollhouse.app.data.DollProfile
+import com.dollhouse.app.data.DollSizeSpec
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.DhForm
@@ -106,6 +108,8 @@ object DollListScreen {
         var coverAsk by remember { mutableStateOf(false) }
         // true = 正弹「从动作库挑一帧」的挑帧窗。
         var coverFromAnim by remember { mutableStateOf(false) }
+        // 【本轮·新增】尺寸设置窗（人偶级显示规格）与「恢复默认配置」确认窗。
+        var restoreId by remember { mutableStateOf<String?>(null) }
         // 【r12】三点菜单：null = 关闭；0 = 主菜单；1 = 列数二级菜单。
         var menu by remember { mutableStateOf(-1) }
         // 列数全局记住（PetPrefs.dollCols），改完 bump 触发重组重排。
@@ -268,8 +272,49 @@ object DollListScreen {
                 onExport = {
                     DollStore.export(act)
                     moreId = null
+                },
+                onRestore = {
+                    restoreId = more.id
+                    moreId = null
                 }
             )
+        }
+
+        // ---------- 恢复默认配置 ----------
+        // 【用户定案】「这个恢复的功能就是恢复默认配置的备份样子，
+        //   也就是下载软件的时候自带的样子」。
+        //   只重置**这只人偶**的动作库与个性化项，用户自己导入的动作 / 形象图保留。
+        val restoring = restoreId
+        if (restoring != null) {
+            DhForm.Alert(
+                title = "恢复默认配置",
+                onDismiss = { restoreId = null },
+                posText = "恢复",
+                onPos = {
+                    val n = DollAnim.restoreBuiltin(act, restoring)
+                    DollProfile.resetToFactory(act, restoring)
+                    DollState.bump()
+                    HomeUi.notifyPetReload(act)
+                    restoreId = null
+                    HomeUi.showNotice(
+                        act, "已恢复默认配置",
+                        if (n > 0) "补回了 " + n + " 个内置动作；大小与位置已回到自动适配。"
+                        else "内置动作本来就在；大小与位置已回到自动适配。"
+                    )
+                },
+                negText = "取消"
+            ) {
+                Text(
+                    text = "把这只人偶恢复成**刚装好软件时的样子**：\n\n" +
+                        "· 动作库回到出厂状态（常驻 / 贴边 / 拖拽三格 + 全部内置动作）\n" +
+                        "· 大小与位置回到自动适配\n" +
+                        "· 手势、暂离、性格、聊天背景等个性化设置复位\n\n" +
+                        "你**自己导入**的动作和换过的形象图会保留，不会被清掉。",
+                    color = DhTokens.colors.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
         }
 
         // ---------- 命名弹窗 ----------
@@ -511,6 +556,121 @@ object DollListScreen {
         }
     }
 
+    /**
+     * 【本轮·新增】「大小」弹窗：人偶级显示规格（基础大小 + 水平 / 垂直位置）。
+     *
+     * ## 为什么放在人偶管理页
+     *
+     * 需求书第七节：「在现有人偶编辑器中，以尽量少改动现有布局的方式增加尺寸设置」，
+     * 并列出「自动适配 / 人偶大小调整 / 水平与垂直位置 / 恢复默认设置」。
+     * 人偶管理页是人偶级参数的天然归属地 —— 缩放、封面、命名都在这儿，
+     * 尺寸放同一个「更多」菜单下，用户不用猜它在哪。
+     *
+     * ## 为什么只有三个滑条
+     *
+     * 「自动适配」不是一个开关，而是**默认值本身**：大小 100% + 偏移 0 就等于
+     * 「按标准化画布算出的原生大小、居中」，也就是自动适配的结果。
+     * 多一个开关会出现「自动适配开、但大小滑条停在 180%」这种自相矛盾的状态。
+     * 需要自动适配就点「恢复自动适配」，它把三个值一起复位。
+     */
+    // 【本轮·从人偶管理页「更多」搬到编辑页的「外观」页签】
+    //   用户定案：「还有下面那个大小按键 移动到外观里面 不要在外面」。
+    //   理由站得住：大小 / 偏移是「这只人偶长什么样」的外观属性，与聊天背景、气泡样式同类，
+    //   放在外观页签里才和它的语义一致；人偶管理页的「更多」是管理动作（命名 / 封面 / 复制 / 删除 / 导出），
+    //   塞一个视觉参数进去反而让人猜不到归属。
+    //   【为什么留在本文件而不是搬家】它依赖 [percentText] 与 `DollSizeSpec` 的一整套换算，
+    //   就地开放可见性（internal）比复制一份到 DollLookTab 更安全 —— 不会出现两份实现漂移。
+    @Composable
+    internal fun SizeDialog(
+        act: MainActivity,
+        dollId: String,
+        onDismiss: () -> Unit
+    ) {
+        val c = DhTokens.colors
+        // 【草稿态】滑条拖动是连续的，每动一下就落盘会产生大量 SharedPreferences 写入；
+        //   这里先在内存里跟手，点「保存」才落盘（与编辑页的草稿层同一口径）。
+        var specDraft by remember(dollId) { mutableStateOf(DollSizeSpec.spec(act, dollId)) }
+        DhForm.Alert(
+            title = "大小与位置",
+            onDismiss = onDismiss,
+            posText = "保存",
+            onPos = {
+                DollSizeSpec.setSpec(act, dollId, specDraft)
+                HomeUi.notifyPetReload(act)
+                onDismiss()
+            },
+            negText = "取消"
+        ) {
+            DhForm.Note(
+                "这里调的是这只人偶本身的大小，与动作无关 —— 换动作不会忽大忽小。"
+            )
+            // 【控件选型】全部走 [DhKit.SliderRow]（桥接 View 版 UiKit.Slider）。
+            //   本工程刻意不建 MaterialTheme，Compose 原生 Slider 会回落到 M3 默认配色，
+            //   轨道与刻度都和全 App 的胶囊滑条不是一个形态 —— 那正是「UI 突兀」的来源。
+            // ---------- 基础大小 ----------
+            // 取值范围 30~400，用「最大值 + 当前值」表达（SliderRow 的接口是 Int 量程）。
+            DhKit.SliderRow(
+                title = "人偶大小",
+                hint = "当前 " + specDraft.size + "%（100% = 按素材里角色的实际占比算出的原生大小）",
+                max = DollSizeSpec.Spec.SIZE_MAX,
+                value = specDraft.size
+            ) { v, _ ->
+                specDraft = specDraft.copy(size = DollSizeSpec.Spec.clampSize(v))
+            }
+            // ---------- 水平位置 ----------
+            // 偏移是 -50% ~ +50%，滑条量程 0~100，取值时减 50 换算。
+            DhKit.SliderRow(
+                title = "水平位置",
+                hint = percentText(specDraft.ox, true),
+                max = 100,
+                value = Math.round(specDraft.ox * 100f).toInt() + 50
+            ) { v, _ ->
+                specDraft = specDraft.copy(ox = DollSizeSpec.Spec.clampOffset((v - 50) / 100f))
+            }
+            // ---------- 垂直位置 ----------
+            DhKit.SliderRow(
+                title = "垂直位置",
+                hint = percentText(specDraft.oy, false),
+                max = 100,
+                value = Math.round(specDraft.oy * 100f).toInt() + 50
+            ) { v, _ ->
+                specDraft = specDraft.copy(oy = DollSizeSpec.Spec.clampOffset((v - 50) / 100f))
+            }
+            Spacer(Modifier.height(6.dp))
+            // ---------- 恢复自动适配 ----------
+            DhForm.Note(
+                "「恢复自动适配」= 大小回到 100%、位置回到居中。" +
+                    "100% 是按素材里角色实际占画布的比例算出来的，不是把整张图拉满。"
+            )
+            DhForm.PrimaryChip("恢复自动适配") {
+                specDraft = DollSizeSpec.Spec.DEFAULT
+                DollSizeSpec.reset(act, dollId)
+                HomeUi.notifyPetReload(act)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。",
+                color = c.sub,
+                fontSize = UiKit.FS_TINY.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
+    }
+
+    /**
+     * 把 [-0.5, 0.5] 的偏移比例显示成「右 12% / 居中」这类人话。
+     *
+     * @param horizontal true = 水平方向（左右），false = 垂直方向（上下）
+     */
+    private fun percentText(v: Float, horizontal: Boolean): String {
+        val p = Math.round(v * 100f)
+        return when {
+            p > 0 -> (if (horizontal) "偏右 " else "偏下 ") + p + "%"
+            p < 0 -> (if (horizontal) "偏左 " else "偏上 ") + (-p) + "%"
+            else -> "居中"
+        }
+    }
+
     /** 添加面板：添加模板 / 本地导入。 */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -543,7 +703,31 @@ object DollListScreen {
         }
     }
 
-    /** 卡片「更多」面板：命名 / 改封面 / 复制 / 删除 / 导出。 */
+    /**
+     * 【r21·单一判据】这只人偶是不是「本地自带的那只默认配置」。
+     *
+     * 【为什么不用 `doll.builtin`】那个标记是**可变字段**，会被存档读写与兜底逻辑改写
+     *   （`DollStore.read()` 里有 `list[0].copy(builtin = true)` 的分支），
+     *   靠它判断会出现「自建人偶也被当成内置」或「内置人偶丢了标记」两种误判。
+     *   固定身份 `id == DEFAULT_ID` 才是不可变的真源。
+     *
+     * 【影响面】只决定菜单里出现「删除」还是「恢复默认」，不影响任何数据操作本身
+     *   （删除与恢复的实现在 `DollStore` 内部已有各自的 id 校验）。
+     */
+    private fun isFactoryDoll(doll: DollStore.Doll): Boolean {
+        return doll.id == DollStore.DEFAULT_ID
+    }
+
+    /**
+     * 卡片「更多」面板：命名 / 改封面 / 复制 / 删除 / 导出 / 恢复默认配置。
+     *
+     * 【本轮·新增「恢复默认配置」】用户定案：「这个恢复的功能就是恢复默认配置的备份样子，
+     *   也就是下载软件的时候自带的样子」。
+     *   它做两件事，且只对**这只人偶**生效：
+     *   ① 动作库回到出厂状态（三个固定位 + 全部内置动作，见 [DollAnim.restoreBuiltin]）；
+     *   ② 尺寸规格回到自动适配，表情 / 手势等个性化项一并复位（见 [DollProfile.resetToFactory]）。
+     *   保留用户自己导入的动作与形象图 —— 「恢复默认」不该等于「清空我的东西」。
+     */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun MoreSheet(
@@ -553,7 +737,8 @@ object DollListScreen {
         onCover: () -> Unit,
         onCopy: () -> Unit,
         onDelete: () -> Unit,
-        onExport: () -> Unit
+        onExport: () -> Unit,
+        onRestore: () -> Unit
     ) {
         val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val c = DhTokens.colors
@@ -566,23 +751,66 @@ object DollListScreen {
             scrimColor = c.scrim,
             dragHandle = { SheetDragHandle() }
         ) {
-            Row(
+            // 【本轮·修「两个面板并排挤爆」】原来七个入口全塞在一行 `SpaceEvenly` 里，
+            //   在 1080p 屏上每个按钮只剩约 46dp，「恢复默认配置」这种四字标签
+            //   直接被裁掉一半（和动作页顶栏同一个病）。
+            //   改成两行网格：每行 4 个，等分宽度，标签完整可读。
+            val perRow = 4
+            val all = ArrayList<Pair<Int, Pair<String, () -> Unit>>>()
+            // 【图标 + 文字】底部面板横向空间宽裕，按钮都补上文字，不用再靠图标猜功能。
+            all.add(Pair(Icons.IC_SIGNATURE, Pair("命名", onRename)))
+            all.add(Pair(Icons.IC_IMAGE_PLUS, Pair("改封面", onCover)))
+            all.add(Pair(Icons.IC_COPY, Pair("复制", onCopy)))
+            // 内置默认配置不可删除：不渲染删除键。
+            // 【r21·判据加固】从 `builtin` 标记改为**认固定身份** `id == DEFAULT_ID`。
+            //   【为什么必须换】`DollStore.read()` 里有一条 `list[0].copy(builtin = true)`
+            //   的兜底分支：若历史存档里某个自建人偶排在首位被写成 builtin=true，
+            //   读出来就仍是 true —— 那会让自建人偶也冒出一个「删除」判据的反面
+            //   （即误判成「内置」而不给删除键）。
+            //   需求文档明确要求：删除与恢复默认必须用可靠的配置身份判断，不能只看标记。
+            if (!isFactoryDoll(doll)) {
+                all.add(Pair(Icons.IC_TRASH, Pair("删除", onDelete)))
+            }
+            all.add(Pair(Icons.IC_DOWNLOAD, Pair("导出", onExport)))
+            // 【只在默认配置上出现】用户定案：「这个恢复默认 只需要默认配置有就好」。
+            //   「恢复默认」的语义是「回到下载软件时自带的样子」，这个概念对**自建人偶**
+            //   不成立 —— 自建人偶出厂状态就是用户自己刚建出来的空样子，
+            //   点了既多余又容易被误解成「清空我的设置」。
+            //   判据同样用固定身份，理由见上。
+            // 【r21·文案缩短】「恢复默认」四个字在 4 列网格里被裁掉（每格约 46dp，
+//   四字标签超出可用宽）。用户定案：「那个恢复默认4个字没展示 改成恢复吧」。
+//   菜单项的上下文已经足够清楚（它只出现在默认配置上），「恢复」二字语义完整。
+            if (isFactoryDoll(doll)) {
+                all.add(Pair(Icons.IC_ROTATE_CCW, Pair("恢复", onRestore)))
+            }
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                // 【r13·需求B】前两个是新加的：命名（Lucide signature）、改封面（Lucide image-plus）。
-                // 【r16·图标+文字】底部面板横向空间宽裕，五枚按钮都补上文字，
-                //   不用再靠图标猜功能（用户需求：图标要符合文字描述）。
-                DhKit.IconButton(Icons.IC_SIGNATURE, 24f, c.title, label = "命名", onClick = onRename)
-                DhKit.IconButton(Icons.IC_IMAGE_PLUS, 24f, c.title, label = "改封面", onClick = onCover)
-                DhKit.IconButton(Icons.IC_COPY, 24f, c.title, label = "复制", onClick = onCopy)
-                // 内置默认配置不可删除：不渲染删除键。
-                if (!doll.builtin) {
-                    DhKit.IconButton(Icons.IC_TRASH, 24f, c.title, label = "删除", onClick = onDelete)
+                var i = 0
+                while (i < all.size) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        for (k in 0 until perRow) {
+                            val idx = i + k
+                            if (idx < all.size) {
+                                val it = all[idx]
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    DhKit.IconButton(it.first, 24f, c.title, label = it.second.first) {
+                                        it.second.second()
+                                    }
+                                }
+                            } else {
+                                // 占位，保证最后一行仍然等分（否则 5 个按钮会拉宽）。
+                                Box(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    i += perRow
                 }
-                DhKit.IconButton(Icons.IC_DOWNLOAD, 24f, c.title, label = "导出", onClick = onExport)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -764,9 +992,9 @@ object DollListScreen {
         val c = DhTokens.colors
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.card)
-                .border(1.dp, c.stroke, RoundedCornerShape(14.dp))
+                .border(1.dp, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
                 .padding(vertical = 6.dp)
         ) {
             content()

@@ -43,7 +43,7 @@ internal class SwipeRow(
     private var downX = 0f
     private var downY = 0f
     private var open = false
-    private var anim: ValueAnimator? = null
+    private var anim: Springs.Handle? = null
 
     init {
         val action = FrameLayout(ctx)

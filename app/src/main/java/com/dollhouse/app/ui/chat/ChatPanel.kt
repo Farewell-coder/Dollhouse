@@ -1109,6 +1109,75 @@ class ChatPanel(
         }
     }
 
+    /**
+     * **【v0.1.0·新增】点赞 / 点踩一条她的回复** —— 把这一问一答存成「学习示例」。
+     *
+     * ## 为什么必须补这个方法
+     *
+     * 记忆设置与聊天设置里一直有「学习示例」的读取代码
+     * （`ChatHistoryStore.appendLearnExamples` 会把最近 3 条 `{u,a}` 拼进对话），
+     * 但**全工程没有任何地方往 `learn_examples` 里写过东西**：
+     * 没有写入点、没有 UI 开关（`setLearnEnabled` 零调用）。
+     * 结果就是这个功能从上线起就没工作过 —— 读取端永远拿到空数组。
+     *
+     * 这里补上写入端：用户对某条回复表态「赞」，取它前面最近的用户提问，
+     * 组成一对 `{u, a}` 追加进学习示例（最多保留 [LEARN_MAX] 条，先进先出）。
+     * 「踩」只做提示、不入库 —— 反面样本需要另一套注入协议，未实现前不假装支持。
+     *
+     * @param index 该条 assistant 消息在 [history] 里的小标
+     * @return 是否成功入库
+     */
+    fun learnFromAt(index: Int): Boolean {
+        val o = itemAt(index) ?: return false
+        if ("assistant" != o.optString("role")) {
+            return false
+        }
+        val answer = o.optString("content", "").trim()
+        if (answer.isEmpty()) {
+            return false
+        }
+        // 往回找最近的一条用户提问，拼成「问 → 答」示范对。
+        var question = ""
+        var i = index - 1
+        while (i >= 0) {
+            val p = history.optJSONObject(i)
+            if (p != null && "user" == p.optString("role")) {
+                question = p.optString("content", "").trim()
+                break
+            }
+            i--
+        }
+        if (question.isEmpty()) {
+            return false
+        }
+        return try {
+            val arr = PetPrefs.learnExamples(context)
+            // 去重：同一对不重复累积（用户反复点同一条不该把示范池挤满）。
+            for (k in 0 until arr.length()) {
+                val e = arr.optJSONObject(k) ?: continue
+                if (e.optString("u") == question && e.optString("a") == answer) {
+                    return true
+                }
+            }
+            val item = org.json.JSONObject()
+            item.put("u", question)
+            item.put("a", answer)
+            arr.put(item)
+            // 只留最近 LEARN_MAX 条：抽取注入时也只取尾部 3 条，
+            //   池子无限增长没有意义，还会让 SharedPreferences 越来越臃肿。
+            val keep = org.json.JSONArray()
+            val from = if (arr.length() > LEARN_MAX) arr.length() - LEARN_MAX else 0
+            for (k in from until arr.length()) {
+                val e = arr.optJSONObject(k) ?: continue
+                keep.put(e)
+            }
+            PetPrefs.setLearnExamples(context, keep)
+            true
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
     /** 取 [history] 里下标处的**真实消息**对象；越界或非消息（摘要/system）返回 null。 */
     private fun itemAt(index: Int): JSONObject? {
         if (index < 0 || index >= history.length()) {
@@ -1645,7 +1714,8 @@ class ChatPanel(
 
     /** 【交互】联网工具已收口到 ChatToolRegistry / SearchTool；以下两处为兼容薄壳。 */
     fun doSearch(str: String?): String {
-        return ChatToolRegistry.execute("web_search", "{\"query\":\"" + str + "\"}")
+        return ChatToolRegistry.execute("web_search", "{\"query\":\"" + str + "\"}",
+                webSearch = true, remember = false)
     }
 
     private fun buildTools(): JSONArray {
@@ -1657,7 +1727,10 @@ class ChatPanel(
 
     /** 工具分发的宿主侧入口：入参原样透传给注册表，由各工具自己解析（search 取 query、remember 取 title/text）。 */
     private fun runTool(str: String?, str2: String?): String {
-        return ChatToolRegistry.execute(str!!, str2)
+        // 【门控】带上本轮的两个开关，让「关掉联网 / 关掉记忆」在执行侧也真正生效
+        //   （见 ChatToolRegistry.isAllowed 的注释：只在下发侧门控挡不住「模型记得工具名」）。
+        return ChatToolRegistry.execute(str!!, str2,
+                PetPrefs.webSearchEnabled(context), PetPrefs.mem2Auto(context))
     }
 
     fun finishWithError(str: String?) {
@@ -1910,5 +1983,13 @@ class ChatPanel(
 
     companion object {
         private const val MAX_TOOL_ROUNDS = 3
+        /**
+         * 学习示例池上限。
+         *
+         * 【为什么是 12】注入端每次只取尾部 3 条（见 `ChatHistoryStore.appendLearnExamples`），
+         *   12 条意味着「用户表达过但这次没被用到」的近期偏好还能留 4 轮，
+         *   再多只是让 SharedPreferences 里的一个 JSON 越来越长、每次读都要全量解析。
+         */
+        private const val LEARN_MAX = 12
     }
 }

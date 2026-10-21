@@ -440,6 +440,30 @@ object PetPrefs {
         return MEM2_INTERVALS[mem2IntervalIndex(context)]
     }
 
+    /**
+     * **【v0.1.0·修·间隔设置不生效】**上次自动抽取记忆的时刻（毫秒）；0 = 从未抽过。
+     *
+     * 【为什么要这个键】记忆设置页有「保存间隔」这一项（5~120 分钟），
+     *   但改造前 `autoExtract` 是**每条 assistant 消息都触发**，
+     *   完全没读这个设置 —— 用户把间隔调到 120 分钟也没用，
+     *   每聊一句就打一次抽取接口，既费 token 又让记忆库变得又快又碎。
+     *   现在按「距上次抽取 >= 设定间隔」才放行，与界面上的文案一致。
+     *
+     * 【为什么按人偶存】抽取是往「这只人偶的记忆库」里写，各人偶的节奏互不相干；
+     *   共用一个时间戳会让多只人偶互相推迟对方的抽取。
+     */
+    @JvmStatic
+    fun mem2LastExtractAt(context: Context, dollId: String?): Long {
+        val id = if (dollId == null || dollId.isEmpty()) "default" else dollId
+        return get(context).getLong("mem2_last_extract_" + id, 0L)
+    }
+
+    @JvmStatic
+    fun setMem2LastExtractAt(context: Context, dollId: String?, v: Long) {
+        val id = if (dollId == null || dollId.isEmpty()) "default" else dollId
+        get(context).edit().putLong("mem2_last_extract_" + id, v).apply()
+    }
+
     /** 记忆提取附加规则：一段自然语言，拼进抽取 prompt。 */
     @JvmStatic
     fun memExtractRule(context: Context): String {
@@ -1139,6 +1163,19 @@ object PetPrefs {
     }
 
     /**
+     * **【v0.1.0·补】**写入学习示例池（JSON 数组，元素形如 `{"u":提问,"a":回复}`）。
+     *
+     * 【为什么现在才补】原来只有读取端 —— `ChatHistoryStore.appendLearnExamples`
+     *   会读它并拼进请求，但**全工程没有任何写入点**，于是这个功能从上线起就空转：
+     *   读取永远拿到 `[]`，用户看不到任何效果。
+     *   写入端见 `ChatPanel.learnFromAt`（消息菜单里的「赞」）。
+     */
+    @JvmStatic
+    fun setLearnExamples(context: Context, arr: JSONArray?) {
+        get(context).edit().putString("learn_examples", if (arr == null) "[]" else arr.toString()).apply()
+    }
+
+    /**
      * 【r15·识图模型】用户指定的「专门用来看图的模型」id（AiModel.id，内部标识，不出网）。
      * 空串 = 未指定，此时一切都由「当前对话模型自己是否支持视觉」决定。
      *
@@ -1623,6 +1660,28 @@ object PetPrefs {
     }
 
     /**
+     * 【记忆库页】这一层当前指向哪只人偶（跨进程存活）。
+     *
+     * 【为什么需要落盘】页面 key 是单例 `feiyu_mem_page`，真正的 dollId 不在 key 里；
+     *   进程被系统回收后恢复，只剩 key，如果「当前是谁」只记在内存里，
+     *   就会退回默认配置 —— 表现为「回到记忆库页，看到的却是另一只人偶的记忆」。
+     *
+     * 【为什么单键而不是按人偶存】这里记的是「那一层现在指向谁」这一个事实，
+     *   不是「每只人偶各自的某个属性」，所以不该带 dollId 后缀。
+     */
+    @JvmStatic
+    fun memPageDollId(context: Context): String {
+        return get(context).getString(KEY_MEM_PAGE_DOLL, "") ?: ""
+    }
+
+    @JvmStatic
+    fun setMemPageDollId(context: Context, dollId: String?) {
+        get(context).edit().putString(KEY_MEM_PAGE_DOLL, dollId ?: "").apply()
+    }
+
+    private const val KEY_MEM_PAGE_DOLL = "mem_page_doll_id"
+
+    /**
      * 【记忆图谱】节点手动摆位（JSON：{标题: {x,y}}），按人偶存。
      * 【为什么单独存】力导向布局是「初次自动定」，用户拖过的节点应当**被尊重** ——
      *   下次进来还在他放的地方，而不是又被算回去。
@@ -1681,5 +1740,48 @@ object PetPrefs {
     @JvmStatic
     fun setMonetWallMode(context: Context, i: Int) {
         get(context).edit().putInt("monet_wall_mode", Math.max(0, Math.min(1, i))).apply()
+    }
+
+    /* ============================ 【v0.1.0】随机动作开关 ============================ */
+
+    /**
+     * 随机动作开关（**按人偶各管各**，**默认关**）。
+     *
+     * 【默认关是用户定案】「不配置随机动作的时候就没有随机动作 ——
+     *   打开的话则会执行随机动作，关闭的话则不会」。默认开会让「什么都没配」的
+     *   新人偶也时常自己动一下，与需求相反。
+     *
+     * 【为什么不放在 DollProfile】它属于「动作系统」的配置，与动作数据同源更自然；
+     *   而且 `PetView` 侧要频繁读它（每 13~30 秒一次），放这里省一层跳转。
+     *
+     * 【升级上来的老档案怎么办】改造前桌宠跑的是 `PetAnimator` 里硬编码的 5 个待机
+     *   小动作，升级后它们被归位进「随机动作」组 —— 开关默认关就意味着**不再自发**。
+     *   这是有意的：控制页那个开关旁边写清了「打开后她才会自己播」，
+     *   用户想要恢复原来的观感，打开一次即可，而不是替用户默认开着一个他不知道的开关。
+     */
+    @JvmStatic
+    fun randomAction(context: Context, dollId: String?): Boolean {
+        return get(context).getBoolean(randomKey(dollId), false)
+    }
+
+    /**
+     * **【v0.1.0】**这个开关是否被**显式设置过**。
+     *
+     * 【谁需要它】`DollAnim.all()` 里那次「老档案一次性迁移」：只有在用户从没表态过时
+     *   才替他把开关打开（见那里的注释）；用户自己关过的，绝不能因为升级又被打开。
+     */
+    @JvmStatic
+    fun randomActionSet(context: Context, dollId: String?): Boolean {
+        return get(context).contains(randomKey(dollId))
+    }
+
+    @JvmStatic
+    fun setRandomAction(context: Context, dollId: String?, on: Boolean) {
+        get(context).edit().putBoolean(randomKey(dollId), on).apply()
+    }
+
+    private fun randomKey(dollId: String?): String {
+        val id = if (dollId == null || dollId.isEmpty()) "_" else dollId
+        return "random_action_" + id
     }
 }

@@ -205,6 +205,22 @@ object PageStack {
         return pop(ctx, null)
     }
 
+    /**
+     * 【r21】返回到指定页面（需求文档要求的第五个原语）。
+     *
+     * 【语义】把 `key` 之上的所有层弹掉，`key` 本身留在栈顶。
+     *   · `key` 不在栈里（或只是栈底的底座）→ 不动栈，返回 false；
+     *   · `key` 已在栈顶 → 相当于什么也没做，返回 true（幂等）。
+     *
+     * 【为什么需要它】改造前只有 push / pop / replaceTop，「回到某一层」只能靠
+     *   连弹多次，调用方得自己算次数 —— 一旦中间某层被别处弹掉，次数就对不上，
+     *   于是要么弹过头、要么停在错的地方。现在由栈自己算。
+     */
+    @JvmStatic
+    fun popTo(ctx: Context?, key: String?): Boolean {
+        return NavHost.popTo(ctx, key)
+    }
+
     /** 统一返回键入口：有层就退一层。 */
     @JvmStatic
     fun handleBack(ctx: Context): Boolean {

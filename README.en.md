@@ -49,20 +49,21 @@ Device control requires installing, starting, and authorizing [Shizuku](https://
 - ML Kit and its Google dependencies are governed by their own terms and data handling rules; this is not a promise that the app never touches the network or never produces SDK diagnostics.
 - Authorized device commands may read the screen, files, and settings, and may change device state. Model-generated instructions can be wrong; tool output or a granted permission should not be treated as a security guarantee.
 
-## v0.0.9
+## v0.1.0
+The action system is rebuilt: every action now belongs to one of five slots — **always-on / edge / drag** (each doll has exactly one of each; they cannot be deleted or regrouped, and their content is swapped by clearing and importing a new set of images), plus **random / manual** (freely added and removed, and only these two can be swapped between each other).
+- **The pet actually plays them now**: idle plays the always-on slot, snapping to a screen edge plays the edge slot (using that action's own cut-off ratio), picking it up plays the drag slot, and leaving the edge switches back automatically.
+- **Random-action switch** (Control page, per doll): when on, one random action plays every 13-30 seconds - never while docked to an edge or while dragging. Older profiles get it turned on once during the upgrade.
+- **Gesture actions** are narrowed to members of the "manual" group.
+- **Editor**: the actions page opens with three fixed slot cards, followed by two collapsible groups; an edge action's detail page gains a draggable cut-off line; the top bar gains "restore built-in actions".
+- Also fixed: playing the edge action after leaving the edge, random actions interrupting a gesture action, the cut-off line jumping on drag, the list not refreshing after a delete, and full-rate frame looping while the screen is off.
 
-A stability release: ten independent code audit rounds, **27 defects fixed** across 17 files.
+**Interface layer rebuilt**: fixed "tapping a button on the new page hits the page underneath". Several screens are stacked on top of each other, and each one used to decide on its own whether it should accept touches, so nobody defined the combined state. It is now one shared decision, and the layer below stops responding entirely while a transition plays. The profile drawer is a real screen now (open something inside it, come back, the drawer is still there exactly as it was), and a right swipe on the home screen opens it while a left swipe closes it, with the start area kept clear of the system gesture edge.
 
-- **Crash**: in sleep mode, if the floating window had just been detached, a null dereference took down the floating process and every doll on screen vanished. Fixed.
-- **Data safety**: a failed model package import could delete the previously working model. Cleanup now only happens after the commit point, so a failure leaves the disk exactly as it was.
-- **Security**: external apps could trigger heavy frame-baking work (sustained CPU load and disk writes). It now only accepts calls from the same app, the system shell, and root, and validates that the doll id actually exists.
-- **19 resource leaks**: file, network, and bitmap handles were not released on error paths; once exhausted, the symptom was "images won't pick, messages won't send, downloads stuck at 0%". All funneled through proper cleanup.
-- **Memory and smoothness**: list thumbnails were always decoded at 1024px — a 46dp avatar wasted 55× the memory and a 34dp one 100×, all on the main thread. They are now decoded at the real display size.
-- **Idle battery**: the screen-off broadcast that pauses rendering was registered in a way that silently fails on newer Android versions, so rendering kept running at full rate with the screen off. Fixed.
-- **Slowdown over time**: the "load earlier history" staging area only ever grew, and every message rewrote it in full. It now has a cap enforced at a single choke point.
-- The rest are diagnostics fixes and removal of stale branches.
+**Appearance and consistency**: secondary pages get proper clearance below the top edge; every bottom bar in the app now uses the same capsule; the thin light border around the chat screen is gone; display size moved into "Edit doll → Appearance"; "Restore" only shows up on the built-in default profile.
 
-See the [changelog](CHANGELOG.md) for details. Version: versionName **0.0.9** / versionCode **9**.
+**App icon**: new artwork with recomputed proportions. The adaptive canvas is 108dp but the launcher only shows the central 72dp, so filling the whole canvas cut off about a third of the composition; it is now scaled into the safe area by the doll's circumscribed radius, with the black corners removed by connected region and extended outward using the outline's own edge colour.
+
+See the [changelog](CHANGELOG.md) for details. Version: versionName **0.1.0** / versionCode **10**.
 
 ## Build
 

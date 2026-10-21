@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import com.dollhouse.app.data.DollProfile
+import com.dollhouse.app.data.DollSizeSpec
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 
@@ -196,8 +197,16 @@ object DollPreviewOverlay {
         val manager = wm ?: return
         try {
             // 比例：先改系数（它决定 petWidth / windowWidth），再按新尺寸更新窗口。
-            pv.setScaleFactor(DollProfile.scale(ctx, id) / 100.0f)
-            pv.setSprite(DollStore.spriteOf(ctx, DollStore.byId(ctx, id)))
+            // 【本轮·统一口径】预览与桌面必须用**同一个函数**算最终缩放，
+            //   否则用户在编辑页看到的大小和退出后在桌面上看到的不一致
+            //   （需求书第五条第 10 点明确要求两者一致）。
+            pv.setSizeSpec(DollSizeSpec.spec(ctx, id))
+            pv.setScaleFactor(appliedScale(ctx, id))
+            pv.setSprite(
+                DollStore.spriteOf(ctx, DollStore.byId(ctx, id)),
+                // 与 PetWindow 同一判据：内置人偶才允许网格形变，见 PetView.deformSprite。
+                (DollStore.byId(ctx, id)?.sprite ?: "").isEmpty()
+            )
             pv.setFlipped(DollProfile.flip(ctx, id))
             p.width = pv.windowWidth()
             p.height = pv.baseHeight()
@@ -223,10 +232,26 @@ object DollPreviewOverlay {
     /** 按人偶配置造一个 PetView（形象 / 比例 / 朝向都以它为准）。 */
     private fun newPetView(ctx: Context, dollId: String): PetView {
         val pv = PetView(ctx)
-        pv.setScaleFactor(DollProfile.scale(ctx, dollId) / 100.0f)
-        pv.setSprite(DollStore.spriteOf(ctx, DollStore.byId(ctx, dollId)))
+        // 【本轮·统一口径】与 refreshCurrent / PetWindow.attach 同一套算法，见 appliedScale。
+        pv.setSizeSpec(DollSizeSpec.spec(ctx, dollId))
+        pv.setScaleFactor(appliedScale(ctx, dollId))
+        val doll = DollStore.byId(ctx, dollId)
+        pv.setSprite(DollStore.spriteOf(ctx, doll), (doll?.sprite ?: "").isEmpty())
         pv.setFlipped(DollProfile.flip(ctx, dollId))
         return pv
+    }
+
+    /**
+     * 最终生效的缩放 = 基础比例 × 尺寸规格。
+     *
+     * 【为什么预览与桌面各写一份同样的两行】两处分属不同包（pet 层互不依赖），
+     *   为了不让「预览 / 桌面口径漂移」重新长出来，这里把公式与
+     *   `PetWindow.appliedScale` 保持逐字一致 —— 改一处必须改两处，
+     *   并在 `DollSizeSpec` 里有单测钉住「size=100 时系数不变」。
+     */
+    private fun appliedScale(ctx: Context, dollId: String): Float {
+        return DollProfile.scale(ctx, dollId) / 100.0f *
+            DollSizeSpec.scaleOf(DollSizeSpec.spec(ctx, dollId))
     }
 
     /** 预览窗口参数：尺寸按 PetView 自报的算。 */

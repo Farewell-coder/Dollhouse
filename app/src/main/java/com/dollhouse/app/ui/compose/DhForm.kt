@@ -24,6 +24,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -218,17 +221,62 @@ object DhForm {
         )
     }
 
-    /** 小字备注。← `ApiPageKit.note`（12sp SUB，行距 +3）。[color] 非空时用于状态提示（OK / ERR）。 */
+    /**
+     * 小字备注。← `ApiPageKit.note`（12sp SUB，行距 +3）。[color] 非空时用于状态提示（OK / ERR）。
+     *
+     * 【本轮·修「界面上出现星号」】全工程有 6 处备注写成 `"把这只人偶恢复成**刚装好软件时的样子**"`，
+     *   作者是按 Markdown 写的；但 Compose 的 [Text] **不解析 Markdown**，
+     *   `**` 会原样显示成两个星号，且粗体完全不生效 —— 用户看到的就是「**刚装好软件时的样子**」。
+     *   这里补一层**极小的**粗体解析：把 `**xxx**` 切成「粗体段 + 普通段」的 [AnnotatedString]，
+     *   其余标记（`*斜体*`、`#标题`）不做 —— 本工程文案里没人用，多解析一分就多一分误伤风险。
+     *   未配对的 `**` 原样保留（宁可显示星号，也不吞掉用户文案）。
+     */
     @Composable
     fun Note(text: String, modifier: Modifier = Modifier, color: Color? = null) {
         Text(
-            text = text,
+            text = boldMarkup(text),
             modifier = modifier.padding(start = 2.dp, top = 8.dp, end = 2.dp),
             color = color ?: DhTokens.colors.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fonts,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
+    }
+
+    /**
+     * 把 `**粗体**` 转成 [AnnotatedString]（[SpanStyle] + FontWeight.Bold）。
+     *
+     * 【边界】只认成对的 `**`；未配对时把剩余文本原样追加，不丢字。
+     * 【为什么不用 Markdown 库】只为一处加粗引入一个解析器（含正则、链接、列表等）得不偿失，
+     *   且第三方库对中文标点的边界处理与本工程惯用文案不一定吻合。
+     */
+    fun boldMarkup(text: String): AnnotatedString {
+        if (!text.contains("**")) {
+            return AnnotatedString(text)
+        }
+        return buildAnnotatedString {
+            var i = 0
+            var bold = false
+            while (i < text.length) {
+                val at = text.indexOf("**", i)
+                if (at < 0) {
+                    append(text.substring(i))
+                    break
+                }
+                append(text.substring(i, at))
+                bold = !bold
+                if (bold) {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                } else {
+                    pop()
+                }
+                i = at + 2
+            }
+            // 未配对：push 过但没 pop，补一次，避免样式泄漏到后续段落。
+            if (bold) {
+                pop()
+            }
+        }
     }
 
     /** 紧凑状态标签。← `UiKit.badge`。 */

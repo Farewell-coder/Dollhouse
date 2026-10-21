@@ -54,11 +54,9 @@ object ComingSoonPage {
     ) {
         val c = DhTokens.colors
         Column(modifier = Modifier.fillMaxSize()) {
-            // 【为什么自带顶栏】本页作为 Tab 直接渲染（没有页面栈的返回键），
-            //   需要一个标题让用户知道自己点进了哪一页。
-            Box(modifier = Modifier.padding(horizontal = DhKit.PAD_CARD.dp)) {
-                DhKit.TopBar(title = "说说", sub = sub)
-            }
+            // 【统一】走 [DhKit.TabTopBar] —— 与聊天页 / 人偶页同一段代码。
+            //   改造前这里用 [DhKit.TopBar]（20sp），另外两格是 26sp，切 Tab 时标题会跳。
+            DhKit.TabTopBar(title = "说说")
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,

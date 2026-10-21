@@ -118,12 +118,22 @@ object DollGesturePage {
             GestureActions.AWAY_LABEL
         )
         val set = remember(gesture, tick) { DollProfile.gestureActions(act, id, gesture) }
-        // 【r16·可播动作清单】把这只人偶**当前能播**的动作列出来。
-        //   【为什么过滤掉空动作】没有帧、也没有入口资源的动作播放起来什么都不会发生；
-        //   让用户绑一个「绑了等于没绑」的选项，比不给他这个选项更糟。
+        /**
+         * 【r16】**v0.1.0 收窄：只列「手动动作」组**。
+         *
+         * 【为什么】用户定案：「只有我加入手动触发的动作，才能在那个操作组里编辑哪个操作对应哪个动作」。
+         *   随机动作是系统按 13~30 秒自己播的，把它绑到手势上没有意义
+         *   （而且会让用户以为「绑了它就不再随机」）。固定三格（常驻/贴边/拖拽）
+         *   由位置与拖动自动触发，也不该出现在手势里。
+         */
         val playable = remember(tick, id) {
             val out = ArrayList<DollAnim.Action>()
             for (a in DollAnim.all(act, id)) {
+                if (a.group != DollAnim.GROUP_MANUAL) {
+                    continue
+                }
+                // 【可播放 = 有帧或有入口资源】空壳播起来什么都不会发生；
+                //   让用户绑一个「绑了等于没绑」的选项，比不给他这个选项更糟。
                 if (a.frames.isNotEmpty() || a.assetPath.isNotEmpty()) {
                     out.add(a)
                 }
@@ -162,7 +172,10 @@ object DollGesturePage {
             DhForm.Gap()
             DhKit.SectionLabel("播放动作（可多选，只播最后一个）")
             if (playable.isEmpty()) {
-                DhForm.Note("这只人偶还没有可播放的动作。先到「动作」页添加动作，或导入一个模型包。")
+                DhForm.Note(
+                    "这只人偶还没有可播放的手动动作。到「动作」页新建一个（放进「手动动作」组）" +
+                        "并给它加上帧，它就会出现在这里。"
+                )
             } else {
                 for (a in playable) {
                     val value = GestureActions.actValue(a.id)

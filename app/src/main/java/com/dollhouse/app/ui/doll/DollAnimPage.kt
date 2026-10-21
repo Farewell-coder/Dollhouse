@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,15 +46,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.DollAnim
+import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.model.ModelExporter
 import com.dollhouse.app.data.model.ModelRepository
-import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
@@ -70,16 +72,17 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * 【职责】单个动作的详情页：**播放器 + 帧序列编辑器**。
+ * 【职责】单个动作的详情页：**播放器 + 帧序列编辑器 + 属性设置**。
  *
- * 【需求原文】「点开之后 能通过滑动的方式看到每一帧的图片 并且能编辑 添加 修改和调速」
- *   本页把这三件事拆成三块：
- *   ① 顶部播放器 —— 按 fps 自动播；可暂停、可单帧步进；
- *   ② 帧序列条 —— 横向 `LazyRow`，「滑动就能看到每一帧」；点一帧即跳到那一帧；
- *   ③ 下方设置 —— 改名、改描述、调速、循环开关、加帧、删帧、试演。
- *
- * 【为什么单帧也能编辑】用户导入的是一组**连贯动作图**，偶尔会有一两张不对
- *   （顺序反了 / 混进无关图）。这里给「删除当前帧」，让用户不必重导整组。
+ * ## v0.1.0 的三处关键变化
+ * 1. **贴边壳专属**：多一条可拖的「裁截线」，决定人偶贴到屏幕边时露出多少。
+ *    线外就是会被屏幕挡掉的区域，实时预览 —— 与真机上的观感一致。
+ * 2. **固定三格（常驻/贴边/拖拽）**：
+ *    · 「属性」行显示「XX动作（固定）」并**置灰**（不隐藏 —— 隐藏会让用户以为功能丢了）；
+ *    · 「循环播放」强制开且置灰（持续态播完定格 = 卡死）；
+ *    · 顶栏没有删除，改成「清空」（只清帧，名字/描述/速度保留）。
+ * 3. **修掉几处老缺陷**：1 帧动作显示「还没有帧」、播放中点步进被循环覆盖、
+ *    预览框上下拖动同时滚页面。
  */
 object DollAnimPage {
     const val PREFIX = "doll:anim:"
@@ -130,43 +133,73 @@ object DollAnimPage {
 
         // 动作元数据：改一处就 reload 一次。
         var action by remember { mutableStateOf(DollAnim.byId(act, dollId, actionId)) }
-        // 帧图路径（内置动作第一次进来要现烘）。
+        // 帧图路径（内置固定壳第一次进来要现烘）。
         var frames by remember { mutableStateOf<List<String>>(emptyList()) }
         var baking by remember { mutableStateOf(false) }
         var frameIdx by remember { mutableStateOf(0) }
-        // 解码缓存：路径 → Bitmap（避免每帧都重新解码）。
+        // 解码缓存（LRU，见 decodeForPlay）。
         var cache by remember { mutableStateOf<Map<String, ImageBitmap>>(emptyMap()) }
-        var playing by remember { mutableStateOf(true) }
+        var playing by remember { mutableStateOf(false) }
+        // 播放进度用「累计已播毫秒」而不是 delay 叠加 —— 熄屏 / 卡顿之后不会漂移。
+        var playClockMs by remember { mutableStateOf(0L) }
 
-        // 改名 / 改描述用弹窗
+        // 改名 / 改描述 / 调速 / 属性 / 资源管理弹窗
         var renameOpen by remember { mutableStateOf(false) }
         var renameDraft by remember { mutableStateOf("") }
         var descOpen by remember { mutableStateOf(false) }
         var descDraft by remember { mutableStateOf("") }
         var speedOpen by remember { mutableStateOf(false) }
-        // 【r13】属性选择弹窗开关。
         var groupOpen by remember { mutableStateOf(false) }
-        // 【r16】资源管理弹窗开关（非帧序列引擎的入口资源）。
         var resOpen by remember { mutableStateOf(false) }
-        // 【r16】导出模型包的结果提示。
+        var clearOpen by remember { mutableStateOf(false) }
         var exportMsg by remember { mutableStateOf<String?>(null) }
+        // ---------- 【工作台】显示与适配 / 行为绑定 的弹窗开关 ----------
+        var anchorOpen by remember { mutableStateOf(false) }
+        var offsetOpen by remember { mutableStateOf(false) }
+        var triggerOpen by remember { mutableStateOf(false) }
+        // 显示设置 / 行为绑定的本地刷新信号（写完要立刻重画设置区）。
+        var dispTick by remember(actionId) { mutableStateOf(0) }
+        var bindTick by remember(actionId) { mutableStateOf(0) }
+
+        val group = action?.group ?: DollAnim.GROUP_MANUAL
+        val fixed = DollAnim.isFixedGroup(group)
+        val isEdge = group == DollAnim.GROUP_EDGE
 
         // ---------- 准备帧图 ----------
         LaunchedEffect(actionId) {
             val a = action ?: return@LaunchedEffect
-            if (a.frames.size >= 2) {
+            // 【v0.1.0·修 P0】原来是 `frames.size >= 2` —— 只有 1 帧的动作会掉进
+            //   「现烘」分支，而烘帧只会烘内置动作，于是永远显示「还没有帧」。
+            //   改成 >= 1：有帧就用，不再管有几帧。
+            if (a.frames.isNotEmpty()) {
                 frames = a.frames
                 return@LaunchedEffect
             }
-            // 内置动作：帧图还没烘，现烘一次（后台线程）。
+            if (!a.builtin) {
+                // 用户自己建的空壳：没有帧是正常的，如实显示空态。
+                frames = emptyList()
+                return@LaunchedEffect
+            }
+            // 【本轮·修「空白模板还是有动作」】空白模板的三个固定壳虽然带 `builtin`，
+            //   但它们是「占位空壳」，不该自动把内置动画烘进来 ——
+            //   否则用户新建的空模板里会凭空出现「呼吸 36 帧」。
+            //   判据走数据层的 [DollAnim.isBlankTemplate]（种子版本 == SEED_NONE），
+            //   用户一旦点过「恢复默认配置」，这条就自动失效（那时他确实要内置动作）。
+            if (DollAnim.isBlankTemplate(act, dollId)) {
+                frames = emptyList()
+                return@LaunchedEffect
+            }
+            // 内置固定壳：帧图还没烘，现烘一次（后台线程）。
             baking = true
-            val scale = com.dollhouse.app.data.PetPrefs.petScale(act) / 100.0f
+            // 【v0.1.0·修 N1】烘帧比例必须用**这只人偶自己的比例**（DollProfile.scale），
+            //   而不是全局的 PetPrefs.petScale —— 两套比例不同源时，
+            //   预览里的帧和桌面上的实际大小对不上。
+            val scale = DollProfile.scale(act, dollId) / 100.0f
             val out = withContext(Dispatchers.IO) {
                 com.dollhouse.app.pet.AnimBaker.ensure(act, dollId, actionId, scale)
             }
             baking = false
-            if (out.size >= 2) {
-                // 【回写】烘好的路径登记进动作，下次进页直接读，不再重烘。
+            if (out.isNotEmpty()) {
                 val updated = a.copy(frames = out)
                 DollAnim.update(act, dollId, updated)
                 action = updated
@@ -174,36 +207,51 @@ object DollAnimPage {
             }
         }
 
-        // ---------- 解码当前帧（按需） ----------
+        // ---------- 解码当前帧（按需，只保留最近 12 张） ----------
         val curPath = if (frameIdx in frames.indices) frames[frameIdx] else ""
         LaunchedEffect(curPath) {
             if (curPath.isEmpty() || cache.containsKey(curPath)) {
                 return@LaunchedEffect
             }
-            // 【只解码当前帧】一屏只需要一帧完整位图；缩略图另走 decodeSmall。
             val bmp = withContext(Dispatchers.IO) { decodeFull(curPath) }
             if (bmp != null) {
-                cache = cache + (curPath to bmp.asImageBitmap())
+                // 【v0.1.0·修 P0】原来是 `cache + (path to bmp)`，只增不减 ——
+                //   一整套 120 帧就是 690MB。这里改成带上限的「最近使用」：
+                //   超过 12 张就把最久没用的那张丢掉并回收。
+                cache = putBounded(cache, curPath, bmp.asImageBitmap(), CACHE_MAX)
             }
         }
 
-        // ---------- 自动播放 ----------
-        LaunchedEffect(playing, frames, action?.fps) {
+        // ---------- 自动播放（时基推进） ----------
+        LaunchedEffect(playing, frames, action?.fps, action?.loop) {
             val a = action ?: return@LaunchedEffect
             if (!playing || frames.size < 2) {
                 return@LaunchedEffect
             }
             val step = DollAnim.frameMs(a.fps)
+            playClockMs = 0L
             while (true) {
                 kotlinx.coroutines.delay(step)
                 if (!playing) {
                     break
                 }
-                val next = frameIdx + 1
+                // 【v0.1.0·修 P1】用累计时间除以单帧时长算「该走到第几帧」，
+                //   而不是「每 tick 加一帧」。后者在系统忙 / 熄屏回来时会丢帧累积误差。
+                playClockMs += step
+                val adv = (playClockMs / step).toInt()
+                if (adv <= 0) {
+                    continue
+                }
+                playClockMs -= adv.toLong() * step
+                val next = frameIdx + adv
                 frameIdx = if (next >= frames.size) {
-                    if (a.loop) 0 else frames.size - 1
+                    if (a.loop) next % frames.size else frames.size - 1
                 } else {
                     next
+                }
+                if (!a.loop && frameIdx >= frames.size - 1) {
+                    playing = false
+                    break
                 }
             }
         }
@@ -211,15 +259,26 @@ object DollAnimPage {
         // ---------- 页面 ----------
         DhKit.Page(
             title = action?.name ?: "动作",
-            sub = "共 " + frames.size + " 帧",
+            sub = (if (fixed) group + " · 固定" else group) + " · 共 " + frames.size + " 帧",
             onBack = { PageStack.pop(act) },
             scrollable = false,
             actions = {
-                if (action != null && !action!!.builtin) {
-                    // 【r15·图标+文字】顶栏空间宽裕 → 加文字（删除是危险操作，明确写出来更安全）。
-                    DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.err, label = "删除动作") {
-                        DollAnim.remove(act, dollId, actionId)
-                        PageStack.pop(act)
+                if (action != null) {
+                    if (fixed) {
+                        // 固定壳：只能清空（不能删）。图标用橡皮，语义一目了然。
+                        DhKit.IconButton(Icons.IC_ERASER, Design.SZ_MD, c.title, label = "清空") {
+                            clearOpen = true
+                        }
+                    } else {
+                        DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.err, label = "删除动作") {
+                            // 【v0.1.0·修 P0】原先只 remove + pop：动作页靠 `DollState.rev` 重算
+                            //   分组，不 bump 就还显示着刚删掉的那条（点进去空白）；桌宠也
+                            //   不知道随机组变了，紧接着还可能抽到一个已经删掉的动作。
+                            DollAnim.remove(act, dollId, actionId)
+                            HomeUi.notifyPetReload(act)
+                            DollState.bump()
+                            PageStack.pop(act)
+                        }
                     }
                 }
             }
@@ -230,21 +289,20 @@ object DollAnimPage {
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
             ) {
-                // ============ ① 播放器（含中心点位 + 双通道微调） ============
-                // 【C1/C2 定案】「在上部的预览图中间放一个中心点位，这玩意是控制木偶的绝对中心，
-                //   方便以后添加模型的时候对齐」＋「以后添加的模型图片默认居中的是这个中心点位」。
-                //   ⇒ 预览框正中画一个十字点位；帧图**默认**按自身中心对准它（偏移 0）。
-                //     若用户导入的图内容偏心，可用下面两种方式微调：
-                //     ① 在预览框里直接拖（粗调）；② 方向键按钮（精微调）。
-                //   偏移按人偶存一份（DollProfile.frameOffset）。
+                // ============ ① 播放器 ============
                 var offTick by remember(dollId) { mutableStateOf(0) }
                 val off = remember(dollId, offTick) { DollProfile.frameOffset(act, dollId) }
-                // 【为什么另存一个 Int 版】offset{} 的 lambda 作用域里拿不到 Box 的 size
-                //   （它不是 BoxWithConstraints 的 scope），得先在组合期量出预览框尺寸。
                 var previewW by remember { mutableStateOf(1f) }
                 var previewH by remember { mutableStateOf(1f) }
                 val oxPx = off[0]
                 val oyPx = off[1]
+
+                // 贴边裁截线状态（只有贴边壳用得上）。
+                var insetTick by remember(actionId) { mutableStateOf(0) }
+                val edgeInset = remember(actionId, insetTick) {
+                    action?.edgeInset ?: DollAnim.EDGE_INSET_DEFAULT
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -252,27 +310,75 @@ object DollAnimPage {
                         .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                         .background(c.soft)
                         .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
-                        // 【先量尺寸】偏移是归一化的，转成像素要知道预览框宽高。
                         .onSizeChanged { sz ->
                             previewW = Math.max(1f, sz.width.toFloat())
                             previewH = Math.max(1f, sz.height.toFloat())
                         }
-                        // 【拖动即改偏移】用 detectDragGestures 直接累加归一化位移。
-                        .pointerInput(dollId) {
-                            detectDragGestures { change, drag ->
-                                change.consume()
-                                val w = size.width.toFloat()
-                                val h = size.height.toFloat()
-                                if (w <= 0f || h <= 0f) {
-                                    return@detectDragGestures
+                        // 【v0.0.9 起的拖动改偏移】加**方向锁**：
+                        //   只有横向位移明显大于纵向时才改偏移，否则交给外层滚动。
+                        //   （用户报的「预览框上下拖，页面跟着滚」就是没有方向锁。）
+                        .pointerInput(dollId, isEdge, edgeInset) {
+                            // 【v0.1.0·修 P0】裁截线拖动原先有两个错：
+                            //   ① `edgeInset` 是组合期捕获的值，pointerInput 的 key 里没有它，
+                            //      拖完一次后闭包里仍是旧值 —— 再拖会跳回原处；
+                            //   ② 每帧用 `edgeInset - drag.x / w`（每帧增量 + 同一个起点值），
+                            //      等于把每帧位移当成绝对位置算，手指一动线就乱跳。
+                            //   现在：按下时**拍一次起点快照**，拖动期间累加总位移再算一次百分比。
+                            var accX = 0f
+                            var accY = 0f
+                            var locked = false
+                            var isInsetDrag = false
+                            var insetStart = edgeInset
+                            detectDragGestures(
+                                onDragStart = { start ->
+                                    accX = 0f
+                                    accY = 0f
+                                    locked = false
+                                    insetStart = edgeInset
+                                    // 起点落在裁截线附近（±24dp）→ 拖裁截线，不改偏移。
+                                    isInsetDrag = isEdge &&
+                                        Math.abs(start.x - size.width * (1f - edgeInset)) <
+                                        (24 * density)
+                                },
+                                onDrag = { change, drag ->
+                                    accX += drag.x
+                                    accY += drag.y
+                                    if (!locked) {
+                                        if (Math.abs(accX) + Math.abs(accY) < 6f * density) {
+                                            return@detectDragGestures
+                                        }
+                                        locked = Math.abs(accX) > Math.abs(accY)
+                                    }
+                                    if (isInsetDrag) {
+                                        // 裁截线：只认横向位移，线往左拖 = 露得更多。
+                                        change.consume()
+                                        val w = size.width.toFloat()
+                                        if (w <= 0f) {
+                                            return@detectDragGestures
+                                        }
+                                        // 累计位移 ÷ 宽度 = 比例变化；起点值 + 变化量 = 目标值。
+                                        val next = insetStart - accX / w
+                                        DollAnim.setEdgeInset(act, dollId, actionId, next)
+                                        insetTick++
+                                        return@detectDragGestures
+                                    }
+                                    if (!locked) {
+                                        return@detectDragGestures
+                                    }
+                                    change.consume()
+                                    val w = size.width.toFloat()
+                                    val h = size.height.toFloat()
+                                    if (w <= 0f || h <= 0f) {
+                                        return@detectDragGestures
+                                    }
+                                    val cur = DollProfile.frameOffset(act, dollId)
+                                    DollProfile.setFrameOffset(
+                                        act, dollId,
+                                        cur[0] + drag.x / w, cur[1] + drag.y / h
+                                    )
+                                    offTick++
                                 }
-                                val cur = DollProfile.frameOffset(act, dollId)
-                                DollProfile.setFrameOffset(
-                                    act, dollId,
-                                    cur[0] + drag.x / w, cur[1] + drag.y / h
-                                )
-                                offTick++
-                            }
+                            )
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -284,7 +390,6 @@ object DollAnimPage {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(12.dp)
-                                // 【默认居中于中心点位】偏移为 0 时即正中；有偏移时按归一化比例挪。
                                 .offset { IntOffset((oxPx * previewW).roundToInt(), (oyPx * previewH).roundToInt()) },
                             contentScale = ContentScale.Fit
                         )
@@ -305,36 +410,85 @@ object DollAnimPage {
                             fontFamily = DhTokens.fonts
                         )
                     }
-                    // 【C1·中心点位】画在**所有帧之上**，保证任何帧都盖不住它 ——
-                    //   它是「控制木偶的绝对中心」的视觉基准，必须始终可见。
-                    //   十字 + 中心小圆：比单点更容易在花哨的插画上分辨。
+                    // 中心点位（对齐基准）画在所有帧之上。
                     CenterMarker(c.acc)
+                    // ---------- 贴边裁截线 ----------
+                    if (isEdge && bmp != null) {
+                        EdgeCutLine(
+                            inset = edgeInset,
+                            color = c.acc,
+                            onDrag = { w ->
+                                if (w > 0f) {
+                                    // 由外层 onDrag 统一落盘；这里只负责「拖到哪」。
+                                }
+                            }
+                        )
+                    }
                 }
 
-                // 【C2·按键式微调】用户要求「手动的微调可以滑动 但也要加入按键式 方便精微调控」。
-                //   滑动是粗调（上面那个拖手势），这里是精调：每次挪 0.5% 预览框宽高。
+                // ---------- 贴边裁截线的数值说明 ----------
+                if (isEdge) {
+                    Text(
+                        text = "裁截线：人偶贴到屏幕边时，有 " +
+                            Math.round(edgeInset * 100) + "% 会被屏幕挡掉，露出 " +
+                            Math.round((1f - edgeInset) * 100) + "%。" +
+                            "直接拖预览里的竖线，或点下面的按钮微调。",
+                        modifier = Modifier.padding(top = 6.dp),
+                        color = c.sub,
+                        fontSize = UiKit.FS_TINY.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        // 【图标别再用左右箭头】贴边可能贴左也可能贴右，固定的「←/→」在贴右边时
+                        //   方向就反了（用户会以为「露出更多」是把人偶往左边拉）。
+                        //   「露出更多」= 少挡一点 = 面积变大 → 用放大/缩小这一对语义，
+                        //   与方向无关，贴哪边都说得通。
+                        DhKit.OutlineChip("露出更多", iconRes = Icons.IC_MAXIMIZE) {
+                            DollAnim.setEdgeInset(act, dollId, actionId, edgeInset - 0.02f)
+                            insetTick++
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        DhKit.OutlineChip("露出更少", iconRes = Icons.IC_MINIMIZE) {
+                            DollAnim.setEdgeInset(act, dollId, actionId, edgeInset + 0.02f)
+                            insetTick++
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        DhKit.OutlineChip("恢复默认") {
+                            DollAnim.setEdgeInset(act, dollId, actionId, DollAnim.EDGE_INSET_DEFAULT)
+                            insetTick++
+                        }
+                    }
+                }
+
+                // ---------- 偏移微调（方向键） ----------
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    DhKit.IconButton(Icons.IC_CHEVRON_LEFT, Design.SZ_SM, c.title) {
+                    // 【v0.1.0·修·图标偏小】chevron 图形只占视口 58%，16dp 画出来仅约 9.3dp。
+                    //   这四个是「微调偏移」的主操作按钮，必须一眼可辨 → 按按钮档走 SZ_MD。
+                    DhKit.IconButton(Icons.IC_CHEVRON_LEFT, Design.SZ_MD, c.title) {
                         DollProfile.setFrameOffset(act, dollId, off[0] - FINE_STEP, off[1])
                         offTick++
                     }
                     Spacer(Modifier.width(4.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_SM, c.title) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title) {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] - FINE_STEP)
                         offTick++
                     }
                     Spacer(Modifier.width(4.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_SM, c.title) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title) {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] + FINE_STEP)
                         offTick++
                     }
                     Spacer(Modifier.width(4.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_SM, c.title) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title) {
                         DollProfile.setFrameOffset(act, dollId, off[0] + FINE_STEP, off[1])
                         offTick++
                     }
@@ -345,36 +499,42 @@ object DollAnimPage {
                     }
                 }
                 Text(
-                    text = "微调：拖动预览可粗调，方向键精调；「居中」把偏移清零。" +
-                        "当前偏移 " + pct(off[0]) + " / " + pct(off[1]),
+                    text = "微调：横向拖动预览可粗调（纵向拖动会让页面滚），方向键精调；" +
+                        "「居中」把偏移清零。当前偏移 " + pct(off[0]) + " / " + pct(off[1]),
                     modifier = Modifier.padding(top = 2.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
 
-                // 播放控制行
+                // ---------- 播放控制 ----------
                 Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    DhKit.IconButton(Icons.IC_ARROW_LEFT, Design.SZ_MD, c.title) {
+                    DhKit.IconButton(Icons.IC_STEP_BACK, Design.SZ_MD, c.title, label = "上一帧") {
                         if (frames.isNotEmpty()) {
+                            // 【v0.1.0·修 P1】点步进必须先把自动播放停掉，
+                            //   否则下一 tick 就把 frameIdx 覆盖回去（用户看到的「按了没反应」）。
+                            playing = false
                             frameIdx = if (frameIdx <= 0) frames.size - 1 else frameIdx - 1
                         }
                     }
                     Spacer(Modifier.width(6.dp))
-                    // 【r16·图标+文字】播放条空间宽裕 → 给出「播放 / 暂停」文字。
                     DhKit.IconButton(
-                        if (playing) Icons.IC_SQUARE else Icons.IC_PLAY,
+                        // 【v0.1.0·修·图标语义】暂停不能用方块（方块 = 停止，语义是「回到开头」）。
+                        //   这里只是「停在这一帧、稍后从同一帧继续」，必须用暂停图标，
+                        //   否则用户会以为按下去会把播放进度清零。
+                        if (playing) Icons.IC_PAUSE else Icons.IC_PLAY,
                         Design.SZ_MD, c.acc,
                         label = if (playing) "暂停" else "播放"
                     ) { playing = !playing }
                     Spacer(Modifier.width(6.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title) {
+                    DhKit.IconButton(Icons.IC_STEP_FORWARD, Design.SZ_MD, c.title, label = "下一帧") {
                         if (frames.isNotEmpty()) {
+                            playing = false
                             frameIdx = (frameIdx + 1) % frames.size
                         }
                     }
@@ -389,10 +549,13 @@ object DollAnimPage {
                     )
                 }
 
-                // ============ ② 帧序列条（横向滑动看每一帧） ============
+                // ============ ② 帧序列条 ============
                 DhKit.SectionLabel("帧序列（左右滑动查看）", iconRes = Icons.IC_IMAGE)
                 if (frames.isEmpty()) {
-                    DhForm.Note("这个动作还没有帧。点下面「添加帧」从相册选图。")
+                    DhForm.Note(
+                        if (fixed) "这一格还是空的。点下面「添加帧」导入一组图，它就会开始生效。"
+                        else "这个动作还没有帧。点下面「添加帧」从相册选图。"
+                    )
                 } else {
                     Row(
                         modifier = Modifier
@@ -438,43 +601,115 @@ object DollAnimPage {
                     iconRes = Icons.IC_GAUGE,
                     value = (action?.fps ?: DollAnim.FPS_DEFAULT).toString() + " 帧/秒 ›"
                 ) { speedOpen = true }
-                // 【r13·属性归属】用户要求「认真辨利每个动作属于哪个属性」。
-                //   属性是数据里的一等字段，这里让用户也能改 —— 导入的动作默认进「自定义」，
-                //   想归到别的分组（比如把自绘的「挥手」归进「交互动作」）随时可调。
+
+                // ---------- 属性 ----------
+                // 【v0.1.0】固定三格显示「（固定）」并**置灰不隐藏** ——
+                //   隐藏会让用户以为「这个功能在这类动作上丢了」；置灰 + 说明更诚实。
                 DhKit.ValueRow(
                     label = "属性",
                     iconRes = Icons.IC_TAGS,
-                    value = (action?.group ?: DollAnim.GROUP_CUSTOM) + " ›"
-                ) { groupOpen = true }
-
-                // ---------- r16·默认动作 ----------
-                //
-                // 【这是「桌宠能实际用上动作」的用户入口】设了默认动作的人偶，
-                //   无交互时桌面上的小人就会播它（见 PetView.playSemantic → DollAnim.bySemantic）。
-                //   没有这个开关，用户导入的动作只能在编辑页里看看，桌面上永远不生效 ——
-                //   正是任务书 §1.4 说的「只做框架不接线 = 失败」。
-                DhKit.SwitchRow(
-                    name = "设为待机默认动作",
-                    checked = action?.isDefault ?: false
-                ) { on ->
-                    val a = action ?: return@SwitchRow
-                    // 【为什么传 null 表示取消】见 DollAnim.setDefault 的注释：
-                    //   同人偶内互斥由数据层保证，界面不需要先遍历一遍去清别人。
-                    DollAnim.setDefault(act, dollId, if (on) a.id else null)
-                    HomeUi.notifyPetReload(act)
-                    DollState.bump()
-                    action = DollAnim.byId(act, dollId, actionId)
-                }
-                if (action?.isDefault == true) {
-                    DhForm.Note("桌面上的小人无交互时会一直播这个动作。同一只人偶只能有一个默认动作。")
+                    value = if (fixed) group + "（固定）" else group + " ›",
+                    onClick = if (fixed) null else ({ groupOpen = true })
+                )
+                if (fixed) {
+                    DhForm.Note(
+                        "「" + group + "」是这只人偶的固定位，不能换组。" +
+                            "想换内容就清空它、再导入新的一组图。"
+                    )
                 }
 
-                // ---------- r16·资源管理 ----------
-                //
-                // 【为什么必须有】帧序列动作的「资源」就是那一串帧图（在「帧操作」里管）；
-                //   但 Lottie / 动图的资源是**一个入口文件**，用户换图时得能换、能看见路径、
-                //   也能发现「文件没了」。任务书 §3.8 F 项明确要求这块。
+                // ---------- 【工作台】显示与适配 ----------
+                // 【为什么放在「属性」之后、「资源管理」之前】
+                //   顺序上它跟「这个动作是什么」一脉（属性 → 长什么样 → 挂什么资源），
+                //   与下面的「帧操作」距离也够远，不会被当成帧级设置。
                 val cur = action
+                if (cur != null) {
+                    DhKit.SectionLabel("显示与适配", iconRes = Icons.IC_MAXIMIZE)
+                    val disp = remember(actionId, dispTick) {
+                        com.dollhouse.app.data.ActionWorkbench.display(act, dollId, actionId)
+                    }
+                    DhKit.ValueRow(
+                        label = "锚点",
+                        iconRes = Icons.IC_CROSSHAIR,
+                        value = com.dollhouse.app.data.ActionWorkbench.anchorLabel(disp.anchor) + " ›"
+                    ) { anchorOpen = true }
+                    DhKit.ValueRow(
+                        label = "适配方式",
+                        iconRes = Icons.IC_MAXIMIZE,
+                        value = com.dollhouse.app.data.ActionWorkbench.fitLabel(disp.fit) + " ›"
+                    ) {
+                        val next = if (disp.fit == com.dollhouse.app.data.ActionWorkbench.FIT_CONTAIN)
+                            com.dollhouse.app.data.ActionWorkbench.FIT_UNIFIED
+                        else com.dollhouse.app.data.ActionWorkbench.FIT_CONTAIN
+                        com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                                anchor = disp.anchor, fit = next, ox = disp.ox, oy = disp.oy
+                            )
+                        )
+                        dispTick++
+                        HomeUi.notifyPetReload(act)
+                    }
+                    DhKit.ValueRow(
+                        label = "内容偏移",
+                        iconRes = Icons.IC_MOVE,
+                        value = pct(disp.ox) + " / " + pct(disp.oy) + " ›"
+                    ) { offsetOpen = true }
+                    DhForm.Note(
+                        "这三个只影响**这一个动作**怎么摆，不会改变人偶的整体大小 —— " +
+                            "尺寸统一由「人偶比例」管，所以切换动作不会忽大忽小。" +
+                            "偏移上限 ±50%，再大人偶会整只移出窗口。"
+                    )
+                }
+
+                // ---------- 【工作台】行为绑定 ----------
+                if (cur != null) {
+                    DhKit.SectionLabel("行为绑定", iconRes = Icons.IC_WAYPOINTS)
+                    val bind = remember(actionId, bindTick) {
+                        com.dollhouse.app.data.ActionWorkbench.binding(act, dollId, actionId)
+                    }
+                    Text(
+                        text = "允许被这些情况唤起：" +
+                            if (bind.triggers.isEmpty()) "（无）"
+                            else bind.triggers.joinToString("、") {
+                                com.dollhouse.app.data.ActionWorkbench.triggerLabel(it)
+                            },
+                        modifier = Modifier.padding(top = 6.dp),
+                        color = c.sub,
+                        fontSize = UiKit.FS_SUB.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    DhKit.MiniChip("选择触发方式", iconRes = Icons.IC_WAYPOINTS) { triggerOpen = true }
+                    DhKit.ValueRow(
+                        label = "优先级",
+                        iconRes = Icons.IC_GAUGE,
+                        value = com.dollhouse.app.data.ActionWorkbench.priorityLabel(bind.priority) + " ›"
+                    ) {
+                        // 三档循环：普通 → 高 → 最高 → 普通。
+                        val next = when (bind.priority) {
+                            com.dollhouse.app.data.ActionWorkbench.PRIORITY_NORMAL ->
+                                com.dollhouse.app.data.ActionWorkbench.PRIORITY_HIGH
+                            com.dollhouse.app.data.ActionWorkbench.PRIORITY_HIGH ->
+                                com.dollhouse.app.data.ActionWorkbench.PRIORITY_TOP
+                            else -> com.dollhouse.app.data.ActionWorkbench.PRIORITY_NORMAL
+                        }
+                        com.dollhouse.app.data.ActionWorkbench.setBinding(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionBinding(
+                                triggers = bind.triggers, priority = next
+                            )
+                        )
+                        bindTick++
+                        HomeUi.notifyPetReload(act)
+                    }
+                    DhForm.Note(
+                        "优先级是在原有语义顺序上「加一档力气」：普通不越级；" +
+                            "高能压过常驻/贴边但压不过手动；最高能压过拖动（临时强制）。"
+                    )
+                }
+
+                // ---------- 资源管理（非帧序列引擎） ----------
                 if (cur != null && cur.engine != DollAnim.ENGINE_SPRITE) {
                     DhKit.SectionLabel("资源管理", iconRes = Icons.IC_CABLE)
                     val exists = cur.assetPath.isNotEmpty() && File(cur.assetPath).exists()
@@ -500,30 +735,65 @@ object DollAnimPage {
                     }
                 }
 
+                // ---------- 循环 ----------
+                // 【v0.1.0】固定三格强制循环：常驻/贴边/拖拽都是持续态，
+                //   播完定格在最后一帧等于卡死（拖动时长不可控尤其明显）。
                 DhKit.SwitchRow(
-                    name = "循环播放",
-                    checked = action?.loop ?: true
+                    name = if (fixed) "循环播放（固定位强制开启）" else "循环播放",
+                    checked = if (fixed) true else (action?.loop ?: true)
                 ) { on ->
+                    if (fixed) {
+                        // 置灰语义：点了也不改（给一句解释，避免用户以为坏了）。
+                        HomeUi.showNotice(
+                            act, "固定位必须循环",
+                            "「" + group + "」要一直播下去，播完定格会看起来像卡死。"
+                        )
+                        return@SwitchRow
+                    }
                     val a = action ?: return@SwitchRow
                     val u = a.copy(loop = on)
                     DollAnim.update(act, dollId, u)
                     action = u
+                    HomeUi.notifyPetReload(act)
+                    DollState.bump()
                 }
 
+                // ---------- 帧操作 ----------
                 DhKit.SectionLabel("帧操作", iconRes = Icons.IC_BLOCKS)
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("添加帧", iconRes = Icons.IC_IMAGE_PLUS) { pickFrames(act, dollId, actionId) { onFramesChanged ->
-                            action = DollAnim.byId(act, dollId, actionId)
-                            frames = onFramesChanged
-                            frameIdx = 0
-                        } }
+                        DhKit.MiniChip("添加帧", iconRes = Icons.IC_IMAGE_PLUS) {
+                            pickFrames(act, dollId, actionId) { onFramesChanged ->
+                                action = DollAnim.byId(act, dollId, actionId)
+                                frames = onFramesChanged
+                                frameIdx = 0
+                                // 【v0.1.0】帧变了就要通知桌宠重载，否则它仍按旧帧播。
+                                HomeUi.notifyPetReload(act)
+                                DollState.bump()
+                            }
+                        }
                     }
                     Spacer(Modifier.width(8.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("删除当前帧", iconRes = Icons.IC_TRASH) {
                             if (frames.size <= 1) {
-                                HomeUi.showNotice(act, "不能删", "至少保留一帧。")
+                                // 【v0.1.0】允许删到 0 帧：固定壳本来就应该能「清空」，
+                                //   单帧动作也该能删掉那一帧。但删到 0 之后播放区立刻显示空态。
+                                val a = action
+                                if (a != null && frames.isNotEmpty()) {
+                                    try {
+                                        File(frames[0]).delete()
+                                    } catch (t: Throwable) {
+                                    }
+                                    val u = a.copy(frames = emptyList())
+                                    DollAnim.update(act, dollId, u)
+                                    action = u
+                                    frames = emptyList()
+                                    frameIdx = 0
+                                    playing = false
+                                    HomeUi.notifyPetReload(act)
+                                    DollState.bump()
+                                }
                             } else {
                                 val list = ArrayList(frames)
                                 val gone = list.removeAt(frameIdx)
@@ -538,6 +808,8 @@ object DollAnimPage {
                                     action = u
                                     frames = list
                                     frameIdx = Math.max(0, Math.min(frameIdx, list.size - 1))
+                                    HomeUi.notifyPetReload(act)
+                                    DollState.bump()
                                 }
                             }
                         }
@@ -546,26 +818,30 @@ object DollAnimPage {
                 Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("前移一帧", iconRes = Icons.IC_CHEVRON_LEFT) { moveFrame(act, dollId, action, frames, frameIdx, -1) { a2, f2, i2 ->
-                            action = a2
-                            frames = f2
-                            frameIdx = i2
-                        } }
+                        DhKit.MiniChip("前移一帧", iconRes = Icons.IC_ARROW_LEFT) {
+                            moveFrame(act, dollId, action, frames, frameIdx, -1) { a2, f2, i2 ->
+                                action = a2
+                                frames = f2
+                                frameIdx = i2
+                            }
+                        }
                     }
                     Spacer(Modifier.width(8.dp))
                     Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("后移一帧", iconRes = Icons.IC_CHEVRON_RIGHT) { moveFrame(act, dollId, action, frames, frameIdx, 1) { a2, f2, i2 ->
-                            action = a2
-                            frames = f2
-                            frameIdx = i2
-                        } }
+                        DhKit.MiniChip("后移一帧", iconRes = Icons.IC_ARROW_RIGHT) {
+                            moveFrame(act, dollId, action, frames, frameIdx, 1) { a2, f2, i2 ->
+                                action = a2
+                                frames = f2
+                                frameIdx = i2
+                            }
+                        }
                     }
                 }
 
                 DhForm.Note(
-                    if (action?.builtin == true) {
-                        "这是工程内置动作（帧图由真实渲染管线生成）。可以改名、改描述、调速、删帧；" +
-                            "删掉的动作下次进页会重新生成。"
+                    if (fixed) {
+                        "这是「" + group + "」固定位。帧图由真实渲染管线生成时可以直接用；" +
+                            "也可以清空后导入你自己的一组图。改完即时保存。"
                     } else {
                         "这是你导入的动作。帧的顺序就是播放顺序，改完即时保存。"
                     }
@@ -573,7 +849,201 @@ object DollAnimPage {
             }
         }
 
-        // ---------- r16·资源管理弹窗 ----------
+        // ---------- 【工作台】锚点选择 ----------
+        if (anchorOpen) {
+            val disp = com.dollhouse.app.data.ActionWorkbench.display(act, dollId, actionId)
+            DhForm.Alert(
+                title = "锚点",
+                onDismiss = { anchorOpen = false },
+                posText = "完成",
+                onPos = { anchorOpen = false }
+            ) {
+                Text(
+                    text = "决定这个动作的画面「对齐到窗口的哪个点」。" +
+                        "真实播放时人偶的脚踩在窗口底边，所以默认是底部居中。",
+                    color = c.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                DhForm.Gap()
+                for (a in com.dollhouse.app.data.ActionWorkbench.ANCHORS) {
+                    DhKit.CheckRow(
+                        text = com.dollhouse.app.data.ActionWorkbench.anchorLabel(a),
+                        selected = disp.anchor == a
+                    ) {
+                        com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                                anchor = a, fit = disp.fit, ox = disp.ox, oy = disp.oy
+                            )
+                        )
+                        dispTick++
+                        HomeUi.notifyPetReload(act)
+                        anchorOpen = false
+                    }
+                }
+            }
+        }
+
+        // ---------- 【工作台】内容偏移 ----------
+        if (offsetOpen) {
+            val disp = com.dollhouse.app.data.ActionWorkbench.display(act, dollId, actionId)
+            DhForm.Alert(
+                title = "内容偏移",
+                onDismiss = { offsetOpen = false },
+                posText = "完成",
+                onPos = { offsetOpen = false }
+            ) {
+                Text(
+                    text = "把这个动作的画面整体挪一点。当前：" + pct(disp.ox) + " / " + pct(disp.oy),
+                    color = c.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                DhForm.Gap()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_LEFT, Design.SZ_MD, c.title, label = "左移") {
+                        com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                                anchor = disp.anchor, fit = disp.fit,
+                                ox = disp.ox - 0.01f, oy = disp.oy
+                            )
+                        )
+                        dispTick++
+                        HomeUi.notifyPetReload(act)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title, label = "上移") {
+                        com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                                anchor = disp.anchor, fit = disp.fit,
+                                ox = disp.ox, oy = disp.oy - 0.01f
+                            )
+                        )
+                        dispTick++
+                        HomeUi.notifyPetReload(act)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title, label = "下移") {
+                        com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                                anchor = disp.anchor, fit = disp.fit,
+                                ox = disp.ox, oy = disp.oy + 0.01f
+                            )
+                        )
+                        dispTick++
+                        HomeUi.notifyPetReload(act)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title, label = "右移") {
+                        com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                            act, dollId, actionId,
+                            com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                                anchor = disp.anchor, fit = disp.fit,
+                                ox = disp.ox + 0.01f, oy = disp.oy
+                            )
+                        )
+                        dispTick++
+                        HomeUi.notifyPetReload(act)
+                    }
+                }
+                DhForm.Gap()
+                DhKit.MiniChip("清零", iconRes = Icons.IC_CROSSHAIR) {
+                    com.dollhouse.app.data.ActionWorkbench.setDisplay(
+                        act, dollId, actionId,
+                        com.dollhouse.app.data.ActionWorkbench.ActionDisplay(
+                            anchor = disp.anchor, fit = disp.fit, ox = 0f, oy = 0f
+                        )
+                    )
+                    dispTick++
+                    HomeUi.notifyPetReload(act)
+                    offsetOpen = false
+                }
+                DhForm.Note(
+                    "每点一次挪 1%（屏幕宽度/高度的比例）。要粗调直接在预览里横向拖，" +
+                        "或者用上面「设置」里的方向键。"
+                )
+            }
+        }
+
+        // ---------- 【工作台】触发方式 ----------
+        if (triggerOpen) {
+            val bind = com.dollhouse.app.data.ActionWorkbench.binding(act, dollId, actionId)
+            var draft by remember { mutableStateOf(bind.triggers) }
+            DhForm.Alert(
+                title = "触发方式",
+                onDismiss = { triggerOpen = false },
+                posText = "保存",
+                onPos = {
+                    com.dollhouse.app.data.ActionWorkbench.setBinding(
+                        act, dollId, actionId,
+                        com.dollhouse.app.data.ActionWorkbench.ActionBinding(
+                            triggers = draft, priority = bind.priority
+                        )
+                    )
+                    bindTick++
+                    HomeUi.notifyPetReload(act)
+                    triggerOpen = false
+                },
+                negText = "取消"
+            ) {
+                Text(
+                    text = "勾上「这个动作允许被哪些情况唤起」。全都不勾等于只保留手动触发" +
+                        "（否则它永远播不到）。",
+                    color = c.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                DhForm.Gap()
+                for (t in com.dollhouse.app.data.ActionWorkbench.TRIGGERS) {
+                    val on = draft.contains(t)
+                    DhKit.CheckRow(
+                        text = com.dollhouse.app.data.ActionWorkbench.triggerLabel(t),
+                        selected = on
+                    ) {
+                        val next = LinkedHashSet(draft)
+                        if (on) next.remove(t) else next.add(t)
+                        draft = ArrayList(next)
+                    }
+                }
+            }
+        }
+
+        // ---------- 清空固定壳 ----------
+        if (clearOpen) {
+            DhForm.Alert(
+                title = "清空「" + group + "」",
+                onDismiss = { clearOpen = false },
+                posText = "清空",
+                onPos = {
+                    DollAnim.clearFrames(act, dollId, actionId)
+                    HomeUi.notifyPetReload(act)
+                    DollState.bump()
+                    action = DollAnim.byId(act, dollId, actionId)
+                    frames = emptyList()
+                    frameIdx = 0
+                    playing = false
+                    clearOpen = false
+                }
+            ) {
+                Text(
+                    text = "会把这一格里的 " + frames.size + " 帧全部删掉，之后你可以导入新的一组图。\n\n" +
+                        "名字、描述、播放速度（以及贴边裁截线）都会保留。",
+                    color = c.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
+        }
+
+        // ---------- 资源管理弹窗 ----------
         if (resOpen) {
             val a = action
             DhForm.Alert(
@@ -582,9 +1052,6 @@ object DollAnimPage {
                 posText = "重新指定",
                 onPos = {
                     resOpen = false
-                    // 【复用既有文件选择通道】替换入口资源 = 换一个 .json / .gif。
-                    //   不做「格式校验后再放行」——格式问题在播的时候由渲染器
-                    //   给出可读原因（LottieRenderer.lastError），比在这里猜更准。
                     com.dollhouse.app.PickFileActivity.setFileListener { paths, _ ->
                         if (paths.isEmpty()) {
                             return@setFileListener
@@ -600,8 +1067,6 @@ object DollAnimPage {
                         val u = old.copy(assetPath = dst.absolutePath)
                         DollAnim.update(act, dollId, u)
                         action = u
-                        // 【回到主线程】文件回调发生在 PickFileActivity 的流程里，
-                        //   直接改 Compose 状态会触发「不在主线程」检查。
                         act.runOnUiThread { HomeUi.notifyPetReload(act) }
                     }
                     com.dollhouse.app.PickFileActivity.startFiles(act, false)
@@ -619,9 +1084,6 @@ object DollAnimPage {
                     fontFamily = DhTokens.fonts
                 )
                 DhForm.Gap()
-                // 【为什么把「导出模型包」放在这里】导出的是「这只人偶 + 它的动作」，
-                //   而用户此刻正在看某个动作 —— 顺势给一个「把它连同这个动作分享出去」的入口，
-                //   比在别处单开一页更贴近他要做的事（任务书要求导出粒度就是单个人偶）。
                 DhForm.PrimaryChip("导出这只人偶为模型包") {
                     val r = ModelExporter.exportDoll(
                         act, dollId,
@@ -634,7 +1096,7 @@ object DollAnimPage {
             }
         }
 
-        // ---------- r16·导出结果 ----------
+        // ---------- 导出结果 ----------
         val em = exportMsg
         if (em != null) {
             DhForm.Alert(
@@ -668,6 +1130,8 @@ object DollAnimPage {
                         val u = a.copy(name = renameDraft.trim())
                         DollAnim.update(act, dollId, u)
                         action = u
+                        HomeUi.notifyPetReload(act)
+                        DollState.bump()
                     }
                 },
                 negText = "取消"
@@ -719,6 +1183,8 @@ object DollAnimPage {
                         val u = a.copy(fps = DollAnim.clampFps(draft))
                         DollAnim.update(act, dollId, u)
                         action = u
+                        HomeUi.notifyPetReload(act)
+                        DollState.bump()
                     }
                 },
                 negText = "取消"
@@ -750,9 +1216,7 @@ object DollAnimPage {
             }
         }
 
-        // ---------- 属性弹窗 ----------
-        // 【r13·属性归属】属性是数据里的一等字段（Action.group），不是界面里的死表；
-        //   这里把它做成可选项，导入的动作也能归到「交互动作」等分组里。
+        // ---------- 属性弹窗（只列随机 / 手动） ----------
         if (groupOpen) {
             DhForm.Alert(
                 title = "动作属性",
@@ -761,15 +1225,18 @@ object DollAnimPage {
                 onPos = null,
                 negText = "关闭"
             ) {
-                DhForm.Note("属性决定这个动作出现在「动作」页的哪一组。")
-                for (g in DollAnim.GROUP_ORDER) {
-                    val cur = action?.group == g
-                    DhKit.CheckRow(text = g, selected = cur) {
-                        val a = action
-                        if (a != null && !cur) {
-                            val u = a.copy(group = g)
-                            DollAnim.update(act, dollId, u)
-                            action = u
+                DhForm.Note(
+                    "属性决定这个动作出现在「动作」页的哪一组。" +
+                        "常驻 / 贴边 / 拖拽是固定位，不出现在这里。"
+                )
+                for (g in DollAnim.SWAPPABLE_GROUPS) {
+                    val sel = action?.group == g
+                    DhKit.CheckRow(text = g, selected = sel) {
+                        if (!sel) {
+                            DollAnim.moveToGroup(act, dollId, actionId, g)
+                            action = DollAnim.byId(act, dollId, actionId)
+                            HomeUi.notifyPetReload(act)
+                            DollState.bump()
                         }
                         groupOpen = false
                     }
@@ -778,12 +1245,14 @@ object DollAnimPage {
         }
     }
 
+    /* ============================ 预览辅助 ============================ */
+
     /**
      * 【C1】预览框正中的**中心点位**：十字 + 中心小圆。
      *
      * 【为什么要它】用户原话：「在上部的预览图中间放一个中心点位 这玩意是控制木偶的绝对中心
-     *   方便以后添加模型的时候对齐」＋「以后添加的模型图片默认居中的是这个中心点位」。
-     *   它既是「对齐基准」的视觉说明，也让用户一眼看懂下面那两个方向键在挪什么。
+     *   方便以后添加模型的时候对齐」。它既是「对齐基准」的视觉说明，
+     *   也让用户一眼看懂下面那两个方向键在挪什么。
      *
      * 【为什么画在最上层】任何帧都不能盖住它 —— 它是基准，被盖住就失去意义。
      */
@@ -799,6 +1268,42 @@ object DollAnimPage {
             drawCircle(color, radius = 2.5.dp.toPx(), center = Offset(cx, cy))
         }
     }
+
+    /**
+     * **【v0.1.0·新增】贴边裁截线**：预览框里一条可拖的竖线。
+     *
+     * 【语义】线**外侧**（靠屏幕那一边）就是贴边时会被挡掉的区域。
+     *   因为人偶贴左边时是从左侧被挡、贴右边时是从右侧被挡，
+     *   编辑页统一按「右侧被挡」画（默认值 0.68 对应「右边 68% 在屏幕外」），
+     *   与真机观感一致（真实贴边方向由 `snapToEdge` 决定，两者数值同源）。
+     *
+     * 【为什么线画在 `1 - inset` 的位置】`inset` 是「被挡掉的比例」，
+     *   所以可见区的右边界就在 `宽度 × (1 - inset)` 处 —— 线左边是「看得见的」。
+     */
+    @Composable
+    private fun BoxScope.EdgeCutLine(inset: Float, color: Color, onDrag: (Float) -> Unit) {
+        val x0 = 1f - inset
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val x = size.width * x0
+            // 被挡掉的区域铺一层淡色，直观表达「这块会被屏幕吃掉」。
+            drawRect(
+                color = color.copy(alpha = 0.10f),
+                topLeft = Offset(x, 0f),
+                size = androidx.compose.ui.geometry.Size(size.width - x, size.height)
+            )
+            val stroke = 2.dp.toPx()
+            drawLine(
+                color = color,
+                start = Offset(x, 0f),
+                end = Offset(x, size.height),
+                strokeWidth = stroke
+            )
+            // 线的抓手：中间画一个小圆，明示「这条线能拖」。
+            drawCircle(color, radius = 5.dp.toPx(), center = Offset(x, size.height / 2f))
+        }
+    }
+
+    /* ============================ 帧缩略图 ============================ */
 
     /** 帧缩略图：一帧一格，点选跳帧。 */
     @Composable
@@ -819,7 +1324,7 @@ object DollAnimPage {
                     if (selected) c.acc else c.line,
                     RoundedCornerShape(DhKit.R_ROW.dp)
                 )
-                .pressableOnClick(onClick)
+                .pressable(onClick)
                 .padding(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -849,12 +1354,6 @@ object DollAnimPage {
         }
     }
 
-    /** 给整块加按压反馈（Thumb 本身在横向滚动条里，用 pressable 的点击 + 缩放语义）。 */
-    @Composable
-    private fun Modifier.pressableOnClick(onClick: () -> Unit): Modifier {
-        return this.pressable(onClick)
-    }
-
     /** 前移 / 后移一帧：顺序即播放顺序，所以必须能调。 */
     private fun moveFrame(
         act: MainActivity, dollId: String, a: DollAnim.Action?,
@@ -880,11 +1379,7 @@ object DollAnimPage {
     /**
      * 添加帧：走「任意文件」通道，一次可以选**一个成果文件**或**一整套图**。
      *
-     * 【r13 需求原文】「添加动作的时候也可以直接导入这个文件 但是要保留逐张修改的功能」。
-     *   所以这里只做「往末尾追加帧」，不覆盖已有帧；追加完照样能用
-     *   「删除当前帧 / 前移一帧 / 后移一帧」逐张调整 —— 两条路并存。
-     *
-     * 【为什么追加而不是插入】用户导入的是一组连贯动作，追加最符合直觉；
+     * 【为什么只追加不覆盖】用户导入的是一组连贯动作，追加最符合直觉；
      *   顺序不对可以用「前移 / 后移」微调。
      */
     private fun pickFrames(
@@ -900,7 +1395,7 @@ object DollAnimPage {
             }
             Thread({
                 val dir = DollAnim.framesDir(act, dollId, actionId)
-                // 【关键】交给统一的成果文件解析器：json / 动图 / 精灵图 / 压缩包 / 纯图都认。
+                // 交给统一的成果文件解析器：json / 动图 / 精灵图 / 压缩包 / 纯图都认。
                 val r = com.dollhouse.app.data.AnimImport.import(act, paths, dir)
                 val dst = ArrayList(r.frames)
                 // 【中间副本用完即清】PickFileActivity 拷进 cacheDir 的那份不再需要。
@@ -935,11 +1430,30 @@ object DollAnimPage {
                         list.addAll(dst)
                     }
                     // 【顺手把 fps 也带上】成果文件里带了帧率就用它（如 Lottie 的 fr）。
-                    val u = cur.copy(frames = list, fps = DollAnim.clampFps(r.fps))
+                    // 【本轮·动作大小统一】算一次「本体基准」再落盘。
+                    //
+                    // 为什么在这里算：这是**唯一**把外部图片变成这只动作帧的入口，
+                    //   多帧导入 / 逐张添加都走它。放别处会漏。
+                    // 为什么用整组算：见 BodyBaseline 的注释 —— 逐帧算会让尺寸逐帧抖。
+                    // 为什么算不出就留空：宁可退化成旧行为（整画布铺满），
+                    //   也不要写一个错的基准让人偶永远偏大/偏小。
+                    val bl = com.dollhouse.app.data.FrameScope.computeBaseline(list)
+                    val u = cur.copy(
+                        frames = list,
+                        fps = DollAnim.clampFps(r.fps),
+                        baseline = bl?.encode() ?: ""
+                    )
                     DollAnim.update(act, dollId, u)
                     done(list)
                     if (failed) {
                         HomeUi.showNotice(act, "部分文件导入失败", "只导入了能读到的那些。")
+                    }
+                    if (bl == null && list.isNotEmpty()) {
+                        // 【如实告知】没算出来时明确说一句，免得用户以为「适配过了」。
+                        HomeUi.showNotice(
+                            act, "尺寸沿用原画布",
+                            "这组图里认不出稳定的角色轮廓，已按整张画布显示。若大小不对，可换一组留白更规整的图。"
+                        )
                     }
                 }
             }, "dh-anim-import").start()
@@ -947,13 +1461,7 @@ object DollAnimPage {
         com.dollhouse.app.PickFileActivity.startFiles(act, true)
     }
 
-    /**
-     * 【r16】卸载某个模型包：删它的动作 + 删包记录与资源目录。
-     *
-     * 【为什么要一起删动作】模型包带来的动作是按 `sourceId` 标记的
-     *   （见 `DollAnim.addEngineAction`）。只删包记录的话，
-     *   动作列表里会留下一堆「来源已消失」的动作 —— 点了什么都不播。
-     */
+    /** 卸载某个模型包：删它的动作 + 删包记录与资源目录。 */
     private fun uninstallModel(act: MainActivity, dollId: String, sourceId: String, done: () -> Unit) {
         if (sourceId.isEmpty()) {
             return
@@ -965,24 +1473,50 @@ object DollAnimPage {
         done()
     }
 
-    /** 完整解码（播放区用）。
-     *
-     * 【r18·内存】改采样解码：播放区控件尺寸远小于帧图原始分辨率
-     *   （帧图普遍 ≥1024²，播放区通常 ≤600px），全尺寸解码纯属浪费内存。
-     *   采样到 PLAY_TARGET_PX 后绘制阶段仍精确缩放，视觉零差异。
-     *   与 decodeSmall 的区别只在目标尺寸（播放区要清晰，缩略图要省）。 */
+    /* ============================ 解码 ============================ */
+
+    /** 完整解码（播放区用），统一走 ImageDecode 的采样策略。 */
     private fun decodeFull(path: String): Bitmap? {
         return com.dollhouse.app.core.ImageDecode.file(
-            path, reqWidth = PLAY_TARGET_PX, reqHeight = PLAY_TARGET_PX)
+            path, reqWidth = PLAY_TARGET_PX, reqHeight = PLAY_TARGET_PX
+        )
     }
 
-    /** 缩略图解码：只取 1/4 尺寸，避免一屏几十张把内存吃满。
-     *
-     * 【r18·收口】统一走 ImageDecode（采样策略与全工程一致）。
-     *   缩略图目标边长取 THUMB_TARGET_PX（列表项 ~96px 的 2 倍余量）。 */
+    /** 缩略图解码：只取 1/4 尺寸，避免一屏几十张把内存吃满。 */
     private fun decodeSmall(path: String): ImageBitmap? {
         val b = com.dollhouse.app.core.ImageDecode.file(
-            path, reqWidth = THUMB_TARGET_PX, reqHeight = THUMB_TARGET_PX)
+            path, reqWidth = THUMB_TARGET_PX, reqHeight = THUMB_TARGET_PX
+        )
         return b?.asImageBitmap()
+    }
+
+    /** 解码缓存的容量上限（张）。一帧按 1200² ARGB 约 5.8MB，12 张约 70MB。 */
+    private const val CACHE_MAX = 12
+
+    /**
+     * 往缓存里放一张，**超出上限就丢掉最久没用的那张**。
+     *
+     * 【为什么需要上限】改造前是「只增不减」的 Map：一整套 120 帧滑下来
+     *   峰值接近 690MB（用户滑动帧序列时直接 OOM）。
+     *   这里用「最近使用」近似 LRU：命中时把该键挪到队尾，插入时裁掉队头。
+     *   （不引 LinkedHashMap 的 accessOrder 是因为要放进 Compose 的 immutable Map 状态里，
+     *   自己维护顺序更直观、也更好测。）
+     */
+    private fun putBounded(
+        old: Map<String, ImageBitmap>,
+        key: String,
+        value: ImageBitmap,
+        max: Int
+    ): Map<String, ImageBitmap> {
+        if (old.containsKey(key)) {
+            return old
+        }
+        val ordered = LinkedHashMap<String, ImageBitmap>(old)
+        ordered[key] = value
+        while (ordered.size > max) {
+            val first = ordered.keys.firstOrNull() ?: break
+            ordered.remove(first)
+        }
+        return ordered
     }
 }

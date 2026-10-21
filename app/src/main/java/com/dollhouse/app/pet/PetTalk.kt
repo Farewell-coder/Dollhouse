@@ -10,6 +10,7 @@ import com.dollhouse.app.ai.MemExtractor
 import com.dollhouse.app.ai.ThinkLevel
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.ChatHistoryStore
+import com.dollhouse.app.data.MemExtractGate
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.device.OcrEngine
@@ -528,7 +529,8 @@ class PetTalk(private val ctx: Context, private val host: Host) {
                 followUp.put(ChatToolRunner.assistantWithCalls(reply, calls))
             } catch (ignored: Throwable) {
             }
-            val toolMsgs = ChatToolRunner.runAll(calls)
+            val toolMsgs = ChatToolRunner.runAll(calls,
+                    PetPrefs.webSearchEnabled(ctx), PetPrefs.mem2Auto(ctx))
             appendAll(followUp, toolMsgs)
             val result = followUp
             self.ui.post {
@@ -590,6 +592,20 @@ class PetTalk(private val ctx: Context, private val host: Host) {
                 }
                 val dollId = ChatSessions.dollOfConv(self.ctx, self.convId())
                 ChatToolRegistry.setDoll(dollId)
+                // 【v0.1.0·修·间隔设置不生效】与全屏聊天页走同一道闸：
+                //   迷你框原来也是「每回复一条就抽一次」，完全绕过了「保存间隔」设置。
+                //   两个入口必须共用同一个判据，否则用户在设置页调了间隔，
+                //   全屏页遵守、迷你框不遵守 —— 表现为「时快时慢」，比全都不遵守更难查。
+                val nowMs = System.currentTimeMillis()
+                if (!MemExtractGate.allow(
+                        nowMs,
+                        PetPrefs.mem2LastExtractAt(self.ctx, dollId),
+                        PetPrefs.mem2IntervalMinutes(self.ctx)
+                    )
+                ) {
+                    return@post
+                }
+                PetPrefs.setMem2LastExtractAt(self.ctx, dollId, nowMs)
                 val h = self.history ?: return@post
                 val turns = ArrayList<Pair<String, String>>()
                 val from = if (h.length() > 6) h.length() - 6 else 0

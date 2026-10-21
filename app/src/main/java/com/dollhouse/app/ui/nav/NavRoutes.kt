@@ -52,6 +52,18 @@ data class DollEditRoute(val dollId: String) : NavKey
 /** 人偶动作清单页（`doll:action:<dollId>`）。 */
 @Serializable
 data class DollActionRoute(val dollId: String) : NavKey
+/**
+ * **【工作台】**资源导入向导页（`doll:import:<dollId>`）。
+ *
+ * 【为什么必须是一个独立的 NavKey】
+ *   本工程所有页面都走 `PageStack.push(ctx, "<legacy key>") { … }`，而
+ *   `NavHost.push` 会先用 [`NavKeyCodec.toKey`] 把 legacy 字符串解成 NavKey；
+ *   **解不出来就直接 return false**（只打一条 W 日志）。
+ *   于是「新页面忘了在这里加一条」的症状是：点了入口既不崩也不报错、什么也不发生
+ *   —— 极难自查。本条与 [`PageRegistry`] 里那一条必须成对出现。
+ */
+@Serializable
+data class DollImportRoute(val dollId: String) : NavKey
 
 /**
  * 动作详情页（`doll:anim:<dollId>:<actionId>`）。

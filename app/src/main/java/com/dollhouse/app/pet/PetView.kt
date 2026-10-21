@@ -14,6 +14,7 @@ import android.text.TextPaint
 import android.view.View
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollAnim
+import com.dollhouse.app.data.DollSizeSpec
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.pet.behavior.ActionSemantic
 import com.dollhouse.app.pet.behavior.PetBehaviorController
@@ -208,6 +209,15 @@ class PetView(context: Context) : View(context) {
 
     /** 人偶缩放系数：1.0 = 原始 150dp。由 PetService 从偏好读入。 */
     internal var scaleFactor = 1.0f
+
+    /**
+     * 人偶级显示规格（大小 + 水平 / 垂直偏移），由 `PetWindow` 从 [DollSizeSpec] 读入。
+     *
+     * 【默认值为什么是 DEFAULT】没设置过的用户（绝大多数）拿到全默认，
+     *   [onDraw] 里 `shifted` 为 false，直接跳过 translate —— 与改造前逐像素一致。
+     */
+    internal var sizeSpec: DollSizeSpec.Spec = DollSizeSpec.Spec.DEFAULT
+        private set
     private val emotePaint = TextPaint(1)
     internal var exprDuration = 0L
     internal var exprStartAt = 0L
@@ -428,18 +438,23 @@ class PetView(context: Context) : View(context) {
      *   是本工程最容易改错的地方之一；现在两个 250 变成两个有名字的常量。
      */
     internal fun nextFrameDelay(): Long {
-        // 【r16】动作在播 → 直接给最快档，跳过「贴边 250ms 低耗」那一档。
-        //   否则人偶贴着边播动画时会掉到 4fps —— 正是贴边那档的省电策略，
-        //   但用户此刻**明确要求**看动作，省这个电是错的。
-        if (action?.isAnimated() == true) {
-            return PetFramePolicy.MS_TOUCH_BUSY
-        }
+        // 【本次修复·熄屏空转】改造前这里是：
+        // ```kotlin
+        // if (action?.isAnimated() == true) return PetFramePolicy.MS_TOUCH_BUSY  // 16ms
+        // return PetFramePolicy.delayMs(...)
+        // ```
+        // 动作在播就**无条件**给 16ms，把后面的 lowPower / screenOff 判定一起短路了 ——
+        // 熄屏后只要有一个循环动作在播，帧循环仍以 60fps 空转，既费电又与
+        // 「熄屏时 CPU 完全不被桌宠唤醒」的既定策略冲突（用户反馈的「放一晚掉电」）。
+        // 现在把「动作在播」降级成**提帧的输入**而不是最终裁决：熄屏/不可见仍然优先。
+        val acting = action?.isAnimated() == true
         return PetFramePolicy.delayMs(
             s = currentState(),
             lowPower = lowPower,
             shown = isShown,
             screenOn = screenOn(),
-            lean = lean
+            lean = lean,
+            actionAnimating = acting
         )
     }
 
@@ -550,6 +565,36 @@ class PetView(context: Context) : View(context) {
     }
 
     /**
+     * **【本轮·修「模型被切成块、零件乱窜」】**是否允许对当前形象做网格形变。
+     *
+     * ## 问题
+     *
+     * 内置人偶图（`pet_front`）是按「眼睛在 45% 高度、呆毛在顶部、尾巴在两侧」
+     * 这些**写死的归一化坐标**画的。`buildMesh` 依赖这套坐标做呼吸 / 摆发 / 眨眼位移，
+     * 对内置换上的图 28×36 个网格顶点时，视觉上完全成立。
+     *
+     * 但用户一旦换了自己的形象图（照片、插画、任意比例的图），
+     * 那些坐标对它毫无意义 —— 网格会把「随机位置的一小块像素」当成眼睛或头发去推，
+     * 结果就是整个人像被**切成许多小块各自乱动**（这正是用户反馈的现象）。
+     *
+     * ## 修法
+     *
+     * 只有「形象图是内置人偶」时才允许网格形变；其它一律**整幅直绘**。
+     * 姿态变换（倾斜、跳跃、拖拽抬升、贴边旋转）仍然照常施加 —— 那是整体的刚体变换，
+     * 不会把画面切碎，动态表现不丢。
+     *
+     * 【为什么不在 buildMesh 里做判断】那边每帧调用几十次，判断放这里一次就够；
+     *   而且「这张图能不能形变」是**素材属性**，属于设置阶段的事，不是绘制阶段的事。
+     */
+    internal var deformSprite = true
+
+    /** 设置形象图，并声明它是否允许网格形变（见 [deformSprite]）。 */
+    fun setSprite(bitmap: Bitmap?, deform: Boolean) {
+        deformSprite = deform
+        setSprite(bitmap)
+    }
+
+    /**
      * 【r11】设置面朝方向（水平镜像）。值没变则直接返回，避免每帧白白重绘。
      * 【为什么镜像的是画布而不是位图】镜像画布只需一个负缩放，零内存开销；
      *   翻转位图要重新分配一张同样大的 Bitmap（人偶图不小），每切一次都吃内存。
@@ -562,6 +607,26 @@ class PetView(context: Context) : View(context) {
         invalidate()
     }
 
+    /**
+     * 设置人偶级显示规格（大小 + 偏移）。由 `PetWindow` 在挂载 / 刷新时调用。
+     *
+     * 【为什么大小也要走这里】大小本质上是「窗口宽高按多少算」，而窗口宽高在
+     *   [petWidth] 里由 `scaleFactor` 决定。规格里的 size 与 `DollProfile.scale`
+     *   是**同一件事的两种表达**（一个是「相对标准化的百分比」，
+     *   一个是「相对 150dp 的百分比」），所以这里把 size 折算进 scaleFactor，
+     *   而不是在绘制时再乘一次 —— 否则会双重缩放。
+     *
+     * @return true = 值确实变了（调用方需要重算窗口尺寸）
+     */
+    internal fun setSizeSpec(s: DollSizeSpec.Spec): Boolean {
+        if (s == sizeSpec) {
+            return false
+        }
+        sizeSpec = s
+        invalidate()
+        return true
+    }
+
     /** 设置人偶缩放系数（1.0 = 原始大小）。调用方负责随后重算窗口尺寸。 */
     fun setScaleFactor(f: Float) {
         if (f <= 0.0f) {
@@ -572,6 +637,9 @@ class PetView(context: Context) : View(context) {
         textPaint.textSize = dp(150.0f) * BUBBLE_TEXT_RATIO * f
         // 气泡的几何（圆角/内边距/尾巴/行距）也要跟着缩放，否则放大后人偶配一颗小气泡。
         bubble.setScale(f)
+        // 【v0.1.0】比例变了 → 窗口尺寸也变了，动作播放层的缩放缓存必须失效，
+        //   否则要等下一帧发现帧图宽高变化（其实没变）才重算，表现为「调大后动作偏小」。
+        action?.resetScale()
         invalidate()
     }
 
@@ -596,8 +664,33 @@ class PetView(context: Context) : View(context) {
     }
 
     fun edgeInsetPx(): Int {
-        return Math.round(petWidth() * EDGE_INSET)
+        return Math.round(petWidth() * edgeInset)
     }
+
+    /**
+     * **【v0.1.0】贴边露出的比例**（0.68 = 人偶宽度的 68% 在屏幕外）。
+     *
+     * 【为什么要变成可变】用户可以在「贴边动作」的编辑页拖一条裁截线，决定人偶贴边时
+     *   露出多少。裁截线存在那个动作上（按动作存，不按人偶存），
+     *   所以每次吸附到边缘前由 `PetWindow.snapToEdge` 推一次进来。
+     *
+     * 【默认值 = 历史硬编码值】没有推过时与改造前逐像素一致。
+     */
+    private var edgeInset = EDGE_INSET
+
+    /** 设置贴边露出比例（会被夹到合法区间，防档坏了把人偶整只藏到屏幕外）。 */
+    fun setEdgeInset(v: Float) {
+        val raw = if (v.isNaN()) EDGE_INSET else v
+        val f = Math.max(0.0f, Math.min(0.95f, raw))
+        if (edgeInset == f) {
+            return
+        }
+        edgeInset = f
+        invalidate()
+    }
+
+    /** 当前贴边露出比例（供窗口层回读）。 */
+    fun edgeInset(): Float = edgeInset
 
     /**
      * 气泡可用的排版宽度（贴边时小于窗口宽）。
@@ -996,6 +1089,32 @@ class PetView(context: Context) : View(context) {
         if (w <= 0 || h <= 0 || bmp == null) {
             return
         }
+        // 【本轮·尺寸标准化第 3 层】人偶级位置偏移（[DollSizeSpec.Spec.ox/oy]）。
+        //
+        // 【为什么不缩放、只平移】大小已经在窗口尺寸层面处理掉了（PetWindow 建窗口时
+        //   就把 petWidth() 算进了 LayoutParams，见 PetView.petWidth()）。
+        //   这里若再缩放一次，同一份规格会被应用两遍，人偶变成「平方」大。
+        //   所以这一层只负责**位移**：把整幅画面按规格挪一点，让用户能把人偶
+        //   从默认的底边居中微调到自己想要的位置。
+        //
+        // 【零影响保证】规格全默认时 ox == oy == 0，直接跳过 save/restore，
+        //   与改造前逐像素一致（这也是绝大多数用户的状态）。
+        val spec = sizeSpec
+        val shifted = spec.ox != 0f || spec.oy != 0f
+        if (shifted) {
+            canvas.save()
+            canvas.translate(spec.ox * w, spec.oy * h)
+        }
+        drawPet(canvas, w, h, bmp)
+        if (shifted) {
+            canvas.restore()
+        }
+        // 【气泡不参与位移】见 [drawBubblePart]：它是独立 UI 层，锚在窗口底边。
+        drawBubblePart(canvas)
+    }
+
+    /** 真正的人偶绘制（原 [onDraw] 主体，逐行未改；外面只多了一层平移包裹）。 */
+    private fun drawPet(canvas: Canvas, w: Int, h: Int, bmp: android.graphics.Bitmap) {
         // 【r16·成败判据接线】有 DollAnim 动作在播时，把绘制让给 [ActionPlayerCore]。
         //
         // 【为什么放在这里、且放在变换之前】动作层画的是别人给的成品帧图
@@ -1042,9 +1161,32 @@ class PetView(context: Context) : View(context) {
         canvas.save()
         tf.applyTo(canvas)
         val f8 = if (peek) w / 2.0f else pivotLocalX()
-        canvas.drawBitmapMesh(bmp, MX, MY, verts, 0, null, 0, bmpPaint)
+        if (deformSprite) {
+            // 内置人偶：走网格形变（呼吸 / 摆发 / 眨眼）。
+            canvas.drawBitmapMesh(bmp, MX, MY, verts, 0, null, 0, bmpPaint)
+        } else {
+            // 【本轮·修「模型被切成块、零件乱窜」】用户自己的形象图不做网格形变。
+            //
+            // 网格顶点是按内置人偶的五官比例算出来的，套到任意图上 =
+            //   把随机位置的像素块当成眼睛/头发去推，画面被切碎并四处乱窜。
+            // 这里改成整幅直绘：只保留刚体姿态（倾斜 / 抬升 / 翻转），动态不丢、画面不碎。
+            //
+            // 落点仍是「画布左上角 → 视图原点」，与网格版本的坐标系一致，
+            // 所以切换分支时人偶位置不会跳。
+            canvas.drawBitmap(bmp, 0.0f, 0.0f, bmpPaint)
+        }
         canvas.restore()
         drawEmote(canvas, f8, (f4 - f3) - tf.lift)
+    }
+
+    /**
+     * 气泡单独绘制（不参与人偶级位移）。
+     *
+     * 【为什么拆出来】气泡是**独立的 UI 层**：它锚在窗口底边、宽度按屏幕可见区算，
+     *   与人偶本体的位置偏移无关。若把气泡也塞进 `drawPet` 里被 translate 一起挪，
+     *   用户往右调 30% 人偶位置，气泡会跟着跑出屏幕 —— 那不是「挪人偶」，是「挪整块面板」。
+     */
+    private fun drawBubblePart(canvas: Canvas) {
         if (!bubble.hasContent() || bubble.height() <= 0) {
             return
         }
@@ -1400,7 +1542,32 @@ class PetView(context: Context) : View(context) {
 
         val player = ActionPlayerCore(
             requestDraw = { invalidate() },
-            hostProvider = { displayHost })
+            hostProvider = { displayHost },
+            // 【v0.1.0·动作大小统一】从烘帧记录里取「本体基准矩形」。
+            //   有了它，播放层按「人偶本体」而不是「整张画布」映射到窗口 ——
+            //   跳跃（画布高）与呼吸（画布矮）在桌面上就是同一个大小。
+            //   没有记录时返回 null，播放层自动回退成旧行为（不裁、不崩）。
+            baselineProvider = { actionId ->
+                val tag = actionDollId
+                if (tag.isNullOrEmpty()) null else AnimBaker.baseline(context, tag, actionId)
+            },
+            // 【v0.1.0·贴边姿态】把当前倾斜角注入播放层。
+            //   读的是本视图的 `lean`（`setEdgePeek` 唯一的写入点），
+            //   于是「窗口算外接框用的角度」与「画面实际旋转的角度」永远同一个源，
+            //   不可能出现「窗口按 25° 留了余量、画面却按别的角度转」而溢出。
+            leanProvider = { lean },
+            // 【工作台·锚点/适配】把「这个动作怎么摆」注入播放层。
+            //   没有设置过的动作（绝大多数）返回 null → 绘制路径完全跳过，
+            //   与改造前逐像素一致；用户改过锚点/适配的才走新分支。
+            displayProvider = { actionId ->
+                val tag = actionDollId
+                if (tag.isNullOrEmpty()) {
+                    null
+                } else {
+                    com.dollhouse.app.data.ActionWorkbench.display(context, tag, actionId)
+                }
+            }
+        )
         action = player
 
         // 【r16·仲裁层必须真的接上】改造过程中一度漏掉这一步：
@@ -1427,8 +1594,21 @@ class PetView(context: Context) : View(context) {
             }
         )
         // 【播完回落的唯一入口】非循环动作播完时由播放层回调，
-        //   交给仲裁层决定是「回待机」还是「停下来把画面还给基础形变」。
+        //   交给仲裁层决定是「回基础态」还是「停下来把画面还给基础形变」。
         player.onFinish = { b.onActionFinished() }
+        // 【v0.1.0·贴边探测】仲裁层需要知道「此刻在不在屏幕边上」才能决定
+        //   「回常驻还是回贴边」。真源是 lean（贴边倾斜角，!= 0 即贴边），所以问视图自己。
+        b.bindEdgeProbe(PetBehaviorController.EdgeProbe { lean != 0.0f })
+        // 【工作台·行为绑定】用户在这一页给动作设的「允许哪些触发方式」与「优先级档位」。
+        //   注入到仲裁层而不是播放层：所有入口（随机定时器 / 手势 / 待机回落）
+        //   都会自动受约束，不会出现某条路径漏判。
+        b.bindTriggerGate { actionId, trigger ->
+            com.dollhouse.app.data.ActionWorkbench.allows(context, dollId, actionId, trigger)
+        }
+        b.bindPriorityBoost { actionId ->
+            val bind = com.dollhouse.app.data.ActionWorkbench.binding(context, dollId, actionId)
+            com.dollhouse.app.data.ActionWorkbench.priorityBoost(bind.priority)
+        }
         behavior = b
     }
 
@@ -1460,6 +1640,17 @@ class PetView(context: Context) : View(context) {
     /** **【交互必须通知动作层】**交互结束（抬手 / 拖动放下）。 */
     internal fun interactionEnd() {
         behavior?.onInteractionEnd()
+    }
+
+    /**
+     * **【v0.1.0·新增】贴边状态变化通知**（吸附到边上 / 离开边缘之后调用）。
+     *
+     * 【为什么不让窗口层直接 `playSemantic(IDLE)`】贴边(12) 的优先级高于常驻(10)，
+     *   离边那次 IDLE 会被裁决拒绝，人偶就会一直停在贴边动作上。
+     *   走这条路：由仲裁层按新位置**直接切基础态**，不经过优先级门槛。
+     */
+    internal fun notifyEdgeChanged() {
+        behavior?.onEdgeChanged()
     }
 
     /** 供渲染器（Lottie / 动图）查询宿主能力：重绘、可见性、屏幕状态。 */
@@ -1499,12 +1690,80 @@ class PetView(context: Context) : View(context) {
         return before == semantic
     }
 
-    /** 播一个指定 id 的动作（动作页「试演」用）。 */
+    /**
+     * **【v0.1.0·新增】强制播一个语义**（无视优先级）。
+     *
+     * 【为什么需要】睡觉 / 贴边这类「模式切换」必须压得住优先级更高的当前动作，
+     *   而 [playSemantic] 走的是按优先级裁决的 `play` ——
+     *   贴边（12）压不住手动（30），于是「贴到边上还播着手势动作」。
+     */
+    internal fun playSemanticForced(semantic: String): Boolean {
+        return behavior?.playForced(semantic) ?: false
+    }
+
+    /**
+     * **【v0.1.0·新增】播一次「随机动作」**（13~30 秒定时器调用）。
+     *
+     * 【为什么挑谁在这里定】挑谁、能不能播、播完怎么回落，都属于动作语义的范畴；
+     *   数据层只负责给候选（`DollAnim.pickRandom`）。
+     *
+     * @return 是否真的播上了。
+     */
+    internal fun playRandomAction(): Boolean {
+        val b = behavior ?: return false
+        val a = DollAnim.pickRandom(context, actionDollId) ?: return false
+        return b.playManualOf(a.id, ActionSemantic.RANDOM)
+    }
+
+    /**
+     * **【v0.1.0·新增】随机动作开关是否打开**（按人偶各管各）。
+     *
+     * 【三重合取】开关打开 **且** 随机组里有可播动作 **且** 当前不在贴边。
+     *   最后一条件用户明确定案「贴边状态下不随机」。
+     * 【为什么要三合一】只要有一条件不满足就什么都不该播；
+     *   把判断收在一处，Animator 不必知道任何细节。
+     */
+    internal fun randomActionEnabled(): Boolean {
+        val tag = actionDollId ?: return false
+        if (!PetPrefs.randomAction(context, tag)) {
+            return false
+        }
+        // 贴边时不随机（用户定案）。
+        if (lean != 0.0f) {
+            return false
+        }
+        return DollAnim.hasPlayable(context, tag, DollAnim.GROUP_RANDOM)
+    }
+
+    /**
+     * 播一个指定 id 的动作（手势绑定 / 快捷入口用）。
+     *
+     * **【v0.1.0·修 P0】**改造前这里直接 `a.play(target)` 绕过仲裁层 ——
+     *   仲裁层完全不知道有人在播动作，紧接着的一次 `interactionEnd()`（点完手势就会调）
+     *   会把刚播上的动作立刻停掉，用户看到的是「动作闪一帧就消失」。
+     *   现在统一走 `behavior.playManual()`：语义登记为 MANUAL（优先级 30），
+     *   回落也有据可依。
+     */
     internal fun playActionId(actionId: String): Boolean {
-        val a = action ?: return false
+        val b = behavior ?: return false
+        // 目标动作必须存在且可播（空壳播起来什么都不发生，是「虚空动作」）。
         val target = DollAnim.byId(context, actionDollId, actionId) ?: return false
-        a.play(target)
-        return true
+        if (target.frames.isEmpty() && target.assetPath.isEmpty()) {
+            return false
+        }
+        return b.playManual(actionId)
+    }
+
+    /**
+     * **【v0.1.0·新增】本视图像素是否需要随机动作的「提帧」** —— 供帧率策略使用。
+     *
+     * 【为什么需要】随机动作是间歇的（13~30 秒一次），播放期间必须全速，
+     *   但它的「在播」状态已经由 [isActionPlaying] 覆盖；这里只是给外部一个
+     *   语义明确的查询点，避免各处直接读 action 字段。
+     */
+    internal fun isRandomPlaying(): Boolean {
+        val b = behavior ?: return false
+        return b.currentSemantic == ActionSemantic.RANDOM && isActionPlaying()
     }
 
     /** 是否正在播动作（供 PetWindow 判断要不要打断 / 是否已回落）。 */

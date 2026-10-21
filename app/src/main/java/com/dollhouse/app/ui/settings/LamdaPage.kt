@@ -304,7 +304,8 @@ object LamdaPage {
                     .padding(horizontal = 4.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DhKit.Icon(iconRes = icon, sizeDp = Design.SZ_XS, color = color)
+                // 【v0.1.0·修·图标偏小】这是状态行主图标（右侧文字 15sp），按 [Design] 口径走 SZ_SM。
+                DhKit.Icon(iconRes = icon, sizeDp = Design.SZ_SM, color = color)
                 Spacer(Modifier.width((Design.GAP_ICON / 2).dp))
                 Text(
                     text = text,

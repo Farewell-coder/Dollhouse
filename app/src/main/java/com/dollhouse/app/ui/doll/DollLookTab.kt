@@ -79,6 +79,11 @@ object DollLookTab {
         val c = DhTokens.colors
         // 【重读信号】本页所有值直读 SharedPreferences，改完必须手动触发重组。
         var tick by remember(dollId) { mutableStateOf(0) }
+        // 【本轮·从人偶管理页「更多」搬来的「大小」】用户定案：
+        //   「还有下面那个大小按键 移动到外观里面 不要在外面」。
+        //   它调的是这只人偶的显示规格（大小 + 水平 / 垂直位置），
+        //   本质是外观属性，与下面的聊天背景 / 气泡属于同一类。
+        var showSize by remember(dollId) { mutableStateOf(false) }
         val path = remember(dollId, tick) { DollProfile.chatBgPath(act, dollId) }
         val on = remember(dollId, tick) { DollProfile.chatBgEnabled(act, dollId) }
         val has = path.isNotEmpty()
@@ -191,6 +196,29 @@ object DollLookTab {
             }
         }
 
+        // ===================== 大小与位置（人偶级显示规格） =====================
+        // 【为什么整张卡是一个入口而不是三条滑条】本页是滚动页，卡片内再塞三个滑条
+        //   会把「聊天背景 / 她的气泡」挤到很远；而且滑条要「保存 / 取消」两个出口，
+        //   放在弹窗里才能保证「拖动跟手、保存才落盘」这套既有草稿语义不被破坏
+        //   （见 `DollListScreen.SizeDialog` 的注释）。
+        DhKit.Card(collapsibleTitle = "大小与位置") {
+            DhForm.Note(
+                "这只人偶在桌面上有多大、站在哪儿。"
+                    + "与动作无关 —— 换动作不会忽大忽小。"
+            )
+            DhKit.ActionRow(
+                label = "调整大小与位置",
+                iconRes = Icons.IC_MAXIMIZE,
+                desc = "人偶大小、水平与垂直位置"
+            ) {
+                showSize = true
+            }
+        }
+
+        if (showSize) {
+            DollListScreen.SizeDialog(act, dollId, onDismiss = { showSize = false })
+        }
+
         // ============================ 她的气泡 ============================
         DhKit.Card(collapsibleTitle = "她的气泡") {
             DhForm.Note(
@@ -255,11 +283,11 @@ object DollLookTab {
             Box(
                 modifier = Modifier
                     .size(20.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                     .background(
                         if (cur == 0) c.chatBubbleUser else androidx.compose.ui.graphics.Color(cur)
                     )
-                    .border(1.dp, c.line, RoundedCornerShape(6.dp))
+                    .border(1.dp, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
             )
         }
 

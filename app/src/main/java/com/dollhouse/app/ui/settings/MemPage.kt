@@ -101,14 +101,37 @@ object MemPage {
         return PageStack.popIfTop(ctx, TAG_PAGE)
     }
 
-    /** 当前正在看的那只人偶 id（跨重建恢复时读回）。 */
+    /**
+     * 当前正在看的那只人偶 id（跨重建恢复时读回）。
+     *
+     * 【本轮的修正】原来这里是**纯内存**的 `@Volatile var`，默认值是 `DollStore.DEFAULT_ID`。
+     *   进程被系统回收后再恢复，这个字段跟着进程一起没了 → 恢复到「记忆库」这一层时，
+     *   `buildPage(ctx)` 读到的是默认配置，用户看到的是**别人偶的记忆库**
+     *   （或者在多个人偶之间来回串）。这类问题在开发机上几乎测不出来
+     *   （进程不被杀就一直是对的），只有真机长时间挂后台才会出现。
+     *
+     *   现在改为「内存缓存 + 偏好落盘」双写：内存为快路径，落盘用于跨进程存活。
+     *   键按页面单个（不含 dollId），因为这里记的就是「这一层现在指向谁」。
+     */
     @Volatile
-    private var currentDollId: String = DollStore.DEFAULT_ID
+    private var currentDollId: String? = null
+
+    /** 读回「上次打开记忆库时看的是哪只人偶」；没有记录时回落默认配置。 */
+    private fun readCurrentDollId(ctx: Context): String {
+        val cached = currentDollId
+        if (!cached.isNullOrEmpty()) {
+            return cached
+        }
+        val saved = PetPrefs.memPageDollId(ctx)
+        val id = if (saved.isNullOrEmpty()) DollStore.DEFAULT_ID else saved
+        currentDollId = id
+        return id
+    }
 
     /** 页面构造：供页面栈入栈与跨重建恢复共用（用上次打开时记下的 dollId）。 */
     @JvmStatic
     fun buildPage(ctx: Context): View? {
-        return buildPage(ctx, currentDollId)
+        return buildPage(ctx, readCurrentDollId(ctx))
     }
 
     @JvmStatic
@@ -129,6 +152,8 @@ object MemPage {
     fun open(ctx: Context, dollId: String) {
         try {
             currentDollId = dollId
+            // 【落盘】让进程被杀后还能回到同一只人偶（见 [currentDollId] 的注释）。
+            PetPrefs.setMemPageDollId(ctx, dollId)
             PageStack.push(ctx, TAG_PAGE) { buildPage(ctx, dollId) }
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
@@ -326,7 +351,31 @@ object MemPage {
                                 // 【持久化手动摆位】下次进来还在他放的地方。
                                 savePin(act, dollId, title, x, y)
                             }
+                            // 【v0.1.0·修·视角不记忆】缩放/平移原来只在本次会话内有效：
+                            //   MemGraphView 早就提供了 currentScale/currentOffsetX/Y 与
+                            //   restoreView()，PetPrefs 也早就备好了 memGraphView 的存取，
+                            //   但**两头都没人接** —— 退出图谱再进来，视图总是回到默认。
+                            //   这里把 onViewChanged 接上（该回调在缩放/平移/居中/聚焦时都会触发），
+                            //   并在 factory 末尾恢复上次视角。
+                            onViewChanged = {
+                                saveGraphView(
+                                    act, dollId,
+                                    currentScale(), currentOffsetX(), currentOffsetY()
+                                )
+                            }
                             viewRef.value = this
+                            // 【v0.1.0·恢复上次视角】必须等布局完成（width/height 才有值），
+                            //   否则 restoreView 拿到的是 0×0 画布基准，偏移算出来是错的。
+                            //   用 post 排到下一次布局之后执行一次即可。
+                            val saved = loadGraphView(act, dollId)
+                            if (saved != null) {
+                                post {
+                                    // 二次确认控件已量好；仍为 0 就放弃（保持默认视角比错位好）。
+                                    if (width > 0 && height > 0) {
+                                        restoreView(saved[0], saved[1], saved[2])
+                                    }
+                                }
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
@@ -595,13 +644,13 @@ object MemPage {
             Text(
                 text = "连线 = 关系",
                 color = c.line,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 fontFamily = DhTokens.fonts
             )
             Text(
                 text = "大圈 = 关联多",
                 color = c.line,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -1155,6 +1204,51 @@ object MemPage {
             }
             PetPrefs.setMemGraphPins(ctx, dollId, o.toString())
         } catch (ignored: Throwable) {
+        }
+    }
+
+    /**
+     * **【v0.1.0·新增】保存 / 恢复记忆图谱的视角**（缩放 + 平移）。
+     *
+     * 【为什么现在才有】`MemGraphView` 早就暴露了 `currentScale/currentOffsetX/Y`
+     *   与 `restoreView()`，`PetPrefs.memGraphView` 也早就备好了存取接口 ——
+     *   但两端都没人调用，于是「用户把图谱缩放/拖到自己习惯的位置」这件事
+     *   一退出页面就丢失，每次进来都回到默认视角。
+     *
+     * 【为什么用 JSON 而不是三个独立键】视图状态是「一份快照」，
+     *   三个键分开写会读到「新 scale + 旧 offset」的半更新中间态（抖动）。
+     *   一个键一次 `apply()` 落盘，读到的一定是自洽的一组值。
+     */
+    private fun saveGraphView(ctx: Context, dollId: String, scale: Float, ox: Float, oy: Float) {
+        try {
+            // 默认视角（scale<=0）不落盘：省得在字段里塞一堆无意义的初值。
+            if (scale <= 0.01f) {
+                return
+            }
+            val o = JSONObject()
+            o.put("scale", scale.toDouble())
+            o.put("tx", ox.toDouble())
+            o.put("ty", oy.toDouble())
+            PetPrefs.setMemGraphView(ctx, dollId, o.toString())
+        } catch (ignored: Throwable) {
+        }
+    }
+
+    /** 读出上次保存的视角；返回 null 表示没有（调用方保持默认视角）。 */
+    private fun loadGraphView(ctx: Context, dollId: String): FloatArray? {
+        return try {
+            val raw = PetPrefs.memGraphView(ctx, dollId)
+            if (raw.isEmpty()) {
+                return null
+            }
+            val o = JSONObject(raw)
+            val s = o.optDouble("scale", 0.0).toFloat()
+            if (s <= 0.01f) {
+                return null
+            }
+            floatArrayOf(s, o.optDouble("tx", 0.0).toFloat(), o.optDouble("ty", 0.0).toFloat())
+        } catch (ignored: Throwable) {
+            null
         }
     }
 

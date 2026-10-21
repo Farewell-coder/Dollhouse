@@ -47,6 +47,8 @@ object NavKeyCodec {
 
     private const val P_EDIT = "doll:edit:"
     private const val P_ACTION = "doll:action:"
+    /** 【工作台】资源导入向导页。必须与 `DollImportWizardPage.PREFIX` 同值。 */
+    private const val P_IMPORT = "doll:import:"
     private const val P_ANIM = "doll:anim:"
     private const val P_GESTURE = "doll:gesture:"
     private const val P_AWAY = "doll:away:"
@@ -83,9 +85,15 @@ object NavKeyCodec {
             LEGACY_WANDER == legacy -> WanderSettingsRoute
             LEGACY_SLEEP == legacy -> SleepSettingsRoute
             // 记忆库页的历史 key 不含 dollId（页内自己从偏好取当前人偶），故这里给空串。
+            // 【本轮修正】`toLegacy` 侧同样只输出裸 key（见下方 is MemRoute 分支）——
+            //   两侧对称，「key ↔ legacy」往返才不丢信息。真正的 dollId 由
+            //   `MemPage` 落到笔 `mem_page_doll_id` 里跨进程保存（见 PetPrefs.memPageDollId）。
             LEGACY_MEM == legacy -> MemRoute("")
             legacy.startsWith(P_EDIT) -> DollEditRoute(legacy.removePrefix(P_EDIT))
             legacy.startsWith(P_ACTION) -> DollActionRoute(legacy.removePrefix(P_ACTION))
+            // 【工作台】导入向导页。排在 P_ACTION 之后：`doll:import:` 与 `doll:action:`
+            //   互不为前缀，顺序不影响正确性，但把同族（都是 `doll:` 二级页）放一起更易读。
+            legacy.startsWith(P_IMPORT) -> DollImportRoute(legacy.removePrefix(P_IMPORT))
             legacy.startsWith(P_GESTURE) -> DollGestureRoute(legacy.removePrefix(P_GESTURE))
             legacy.startsWith(P_AWAY) -> DollAwayRoute(legacy.removePrefix(P_AWAY))
             legacy.startsWith(P_RETURN) -> DollReturnRoute(legacy.removePrefix(P_RETURN))
@@ -142,6 +150,7 @@ object NavKeyCodec {
         is MemRoute -> LEGACY_MEM
         is DollEditRoute -> P_EDIT + key.dollId
         is DollActionRoute -> P_ACTION + key.dollId
+        is DollImportRoute -> P_IMPORT + key.dollId
         is DollGestureRoute -> P_GESTURE + key.dollId
         is DollAwayRoute -> P_AWAY + key.dollId
         is DollReturnRoute -> P_RETURN + key.dollId

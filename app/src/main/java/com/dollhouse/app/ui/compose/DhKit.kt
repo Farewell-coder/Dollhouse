@@ -2,8 +2,13 @@ package com.dollhouse.app.ui.compose
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -24,6 +29,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -103,6 +110,27 @@ object DhKit {
     const val GAP_ROW = 8
     /** 图标命中区（dp）← UiKit.HIT_DP。 */
     const val HIT = 40
+
+    /** 页面水平内边距（dp）—— Tab 页与 [Page] 同一口径。 */
+    const val PAD_PAGE = 16
+
+    /** Tab 页大标题字号（sp）—— 聊天 / 人偶 / 说说 三格统一。 */
+    const val TAB_TITLE_SP = 26f
+
+    /** Tab 页顶栏上内边距（dp）。 */
+    const val TAB_BAR_TOP = 14
+
+    /** Tab 页顶栏下内边距（dp）。 */
+    const val TAB_BAR_BOTTOM = 10
+
+    /**
+     * 二级页顶栏的最小上留白（dp）。
+     *
+     * 【为什么需要】本工程状态栏常隐（`ImmersiveStatus.hideStatusBars`），
+     *   状态栏 inset 恒为 0，仅靠 inset 会让返回键与标题贴到屏幕最上沿。
+     *   取「inset 与 24dp 的较大值」：隐藏时给固定呼吸，唤出时自动让开。
+     */
+    const val TOP_MIN_GAP = 24
 
     /* ============================ 页面脚手架 ============================ */
     /**
@@ -278,7 +306,22 @@ object DhKit {
                     content()
                 }
             } else {
-                AnimatedVisibility(visible = open) {
+                // 【本次修复·展开无动效】改造前这里只有 `AnimatedVisibility(visible = open)`，
+                //   没给 `enter` / `exit` —— Compose 的默认值对 ExpandVertically/ShrinkVertically
+                //   用的是 expandFrom = Alignment.Top + 默认 spring，收起方向还会残留一帧高度。
+                //   现在显式给出与 View 侧 `UiKit.expand` 同源的时长与曲线：
+                //   展开 D_LAYER + 减速、收起 D_MICRO + 加速（「离开比进入快」）。
+                AnimatedVisibility(
+                    visible = open,
+                    enter = expandVertically(
+                        animationSpec = DhAnim.CARD_EXPAND,
+                        expandFrom = Alignment.Top
+                    ) + fadeIn(animationSpec = DhAnim.CARD_FADE_IN),
+                    exit = shrinkVertically(
+                        animationSpec = DhAnim.CARD_COLLAPSE,
+                        shrinkTowards = Alignment.Top
+                    ) + fadeOut(animationSpec = DhAnim.CARD_FADE_OUT)
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -313,7 +356,9 @@ object DhKit {
                 modifier = modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
+                // 【v0.1.0·修·图标偏小】挨着 15sp 粗体标题却用 14dp 图标，视觉上是「标题旁边一颗小点」。
+                //   按 [Design] 自己的口径，行首主图标是 SZ_SM(16)，SZ_XS 只留给备注/次级标记。
+                Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.sub)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = text,
@@ -342,10 +387,19 @@ object DhKit {
         modifier: Modifier = Modifier,
         actions: (@Composable RowScope.() -> Unit)? = null
     ) {
+        // 【r21·顶部留白】改造前只有 `padding(top = 12.dp)`。本工程是 edge-to-edge +
+        //   状态栏常隐（见 `ImmersiveStatus.hideStatusBars`），二级页的返回键与标题
+        //   会直接贴到屏幕最上沿 —— 用户报「这上面的贴得太近了，预留一点距离」。
+        //   【为什么取 max 而不是直接 statusBarsPadding】状态栏在这套 UI 里是**隐藏**的，
+        //   它的 inset 恒为 0，单用它等于什么都没加；而写死一个大 dp 又会在
+        //   「系统临时唤出状态栏 / 三键导航」的机型上叠成双倍留白。
+        //   取二者较大值：隐藏时给固定呼吸，唤出时自动让开，两种情况都正确。
+        val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val topGap = if (sbTop > TOP_MIN_GAP.dp) sbTop else TOP_MIN_GAP.dp
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp, bottom = 4.dp),
+                .padding(top = topGap, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack != null) {
@@ -372,6 +426,52 @@ object DhKit {
             }
             if (actions != null) {
                 Spacer(Modifier.width(8.dp))
+                actions()
+            }
+        }
+    }
+
+    /**
+     * 【统一·Tab 页顶栏】三个底部 Tab（聊天 / 人偶 / 说说）共用的顶栏。
+     *
+     * 【为什么单独开一个而不是复用 [TopBar]】两者职责不同：
+     *   · [TopBar] 是**二级页**的顶栏 —— 左返回键 + 20sp 标题 + 可选副标题；
+     *   · Tab 页没有返回键，标题是 26sp 大标题（与 QQ / 微信一致），且左右都可能有入口。
+     *   改造前三个 Tab 各自手搓 Row：聊天与人偶是 26sp、说说走 [TopBar] 的 20sp，
+     *   top padding 也分别是 14 / 14 / 12 —— 切换 Tab 时标题会「跳一下」。
+     *   收口到这里后，三格的标题字号、内边距、右端对齐由**同一段代码**决定。
+     *
+     * @param left    左侧插槽（聊天页的头像入口）；null = 不留位
+     * @param title   大标题
+     * @param actions 右侧插槽（图标按钮组）；null = 不留位
+     */
+    @Composable
+    fun TabTopBar(
+        title: String,
+        modifier: Modifier = Modifier,
+        left: (@Composable () -> Unit)? = null,
+        actions: (@Composable RowScope.() -> Unit)? = null
+    ) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = PAD_PAGE.dp)
+                .padding(top = TAB_BAR_TOP.dp, bottom = TAB_BAR_BOTTOM.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (left != null) {
+                left()
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                color = DhTokens.colors.title,
+                fontSize = TAB_TITLE_SP.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold
+            )
+            if (actions != null) {
                 actions()
             }
         }
@@ -408,7 +508,8 @@ object DhKit {
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (iconRes != 0) {
-                Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
+                // 【v0.1.0·修·图标偏小】这是「列表行主图标」，按 [Design] 口径应走 SZ_SM。
+                Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.sub)
                 Spacer(Modifier.width(8.dp))
             }
             Text(
@@ -1127,9 +1228,19 @@ object DhKit {
                 .clip(RoundedCornerShape(R_ROW.dp))
                 // 【r13】卡片内嵌按钮 → cardUp（同色会看不见形状）。
                 .background(c.cardUp)
-                .border(1.dp, c.line, RoundedCornerShape(R_ROW.dp))
+                // 【本轮·修「非默认配置下看不清」】原来描边用 c.line —— 它在**非默认配色**
+                //   （用户自定义主题色 / 卡片透明度调低）下几乎与 cardUp 同色，按钮整个化掉。
+                //   改为按时序取更稳的一档：c.line 与 c.sub 混合后整体压深，
+                //   保证「默认配色更清楚、非默认配色也不至于消失」。
+                //   不用 c.acc（强调色）：一排四个 chip 全染色会抢走正文的视觉重心。
+                .border(1.dp, c.sub.copy(alpha = 0.45f), RoundedCornerShape(R_ROW.dp))
                 .pressable(onClick)
-                .padding(vertical = 9.dp),
+                .padding(vertical = 9.dp)
+                // 【本轮·修「点了没反应」】改造前这里没有水平 padding，且下方文字
+                //   `weight(1f, fill = false)` 会把内容压到 0 宽 —— 视觉上按钮还在，
+                //   实际可点区域被挤成一条，用户点中间也命中不到。
+                //   这里补最小水平内边距，保证即使槽位很窄也留出可点面。
+                .padding(horizontal = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             // 【r16·修·防溢出】MiniChip 常用于「四并排等分槽」（动作详情页的帧操作）：
@@ -1142,18 +1253,26 @@ object DhKit {
                 horizontalArrangement = Arrangement.Center
             ) {
                 if (iconRes != 0) {
-                    Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
+                    // 【v0.1.0·修·图标偏小】药丸文字是 15sp 粗体，14dp 图标明显偏轻。
+                    //   按 [Design] 口径（SZ_XS 只给备注/次级标记），药丸图标属「行内小图标」→ SZ_SM。
+                    Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.title)
                     Spacer(Modifier.width(5.dp))
                 }
                 Text(
                     text = text,
-                    modifier = Modifier.weight(1f, fill = false),
+                    // 【本轮·修·两字按钮被截成省略号】原来 `weight(1f, fill = false)`：
+                    //   宽度富余时它按内容自适应，但**窄槽 + 图标**时会把可用宽压到极小，
+                    //   「导出」二字直接被省略成「…」，看起来像按钮坏了。
+                    //   这里改成 `weight(1f, fill = true)` + 居中：始终占满剩余宽，
+                    //   文字居中显示，短词永远不会被压成省略号。
+                    modifier = Modifier.weight(1f),
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -1228,6 +1347,111 @@ object DhKit {
         }
     }
 
+    /* ============================ 分段控件 ============================ */
+    /**
+     * 一段可选项（[DhKit.Segmented] 的数据单元）。
+     *
+     * @param key     业务键（切组 / 切页签用，别用下标：分组顺序将来会变）
+     * @param label   显示文案
+     * @param iconRes 可选前缀图标（`Icons.IC_*`；0 = 不带图标）
+     * @param badge   可选右上角计数（0 = 不显示）
+     */
+    class SegItem(
+        val key: String,
+        val label: String,
+        val iconRes: Int = 0,
+        val badge: Int = 0
+    )
+
+    /**
+     * 分段控件 —— 少量互斥选项的切换（页面内的分组 / 页签）。
+     *
+     * 【为什么要收进 DhKit】动作管理页要按「常驻 / 随机 / 手动」切组，
+     *   外观页已经有同一形态的页签条。两处各写一套的结果是：圆角、内边距、
+     *   选中底色、字号字重会各偏一点，用户在同一 App 里能看到两种「分段」。
+     *   收成一份之后，改样式只改这里。
+     *
+     * 【与 [Card] 的区别】[Card] 是折叠容器（有标题、能展开收起）；
+     *   本控件是**互斥选择**，永远展开、不带折叠语义，别混用。
+     *
+     * 【动效】选中态的底色用 [DhAnim.COLOR_SPRING] 过渡（与开关同一条曲线）：
+     *   点下去是「渐变过去」而不是「硬跳」，在快速连点时也不会闪白。
+     */
+    @Composable
+    fun Segmented(
+        items: List<SegItem>,
+        selectedKey: String,
+        modifier: Modifier = Modifier,
+        onPick: (String) -> Unit
+    ) {
+        val c = DhTokens.colors
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.soft)
+                .padding(4.dp)
+                // 选项多时横向滚动而不是挤压文字（长中文标签被压会折行、很难看）。
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (it in items) {
+                SegCell(
+                    item = it,
+                    selected = it.key == selectedKey,
+                    onClick = { onPick(it.key) }
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SegCell(item: SegItem, selected: Boolean, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        // 【选中态】用 option（淡强调底）而不是实心强调色：与设置页多选项、
+        //   底栏选中态同一套语义色，全 App 一致。
+        val bg by animateColorAsState(
+            targetValue = if (selected) c.option else Color.Transparent,
+            animationSpec = DhAnim.COLOR_SPRING,
+            label = "segBg"
+        )
+        val tint by animateColorAsState(
+            targetValue = if (selected) c.acc else c.sub,
+            animationSpec = DhAnim.COLOR_SPRING,
+            label = "segFg"
+        )
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(R_ROW.dp))
+                .background(bg)
+                .pressable(onClick)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (item.iconRes != 0) {
+                Icon(iconRes = item.iconRes, sizeDp = Design.SZ_SM, color = tint)
+                Spacer(Modifier.width(5.dp))
+            }
+            Text(
+                text = item.label,
+                color = tint,
+                fontSize = UiKit.FS_CHIP.sp,
+                fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+            // 计数：用「· N」而不是纯数字，避免和标签粘成一个词读不通。
+            if (item.badge > 0) {
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "· " + item.badge,
+                    color = tint.copy(alpha = 0.75f),
+                    fontSize = UiKit.FS_CHIP.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
+        }
+    }
+
     /* ============================ 开关 ============================ */
 
     /**
@@ -1247,13 +1471,20 @@ object DhKit {
         val h = 24
         val pad = 3
         val travel = (w - h).toFloat()
-
-        // 轨道色与滑块位移由同一条弹簧驱动，避免「轨道跳色、滑块慢跟」的脱节感。
-        val spec = spring<Float>(dampingRatio = 0.73f, stiffness = 700f)
-        val progress by animateFloatAsState(targetValue = if (checked) 1f else 0f, animationSpec = spec, label = "sw")
+        // 【本次修复·颜色过冲】颜色与位移**不能共用同一组弹簧参数**。
+        //   · 位移用 ζ=0.73（snappy）：允许轻微过冲，视觉上是「弹到位」，好看且与 View 侧一致；
+        //   · 颜色必须 ζ=1.0（临界阻尼）：Compose 把 >1 的插值进度交给颜色 lerp 时会**越界**，
+        //     深色主题下（底色接近 0）越界结果会被夹到纯黑/纯白，肉眼就是「轨道闪一下」。
+        //   改造前两者共用 ζ=0.73，正是「开关切换时轨道颜色闪」的根因。
+        //   两条曲线参数取自 DhAnim，与 View 侧同源。
+        val progress by animateFloatAsState(
+            targetValue = if (checked) 1f else 0f,
+            animationSpec = DhAnim.SW_SPRING,
+            label = "sw"
+        )
         val trackColor by animateColorAsState(
             targetValue = if (checked) c.acc else c.switchOff,
-            animationSpec = spring(dampingRatio = 0.73f, stiffness = 700f),
+            animationSpec = DhAnim.COLOR_SPRING,
             label = "swc"
         )
 
@@ -1306,9 +1537,14 @@ object DhKit {
 fun Modifier.pressable(onClick: () -> Unit): Modifier {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
+    // 【本次修复·按下别过冲】按下缩到 96% 用 tween（跟手、不过冲），
+    //   松手才用 ζ=0.4 弹簧弹回 —— 与 View 侧 `UiKit.press` + `Springs.bouncy()` 完全同口径。
+    //   改造前按下/松手共用一个 ζ=0.4 弹簧：手指刚触屏元素会先缩过头再回弹到 0.96，
+    //   短按时能看到「先弹一下」，与 View 侧手感也对不上。
+    val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = 0.4f, stiffness = 900f),
+        animationSpec = spec,
         label = "press"
     )
     return this
@@ -1342,9 +1578,11 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
 fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
+    // 与单参重载同口径：按下 tween 跟手，松手弹簧回弹。
+    val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = 0.4f, stiffness = 900f),
+        animationSpec = spec,
         label = "press"
     )
     return this

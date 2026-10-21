@@ -108,8 +108,24 @@ object ChatSettingsPage {
                 DhForm.Note("她回复的正文里不会混进思考内容 —— 两者一直是分开的。")
             }
 
+            // ---------------- 学习示例 ----------------
+            // 【v0.1.0·新增】原工程只有 `learnEnabled/setLearnEnabled` 与读取注入逻辑，
+            //   但既没有界面上这个开关、也没有任何写入学习示例的入口 ——
+            //   等于整条功能从未生效。现在：开关在这里，写入口在消息菜单的「赞 · 学这个风格」。
+            DhKit.Card(collapsibleTitle = "学习示例") {
+                DhForm.Note("长按她的回复选「赞 · 学这个风格」，这一问一答就会成为示范；"
+                        + "开着下面这个开关时，最近 3 条示范会随每次对话一起发出去，让她更贴近你喜欢的说法。")
+                DhKit.SwitchRow(
+                    name = "把示范带进对话",
+                    checked = remember(tick) { PetPrefs.learnEnabled(act) }
+                ) { on ->
+                    PetPrefs.setLearnEnabled(act, on)
+                    tick++
+                }
+                DhForm.Note("关掉只是不再带示范，已经记住的示范会保留，重新打开即可继续用。")
+            }
             // ---------------- 说明 ----------------
-            DhForm.Note("这两项对所有对话生效。想让人偶「想得更深」，去聊天页的灯泡图标调思考程度。")
+            DhForm.Note("以上各项对所有对话生效。想让人偶「想得更深」，去聊天页的灯泡图标调思考程度。")
         }
     }
 }

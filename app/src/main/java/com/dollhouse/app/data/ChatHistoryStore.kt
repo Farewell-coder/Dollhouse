@@ -756,6 +756,23 @@ object ChatHistoryStore {
             }
             val dollId = host.boundDollId()
             ChatToolRegistry.setDoll(dollId)
+            // 【v0.1.0·修·间隔设置不生效】按「距上次抽取 >= 设定间隔」放行。
+            //   改造前这里是「每条 assistant 消息都抽一次」，记忆设置页那个
+            //   「保存间隔（5~120 分钟）」根本没人读 —— 用户调了也没用，
+            //   每聊一句就打一次抽取接口：费 token，记忆库还会变得又快又碎。
+            //   判据本体在 [MemExtractGate]（纯算术，有单测），这里只负责取时间与打点。
+            val nowMs = System.currentTimeMillis()
+            if (!MemExtractGate.allow(
+                    nowMs,
+                    PetPrefs.mem2LastExtractAt(ctx, dollId),
+                    PetPrefs.mem2IntervalMinutes(ctx)
+                )
+            ) {
+                return
+            }
+            // 先打点再抽：抽取本身要打网络，若放在后面，
+            //   抽取期间来的第二条消息会再触发一次（同一段时间被抽两遍）。
+            PetPrefs.setMem2LastExtractAt(ctx, dollId, nowMs)
             // 只喂最后几轮，避免把整段历史再抽一遍（与抽取器内部的 HISTORY_LIMIT 呼应）。
             val turns = ArrayList<Pair<String, String>>()
             val h = host.history

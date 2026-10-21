@@ -33,6 +33,15 @@ object Icons {
     val IC_CHEVRON_UP = R.drawable.ic_chevron_up
     @JvmField
     val IC_ARROW_LEFT = R.drawable.ic_arrow_left
+    /**
+     * 【箭头】右箭头。与 [IC_ARROW_LEFT] 严格镜像（x → 24−x），包围盒中心 (12,12)。
+     *
+     * 【谁在用】动作编辑页「后移一帧」。原先这一处用的是 [IC_CHEVRON_RIGHT]，
+     *   于是同一个「帧操作」区域里，前移是 arrow、后移是 chevron —— 两个按钮
+     *   长得像两种不同功能。现在「改顺序」统一 arrow、「切帧（只看）」统一 step。
+     */
+    @JvmField
+    val IC_ARROW_RIGHT = R.drawable.ic_arrow_right
     @JvmField
     val IC_CHEVRON_LEFT = R.drawable.ic_chevron_left
     @JvmField
@@ -118,6 +127,30 @@ object Icons {
     /** 启停 / 重启。 */
     @JvmField
     val IC_PLAY = R.drawable.ic_play
+    /**
+     * 【播放控制】暂停。与 [IC_PLAY] 成对，用于动作编辑页的播放 / 暂停切换。
+     * 【为什么必须单独一个图标】以前编辑页用 [IC_SQUARE]（停止）表示「暂停」，
+     *   语义不对：暂停是「停在这一帧，稍后继续」，停止是「回到开头」。用户会点错。
+     */
+    @JvmField
+    val IC_PAUSE = R.drawable.ic_pause
+    /**
+     * 【帧步进】上一帧 / 下一帧（skip 语义：竖线 + 尖角）。
+     *
+     * 【与 IC_CHEVRON_LEFT/RIGHT / IC_ARROW_LEFT/RIGHT 的分工】编辑页里同时存在
+     *   两件容易混淆的事，图标必须让人一眼看出「会不会改数据」：
+     * ```
+     * 播放行：IC_STEP_BACK / IC_STEP_FORWARD  → 切到上一帧 / 下一帧，只看不改
+     * 帧操作：IC_ARROW_LEFT / IC_ARROW_RIGHT  → 前移 / 后移一帧，会改变顺序（落盘）
+     * ```
+     *   早先这两处分别用了 arrow 与 chevron，形状太接近，且同一个「播放行」
+     *   左边是 arrow、右边是 chevron（不成对），看起来像两个不同功能。
+     *   现在按上面这张表固定下来。
+     */
+    @JvmField
+    val IC_STEP_BACK = R.drawable.ic_step_back
+    @JvmField
+    val IC_STEP_FORWARD = R.drawable.ic_step_forward
     @JvmField
     val IC_SQUARE = R.drawable.ic_square
     @JvmField
@@ -241,6 +274,16 @@ object Icons {
     /** 最大化（Lucide maximize）：图谱「适配屏幕」。 */
     @JvmField
     val IC_MAXIMIZE = R.drawable.ic_maximize
+    /**
+     * 【尺寸】缩小 / 收回来。与 [IC_MAXIMIZE] 成对。
+     *
+     * 【谁在用】动作编辑页贴边裁截线的「露出更少」。
+     *   这一处原先是 `IC_CHEVRON_RIGHT`，但贴边可能贴左也可能贴右 ——
+     *   固定右箭头在贴右边时方向正好相反，用户会理解成「把人偶往右推」。
+     *   改用「放大 / 缩小」这一对：与方向无关，语义只表达「露出的面积」。
+     */
+    @JvmField
+    val IC_MINIMIZE = R.drawable.ic_minimize
 
     /** 新建文件夹（Lucide folder-plus）：新建分组。 */
     @JvmField
@@ -335,6 +378,36 @@ object Icons {
     /** 时钟（Lucide clock-3）：时间 / 定时相关（暂离倒计时、自动保活周期）。 */
     @JvmField
     val IC_CLOCK_3 = R.drawable.ic_clock_3
+
+    /* ================= v0.1.0 · 动作系统五组体系（官方 Lucide 几何） =================
+     * 【来源】全部取自 lucide-static（ISC 协议）并用 tools/lucide2vd.py 结构性转换，
+     *   24dp 视口 / 线宽 2 / 圆角端点，与工程既有图标语言完全一致。
+     * 【为什么这五个】它们分别对应「固定三格」与「两类可变动作」，
+     *   语义一对一，用户扫一眼就知道那格是什么（比抽象图形好认得多）：
+     *   · 无限循环 = 常驻动作（一直在跑）
+     *   · 面板靠右 = 贴边动作（贴着屏幕边）
+     *   · 抓手     = 拖拽动作（被拎起来）
+     *   · 洗牌     = 随机动作（不定时冒一个）
+     *   · 手       = 手动动作（自己点出来）
+     */
+    /** 无限（Lucide infinity）：常驻动作固定壳。 */
+    @JvmField
+    val IC_INFINITY = R.drawable.ic_infinity
+    /** 面板靠右（Lucide panel-right）：贴边动作固定壳。 */
+    @JvmField
+    val IC_PANEL_RIGHT = R.drawable.ic_panel_right
+    /** 抓手（Lucide grab）：拖拽动作固定壳。 */
+    @JvmField
+    val IC_GRAB = R.drawable.ic_grab
+    /** 洗牌（Lucide shuffle）：随机动作组。 */
+    @JvmField
+    val IC_SHUFFLE = R.drawable.ic_shuffle
+    /** 橡皮（Lucide eraser）：清空固定壳的内容（只清帧，保留名字）。 */
+    @JvmField
+    val IC_ERASER = R.drawable.ic_eraser
+    /** 图钉（Lucide pin）：固定三格的区段标题。 */
+    @JvmField
+    val IC_PIN = R.drawable.ic_pin
     /** 取图并按 color 上色。返回的 Drawable 每次都是新实例，可安全用于不同 View。 */
     @JvmStatic
     fun get(ctx: Context?, resId: Int, color: Int): Drawable? {

@@ -38,12 +38,41 @@ object ActionSemantic {
     /** 【r19·新增】睡觉：低功耗休眠循环（帧率降到最低，不再响应待机小动作）。 */
     const val SLEEP = "sleep"
 
+    /**
+     * **【v0.1.0·新增】贴边**：人偶吸附到屏幕边时播的动作（对应「贴边动作」固定壳）。
+     *
+     * 【为什么需要它】改造前贴边只有一个倾斜姿态 + 趴姿形变，用户在动作页配的东西
+     *   根本无法影响它。有了这个语义，「贴边动作」这个壳才有意义。
+     */
+    const val EDGE = "edge"
+
+    /**
+     * **【v0.1.0·新增】随机**：13~30 秒自发触发一次的动作（对应「随机动作」组）。
+     *
+     * 【优先级为什么低于出现/消失】它是系统自发行为，不该抢生命周期事件。
+     */
+    const val RANDOM = "random"
+
+    /**
+     * **【v0.1.0·新增】手动**：由手势 / 快捷入口主动触发的动作（对应「手动动作」组）。
+     *
+     * 【与 TAP 的区别】`tap` 是「点一下人偶」这个**具体手势**；`manual` 是「用户在
+     *   手势设置里绑了某个动作，现在要播它」。后者语义更宽，优先级也更高一点
+     *   （用户明确点了名要播的，比系统猜测的「摸头反馈」更该优先）。
+     */
+    const val MANUAL = "manual"
+
     /** 全部标准语义（供校验器 / UI 列举）。 */
-    val ALL: List<String> = listOf(IDLE, TAP, DRAG, LONG_PRESS, APPEAR, DISAPPEAR, SLEEP)
+    val ALL: List<String> = listOf(
+        IDLE, EDGE, RANDOM, MANUAL, TAP, DRAG, LONG_PRESS, APPEAR, DISAPPEAR, SLEEP
+    )
 
     /** 人类可读名（UI 直接用，避免各处再写一份中文映射）。 */
     fun label(semantic: String): String = when (semantic) {
-        IDLE -> "待机"
+        IDLE -> "常驻"
+        EDGE -> "贴边"
+        RANDOM -> "随机"
+        MANUAL -> "手动"
         TAP -> "点击"
         DRAG -> "拖动"
         LONG_PRESS -> "长按"
@@ -57,20 +86,31 @@ object ActionSemantic {
     fun isStandard(semantic: String?): Boolean = semantic != null && ALL.contains(semantic)
 
     /**
-     * 语义优先级 —— **交互 > 待机 > 基础形变**。
+     * 语义优先级。
      *
-     * 【为什么用数字而不是比较函数】调用方要同时比较多个候选（当前正在播的
-     *   vs 新来的），数字最直观：数值大的赢。
-     *
-     * 【为什么待机排中间】待机是「没有交互时」的档位；它必须高于「基础形变」
-     *   （呼吸/眨眼这类一直跑的），又必须**低于任何交互** ——
-     *   否则点一下人偶、待机动作却把它顶掉，用户会觉得「点了没反应」。
+     * 【v0.1.0 全序】**手指在屏上 / 用户刚发起的 > 系统自发的 > 基础态**：
+     * ```
+     * DRAG(40) = LONG_PRESS(40)   手指按着，任何自动动作都不得抢画面
+     *       > TAP(35)             刚点完，反馈必须优先
+     *       > MANUAL(30)          用户在手势里点名要播的动作
+     *       > APPEAR/DISAPPEAR(20) 生命周期
+     *       > RANDOM(15)          系统自发，可被任何用户动作打断
+     *       > EDGE(12)            贴近「基础态」：在边上就该播贴边
+     *       > IDLE(10)            兜底基础态
+     *       > SLEEP(5)            最低，任何交互都能唤醒
+     * ```
+     * 【为什么 EDGE > IDLE】两者都是「没有交互时的状态」，但「在屏幕边上」比「随便站着」
+     *   更具体 —— 更具体的状态应该赢。
      */
     fun priority(semantic: String): Int = when (semantic) {
-        TAP, DRAG, LONG_PRESS -> 30
+        DRAG, LONG_PRESS -> 40
+        TAP -> 35
+        MANUAL -> 30
         APPEAR, DISAPPEAR -> 20
+        RANDOM -> 15
+        EDGE -> 12
         IDLE -> 10
-        SLEEP -> 5 // 睡觉优先级最低：任何交互都能唤醒
+        SLEEP -> 5
         else -> 0
     }
 }

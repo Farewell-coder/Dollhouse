@@ -63,7 +63,10 @@ fun SwipeToDelete(
     fun settle(to: Float) {
         opened = to < 0f
         scope.launch {
-            offset.animateTo(to, spring(dampingRatio = 0.73f, stiffness = 420f))
+            // 【本次修复·参数同源】改造前这里内联 `spring(ζ=0.73, k=420)`，
+            //   与文件头注释「与 Springs.snappy() 同参数」靠人工保持同步 —— 改一处漏一处。
+            //   现在统一取 DhAnim.SWIPE_SETTLE（同一对象的单一真源）。
+            offset.animateTo(to, DhAnim.SWIPE_SETTLE)
         }
     }
 

@@ -110,7 +110,7 @@ object DollRangePage {
                             width = with(density) { ((r - l) * wPx).toDp() },
                             height = with(density) { ((b - t) * hPx).toDp() }
                         )
-                        .border(1.dp, c.acc, RoundedCornerShape(4.dp))
+                        .border(1.dp, c.acc, RoundedCornerShape(DhKit.R_ROW.dp))
                 )
 
                 // 上边手柄：拖动改 top（不能越过 bottom - 0.1）。

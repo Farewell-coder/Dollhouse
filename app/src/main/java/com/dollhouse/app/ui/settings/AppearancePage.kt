@@ -171,7 +171,7 @@ object AppearancePage {
         val tint = if (selected) c.acc else c.sub
         Row(
             modifier = modifier
-                .clip(RoundedCornerShape(9.dp))
+                .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 // 【选中态】用 option（淡强调底）而不是实心强调色 ——
                 //   与设置页多选项 / 底栏选中态同一套语义色，全 App 一致。
                 .background(if (selected) c.option else Color.Transparent)
@@ -570,9 +570,9 @@ object AppearancePage {
                         Box(
                             modifier = Modifier
                                 .size(26.dp)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                                 .background(fontPreview(draft))
-                                .border(1.dp, DhTokens.colors.line, RoundedCornerShape(6.dp))
+                                .border(1.dp, DhTokens.colors.line, RoundedCornerShape(DhKit.R_ROW.dp))
                         )
                     }
                 )

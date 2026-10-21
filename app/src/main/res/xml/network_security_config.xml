@@ -1,4 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  【B9 修复】明文 HTTP 从「全局放开」收窄为「仅本机回环地址放开」。
+
+  ## 原来的问题
+  改造前这里是：
+  ```
+  <base-config cleartextTrafficPermitted="true" />
+  ```
+  等于**允许全世界的明文 HTTP**。本应用会把用户的 API Key 放进请求头发出去，
+  而明文链路可被同网段的中间人直接读到 Key 与全部聊天内容 —— 这是本工程
+  唯一一处「配置层面把安全兜底关掉」的地方。
+
+  ## 为什么不能直接关成 false
+  本工程确实有一处**必须**走明文 HTTP 的依赖：
+  `LamdaManager.BASE = "http://127.0.0.1:65000"` —— lamda 是跑在本机的
+  设备自动化服务（firerpa），它是纯 HTTP 的本地服务，没有 TLS。
+  若一律禁明文，这个功能会直接失效（那是「为了安全把功能删掉」，不可接受）。
+
+  ## 收窄口径
+  · `<base-config cleartextTrafficPermitted="false">`：默认禁止明文，
+    所有 AI 供应商接口（全部是 https://）不受影响；
+  · `<domain-config>` 例外只开给 `127.0.0.1` 与 `localhost`：
+    回环流量不出本机，不存在中间人，业务上也无替代方案。
+  · 【为什么不加 `192.168.*`】那会把「局域网内的明文」也放进来，
+    而同网段的其它设备正是最现实的攻击面 —— 需要用到时再单独评估。
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
 </network-security-config>

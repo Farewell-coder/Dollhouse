@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
@@ -109,7 +110,11 @@ object BottomNav {
         val tint = if (selected) c.acc else c.sub
         // 【轻放大】选中态图标放大到 1.08 —— 幅度刻意压得很小：
         //   底栏是常驻元素，动效过大在深色背景下会显得晃眼。
-        val scale by animateFloatAsState(if (selected) 1.08f else 1.0f, label = "tabScale")
+        val scale by animateFloatAsState(
+            targetValue = if (selected) 1.08f else 1.0f,
+            animationSpec = DhAnim.TAP_SCALE,
+            label = "tabScale"
+        )
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
@@ -157,7 +162,7 @@ object BottomNav {
             Text(
                 text = text,
                 color = androidx.compose.ui.graphics.Color.White,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )

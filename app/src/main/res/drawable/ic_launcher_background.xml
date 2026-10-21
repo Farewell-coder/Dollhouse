@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 自适应图标背景：由 tools/make_icons.sh 从母图平均色生成（#F5F7FC）。
-     用纯色而非位图，各密度下都不会糊，也不必再补 5 张背景图。 -->
+<!-- 自适应图标背景：由 tools/make_icons.py 从母图轮廓边缘色生成（#9ADDFD）。
+     【实际不显示】前景图是满幅的（人偶之外由轮廓边缘色径向延续），
+     这一层只在系统异常未绘制前景时兜底，取同一圈边缘色以免露出异色块。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#F5F7FC" />
+    <solid android:color="#9ADDFD" />
 </shape>

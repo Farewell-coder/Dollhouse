@@ -30,8 +30,8 @@ android {
         applicationId "com.dollhouse.app"
         minSdk 24
         targetSdk 34
-        versionCode 9
-        versionName "0.0.9"
+        versionCode 10
+        versionName "0.1.0"
         // 资源裁剪：本应用文案为中文，en 仅作系统兜底。
         resConfigs "zh", "en"
     }

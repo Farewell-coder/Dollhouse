@@ -152,6 +152,104 @@ object AnimImport {
         return Result(out, fps, note, true)
     }
 
+    /* ============================ 导入前检查（向导用） ============================ */
+
+    /**
+     * 一次「只看不动」的检查结果。
+     *
+     * 【为什么不让界面自己 sniff】判定规则（魔数、侧车文件、json 结构）是几百行
+     *   口径细节，散到界面里必然与真实导入走的两套判断分叉 —— 于是出现
+     *   「向导说能导，点了却失败」。检查与导入共用同一套 `sniff`，结论才可信。
+     *
+     * @param kind    识别出的形态（`lottie` / `framejson` / `spritesheet` / `archive` / `anim` / `image` / `unknown`）
+     * @param kindName 给人看的形态名
+     * @param canImport 这一项是否可导入
+     * @param reason  不可导入的原因（可导入时为空）
+     */
+    class Inspection(
+        val path: String,
+        val fileName: String,
+        val sizeBytes: Long,
+        val kind: String,
+        val kindName: String,
+        val canImport: Boolean,
+        val reason: String
+    )
+
+    /** 形态 → 界面上的中文名（不暴露内部常量名给用户）。 */
+    private fun kindNameOf(kind: String): String = when (kind) {
+        K_LOTTIE -> "Lottie 动画工程"
+        K_FRAMEJSON -> "帧清单 JSON"
+        K_SPRITESHEET -> "精灵图集（带描述文件）"
+        K_ARCHIVE -> "压缩包"
+        K_ANIM -> "动图"
+        K_IMAGE -> "单张图片"
+        else -> "无法识别"
+    }
+
+    /**
+     * 只读检查一批文件：**不写任何字节、不改动档案**。
+     *
+     * 【为什么要单独走一遍】需求书要求「导入失败 / 取消 / 中断后原资源完整」。
+     *   只要向导在确认前完全不写盘，这条就天然成立 —— 而不是靠「失败时回滚」，
+     *   回滚总有漏掉的副作用（临时目录、半截文件），检查先行则根本没有副作用。
+     */
+    fun inspect(paths: List<String>): List<Inspection> {
+        val out = ArrayList<Inspection>()
+        for (p in paths) {
+            val f = File(p)
+            if (!f.isFile) {
+                out.add(
+                    Inspection(
+                        p, f.name, 0L, K_UNKNOWN, kindNameOf(K_UNKNOWN), false,
+                        "文件不存在或读不到。"
+                    )
+                )
+                continue
+            }
+            val kind = try {
+                sniff(f)
+            } catch (t: Throwable) {
+                K_UNKNOWN
+            }
+            // 【只读校验：能真正解码出像素才算可用】有些文件头是 PNG、
+            //   但数据截断（下载中断的半截文件），魔数照样通过。
+            //   这里用 `inJustDecodeBounds` 解一次头 —— 它不分配像素内存，成本极低。
+            //
+            // 【必须排除非图片形态】本校验只对「本身就是一张图」的形态有意义：
+            //   · `archive`（zip / apk 改名）：BitmapFactory 必然解不出尺寸，
+            //     若不排除，任何压缩包都会被误判成「图片数据损坏」而**永远无法导入**；
+            //   · `lottie` / `framejson`：是 json，本来就不是位图；
+            //   · `spritesheet` 要校验，但它的主文件也是图片，故保留。
+            //   判据写成「白名单」而不是「黑名单」：将来新增形态时，
+            //   默认不会被误拉进位图校验（漏掉校验只是少一道保险，误判是直接废掉功能）。
+            var reason = ""
+            if (kind == K_IMAGE || kind == K_ANIM || kind == K_SPRITESHEET) {
+                val ok = try {
+                    val opt = BitmapFactory.Options()
+                    opt.inJustDecodeBounds = true
+                    BitmapFactory.decodeFile(f.absolutePath, opt)
+                    opt.outWidth > 0 && opt.outHeight > 0
+                } catch (t: Throwable) {
+                    false
+                }
+                if (!ok) {
+                    reason = "图片数据损坏，解不出尺寸。"
+                }
+            }
+            if (kind == K_UNKNOWN && reason.isEmpty()) {
+                reason = "不是能识别的图片或动画文件。"
+            }
+            out.add(
+                Inspection(
+                    p, f.name, f.length(), kind, kindNameOf(kind),
+                    reason.isEmpty(), reason
+                )
+            )
+        }
+        return out
+    }
+
     /* ============================ 形态判定 ============================ */
 
     private const val K_LOTTIE = "lottie"

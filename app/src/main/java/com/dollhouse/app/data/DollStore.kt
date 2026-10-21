@@ -543,7 +543,19 @@ object DollStore {
     }
 
     /**
-     * 删除一项。内置项拒绝删除（返回 false）。
+     * 删除一项。**v0.1.0：内置默认配置也可以删**（删完立刻重建一个出厂的）。
+     *
+     * ## 用户定案的语义
+     * 「如果我默认配置里把这个动作删掉了，我只需要把默认配置删掉，默认配置则会恢复，
+     *   同时动作也恢复了」——所以删默认配置 = **彻底重置**：
+     *   配置（手势 / 比例 / 初始位置 / 屏幕范围 / 回归时间 / 人格 / 背景 / 记忆）、
+     *   动作（19 个归位的内置动作 + 三个固定壳的默认内容）全部回到出厂状态。
+     *
+     * ## 为什么不是「阻止删除」而是「删了重建」
+     * 改造前这里有 `if (builtin) return false`，界面上也不给默认配置显示删除键。
+     *   但那样用户就没有任何办法把默认配置玩坏后恢复 —— 只能清数据 / 重装。
+     *   现在给它一条正当的「重置」路径，同时自定义人偶仍然可以删光。
+     *
      * 【图片】不删文件：可能被复制项 / 历史项共用，孤儿文件由「清理未被引用图片」另行处理。
      */
     @JvmStatic
@@ -556,9 +568,6 @@ object DollStore {
         var hit = -1
         for (i in list.indices) {
             if (list[i].id == id) {
-                if (list[i].builtin) {
-                    return false
-                }
                 hit = i
                 break
             }
@@ -571,9 +580,52 @@ object DollStore {
         // 【为什么必须清配置】r10 起每只人偶都有自己的一份独立配置（手势 / 比例 / 初始位置 /
         //   屏幕范围 / 回归时间 / 交谈 / 性格，见 [DollProfile]）。人偶删了、配置留着，
         //   下一次「新建」万一复用同一个 id，新人偶就会凭空继承上一只的设定 —— 可见的数据串味。
-        //   注意 [DollProfile.clear] 对默认配置直接 return，所以这里不必再判 builtin。
         DollProfile.clear(ctx, id)
+        // 【v0.1.0】动作也要清：删人偶之后再新建、万一复用同一个 id，
+        //   旧动作会「复活」；而且默认配置的重置语义要求动作一起回出厂。
+        DollAnim.clearAll(ctx, id)
+        if (id == DEFAULT_ID) {
+            // 默认配置删掉 → 立刻重建一个出厂的（排在首位）。
+            rebuildDefault(ctx)
+        }
         return true
+    }
+
+    /**
+     * **【v0.1.0·新增】重建出厂状态的默认配置。**
+     *
+     * 【为什么单独抽出来】两条路都要它：
+     *   ① 用户主动删除默认配置（见 [remove]）；
+     *   ② 存档损坏 / 首次启动时 [load] 的兜底（保证列表里永远有一个默认配置）。
+     *
+     * 【「出厂状态」到底清掉了什么】
+     *   · 人偶条目本身：名字 / 封面 / 形象全部回到默认（即新建一个 `Doll(DEFAULT_ID, ...)`）；
+     *   · 它的全部独立配置（`DollProfile.clear`，含记忆库）；
+     *   · 它的全部动作（`DollAnim.clearAll` → 下次 `all()` 会按种子版本补齐 19 个内置动作）。
+     *   【不做的】不删用户自己导入的素材文件（可能被别的动作引用），
+     *   由「清理未被引用图片」那条既有路径统一处理。
+     */
+    @JvmStatic
+    @Synchronized
+    fun rebuildDefault(ctx: Context) {
+        val list = load(ctx)
+        var idx = -1
+        for (i in list.indices) {
+            if (list[i].id == DEFAULT_ID) {
+                idx = i
+                break
+            }
+        }
+        val fresh = Doll(DEFAULT_ID, DEFAULT_NAME, builtin = true)
+        if (idx >= 0) {
+            list[idx] = fresh
+        } else {
+            list.add(0, fresh)
+        }
+        save(ctx, list)
+        // 配置与动作一起回出厂。
+        DollProfile.clear(ctx, DEFAULT_ID, force = true)
+        DollAnim.clearAll(ctx, DEFAULT_ID)
     }
 
     /* ============================ 图片 ============================ */

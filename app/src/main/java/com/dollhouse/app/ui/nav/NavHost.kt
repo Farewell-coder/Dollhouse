@@ -152,9 +152,13 @@ object NavHost {
             val stack = stackOf(act)
             val builders = buildersOf(act)
             val revision = revisionOf(act)
-            // 【r20·触摸栅栏的挂点】需要在组合里改写 ComposeView 自身的 isClickable，
-            //   而 cv 要等 createView 返回后才存在 —— 用这个可空引用桥接（SideEffect 里用）。
-            var self: View? = null
+            // 【r21·框架级交互闸门】覆盖页这层本身也是一个 [LayerShield]。
+            //   它在 [LayerGate] 的判定里代表「NAV」态：没有覆盖页时整层屏蔽
+            //   （于是它不再需要 isClickable/焦点标志，也不会和抽屉抢事件）；
+            //   有覆盖页时整层放行，层内再由每个 entry 的闸门区分栈顶 / 非栈顶。
+            //   【为什么外壳在组合之外创建】它要在 Composition 之前就存在并挂到 content 上，
+            //   组合里的 SideEffect 只做登记，不负责创建。
+            val navShield = com.dollhouse.app.ui.compose.LayerShield(act)
             val cv = ComposeHost.createView(act) {
                 // 【订阅】读 isNotEmpty() 让本 Composable 订阅列表变化，从而自动重组。
                 //   · revision.value 同样被读到：原地重建时它 +1，触发这里重跑并取到新的 contentKey。
@@ -168,7 +172,10 @@ object NavHost {
                 //   onTouchEvent 兜住落空的手势并返回 true。页面里的可点节点仍然在自己那一层
                 //   先命中，行为零变化；栈空时立刻改回 false，底座恢复可点。
                 SideEffect {
-                    self?.isClickable = stack.size > 1
+                    // 【框架级】覆盖页这层的开关交给 [LayerGate] 统一判定，不再各自改 isClickable。
+                    //   这里只登记「本宿主有这一层」，之后任何状态变化由 gate 重算。
+                    com.dollhouse.app.ui.compose.LayerGate.layersOf(act).nav = navShield
+                    com.dollhouse.app.ui.compose.LayerGate.refresh(act)
                 }
                 // 【为什么是 size > 1 而不是 isNotEmpty】栈底恒有 [HomeRoute] 垫底（见 [push] 的
                 //   栈底不变式）。若此处只判非空，则「没有任何覆盖层」时也会渲染 NavDisplay ——
@@ -323,14 +330,28 @@ object NavHost {
                 }
             }
             cv.tag = TAG_NAV_VIEW
-            // 【r20】把 View 自己交给组合里的 SideEffect（见上面「触摸栅栏」）。
-            self = cv
-            // 【命中区】栈空时 ComposeView 里什么都不画，但不能吃掉底座的触摸 ——
-            //   ComposeView 默认 clickable=false，显式再写一遍更稳（防日后有人加背景）。
-            //   【栈非空时会被组合里的 SideEffect 覆盖成 true】见上。
-            cv.isClickable = false
-            cv.isFocusable = false
-            content.addView(cv, android.view.ViewGroup.LayoutParams(-1, -1))
+            // 【r21】把 ComposeView 放进 NAV 层的外壳里，再把外壳挂到 content。
+            //   外壳就是 [LayerShield]：没有覆盖页时它整层屏蔽（dispatchTouchEvent 直接
+            //   返回 false，不下发给 ComposeView），底座与抽屉照常工作。
+            navShield.addView(
+                cv,
+                android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            navShield.isClickable = false
+            navShield.isFocusable = false
+            navShield.blocking = true
+            content.addView(
+                navShield,
+                android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            // 装配完成立刻按当前状态判定一次（冷启动时通常是 BASE）。
+            com.dollhouse.app.ui.compose.LayerGate.refresh(act)
         } catch (ignored: Throwable) {
             Logs.w(TAG, "install failed", ignored)
         }
@@ -425,7 +446,45 @@ object NavHost {
                     if (v != null) {
                         GlobalBackground.installPage(page)
                     }
-                    page
+                    // 【框架级交互闸门】整层包进 [LayerShield]，页面 View 作为它的唯一子项。
+                    //   【为什么必须包一层容器】要在**层根**的 dispatchTouchEvent 上做屏蔽；
+                    //   直接给页面 View 挂 OnTouchListener 是无效做法（见下方 update 的说明）。
+                    //   【为什么用 FrameLayout 而不是重新 addView 到别处】零迁移成本：
+                    //   页面 View 的父子关系、tag、LayoutParams 全部保持原样，只是多了一个透明外壳。
+                    val shield = com.dollhouse.app.ui.compose.LayerShield(ctx)
+                    shield.addView(
+                        page,
+                        android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    )
+                    shield
+                },
+                // 【栈顶独占交互·框架级修复】
+                //
+                // ## 穿透为什么发生（两道，缺一不可）
+                // ① Nav3 的 `NavDisplay` 用 `AnimatedContent` 做转场：转场期间**两个 entry
+                //    同时在组合树里**（新页滑入 + 旧页滑出）。旧那层仍在树上、仍参与命中测试。
+                // ② 更根本的一层：`ViewGroup.dispatchTouchEvent` 是**先问子 View、再问自己**。
+                //    所以「给页根改 isClickable / 挂 setOnTouchListener」在原理上就挡不住
+                //    页内按钮 —— 子按钮先被问到并消费掉事件。上一版正是在这里失效。
+                //
+                // ## 为什么不靠 zIndex
+                // 提高 zIndex 只改**绘制**顺序，不改**命中**顺序。抬 z 只能让画面在上面，
+                // 挡不住下层被点到。
+                //
+                // ## 解法：整层用 [LayerShield] 包起来
+                // 非栈顶时 `blocking = true` —— 它的 `dispatchTouchEvent` **不下发给子树**
+                // 并返回 false。于是这一层在分发链上等于不存在，页内按钮 / 输入 / 滚动
+                // 一并暂停（正是需求文档要求的「整个交互区域及其子组件均符合暂停规则」）。
+                // 栈顶页完全不受影响：它内部的滚动 / 输入 / 长按 / 拖动一个都没改。
+                //
+                // `AndroidView` 的 update 每帧都跑，`isTop` 在新页**入栈的同一帧**就变 false
+                // —— 等价于「新页面开始打开时立即禁掉旧页」，不等动画结束。
+                // 【刻意不动 isEnabled】它是级联的，会让整棵子树进 disabled 态且不易恢复。
+                update = { shield ->
+                    shield.blocking = !isTop
                 }
             )
         }
@@ -473,14 +532,45 @@ object NavHost {
         return STACKS[System.identityHashCode(act)]
     }
 
+    /**
+     * 分桶超限时清理。
+     *
+     * 【B10 修复】原来是无条件 `iterator().next()` —— 也就是**按插入顺序**
+     *   淘汰最早的那个宿主，完全不管它还活不活着：
+     *   ```
+     *   ① 用户在 MainActivity 里点进「动作详情」；
+     *   ② 再从桌面图标进 ChatActivity（第二个桶）；
+     *   ③ 某个悬浮入口又开了一次新 Activity（第三个桶）；
+     *   ④ 此时再进来第四个宿主 → 触发 trim → **MainActivity 的栈被删掉**；
+     *   ⑤ 用户按返回 → 本该回到「动作详情」，结果直接回到首页底座。
+     *   ```
+     *   而且 BUILDERS 一并删掉后，连页面内容都重建不出来。
+     *
+     * 【修复口径】优先淘汰「已经没有任何活引用」的桶：
+     *   · 栈为空（用户已经退到底座）的桶先走；
+     *   · 其次挑「最久没被访问」的桶（按插入顺序最靠前，作为兜底而非首选）。
+     *   真正的强引用靠 `MainActivity.onDestroy → NavHost.reset(this)` 释放，
+     *   trim 只是防极端累积的最后一道闸，不该反过来毁掉活跃宿主。
+     */
     private fun trim() {
         while (STACKS.size > MAX_HOSTS) {
-            val it = STACKS.keys.iterator()
-            if (!it.hasNext()) {
-                return
+            // ① 先找空栈的桶（最安全：里面本来就没有页面可丢）。
+            var victim: Int? = null
+            for ((host, stack) in STACKS) {
+                if (stack.isEmpty()) {
+                    victim = host
+                    break
+                }
             }
-            val victim = it.next()
-            it.remove()
+            // ② 没有空栈桶时才按插入顺序兜底。
+            if (victim == null) {
+                val it = STACKS.keys.iterator()
+                if (!it.hasNext()) {
+                    return
+                }
+                victim = it.next()
+            }
+            STACKS.remove(victim)
             BUILDERS.remove(victim)
             REVISIONS.remove(victim)
         }
@@ -534,13 +624,17 @@ object NavHost {
             }
             // 【原地重建】旧实现「回到已有层」时会把该层内容重建一次（`swapInPlace`）。
             //   这里靠版本号 +1 触发 Nav3 重建该 entry 的组合，语义等价。
-            revisionOf(act).value = revisionOf(act).value + 1
+revisionOf(act).value = revisionOf(act).value + 1
+            // 【同一帧生效】栈变了就立刻重算交互所有权：底座此刻必须已经被屏蔽，
+            //   不等进场动画播完（需求文档：新页面开始打开时立即阻止底层响应）。
+            com.dollhouse.app.ui.compose.LayerGate.refresh(act)
             return true
         }
         stack.add(key)
+        // 【同一帧生效】见上。
+        com.dollhouse.app.ui.compose.LayerGate.refresh(act)
         return true
     }
-
     /** 弹出栈顶一层。栈底 [HomeRoute] 永不弹出。 */
     fun pop(ctx: Context?, onDone: (() -> Unit)?): Boolean {
         val act = findActivity(ctx) ?: return false
@@ -555,10 +649,49 @@ object NavHost {
         //   下一次同 key 入栈前若发生重组，可能取到旧闭包（旧 dollId）。
         NavKeyCodec.toLegacy(gone)?.let { buildersOf(act).remove(it) }
         onDone?.invoke()
+        // 【同一帧生效】返回后上一层要立刻拿回交互权，否则会「返回后点不动」。
+        com.dollhouse.app.ui.compose.LayerGate.refresh(act)
         return true
     }
 
     fun pop(ctx: Context?): Boolean = pop(ctx, null)
+
+    /**
+     * 【r21】返回到指定页面（需求文档要求的原语之一）。
+     *
+     * 【语义】把 `key` 之上的所有层弹掉，`key` 本身留在栈顶。
+     *   · `key` 不在栈里（或只命中栈底垫底的底座）→ 不动栈，返回 false；
+     *   · `key` 已在栈顶 → 幂等返回 true。
+     *
+     * 【为什么需要它】改造前只有 push / pop / replaceTop，「回到某一层」只能靠连弹多次，
+     *   调用方得自己算次数 —— 一旦中间某层被别处弹掉，次数就对不上，于是要么弹过头、
+     *   要么停在错的地方。现在由栈自己算。
+     */
+    fun popTo(ctx: Context?, legacy: String?): Boolean {
+        val act = findActivity(ctx) ?: return false
+        val target = NavKeyCodec.toKey(legacy) ?: return false
+        val stack = STACKS[System.identityHashCode(act)] ?: return false
+        val idx = stack.indexOfFirst { it == target }
+        // 找不到、或命中的是栈底垫底的底座 → 无效目标（底座不是「页面」）。
+        if (idx <= 0) {
+            return false
+        }
+        if (idx == stack.size - 1) {
+            return true
+        }
+        // 自顶向下弹到目标之上，逐个清理离开登记与构造器。
+        while (stack.size > idx + 1) {
+            val gone = stack.removeAt(stack.size - 1)
+            val goneLegacy = NavKeyCodec.toLegacy(gone)
+            PageStack.fireLeaveFor(gone)
+            if (goneLegacy != null) {
+                buildersOf(act).remove(goneLegacy)
+            }
+        }
+        // 【同一帧生效】一次弹掉多层后，交互权立刻回到目标那一层。
+        com.dollhouse.app.ui.compose.LayerGate.refresh(act)
+        return true
+    }
 
     /**
      * 原地重建栈顶（key 不变、只换内容）—— 复刻旧 [PageStack.replaceTop] 语义。
@@ -585,6 +718,9 @@ object NavHost {
         val topLegacy = NavKeyCodec.toLegacy(stack[stack.size - 1]) ?: return false
         buildersOf(act)[topLegacy] = build
         revisionOf(act).value = revisionOf(act).value + 1
+        // 【同一帧生效】原地重建后栈深不变，但栈顶那一层的内容已换，
+        //   重算一次保证「新内容立即可交互、旧内容立即失效」。
+        com.dollhouse.app.ui.compose.LayerGate.refresh(act)
         return true
     }
 
@@ -601,6 +737,8 @@ object NavHost {
             return false
         }
         stack[stack.size - 1] = key
+        // 【同一帧生效】栈顶换人，交互权跟着换。
+        com.dollhouse.app.ui.compose.LayerGate.refresh(act)
         return true
     }
 

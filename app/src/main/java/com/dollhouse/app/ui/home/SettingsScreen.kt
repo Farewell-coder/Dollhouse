@@ -246,10 +246,14 @@ object SettingsScreen {
     @Composable
     private fun DollCard(act: MainActivity) {
         DhKit.Card(collapsibleTitle = "人偶", titleIcon = Icons.IC_USERS) {
-            // 人偶管理入口：人偶列表 + 启停 + 编辑都在独立页里。
-            DhKit.ValueRow(label = "自定义人偶", value = "›") {
-                DollListScreen.open(act)
-            }
+            // 【本轮·删重复入口】原「自定义人偶」（ValueRow，值显示 "›"）与下方
+            //   「管理人偶」（ActionRow，带图标与说明）**指向同一个页面** `DollListScreen.open`，
+            //   两个入口功能完全重复，用户要求保留第二个、删掉第一个。
+            //   【为什么留 ActionRow 那个】它带图标、带副标题（封面、动作、启停、删除），
+            //   信息量更高，且与设置页其它卡片的行样式一致（ValueRow 只有「标签 + ›」）。
+            //   【为什么不连带删别的东西】`DollListScreen.open` 还有别的调用方
+            //   （首页人偶页、通知入口等），所以只删这一行 UI，不碰目标页面。
+            //
             // 【r14·需求 4b】「管理人偶」从人偶页底部**搬到这里**。
             //   用户定案原文：「不要了 从设置的人偶下级进」——
             //   人偶页每一行都要用来展示角色（QQ 联系人形态），

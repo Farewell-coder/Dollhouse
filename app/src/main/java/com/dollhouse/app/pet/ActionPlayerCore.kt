@@ -7,6 +7,9 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.ActionScale
+import com.dollhouse.app.data.ActionWorkbench
+import com.dollhouse.app.data.BodyBaseline
 import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.pet.render.Engine
 import com.dollhouse.app.pet.render.PetDisplayHost
@@ -65,7 +68,59 @@ class ActionPlayerCore(
         )
     },
     /** 宿主提供者（Lottie / 动图引擎要 attach 到宿主才能自绘）。 */
-    private val hostProvider: () -> PetDisplayHost? = { null }
+    private val hostProvider: () -> PetDisplayHost? = { null },
+    /**
+     * **【v0.1.0】**本体基准矩形提供者（相对画布的比例 `[l, t, r, b]`）。
+     *
+     * 【为什么由外面注进来】「本体在哪」是烘帧那条链算出来的（`AnimBaker.baseline`），
+     *   而播放层不依赖数据层 —— 注入一个查询函数，两边都不必知道对方。
+     *
+     * 【返回 null 的含义】这个动作没有基准（用户自己导入的帧、或旧版烘的帧）：
+     *   此时回退成「整张画布铺满」，与改造前一致。
+     */
+    private val baselineProvider: (String) -> FloatArray? = { null },
+    /**
+     * **【v0.1.0·贴边姿态】**贴边倾斜角（度），由宿主注入（读 `PetView.lean`）。
+     *
+     * ## 为什么姿态必须在这里施加
+     *
+     * `PetView.onDraw` 里「有动作在播」这条分支是**先 return、后做变换**的：
+     * ```
+     * if (act != null && act.hasContent()) { act.draw(canvas); return }   // ← 在这里就走了
+     * ... mesh() / PetTransform.build(lean = lean) ...                    // ← 永远到不了
+     * ```
+     * 于是 `setEdgePeek()` 设的 `lean = ±25°` 对**几何包围盒**生效（窗口宽高由
+     *   `computeBox` 按 lean 算外接框），却**从不作用到动作画面上**。
+     *
+     * 这一条直接决定贴边帧该怎么画：既然运行时不存在「系统层帮你歪」这回事，
+     *   帧里若也不画倾斜，贴边的人偶就是**笔直**的；而早期版本为了让画面看起来歪，
+     *   把 `25° × sin(πt)` 画进了帧里 —— 那又变成「站直 → 歪下 → 站直」，
+     *   因为正弦包络首末帧为 0。这正是用户说的「反复进出贴边」。
+     *
+     * 正确做法：**姿态恒定、由这一层按角度旋转整幅画面**，帧序列只负责
+     *   「悬着时的生命感」（呼吸 / 摆发 / 偶尔眨眼），两者不再互相冒充。
+     *
+     * @return 0 表示不旋转（非贴边）。非 0 时以「画面水平中心 + 画面底边」为轴旋转，
+     *   与窗口 `computeBox` 的外接框口径同源，倾斜后不会顶出窗口。
+     */
+    private val leanProvider: () -> Float = { 0f },
+    /**
+     * **【工作台·锚点与适配】**某个动作的显示设置（锚点 / 适配方式 / 内容偏移）。
+     *
+     * ## 为什么由宿主注入而不是直接读数据层
+     *
+     * 播放层不依赖「设置在哪个 SharedPreferences 里」这件事 —— 它只需要知道
+     * 「这个动作的画面该怎么摆」。注入一个查询函数后：
+     * · 单测里可以塞假的显示设置，不需要 Context；
+     * · 将来设置来源换成数据库 / 远程，这里一行都不用改。
+     *
+     * ## 为什么返回 null 表示「默认」
+     * 绝大多数动作都没有单独设置过（[ActionWorkbench.setDisplay] 在等于默认值时会删键）。
+     * 返回 null 让绘制路径**完全跳过**这一段计算，与改造前逐像素一致。
+     *
+     * @return null = 用默认（底部居中 / 按统一尺寸适配 / 无偏移）
+     */
+    private val displayProvider: (String) -> ActionWorkbench.ActionDisplay? = { null }
 ) {
 
     private companion object {
@@ -85,6 +140,7 @@ class ActionPlayerCore(
 
     private val ui = Handler(Looper.getMainLooper())
 
+
     /** 自解码的帧序列（`sprite` 引擎用）。 */
     private var frames: List<Bitmap> = emptyList()
 
@@ -97,8 +153,24 @@ class ActionPlayerCore(
 
     private var fps = DollAnim.FPS_DEFAULT
     private var loop = true
-    private var frameIdx = 0
-    private var lastStepMs = 0L
+    /**
+     * 帧推进器（**纯算术，可 JVM 单测**，见 [ActionFrameClock]）。
+     *
+     * 【v0.1.0·修·节奏漂移】原来这里自己维护 `frameIdx` + `lastStepMs`，
+     *   判据是「`nowMs - lastStepMs >= step` → `lastStepMs = nowMs` → `frameIdx++`」。
+     *   由于帧循环按固定 16ms 排队而 step = 1000/fps 不是 16 的整数倍，
+     *   每帧都会丢掉 0~16ms 余数，误差单向累积：一段 2 秒的 12fps 循环动作整体慢近 20%。
+     *   现在交给 [ActionFrameClock]（绝对基准 + 整除，余数留在基准里），
+     *   并且与 `DollAnimPage` 预览播放器同口径 —— 预览看到的节奏就是桌面播出的节奏。
+     */
+    private val clock = ActionFrameClock(
+        fpsProvider = { fps },
+        loopProvider = { loop }
+    )
+    /** 当前显示帧号（读时钟，保留旧字段名以少改调用点）。 */
+    private var frameIdx: Int
+        get() = clock.frame
+        set(v) = clock.seek(v, frames.size)
     private var playing = false
     private var disposed = false
 
@@ -114,6 +186,41 @@ class ActionPlayerCore(
 
     /** 目标绘制区（等比缩放居中）。 */
     private val dst = Rect()
+
+
+    /**
+     * **【v0.1.0】**当前动作的「本体基准矩形」（相对画布比例），null = 没基准。
+     *
+     * 【为什么必须按动作取】每个动作的帧图画布尺寸不同，本体占画布的比例也不同。
+     *   播放层用它把「人偶本体」映射到窗口 —— 这才是「所有动作一样大」的判据。
+     */
+    private var baseline: FloatArray? = null
+
+    /**
+     * **【工作台】**当前动作的显示设置（锚点 / 适配 / 偏移），null = 默认。
+     *
+     * 【为什么缓存在这里而不是每帧去问】`draw` 每秒执行 12~30 次，
+     *   而 SharedPreferences 读字符串（还要 JSON 解析）放在绘制路径里是明显的浪费；
+     *   显示设置只在 [play] 时随动作变一次。
+     */
+    private var display: ActionWorkbench.ActionDisplay? = null
+
+    /**
+     * **【v0.1.0】**基准缩放的缓存（避免逐帧重算带来的取整抖动）。
+     *
+     * 【何时失效】帧图的宽高变了（换动作 / 重新导入 / 重新烘帧）时，
+     *   [draw] 里会自然重算；窗口尺寸变了则由 `PetView` 调 [resetScale]。
+     */
+    // 【尺寸标准化】改造前这里缓存「按当前动作算出的缩放」。
+    //   按高度换算后尺度只由帧高决定，且 [ActionScale] 是纯函数，缓存不再必要，
+    //   顺带消除了「换动作忘了失效缓存」这类隐患（需求 5.4）。
+
+    /** 让缩放缓存失效（窗口尺寸 / 人偶比例变化时由宿主调用）。 */
+    fun resetScale() {
+        // 【尺寸标准化】换算已改为纯函数（[ActionScale.place]），不再持有缩放缓存，
+        //   这里只保留调用点语义：参数变化时让宿主重画一帧。
+        //   留着空实现是为了不动 [com.dollhouse.app.pet.PetView.setScaleFactor] 等调用方。
+    }
 
     /** 一次播放结束时回调（非循环动作播完 / 循环动作被 stop）。 */
     var onFinish: (() -> Unit)? = null
@@ -133,11 +240,26 @@ class ActionPlayerCore(
         }
         generation++
         clearContent()
+        // 换动作：帧图宽高可能变了，缩放缓存必须失效。
+        resetScale()
+        // 换动作：本体基准也属于「上一个动作」，必须重新取。
+        // 【本轮·导入帧也要有基准】取基准的优先级：
+        //   ① 动作自己带的（用户导入帧组时算出来的，`FrameScope.computeBaseline`）；
+        //   ② 烘帧记录（内置动作，`AnimBaker.baseline`）。
+        //   顺序不能反：内置动作两处都可能有值，动作自带的那份是「这套帧真正的框」，
+        //   烘帧记录是按 actionId 存的、同一 id 被重新导入过就会过期。
+        baseline = BodyBaseline.Box.decode(action.baseline)?.let {
+            floatArrayOf(it.left, it.top, it.right, it.bottom)
+        } ?: baselineProvider(action.id)
+        // 【工作台】取这个动作的显示设置（锚点 / 适配 / 偏移）。
+        //   null 或全默认都按旧行为画，所以没设置过的动作与改造前逐像素一致。
+        display = displayProvider(action.id)?.takeIf { !it.isDefault() }
         actionId = action.id
         fps = DollAnim.clampFps(action.fps)
         loop = action.loop
-        frameIdx = 0
-        lastStepMs = 0L
+        // 【v0.1.0】重置帧时钟：不归零的话，切换动作后第一帧会用上一个动作
+        //   残留的游标，表现为「点了动作却从中间某帧开始」。
+        clock.reset()
         playing = true
 
         val engine = action.engine
@@ -222,8 +344,9 @@ class ActionPlayerCore(
                     Logs.w(TAG, "全部帧解码失败，动作无法播放：" + actionId)
                     playing = false
                 } else {
-                    lastStepMs = 0L
-                    frameIdx = 0
+                    // 【v0.1.0】帧图就绪后重新起表：解码期间帧循环没在推进，
+                    //   基准若沿用旧值会让第一帧立刻被判定「已经过很久」而跳过。
+                    clock.reset()
                 }
                 requestDraw()
             }
@@ -241,28 +364,39 @@ class ActionPlayerCore(
             return
         }
         val n = frames.size
-        if (n <= 1) {
+        if (n <= 0) {
             return
         }
-        if (lastStepMs == 0L) {
-            lastStepMs = nowMs
+        // 【B8 修复】单帧动作必须也能「播完」。
+        //
+        // 【原来的坑】这里原本是 `if (n <= 1) return`，把单帧动作整个跳过了。
+        //   对**循环**动作没问题（一帧就是静止画面，本来也不该结束），
+        //   但对**非循环**动作是致命的：单帧动作在第 0 帧就已经是末帧，
+        //   可它永远走不到下面 `clock.isAtEnd(n)` 那一句 ——
+        //   于是 `playing` 永远是 true、`onFinish` 永远不回调。
+        //
+        // 【用户看到的症状】动作停在那张静止图上再也不结束；更糟的是仲裁层
+        //   一直以 PLAYING 记账，`onActionFinished` 不触发 → 不回落待机档，
+        //   后续的待机/随机请求全被「当前还在播」挡掉，人偶就像被冻住了。
+        //
+        // 【单帧从哪来】① 用户导入单张图片（`AnimImport` 就产 1 帧）；
+        //   ② 用户在详情页把帧删到只剩 1 帧（产品明确允许）。
+        //
+        // 【修复口径】单帧且非循环 → 立刻视为播完。单帧且循环 → 维持静止（原行为）。
+        if (n == 1) {
+            if (!loop) {
+                playing = false
+                onFinish?.invoke()
+            }
             return
         }
-        val step = DollAnim.frameMs(fps)
-        if (nowMs - lastStepMs < step) {
-            return
-        }
-        lastStepMs = nowMs
-        if (frameIdx + 1 < n) {
-            frameIdx++
+        // 帧号推进交给纯算术时钟：绝对基准 + 整除，余数不丢，掉帧能自动追上。
+        if (clock.advance(nowMs, n)) {
             requestDraw()
-        } else if (loop) {
-            frameIdx = 0
-            requestDraw()
-        } else {
+        }
+        if (clock.isAtEnd(n)) {
             // 非循环动作停在最后一帧，并通知上层（交互结束 → 回落到待机档）。
             playing = false
-            requestDraw()
             onFinish?.invoke()
         }
     }
@@ -300,6 +434,9 @@ class ActionPlayerCore(
             return
         }
         playing = false
+        // 【v0.1.0】暂停时清掉帧时钟基准：恢复后由 [tick] 重新起表。
+        //   否则暂停 10 秒再恢复，第一帧会瞬间跳到「已经过 10 秒」的位置。
+        clock.rebase()
         renderer?.pause()
     }
 
@@ -355,6 +492,20 @@ class ActionPlayerCore(
      * 【为什么用「等比缩放 + 居中」而不是拉伸铺满】用户导入的动作图
      *   宽高比各不相同；拉伸会让圆脸的人偶看起来被压扁。
      *   居中留白比变形好 —— 这也是 `LottieRenderer` 的口径，两处保持一致。
+     *
+     * ## 【v0.1.0·修「动作大小不一」】真正的一致性来自「共用画布」
+     *
+     * 改造前是 `scale = min(cw/bw, ch/bh)`：**每一套帧各自铺满窗口**。
+     * 于是内容占画面比例小的那套（例如呼吸：画布几乎就是人偶本身）被放大到铺满，
+     * 内容占比例大的那套（跳跃：画布要容纳腾空）反而被缩小 ——
+     * 同一只人偶在不同动作下大小差一大截，这就是用户报的「有些动作大、有些动作小」。
+     *
+     * 根治落在烘帧那条链上：内置动作现在**共用一张基准画布**（见 `AnimBaker.sharedBounds`），
+     * 宽高比与像素尺寸一起统一，于是这里的 `min(...)` 每套都算出同一个值。
+     * 本方法只额外做两件事：
+     * 1. **缓存基准缩放** —— 同一套帧的宽高不变时直接复用，避免逐帧重算的取整抖动
+     *    （那会表现为 1px 上下的呼吸感）；
+     * 2. 换动作 / 改比例时由调用方 `resetScale()` 失效缓存。
      */
     fun draw(canvas: Canvas) {
         if (disposed) {
@@ -362,6 +513,17 @@ class ActionPlayerCore(
         }
         val r = renderer
         if (r != null) {
+            // 【v0.1.0·贴边姿态】非帧序列引擎（Lottie / 动图）走同一套姿态口径。
+            //   三类引擎共用「贴边 = 整幅画面绕底边中点倾斜」这一个定义，
+            //   用户换引擎不该看到「贴边姿态忽然失效」。
+            val leanR = leanProvider()
+            if (leanR != 0f) {
+                canvas.save()
+                canvas.rotate(leanR, canvas.width / 2.0f, canvas.height.toFloat())
+                r.draw(canvas)
+                canvas.restore()
+                return
+            }
             r.draw(canvas)
             return
         }
@@ -384,16 +546,120 @@ class ActionPlayerCore(
         if (bw <= 0 || bh <= 0) {
             return
         }
-        val scale = Math.min(cw.toFloat() / bw, ch.toFloat() / bh)
-        val dw = Math.round(bw * scale)
-        val dh = Math.round(bh * scale)
-        val left = (cw - dw) / 2
-        val top = (ch - dh) / 2
-        dst.set(left, top, left + dw, top + dh)
+        // 【尺寸标准化·唯一尺子】按「本体**高度**」映射，模板方法见 [ActionScale.place]。
+        //
+        // 【为什么不再用宽度】改造前这里是 `scale = cw / 本体宽px`。
+        //   一套动作里只要有一帧手臂外伸 / 披风张开，整组包围盒就被撑宽 →
+        //   尺度变小 → 这套动作播起来人偶整体**变小**。这正是需求书
+        //   第五条第 3/4/9 点与第九条重点验收明令禁止的「换动作大小跳变」。
+        //   人偶的视觉大小由身高决定，姿态变化主要改宽度 —— 所以主尺换成高度。
+        //
+        // 【为什么不再缓存 baseScale】缓存本身没错，但缓存的是「按当前动作算出来的值」；
+        //   需求 5.4 明确「不允许动作切换时根据当前帧内容边界反复计算基础缩放」。
+        //   现在尺度是 ch / 本体高，同一套帧恒为定值、换帧换动作都不需要重算 ——
+        //   纯算术交给 [ActionScale]，这里只做一次矩形落地。
+        val box = ActionScale.place(cw, ch, bw, bh, baseline)
+        if (box == null) {
+            return
+        }
+        dst.set(box[0], box[1], box[2], box[3])
+        val hasBl = ActionScale.valid(baseline)
+        val bl = baseline
+        // 【工作台】叠加显示设置（锚点 / 适配 / 偏移）。
+        //
+        // 【为什么放在基准之后】见上面：基准 = 「底部居中 + 统一尺寸」，
+        //   用户选其它锚点就是在这个基准上重新摆放，于是「选底部居中」与
+        //   「从没设置过」必然得到同一张画面 —— 不会因为进过一次编辑器而位移。
+        val dsp = display
+        if (dsp != null) {
+            if (dsp.fit == ActionWorkbench.FIT_CONTAIN) {
+                // 「整张画布塞进窗口并留边」：不按本体基准，按画布自身等比缩到窗口内。
+                val s2 = Math.min(cw.toFloat() / bw, ch.toFloat() / bh)
+                val dw2 = Math.round(bw * s2)
+                val dh2 = Math.round(bh * s2)
+                val l2 = (cw - dw2) / 2
+                val t2 = (ch - dh2) / 2
+                dst.set(l2, t2, l2 + dw2, t2 + dh2)
+            }
+            applyAnchor(dsp.anchor, cw, ch, if (dsp.fit == ActionWorkbench.FIT_CONTAIN) false else hasBl, bl)
+            // 偏移：按窗口尺寸换算成像素（与 `DollProfile.frameOffset` 同一口径，
+            //   都是「占窗口宽高的比例」，所以界面上看到的位移 = 桌面上的位移）。
+            if (dsp.ox != 0f || dsp.oy != 0f) {
+                val dx = Math.round(dsp.ox * cw)
+                val dy = Math.round(dsp.oy * ch)
+                dst.offset(dx, dy)
+            }
+        }
+        // 【v0.1.0·贴边姿态】把恒定倾斜施加在整幅动作画面上。
+        //
+        // 旋转轴取「画面水平中心 × 画面底边」：贴边的人偶是**脚在屏外、身子探进来**，
+        //   以底边为轴转，倾斜只会让上半身向屏幕外侧倒，不会把人偶整体顶出窗口。
+        //   窗口宽高本就由 `PetView.computeBox` 按 `lean` 算出外接框（见 boxAt 的
+        //   四点旋转取 min/max），所以这里转多少，窗口就留了多少余量。
+        //
+        // 只在 lean != 0 时才 save/restore：非贴边路径与改造前**逐像素一致**。
+        val lean = leanProvider()
+        if (lean != 0f) {
+            val cx = cw / 2.0f
+            val cy = ch.toFloat()
+            canvas.save()
+            canvas.rotate(lean, cx, cy)
+            canvas.drawBitmap(bmp, null, dst, null)
+            canvas.restore()
+            return
+        }
         canvas.drawBitmap(bmp, null, dst, null)
     }
 
     // ============================ 内部 ============================
+
+    /**
+     * 按锚点重新摆放 [dst]。
+     *
+     * 【锚的是什么】有本体基准时锚「本体」（人偶自己的包围盒），没有时锚「整张画布」。
+     *   因为用户眼里的「人偶底部」是脚底，而不是画布里那片留白 ——
+     *   若锚画布底边，选「底部居中」时人偶会悬在窗口中间，看起来像没生效。
+     *
+     * 【为什么默认锚点等于什么都不做】[ActionWorkbench.ANCHOR_BOTTOM_CENTER] 是
+     *   「本体水平居中 + 底边贴窗口底」，正好是 [draw] 里的基准摆放。
+     *   这里直接 return，保证「没设置」与「设成默认」是同一张画面。
+     */
+    private fun applyAnchor(
+        anchor: String,
+        cw: Int,
+        ch: Int,
+        hasBl: Boolean,
+        bl: FloatArray?
+    ) {
+        if (anchor == ActionWorkbench.ANCHOR_BOTTOM_CENTER) {
+            return
+        }
+        val dw = dst.width()
+        val dh = dst.height()
+        if (dw <= 0 || dh <= 0) {
+            return
+        }
+        // 本体的相对矩形（无基准时就是整张画布 0,0,1,1）。
+        val l = if (hasBl && bl != null) bl[0] else 0f
+        val t = if (hasBl && bl != null) bl[1] else 0f
+        val r = if (hasBl && bl != null) bl[2] else 1f
+        val b = if (hasBl && bl != null) bl[3] else 1f
+        val bodyLeft = dst.left + l * dw
+        val bodyTop = dst.top + t * dh
+        val bodyRight = dst.left + r * dw
+        val bodyBottom = dst.top + b * dh
+        // 需要把本体挪到哪里（dx / dy 是整体的平移量）。
+        val dx: Float = when (anchor) {
+            ActionWorkbench.ANCHOR_BOTTOM_LEFT -> -bodyLeft
+            ActionWorkbench.ANCHOR_BOTTOM_RIGHT -> cw - bodyRight
+            else -> cw / 2f - (bodyLeft + bodyRight) / 2f
+        }
+        val dy: Float = when (anchor) {
+            ActionWorkbench.ANCHOR_CENTER -> ch / 2f - (bodyTop + bodyBottom) / 2f
+            else -> ch - bodyBottom
+        }
+        dst.offset(Math.round(dx), Math.round(dy))
+    }
 
     private fun clearContent() {
         val r = renderer
@@ -407,8 +673,10 @@ class ActionPlayerCore(
         renderer = null
         recycleAll(frames)
         frames = emptyList()
-        frameIdx = 0
-        lastStepMs = 0L
+        baseline = null
+        display = null
+        resetScale()
+        clock.reset()
     }
 
     /**

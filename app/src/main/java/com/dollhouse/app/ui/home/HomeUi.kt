@@ -135,7 +135,14 @@ object HomeUi {
         try {
             val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
             content.removeAllViews()
-            val host = android.widget.FrameLayout(activity)
+            // 【r21·框架级】底座三层（Tab）+ 底栏 + 抽屉全部包进 [LayerShield]。
+            //   【为什么必须在层根包一层】触摸屏蔽只能在 ViewGroup 的 dispatchTouchEvent 上做；
+            //   给层根改 isClickable / 挂 OnTouchListener 是无效做法
+            //   （ViewGroup 先把事件发给子 View，子按钮命中就消费了，根本轮不到自己）。
+            //   详见 [com.dollhouse.app.ui.compose.LayerShield] 的类注释。
+            //   【为什么这层是「三 Tab 的公共外壳」】三个 Tab 同属 BASE 态，
+            //   共用一个闸门即可，不必各包一层。
+            val host = com.dollhouse.app.ui.compose.LayerShield(activity)
             // 【顺序即层级】聊天 → 人偶 → 主页 → 底栏：后加的盖在上面。
             val chat = ChatListScreen.buildPage(activity)
             chat.tag = TAG_CHAT
@@ -146,13 +153,41 @@ object HomeUi {
             host.addView(chat)
             host.addView(contact)
             host.addView(home)
+            // 【底座层的边缘右滑】只在这一层启用：主页右滑打开抽屉。
+            //   · 起手区左边界 = 系统手势区右缘 + 呼吸间距 → 不与系统「返回」手势抢；
+            //   · 起手区右边界 = 左边界 + 32dp → 只在屏幕左侧起手才算，页面中间横滑不受影响。
+            //   【为什么在底座而不是整个 content】覆盖页有自己的左边缘返回手势，
+            //   两处同时开必然互相抢。
+            host.edgeSwipeEnabled = true
+            host.edgeMargin = dp(activity, 8f)
+            host.edgeWidth = dp(activity, 32f)
+            host.onSwipeStart = {
+                // 手势认主的瞬间就让抽屉参与渲染（progress 从 0 起，跟手推进）。
+                ProfileDrawer.beginDrag()
+            }
+            host.onSwipeMove = { dx ->
+                ProfileDrawer.dragTo(dx / dp(activity, 300f))
+            }
+            host.onSwipeEnd = { dx, _ ->
+                // 位移超过面板 1/3 就打开，否则收起（与点遮罩 / 点头像同一收尾逻辑）。
+                ProfileDrawer.dragTo(dx / dp(activity, 300f))
+                ProfileDrawer.settleByPosition()
+            }
             content.addView(host)
             // 【底栏】必须最后加：它是 content 的直接子（不放进 host），
             //   这样它盖在整块页面区之上，且自身的 navigationBarsPadding 能正确取到 insets。
             //   【为什么不放进 host】host 里三个页面会做 translateX 转场，底栏跟着位移会很怪。
             val bar = buildBar(activity)
             bar.tag = TAG_BAR
-            content.addView(bar)
+            // 【底栏也包一层闸门】它属于 BASE 态：抽屉/覆盖页出来时必须一起暂停，
+            //   否则「点抽屉空白处」会落到它身上（旧 bug 的另一半）。
+            //   【为什么闸门高度用 wrap_content + 底对齐】底栏是「浮在内容之上且不占布局高度」的，
+            //   只有这样才保持「只有那条胶囊挡触摸、其余区域让给下面页面」的原有手感。
+            val barShield = com.dollhouse.app.ui.compose.LayerShield(activity)
+            barShield.addView(bar, android.widget.FrameLayout.LayoutParams(-1, -2))
+            val barLp = android.widget.FrameLayout.LayoutParams(-1, -2)
+            barLp.gravity = android.view.Gravity.BOTTOM
+            content.addView(barShield, barLp)
             // 【r14·我的资料抽屉】必须**最后**加：它要盖住三页与底栏。
             //   为什么常驻：抽屉自身 `if (!opened) return` 空转，代价只是一个空 ComposeView；
             //   换来的好处是点头像时零挂载延迟（现挂会有一帧空白）。
@@ -160,12 +195,30 @@ object HomeUi {
                 ProfileDrawer.Host(activity)
             }
             drawer.tag = TAG_PROFILE
-            // 【命中区】抽屉关闭时它只是一层空 Box，必须**不消费触摸**，
-            //   否则点哪都被它吃掉、三个 Tab 与底栏全部失灵。
-            //   ComposeView 默认 clickable=false，但显式写一遍更稳（日后有人给它加背景也不会误伤）。
-            drawer.isClickable = false
-            drawer.isFocusable = false
-            content.addView(drawer)
+            // 【r21·框架级】抽屉这层也包一层闸门。
+            //   改造前这里是「把宿主 View 的 isClickable 交给 ProfileDrawer 自己镜像」，
+            //   那是派生状态，重挂或某条路径漏同步就会脱节（用户报过的「看得见点不动」）。
+            //   现在由 [LayerGate] 单点判定：抽屉关闭时整层屏蔽、打开时整层放行。
+            val drawerShield = com.dollhouse.app.ui.compose.LayerShield(activity)
+            drawerShield.addView(
+                drawer,
+                android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            drawerShield.isClickable = false
+            drawerShield.isFocusable = false
+            drawerShield.blocking = true
+            // 登记宿主，供 [ProfileDrawer] 开合后通知 gate 重算。
+            ProfileDrawer.bindHost(activity)
+            content.addView(
+                drawerShield,
+                android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
             // 【r17·导航迁移】装上 Navigation 3 渲染层（覆盖层页面栈）。
             //   【层级】必须放在底座与抽屉**之后** —— 后加的盖在上面，故覆盖层在最顶。
             //   这符合预期语义「覆盖页独占屏幕」：栈非空时它盖住三个 Tab、底栏与抽屉。
@@ -176,6 +229,13 @@ object HomeUi {
             //   而聊天列表页属于底座；覆盖页开着时用户根本看不到那个入口，
             //   两者不会同时需要交互，无需把抽屉提到最顶。
             com.dollhouse.app.ui.nav.NavHost.install(activity)
+            // 【r21】登记四层到 [LayerGate] 并立刻判定一次。
+            //   必须在 NavHost.install 之后：它自己会创建 NAV 层的外壳并登记。
+            val layers = com.dollhouse.app.ui.compose.LayerGate.layersOf(activity)
+            layers.base = host
+            layers.bar = barShield
+            layers.drawer = drawerShield
+            com.dollhouse.app.ui.compose.LayerGate.refresh(activity)
             sync(activity)
             // 【路由恢复】冷启动进「上次停留的 Tab」；第一次启动时偏好里没有记录，
             //   [AppNav] 会落到默认值（聊天），即需求要求的「默认页面改为聊天列表」。
@@ -211,6 +271,11 @@ object HomeUi {
         }
         wrap.addView(cv, android.widget.FrameLayout.LayoutParams(-1, -2))
         return wrap
+    }
+
+    /** dp → px 的局部换算（装配期用，避免每处都写 UiKit.dp）。 */
+    private fun dp(act: Activity, v: Float): Float {
+        return v * act.resources.displayMetrics.density
     }
 
     /** 把覆盖层全部弹掉（切 Tab 用）。 */

@@ -229,10 +229,11 @@ object UiKit {
     /**
      * 【r13·底栏】悬浮胶囊（底部导航栏）底色的不透明度（0~255）。
      *
-     * 【为什么两处底栏必须共用这一个数】工程里有两处悬浮胶囊底栏：人偶编辑页的
-     *   「控制 / 活动 / 人格」（Compose 的 `DhKit.NavBar`）与供应商详情页的
-     *   「配置 / 模型」（View 的 `GlassCapsule`）。用户报过「一个透明但没胶囊、一个
-     *   是胶囊但底色偏实」，要求**统一成透明胶囊**。统一的前提就是透明度只有一个来源，
+     * 【为什么两处底栏必须共用这一个数】工程里所有悬浮胶囊底栏 —— 人偶编辑页的
+     *   「控制 / 活动 / 人格」、供应商详情页的「配置 / 模型」、主界面的三 Tab ——
+     *   现在**都走 Compose 的 `DhKit.NavBar`**（r21 起供应商详情页也统一过来了，
+     *   原先手写的 View 版 `GlassCapsule` 底栏已下线）。用户报过「一个透明但没胶囊、
+     *   一个胶囊但底色偏实」，要求**统一成透明胶囊**。统一的前提是透明度只有一个来源，
      *   各写各的必然再次分叉。
      *
      * 【为什么是 0x40（约 25%）】要求是「胶囊外形 + 透明（磨砂）底色 + 选中项高亮」：
@@ -860,44 +861,83 @@ object UiKit {
         press(b)
     }
 
-    /** 按压反馈：按下缩到 0.97，抬起回弹。 */
+    /** 按压反馈：按下缩到 0.96，抬起回弹。 */
     @JvmStatic
     fun press(v: View) {
+        // 【本次修复·连击抖动】弹簧句柄必须挂在视图上并按视图取消。
+        //   改造前每次抬起都新建一个 bouncy 弹簧、且不保存句柄：
+        //   连点时上一个弹簧还在跑，新弹簧从 0.96 重新起跳 —— 两套进度叠加，
+        //   表现为「手指还在按、按钮却先自己弹回去了」。
+        //   现在：① 按下时取消上一个弹簧；② 回弹起点取**当前实际缩放**
+        //   （可能是 0.96，也可能是上一段回弹的中间值），从当前位置接着弹，视觉连续。
         v.setOnTouchListener { view, e ->
             val a = e.actionMasked
             if (a == MotionEvent.ACTION_DOWN) {
                 // 【坑】不可点的行收不到 ACTION_UP：View 不消费 DOWN，后续事件就不会再派发回来，
-                //   缩放会一直停在 0.97 再也回不去（表现就是「点一下之后按钮一直缩着」）。
+                //   缩放会一直停在 0.96 再也回不去（表现就是「点一下之后按钮一直缩着」）。
                 //   所以不可点时不播按压动画，直接放行。
                 if (!view.isClickable) {
                     return@setOnTouchListener false
                 }
+                // 取消上一段回弹（它可能在 finger up 后又立刻被按下）。
+                val prev = pressSpringMap[view]
+                if (prev != null) {
+                    prev.cancel()
+                    pressSpringMap.remove(view)
+                }
+                view.animate().cancel()
                 view.animate().scaleX(0.96f).scaleY(0.96f)
                     .setDuration(D_PRESS.toLong())
                     .setInterpolator(EASE_STD).start()
             } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
                 // 【弹簧】松手那一下用 bouncy（ζ=0.40）弹回，按下仍用 EASE_STD 保持跟手。
                 view.animate().cancel()
-                Springs.drive(Springs.bouncy(), object : Springs.Listener {
-                    override fun onUpdate(p: Float) {
-                        val s = Springs.lerp(0.96f, 1.0f, p)
-                        view.scaleX = s
-                        view.scaleY = s
-                    }
-
-                    override fun onEnd() {
-                        view.scaleX = 1f
-                        view.scaleY = 1f
-                    }
-                })
+                val h = startPressBack(view)
+                if (h != null) {
+                    pressSpringMap[view] = h
+                }
             }
             false
         }
     }
 
+
+    /**
+     * 从视图**当前实际缩放**弹回 1.0。抽出来给 [press] 与 [Unpress] 复用。
+     */
+    @JvmStatic
+    fun startPressBack(v: View): Springs.Handle? {
+        val from = v.scaleX
+        if (Math.abs(from - 1f) < 0.002f) {
+            v.scaleX = 1f
+            v.scaleY = 1f
+            return null
+        }
+        return Springs.drive(Springs.bouncy(), object : Springs.Listener {
+            override fun onUpdate(p: Float) {
+                val s = Springs.lerp(from, 1.0f, p)
+                v.scaleX = s
+                v.scaleY = s
+            }
+
+            override fun onEnd() {
+                v.scaleX = 1f
+                v.scaleY = 1f
+            }
+        })
+    }
+
     /**
      * 卡片展开 / 收起：高度动画 + 箭头旋转 90°。
      * 收起态 height=0（不用 GONE，免得布局跳），展开结束回到 WRAP_CONTENT。
+     *
+     * 【本次修复·连点错乱】改造前两个动画（高度 ValueAnimator、箭头弹簧）都是**裸启动**：
+     *   · 连点两次「展开-收起」，两个高度动画同时在改同一个 layoutParams.height，
+     *     后一个的 onAnimationEnd（把高度还原成 WRAP_CONTENT 或 0）会**盖掉**前一个的结果 ——
+     *     表现是「点开却是个空壳」或「收起了还留着一条缝」；
+     *   · 箭头弹簧起跳起点取 `arrow.rotation`（即当时的值，没问题），但没取消上一段，
+     *     两段波形叠加会来回抽。
+     *   现在两者都存句柄并在新动画前取消；箭头为空也不再 new 出一个空 Listener 白跑。
      */
     @JvmStatic
     fun expand(body: View, arrow: View?, open: Boolean) {
@@ -919,41 +959,63 @@ object UiKit {
         val full = Math.max(1, body.measuredHeight)
         val from = Math.max(0, body.height)
         val to = if (open) full else 0
-
+        // 取消上一段高度动画（它可能是反向的那一次）。
+        val prevH = expandAnimMap[body]
+        if (prevH != null && prevH.isRunning) {
+            prevH.cancel()
+        }
         val va = ValueAnimator.ofInt(from, to)
         va.duration = D_LAYER.toLong()
         va.interpolator = EASE_STD
         va.addUpdateListener { an ->
             val h = an.animatedValue as Int
-            val lp = body.layoutParams
+            val lp = body.layoutParams ?: return@addUpdateListener
             lp.height = h
             body.layoutParams = lp
             body.alpha = Math.min(1f, h.toFloat() / full)
         }
         va.addListener(object : AnimatorListenerAdapter() {
             override fun onAnimationEnd(an: Animator) {
-                val lp = body.layoutParams
+                expandAnimMap.remove(body)
+                val lp = body.layoutParams ?: return
                 lp.height = if (open) ViewGroup.LayoutParams.WRAP_CONTENT else 0
                 body.layoutParams = lp
                 body.alpha = if (open) 1f else 0f
             }
         })
+        expandAnimMap[body] = va
         va.start()
         if (arrow != null) {
             // 【弹簧】箭头旋转同样走 snappy，与卡片高度动画同节奏。
+            // 【本次修复】上一段箭头弹簧必须先取消，否则两段波形叠加来回抽。
+            val prevA = arrowAnimMap[arrow]
+            if (prevA != null) {
+                prevA.cancel()
+                arrowAnimMap.remove(arrow)
+            }
             val fromRot = arrow.rotation
             val toRot = if (open) 90f else 0f
-            Springs.drive(Springs.snappy(), object : Springs.Listener {
-                override fun onUpdate(p: Float) {
-                    arrow.rotation = Springs.lerp(fromRot, toRot, p)
-                }
+            if (Math.abs(fromRot - toRot) < 0.5f) {
+                // 已经是终态（重复点同一个方向）：不动，避免无意义的一帧抖动。
+                arrow.rotation = toRot
+            } else {
+                val h = Springs.drive(Springs.snappy(), object : Springs.Listener {
+                    override fun onUpdate(p: Float) {
+                        arrow.rotation = Springs.lerp(fromRot, toRot, p)
+                    }
 
-                override fun onEnd() {
-                    arrow.rotation = toRot
+                    override fun onEnd() {
+                        arrow.rotation = toRot
+                        arrowAnimMap.remove(arrow)
+                    }
+                })
+                if (h != null) {
+                    arrowAnimMap[arrow] = h
                 }
-            })
+            }
         }
     }
+
 
     /** 入场：淡入 + 上移 8dp（错峰用 delayMs）。 */
     @JvmStatic
@@ -1002,16 +1064,26 @@ object UiKit {
      *
      * 【为何用弹簧】值变化本身是瞬时的，直接换字会显得干；
      *   一次 1.0 → 1.06 → 1.0 的弹回能让眼睛捕捉到「这里变了」。
+     *
+     * 【本次修复·连点闪动】改造前起点写死 1.06：脉冲还没弹回来时又调一次，
+     *   视图会**瞬间从中间值跳到 1.06** 再弹回 —— 连点两次就能看见「抽一下」。
+     *   现在起点取当前实际缩放，并从当前位置接着推；句柄挂在视图上防叠加。
      */
     @JvmStatic
     fun pulse(v: View?) {
         if (v == null) {
             return
         }
+        val prev = pulseSpringMap[v]
+        if (prev != null) {
+            prev.cancel()
+            pulseSpringMap.remove(v)
+        }
         v.animate().cancel()
-        Springs.drive(Springs.bouncy(), object : Springs.Listener {
+        val from = if (Math.abs(v.scaleX - 1f) < 0.002f) 1.06f else Math.max(1f, v.scaleX)
+        val h = Springs.drive(Springs.bouncy(), object : Springs.Listener {
             override fun onUpdate(p: Float) {
-                val s = Springs.lerp(1.06f, 1f, p)
+                val s = Springs.lerp(from, 1f, p)
                 v.scaleX = s
                 v.scaleY = s
             }
@@ -1021,7 +1093,26 @@ object UiKit {
                 v.scaleY = 1f
             }
         })
+        if (h != null) {
+            pulseSpringMap[v] = h
+        }
     }
+
+    /* ---------------- 动画句柄登记表 ----------------
+     * 【为什么不用 View.setTag(int, ...)】那要求 key 是资源 id，手写的魔法常量
+     *   一旦和某个真实资源 id 撞上，就会和业务自己在 tag 上存的东西互相覆盖，
+     *   且崩溃点离现场十万八千里。这里用 WeakHashMap：key 是视图本身，
+     *   视图被回收时条目自动掉，不存在泄漏；也让「谁的动画归谁取消」一目了然。
+     *   全部访问都在主线程（View 触摸 / 动画回调），故无需同步。
+     */
+    /** 按压回弹弹簧句柄。 */
+    private val pressSpringMap = java.util.WeakHashMap<View, Springs.Handle>()
+    /** pulse 弹簧句柄。 */
+    private val pulseSpringMap = java.util.WeakHashMap<View, Springs.Handle>()
+    /** 卡片高度动画。 */
+    private val expandAnimMap = java.util.WeakHashMap<View, ValueAnimator>()
+    /** 卡片箭头旋转弹簧句柄。 */
+    private val arrowAnimMap = java.util.WeakHashMap<View, Springs.Handle>()
 
     /** 卡片头右侧的折叠箭头：描边 chevron 图标，靠 rotation 0 ↔ 90 表示开合。 */
     @JvmStatic
@@ -1039,7 +1130,15 @@ object UiKit {
         private var onState = false
 
         /** 轨道变色动画句柄：连点时先取消上一段，避免两个动画抢同一个背景。 */
-        private var trackAnim: ValueAnimator? = null
+        private var trackAnim: Springs.Handle? = null
+
+        /**
+         * 轨道**颜色**动画句柄（与滑块位移分开持有）。
+         *
+         * 【为什么必须分开】颜色用临界阻尼 smooth、位移用 snappy，两条曲线收敛时刻不同；
+         *   共用一个句柄时，后一段动画 cancel 掉的可能是另一条，留下停在中间色的轨道。
+         */
+        private var trackColorAnim: Springs.Handle? = null
 
         init {
             setBackground(UiKit.round(UiKit.SWITCH_OFF, ctx, 999f))
@@ -1081,34 +1180,49 @@ object UiKit {
             knob.animate().cancel()
             trackAnim?.cancel()
             trackAnim = null
+            // 颜色动画是独立的一条，必须一起取消 —— 否则「快速连点」时上一段颜色还会继续改背景，
+            // 与这一段的起点色互相打架（深色主题下表现为轨道闪一下）。
+            trackColorAnim?.cancel()
+            trackColorAnim = null
             if (!animated) {
                 setBackground(UiKit.round(if (value) UiKit.ACC else UiKit.SWITCH_OFF, c, 999f))
                 knob.translationX = to
                 return
             }
             // 轨道颜色：ArgbEvaluator 逐帧插值。
-            // 【为何】原先是 setBackground(三元) 一下跳色，与滑块 180ms 的位移不同步，
-            //   看上去就是“轨道啪一下变了、滑块慢慢跟”。两者同时长同曲线才顺。
-            val from = if (value) UiKit.SWITCH_OFF else UiKit.ACC
+            // 【为何】原先是 setBackground(三元) 一下跳色，与滑块位移不同步，
+            //   看上去就是“轨道啪一下变了、滑块慢慢跟”。
             val toColor = if (value) UiKit.ACC else UiKit.SWITCH_OFF
             val ev = ArgbEvaluator()
             val fromX = knob.translationX
             val toX = to
-            // 【弹簧】轨道与滑块共用同一条弹簧进度：snappy（ζ=0.73）。
-            //   历史坑：轨道 setBackground 硬跳 + 滑块 180ms 位移，看着是「轨道啪一下变了、滑块慢慢跟」。
-            //   现在两者由同一个 progress 驱动，绝不会再脱节。
-            val ta = Springs.drive(Springs.snappy(), object : Springs.Listener {
+            // 【本次修复·轨道闪色】颜色与位移**必须拆成两条曲线**：
+            //   · 位移用 snappy（ζ=0.73）—— 允许轻微过冲，观感更「弹」；
+            //   · 颜色用 smooth（ζ=1.00）—— ArgbEvaluator 收到 >1 的进度会外插出越界色，
+            //     深色主题下（SWITCH_OFF 接近 0）越界即被夹成纯黑/纯白，肉眼就是「轨道闪一下」。
+            //   改造前两者共用同一个 snappy 进度，正是闪色的根因；
+            //   另外位移先收敛就会提前把颜色的 onEnd 一起触发，留下中间色的脏色残留。
+            //   现在轨道、滑块各持一条曲线，各自收敛，互不干扰。
+            val trackFrom = if (value) UiKit.SWITCH_OFF else UiKit.ACC
+            trackColorAnim?.cancel()
+            trackColorAnim = Springs.drive(Springs.smooth(), object : Springs.Listener {
+                override fun onUpdate(p: Float) {
+                    setBackground(UiKit.round(ev.evaluate(p, trackFrom, toColor) as Int, c, 999f))
+                }
+
+                override fun onEnd() {
+                    setBackground(UiKit.round(toColor, c, 999f))
+                }
+            })
+            trackAnim = Springs.drive(Springs.snappy(), object : Springs.Listener {
                 override fun onUpdate(p: Float) {
                     knob.translationX = Springs.lerp(fromX, toX, p)
-                    setBackground(UiKit.round(ev.evaluate(p, from, toColor) as Int, c, 999f))
                 }
 
                 override fun onEnd() {
                     knob.translationX = toX
-                    setBackground(UiKit.round(toColor, c, 999f))
                 }
             })
-            trackAnim = ta
         }
 
         /**
@@ -1150,7 +1264,7 @@ object UiKit {
         private var dragging = false
         private var downX = 0f
         private var startProg = 0f
-        private var anim: ValueAnimator? = null
+        private var anim: Springs.Handle? = null
         private var listener: OnChange? = null
 
         interface OnChange {
@@ -1194,9 +1308,14 @@ object UiKit {
                 postInvalidateOnAnimation()
                 return
             }
-            // 【丝滑】值变化时进度胶囊用同一套弹簧推过去，不做硬跳。
+            // 【本次修复·进度条越界】进度胶囊**不能用 snappy（ζ=0.73）**。
+            //   onDraw 里 `shown` 直接被当作 0..1 的进度去算像素位置：
+            //   过冲到 1.06 时胶囊会画到轨道右端外面（越过终点刻度线），回落到 0.94 时又留一截缝；
+            //   往左收到 -0.06 时胶囊会突破左端圆角。都是肉眼可见的「进度条抽一下」。
+            //   这里换成临界阻尼 smooth（ζ=1.00），保证 shown 单调不越界；
+            //   观感仍然平滑，因为弹簧的减速段本身就带缓出。
             val from = shown
-            anim = Springs.drive(Springs.snappy(), object : Springs.Listener {
+            anim = Springs.drive(Springs.smooth(), object : Springs.Listener {
                 override fun onUpdate(q: Float) {
                     shown = Springs.lerp(from, to, q)
                     postInvalidateOnAnimation()

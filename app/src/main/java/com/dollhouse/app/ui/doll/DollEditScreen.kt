@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.MainActivity
+import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
@@ -234,6 +235,43 @@ object DollEditScreen {
             iconRes = Icons.IC_HEART_HANDSHAKE,
             desc = "多久没人理她就开始休息、什么时候回来"
         ) { DollNumDialog.show(act, id, DollNumDialog.KIND_AWAY, null) }
+
+        // ---------- 【v0.1.0】随机动作开关 ----------
+        //
+        // 【为什么要在这里】用户定案：「在控制的那个界面里加一个随机动作的开关，
+        //   打开的话则会执行随机动作，关闭的话则不会」。
+        //
+        // 【为什么默认关 + 随机组为空时置灰】用户定案「不配置随机动作的时候就没有随机动作」——
+        //   一个开着的空开关只会让人以为「坏了」；置灰并说明「先去加动作」才是诚实的做法。
+        var randTick by remember(id) { mutableStateOf(0) }
+        val randOn = remember(id, randTick) { PetPrefs.randomAction(act, id) }
+        val randReady = remember(id, randTick, DollState.rev) {
+            DollAnim.hasPlayable(act, id, DollAnim.GROUP_RANDOM)
+        }
+        DhKit.SwitchRow(
+            name = if (randReady) "随机动作" else "随机动作（先去添加随机动作）",
+            checked = randOn && randReady
+        ) { on ->
+            if (!randReady) {
+                HomeUi.showNotice(
+                    act, "还没有随机动作",
+                    "「动作」页的「随机动作」组是空的。先新建一个并加上帧，这个开关才能打开。"
+                )
+                return@SwitchRow
+            }
+            PetPrefs.setRandomAction(act, id, on)
+            HomeUi.notifyPetReload(act)
+            randTick++
+            DollState.bump()
+        }
+        DhForm.Note(
+            if (randReady) {
+                "打开后，她会在没事的时候每隔 13~30 秒自己播一个随机动作；" +
+                    "贴到屏幕边时不播。拖动、点击之类的操作随时能打断它。"
+            } else {
+                "「随机动作」组里还没有能播的动作 —— 加一个并加上帧，这个开关就能打开了。"
+            }
+        )
     }
 
     /* ============================ 活动页 ============================ */

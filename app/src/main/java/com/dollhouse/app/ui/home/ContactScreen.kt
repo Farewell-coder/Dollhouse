@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -106,33 +107,22 @@ object ContactScreen {
 
         Column(modifier = Modifier.fillMaxSize()) {
             // ---------- 顶栏 ----------
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 14.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "人偶",
-                    modifier = Modifier.weight(1f),
-                    color = c.title,
-                    fontSize = 26.sp,
-                    fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
-                )
-                // 【分组管理】用户定案：「手动分组」，入口在**列表页顶部**。
-                //   图标用 folder-tree（分组的层级语义），与「新建人偶」的 user-plus 区分开。
-                // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
-                DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分组") {
-                    DollGroupPage.open(act) { grpRev++ }
+            // 【统一】走 [DhKit.TabTopBar]，与聊天页 / 说说页同一段代码。
+            DhKit.TabTopBar(
+                title = "人偶",
+                actions = {
+                    // 【分组管理】用户定案：「手动分组」，入口在列表页顶部。
+                    //   图标用 folder-tree（分组的层级语义），与「新建人偶」的 user-plus 区分开。
+                    DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分组") {
+                        DollGroupPage.open(act) { grpRev++ }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    // 新手偶：建一个新角色。
+                    DhKit.IconButton(Icons.IC_USER_PLUS, Design.SZ_MD, c.title, label = "新建") {
+                        DollListScreen.open(act)
+                    }
                 }
-                Spacer(Modifier.width(4.dp))
-                // 新手偶：建一个新角色。
-                DhKit.IconButton(Icons.IC_USER_PLUS, Design.SZ_MD, c.title, label = "新建") {
-                    DollListScreen.open(act)
-                }
-            }
+            )
 
             if (groups.isEmpty() || groups.all { it.second.isEmpty() }) {
                 EmptyState(act)
@@ -363,12 +353,25 @@ object ContactScreen {
         }
     }
 
+    /** A-Z 索引条的命中区宽度（dp）。视觉字母仍是 9sp，这里只放大可点面。 */
+    private const val INDEX_HIT_W_DP = 24
+
+    /** A-Z 索引条的最大总高（dp）—— 超出则压缩每行高度，避免顶出屏幕。 */
+    private const val MAX_INDEX_HEIGHT_DP = 520
+
     /**
      * 右侧 A-Z 索引条。
      *
      * 【为什么放在列表右边缘、垂直居中】QQ / 微信 / 通讯录的统一位置；
      *   用户的手指记忆就在那里，换位置反而难找。
-     * 【为什么字母很小】它是**快速定位工具**，不是内容；太大反而挡住列表。
+     * 【为什么字母很小】它是快速定位工具，不是内容；太大反而挡住列表。
+     *
+     * 【本轮·修「点不中」】改造前每个字母是一个 18dp 的 Box，且**它自己就是点击区**，
+     *   手指很难命中（低于全 App 的 [DhKit.HIT]=40dp 口径）。
+     *   现在视觉仍是 9sp 小字，但外层命中区放大到 24dp 宽 × 自适应行高。
+     * 【本轮·修「字母多了顶出屏幕」】改造前用 `fillMaxHeight()`，
+     *   字母一多（A-Z 再加 `#`）整列超出可用高度，首尾字母被裁掉且无从得知。
+     *   现在整列限高 [MAX_INDEX_HEIGHT_DP]，按字母数分配行高（14~20dp），永不溢出。
      */
     @Composable
     private fun AlphaIndex(
@@ -377,9 +380,11 @@ object ContactScreen {
         onPick: (String) -> Unit
     ) {
         val c = DhTokens.colors
+        val rowH = if (letters.isEmpty()) 20f
+        else (MAX_INDEX_HEIGHT_DP.toFloat() / letters.size).coerceIn(14f, 20f)
         Column(
             modifier = modifier
-                .fillMaxHeight()
+                .heightIn(max = MAX_INDEX_HEIGHT_DP.dp)
                 .padding(end = 2.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
@@ -387,21 +392,20 @@ object ContactScreen {
             for (l in letters) {
                 Box(
                     modifier = Modifier
-                        .size(18.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .height(rowH.dp)
+                        .width(INDEX_HIT_W_DP.dp)
                         .pressable { onPick(l) },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = l,
                         color = c.sub,
-                        fontSize = 9.sp,
+                        fontSize = 10.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
         }
     }
 

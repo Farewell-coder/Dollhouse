@@ -412,36 +412,39 @@ object ModelImporter {
             }
             val abs = File(dir, rel).absolutePath
             val engine = ModelPackage.engineOf(rel)
+            val target = targetOf(semantic)
             val ok = DollAnim.addEngineAction(
                 ctx, dollId,
                 DollAnim.Action(
-                    // 【为什么 id 就用语义名】见 DollAnim.bySemantic 的约定：
-                    //   id 与语义同名时直接命中，语义到动作的映射不需要额外的表。
-                    id = semantic,
+                    // 【v0.1.0·id 落点】三个持续态语义（idle / drag）直接写进对应的固定壳，
+                    //   其余语义用语义名当 id（`bySemantic` 会按同名命中）。
+                    //   【为什么必须写进壳】壳里没内容时 `bySemantic` 返回 null（不播），
+                    //   若把模型包的待机动作放在壳外面，它永远不会被播 —— 用户会觉得「导了没用」。
+                    id = target.second,
                     name = m.name + "·" + semantic,
                     desc = "来自模型包「" + m.name + "」",
-                    group = groupOf(semantic),
+                    group = target.first,
                     engine = engine,
                     sourceId = m.id,
                     assetPath = abs,
-                    loop = semantic == "idle"
+                    loop = DollAnim.isFixedGroup(target.first) || semantic == "idle"
                 )
             )
             if (ok) {
                 n++
             }
         }
-        // ② 主入口（清单 entry）：没有 actions 映射时它就是「待机动作」。
+        // ② 主入口（清单 entry）：没有 actions 映射时它就是「待机动作」→ 写进常驻壳。
         val hasIdle = m.actions.containsKey("idle")
         if (!hasIdle && m.entry.isNotEmpty() && entries.contains(m.entry)) {
             val abs = File(dir, m.entry).absolutePath
             val ok = DollAnim.addEngineAction(
                 ctx, dollId,
                 DollAnim.Action(
-                    id = "idle",
+                    id = DollAnim.SLOT_ALWAYS_ID,
                     name = m.name,
                     desc = "来自模型包「" + m.name + "」的入口",
-                    group = DollAnim.GROUP_IDLE,
+                    group = DollAnim.GROUP_ALWAYS,
                     engine = ModelPackage.engineOf(m.entry),
                     sourceId = m.id,
                     assetPath = abs,
@@ -455,12 +458,16 @@ object ModelImporter {
         return n
     }
 
-    /** 语义 → 属性分组（让导入的动作落在用户能在界面上找到的位置）。 */
-    private fun groupOf(semantic: String): String = when (semantic) {
-        "idle" -> DollAnim.GROUP_IDLE
-        "tap", "drag", "longpress" -> DollAnim.GROUP_TOUCH
-        "appear", "disappear" -> DollAnim.GROUP_ALWAYS
-        else -> DollAnim.GROUP_CUSTOM
+    /**
+     * 语义 → (目标组, 目标动作 id)。
+     *
+     * 【v0.1.0 五组体系】三个持续态语义对齐三个固定壳；其余落手动组（只能由手势主动触发）。
+     */
+    private fun targetOf(semantic: String): Pair<String, String> = when (semantic) {
+        "idle" -> Pair(DollAnim.GROUP_ALWAYS, DollAnim.SLOT_ALWAYS_ID)
+        "drag" -> Pair(DollAnim.GROUP_DRAG, DollAnim.SLOT_DRAG_ID)
+        "tap", "longpress", "appear", "disappear", "sleep" -> Pair(DollAnim.GROUP_MANUAL, semantic)
+        else -> Pair(DollAnim.GROUP_MANUAL, semantic)
     }
 
     private fun resolveActions(m: ModelPackage.Manifest, dir: File): Map<String, String> {

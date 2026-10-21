@@ -17,6 +17,7 @@ import com.dollhouse.app.anim.Springs
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollProfile
+import com.dollhouse.app.data.DollSizeSpec
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.pet.behavior.ActionSemantic
@@ -55,7 +56,7 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     var lp: WindowManager.LayoutParams? = null
     var petTopY = 0
     var petView: PetView? = null
-    var snapAnim: ValueAnimator? = null
+    var snapAnim: Springs.Handle? = null
     var touchSlop = ViewConfiguration.get(host).scaledTouchSlop
     var added = false
     var bubbleUp = false
@@ -115,11 +116,15 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (g != null) {
             dispatchGesture(g)
         }
-        // 【点完要回落待机档】`dispatchGesture` 可能播了一个交互动作；
-        //   非循环的会由播放层回调 `onActionFinished` 自行回落，
-        //   但**循环的交互动作**（用户自己设成 loop 的）不会自动结束 ——
-        //   这里补一次「交互结束」，交回待机档，避免人偶永远卡在那个动作上。
-        petView?.interactionEnd()
+        // 【点完要回落】`dispatchGesture` 可能播了一个手动动作。
+        //   **【v0.1.0·修 P0】这里不能在播完手势动作后立刻 interactionEnd** ——
+        //   那会把刚播上的动作当场停掉（用户看到的「动作闪一帧就消失」）。
+        //   现在的判据是：
+        //   · 播了动作（MANUAL 语义在播）→ 让它自己播完，由播放层的 onFinish 回落；
+        //   · 没播动作（只是弹气泡 / 开聊天）→ 立刻回落，把手势期间的档位收回来。
+        if (petView?.isActionPlaying() != true) {
+            petView?.interactionEnd()
+        }
     }
 
     /** 长按到点：判定为长按手势（即便配置为「无」也消费这一次按压）。 */
@@ -162,10 +167,19 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     fun attach() {
         val petView = PetView(host)
         this.petView = petView
-        petScaleApplied = DollProfile.scale(host, doll.id) / 100.0f
+        // 【尺寸标准化·唯一入口】人偶显示规格（大小 + 偏移）一次性灌进视图。
+        //   大小折算进 scaleFactor（窗口宽高由它派生），偏移只影响绘制平移。
+        //   改造前这里直接读 DollProfile.scale，与动作自己的 baseline 组成两把尺子，
+        //   换动作时会忽大忽小；现在基础大小只有这一个来源。
+        petView.setSizeSpec(DollSizeSpec.spec(host, doll.id))
+        petScaleApplied = appliedScale()
         petView.setScaleFactor(petScaleApplied)
         // 【形象】统一走 DollStore.spriteOf：空路径自动回落内置 pet_front。
-        petView.setSprite(DollStore.spriteOf(host, doll))
+        // 【本轮·修「模型被切成块」】只有「没换过形象图」（回落到内置 pet_front）时
+        //   才允许网格形变 —— 网格顶点是按内置人偶的五官比例写死的，
+        //   套到用户自己的图上就会把画面切成许多小块各自乱窜。
+        //   判据取「形象图路径是否为空」，而不是比较位图内容：前者是稳定的素材属性。
+        petView.setSprite(DollStore.spriteOf(host, doll), doll.sprite.isEmpty())
         petView.setFlipped(DollProfile.flip(host, doll.id))
         petView.snapActiveCheck = { snapAnim?.isRunning == true }
         // 【r16·成败判据接线】打开动作播放层 —— 从此桌宠会读 DollAnim。
@@ -593,6 +607,9 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         // 【r12】贴的是**虚线框**的左右边，不再是屏幕边缘（需求定案）。
         val box = boundsBox()
         val i3 = Math.max(1, box[2].toInt())
+        // 【v0.1.0·裁截线按动作存】贴边前先把这只人偶「贴边动作」上的裁截线推给视图，
+        //   否则用户在编辑页拖的线在真机上不生效（会一直按 0.68 算）。
+        pv.setEdgeInset(DollAnim.edgeInset(host, doll.id))
         enterEdgePeek(z)
         val edgeInsetPx = pv.edgeInsetPx()
         // 【r12】框坐标是 Float，窗口 x 必须是 Int：这里就取整，后面直接当像素用。
@@ -650,6 +667,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         edgeAtLeft = z
         petView.setEdgePeek(true, z)
         prefs.edit().putInt(key("edge_side"), if (!z) 1 else 0).apply()
+        // 【v0.1.0·接线】贴边动作固定壳终于能播了 —— 语义 `edge` → 贴边壳。
+        //   【为什么不再用 playSemantic(EDGE)】那样只是「尝试按优先级播一次」：
+        //   若此刻正播着手势动作（MANUAL 30），贴边(12) 会被拒绝，于是人偶贴到边上
+        //   却仍播旧动作。贴边是**模式切换**，该直接重算基础态。
+        petView.notifyEdgeChanged()
     }
 
     fun exitEdgePeek() {
@@ -664,6 +686,12 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         petView.setEdgePeek(false, false)
         placeByPivot(Math.round(pivotLocalX), Math.round(pivotLocalY))
         prefs.edit().putInt(key("edge_side"), -1).apply()
+        // 【v0.1.0·接线】离边 → 回常驻壳。`lean` 此刻已归零，仲裁层的贴边探测返回 false，
+        //   基础态自然选常驻。
+        //   【为什么必须走 notifyEdgeChanged 而不是 playSemantic(IDLE)】贴边(12)
+        //   > 常驻(10)，直接请求 IDLE 会被优先级裁决**拒绝** ——
+        //   人偶离开屏幕边之后就一直停在贴边动作上（贴一次边，姿势永远不变）。
+        petView.notifyEdgeChanged()
     }
 
     fun applyDragPlacement() {
@@ -780,6 +808,24 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     // ============================ 缩放 ============================
 
     /**
+     * 最终生效的缩放系数 = 人偶编辑页设的基础比例 × 尺寸规格里的大小。
+     *
+     * 【为什么两者相乘而不是只取一个】它们是**两个不同的用户动作**：
+     * - `DollProfile.scale`：人偶编辑页里那根「缩放」滑条（历史功能，按人偶存）；
+     * - `DollSizeSpec.size`：本轮新增的「大小」滑条（标准化之后的比例，默认 100%）。
+     * 两者语义不同但都作用于基础大小。相乘能保证：
+     * · 老用户没碰过新滑条（size = 100）→ 系数恒等于原来那个值，**行为完全不变**；
+     * · 新用户只用新滑条 → 也一样直接生效。
+     * 取「只用一个」会逼用户去猜改哪根才有效，反而更差。
+     */
+    private fun appliedScale(): Float {
+        val base = DollProfile.scale(host, doll.id) / 100.0f
+        val spec = DollSizeSpec.spec(host, doll.id)
+        return base * DollSizeSpec.scaleOf(spec)
+    }
+
+
+    /**
      * 应用新的人偶缩放：改 PetView 系数后重算窗口宽高并重摆。
      * 【短路】比例没变直接返回；【聊天窗】peek 态走 layoutMiniTalk 重排整组。
      */
@@ -789,7 +835,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (petView == null || params == null || !added) {
             return
         }
-        val target = DollProfile.scale(host, doll.id) / 100.0f
+        // 【先刷新规格】用户可能刚在「人偶管理 → 更多 → 大小」里改过，
+        //   刷新时顺便把偏移也一起灌进去（偏移不需要重算窗口，只重绘）。
+        val spec = DollSizeSpec.spec(host, doll.id)
+        petView.setSizeSpec(spec)
+        val target = appliedScale()
         if (Math.abs(target - petScaleApplied) < 1.0E-4f) {
             return
         }
@@ -1296,22 +1346,24 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     }
 
     /**
-     * **【r16 新增】**播一个语义动作；该人偶没配这个语义时回落到待机默认动作。
+     * 播一个语义动作；该人偶没配这个语义时回落到「基础态」。
      *
      * 【为什么需要「回落」这一步】以 [ActionSemantic.APPEAR] 为例：
      *   人偶挂载时理应出现，但绝大多数人不会去配「出现动作」。
-     *   若不回落，挂载后就停在「什么都没播」状态，默认动作也永远不会启动 ——
-     *   用户看到的是「设了默认动作，重启后不生效」。
+     *   若不回落，挂载后就停在「什么都没播」状态，常驻动作也永远不会启动 ——
+     *   用户看到的是「设了常驻动作，重启后不生效」。
+     *
+     * **【v0.1.0·修 P0】这里不能再覆盖 `player.onFinish`**。
+     *   改造前它写的是 `pv.actionPlayer()?.onFinish = { playSemantic(IDLE) }` ——
+     *   而 `PetView.enableActions` 早已把 onFinish 设成 `behavior.onActionFinished()`。
+     *   两者互相覆盖：谁后设谁生效。结果是仲裁层收不到「播完了」的通知，
+     *   非循环动作停在最后一帧再也不动（用户看到的「人偶卡住了」）。
+     *   现在只负责「播出现」，播完的回落由仲裁层统一处理。
      */
     private fun startSemanticWithIdleFallback(semantic: String) {
         val pv = petView ?: return
         if (!pv.playSemantic(semantic)) {
-            pv.playSemantic(ActionSemantic.IDLE)
-            return
-        }
-        // 播的是非循环动作时，播完要回到待机档 —— 否则人偶保持最后一帧不动，
-        // 看起来像「卡住了」（交互结束必须回落，这是动作语义契约的一部分）。
-        pv.actionPlayer()?.onFinish = {
+            // 没配「出现」动作 → 直接进基础态（常驻 / 贴边由仲裁层按位置裁决）。
             pv.playSemantic(ActionSemantic.IDLE)
         }
     }
@@ -1425,20 +1477,23 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         //   触发路径：人偶窗口已摘除但 PetWindow 实例与快捷菜单回调仍存活时点「睡觉」。
         //   修法：显式取局部引用并判空，语义与原意一致（没配 sleep 动作即走兜底）。
         val view = petView
-        if (view != null && !view.playSemantic(ActionSemantic.SLEEP)) {
+        // 【v0.1.0·强制播】sleep 优先级最低（5），走普通 play 会被正在播的常驻/贴边顶掉，
+        //   用户点「睡觉」却看到人偶还在呼吸。所以这里用 forced 通道。
+        if (view != null && !view.playSemanticForced(ActionSemantic.SLEEP)) {
             view.setExpression(4, 3600000L) // 闭眼表情，1 小时超时
         }
         view?.invalidate()
     }
 
-    /** 唤醒：退出睡觉，回待机档。 */
+    /** 唤醒：退出睡觉，回基础态（常驻 / 贴边由仲裁层按位置裁决）。 */
     internal fun exitSleep() {
         if (!sleeping) {
             return
         }
         sleeping = false
         petView?.clearExpression()
-        // 回待机：由 behavior.onInteractionEnd 自然回落。
+        // 回基础态：走 interactionEnd 会先 stop 再 restoreBase，
+        //   贴边时自然回到贴边动作、站在中间时回到常驻动作。
         petView?.interactionEnd()
     }
 
@@ -1453,8 +1508,15 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
      *
      * 【为什么是「点附近」而不是「全屏随机」】人偶是「活物」而不是弹球，
      *   全屏瞬移会出戏。每次在当前位置 ±WANDER_RANGE_DP 范围内挑点，
-     *   用 ValueAnimator 缓慢滑过去（时长与距离成正比，模拟「走」而不是「飞」）。
+     *   用弹簧缓慢滑过去（时长与距离成正比，模拟「走」而不是「飞」）。
      * 【省电】睡觉时暂停走位；拖动 / 贴边 / 有气泡时也暂停（避免干扰交互）。
+     * 【本次修复·走位顿挫】改造前用 `ValueAnimator + DecelerateInterpolator`：
+     *   ① 走位时长与位移成正比、但曲线固定为纯减速 —— 起步瞬间是最高速，
+     *      看起来是「被弹出去」而不是「迈步走」，与 App 其它位移（snappy 弹簧）手感不一致；
+     *   ② 每次走位在结尾把窗口 x/y 直接写成 Round 结果，若下一段走位紧接着启动，
+     *      起点取的是上一个已四舍五入的整数，误差逐次累积（长时间放置会「越走越偏」）。
+     *   现在改用 `Springs.smooth()`（临界阻尼，不越界、不抖），
+     *   并且走位不再覆盖正在跑的吸附动画（贴边/回位优先）。
      */
     private val wanderTick = object : Runnable {
         override fun run() {
@@ -1467,7 +1529,7 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         }
     }
 
-    private var wanderAnimator: ValueAnimator? = null
+    private var wanderAnimator: Springs.Handle? = null
 
     /** 启动随机走位（由 PetPrefs.wanderEnabled 控制）。 */
     internal fun startWander() {
@@ -1489,10 +1551,15 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         ui.postDelayed(wanderTick, WANDER_INTERVAL_MS)
     }
 
-    /** 走一步：在当前位置 ±WANDER_RANGE_DP 内挑点，缓慢滑过去。 */
+    /** 走一步：在当前位置 ±WANDER_RANGE_DP 内挑点，用临界阻尼弹簧滑过去。 */
     private fun wanderStep() {
         val pv = petView ?: return
         val lpv = lp ?: return
+        // 【本次修复·别抢吸附动画】贴边吸附 / 回原位正在跑时不要插一脚，
+        //   否则两段动画同时写 params.x，会看到人偶在贴边和走位之间来回抽。
+        if (snapAnim?.isRunning == true) {
+            return
+        }
         val b = boundsBox()
         val range = pv.dp(WANDER_RANGE_DP)
         // 目标点 = 当前位置 ± range，夹到框内。
@@ -1504,21 +1571,30 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (dist < 1f) {
             return
         }
-        // 时长与距离成正比（每 100px 约 800ms），模拟「走」的速度感。
-        val dur = Math.max(400L, (dist / 100f * 800f).toLong())
         wanderAnimator?.cancel()
-        val anim = ValueAnimator.ofFloat(0f, 1f)
-        anim.duration = dur
-        anim.interpolator = android.view.animation.DecelerateInterpolator()
-        anim.addUpdateListener { a ->
-            val t = a.animatedValue as Float
-            placeByPivot(
-                Math.round(sx + (tx - sx) * t),
-                Math.round(sy + (ty - sy) * t)
-            )
-        }
-        anim.start()
-        wanderAnimator = anim
+        // 【弹簧】smooth（ζ=1.00）：起步缓、落位稳，不会冲过目标点再拉回来。
+        //   位移量级最大只有 ±120dp，spring 的收敛时长与距离无关，因此「远走近走」速度感一致 ——
+        //   这正是「走路」该有的样子（原来时长按距离线性放大，远距离会拖成慢动作）。
+        wanderAnimator = Springs.drive(Springs.smooth(), object : Springs.Listener {
+            override fun onUpdate(p: Float) {
+                lp?.let {
+                    placeByPivot(
+                        Springs.lerpInt(sx.toInt(), tx.toInt(), p),
+                        Springs.lerpInt(sy.toInt(), ty.toInt(), p)
+                    )
+                }
+            }
+
+            override fun onEnd() {
+                lp?.let {
+                    placeByPivot(Math.round(tx), Math.round(ty))
+                }
+            }
+
+            override fun onCancelled() {
+                // 被打断（拖动 / 贴边 / 摘窗）：停在当前位置，不硬拽回起点也不跳终点。
+            }
+        })
     }
 
     private companion object {

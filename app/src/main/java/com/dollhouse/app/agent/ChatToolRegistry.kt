@@ -78,7 +78,34 @@ object ChatToolRegistry {
         TOOLS.add(MemoryTool(ctx))
     }
 
-    /** 按名字执行；未命中返回兜底文案，不抛异常。 */
+    /**
+     * 按名字执行；未命中返回兜底文案，不抛异常。
+     *
+     * 【门控必须作用在执行侧，不能只作用在下发侧】
+     *   `buildSchema` 只是决定「这次请求里带不带这个工具的说明书」。
+     *   但模型是**有上下文记忆**的：同一段对话里它可能在前几轮见过 `web_search`，
+     *   或者被系统提示词带着直接吐出一个 `web_search` 调用 —— 此时即使这一轮没给说明书，
+     *   工具名依然会到达这里。旧实现只在下发侧门控、执行侧一律照跑，结果是：
+     *   用户明明把「联网」关掉了，只要模型还记得这个工具名，它就能真的发出网络请求。
+     *   同理，「自动保存记忆」关掉后，记忆工具仍可被调用写入。
+     *
+     *   因此这里和 [buildSchema] 共用同一份判据（[isAllowed]），不另写一遍条件 ——
+     *   两边各写一遍是最典型的「改一处忘一处」来源。
+     *
+     * @param webSearch 本轮是否允许联网工具（来自用户开关）。
+     * @param remember  本轮是否允许记忆写入（来自用户开关）。
+     */
+    @JvmStatic
+    fun execute(name: String, arguments: String?, webSearch: Boolean, remember: Boolean): String {
+        if (!isAllowed(name, webSearch, remember)) {
+            // 不回「没有这个工具」：模型会当成自己记错名字，接着换个写法重试，烧上下文。
+            // 直接说明「被主人关掉了」，它就会改用已有信息作答。
+            return "工具 " + name + " 当前已被主人关闭，不要再次调用，请直接回答。"
+        }
+        return execute(name, arguments)
+    }
+
+    /** 按名字执行（不门控；仅供内部已确认放行的调用点使用）。 */
     @JvmStatic
     fun execute(name: String, arguments: String?): String {
         for (i in TOOLS.indices) {
@@ -100,24 +127,12 @@ object ChatToolRegistry {
      */
     @JvmStatic
     fun buildSchema(webSearch: Boolean, remember: Boolean): JSONArray {
-        val shellReady = ShizukuBridge.isReady()
-        // 【门控】lamda 设备工具只在服务真的活着时才下发；没起就摆给模型只会烧上下文。
-        //   探活走 2s 缓存，主线程调用不会卡。
-        val deviceReady = LamdaManager.aliveCached()
         val jSONArray = JSONArray()
         try {
             for (i in TOOLS.indices) {
                 val chatTool = TOOLS[i]
-                if (!webSearch && NAME_WEB == chatTool.name()) {
-                    continue
-                }
-                if (!remember && NAME_REMEMBER == chatTool.name()) {
-                    continue
-                }
-                if (!shellReady && NAME_SHELL == chatTool.name()) {
-                    continue
-                }
-                if (!deviceReady && NAME_DEVICE == chatTool.name()) {
+                // 【唯一判据】与 execute 共用 isAllowed —— 见那里的注释。
+                if (!isAllowed(chatTool.name(), webSearch, remember)) {
                     continue
                 }
                 val jSONObject = JSONObject()
@@ -137,5 +152,39 @@ object ChatToolRegistry {
             return jSONArray
         }
         return jSONArray
+    }
+
+    /**
+     * 这个工具在「本轮开关 + 当前授权状态」下是否可用。**下发与执行共用这一份判据。**
+     *
+     * 【三道门】
+     *  ① 用户开关：联网 / 记忆写入（关掉就不给用）。执行入口始终保留，
+     *    所以「手动整理记忆」之类不依赖它 —— 那是别的入口，不走工具。
+     *  ② 授权门：`shell` 要 Shizuku 已授权且服务在跑；没权限还摆给模型，
+     *    它只会反复调用、每次拿到「未授权」，白烧上下文。
+     *  ③ 存活门：`device`（lamda）只在服务真的活着时下发。
+     *
+     * 【为什么探活结果要缓存】`ShizukuBridge.isReady()` 与 `LamdaManager.aliveCached()`
+     *   都可能在主线程被调用（buildSchema 在点击发送时同步执行），
+     *   前者走 2s 缓存、后者带 2s 缓存，所以这里是安全的。
+     */
+    @JvmStatic
+    fun isAllowed(name: String?, webSearch: Boolean, remember: Boolean): Boolean {
+        if (name == null) {
+            return false
+        }
+        if (!webSearch && NAME_WEB == name) {
+            return false
+        }
+        if (!remember && NAME_REMEMBER == name) {
+            return false
+        }
+        if (NAME_SHELL == name && !ShizukuBridge.isReady()) {
+            return false
+        }
+        if (NAME_DEVICE == name && !LamdaManager.aliveCached()) {
+            return false
+        }
+        return true
     }
 }

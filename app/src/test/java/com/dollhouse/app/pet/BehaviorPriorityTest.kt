@@ -266,17 +266,45 @@ class BehaviorPriorityTest {
         assertTrue("出现/消失 > 待机", appear > idle)
     }
 
-    /** 7 个标准语义齐备且不重复（对外契约，少一个就会让模型包的一个动作无处落）。
-     *   【r19】新增 SLEEP（睡觉）—— 语义表扩到 7 个。 */
+    /**
+     * 标准语义齐备且不重复（对外契约，少一个就会让模型包的一个动作无处落）。
+     *
+     * 【r19】7 个 → 【v0.1.0】10 个：新增 `edge`（贴边固定壳）、`random`（随机组）、
+     *   `manual`（手势点名播的动作）。三者都是五组体系的落点，缺一个就有动作播不出来。
+     *   【原有的 7 个一个都不能少】它们是已发布模型包的对外契约。
+     */
     @Test
-    fun semanticTable_hasSevenStandardIds() {
-        assertEquals(7, ActionSemantic.ALL.size)
-        assertEquals(7, ActionSemantic.ALL.toSet().size)
-        for (s in listOf("idle", "tap", "drag", "longpress", "appear", "disappear", "sleep")) {
+    fun semanticTable_hasTenStandardIds() {
+        assertEquals(10, ActionSemantic.ALL.size)
+        assertEquals(10, ActionSemantic.ALL.toSet().size)
+        for (s in listOf(
+            "idle", "tap", "drag", "longpress", "appear", "disappear", "sleep",
+            "edge", "random", "manual"
+        )) {
             assertTrue("缺少标准语义：" + s, ActionSemantic.ALL.contains(s))
             assertTrue(ActionSemantic.isStandard(s))
         }
         assertFalse(ActionSemantic.isStandard(null))
         assertFalse(ActionSemantic.isStandard("bogus"))
+    }
+
+    /**
+     * 【v0.1.0】新语义的优先级位置必须守住两条判据：
+     * · 手动（用户点名要播）**低于**点击反馈、**高于**生命周期；
+     * · 随机（系统自发）**低于**出现/消失，且**高于**贴边/常驻这两个基础态。
+     */
+    @Test
+    fun semanticPriority_v010Placement() {
+        val tap = ActionSemantic.priority(ActionSemantic.TAP)
+        val manual = ActionSemantic.priority(ActionSemantic.MANUAL)
+        val appear = ActionSemantic.priority(ActionSemantic.APPEAR)
+        val random = ActionSemantic.priority(ActionSemantic.RANDOM)
+        val edge = ActionSemantic.priority(ActionSemantic.EDGE)
+        val idle = ActionSemantic.priority(ActionSemantic.IDLE)
+        assertTrue("点击 > 手动", tap > manual)
+        assertTrue("手动 > 生命周期", manual > appear)
+        assertTrue("生命周期 > 随机", appear > random)
+        assertTrue("随机 > 贴边", random > edge)
+        assertTrue("贴边 > 常驻", edge > idle)
     }
 }

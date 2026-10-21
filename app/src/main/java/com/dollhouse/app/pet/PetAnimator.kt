@@ -65,90 +65,66 @@ class PetAnimator(private val host: PetView) {
         host.invalidate()
     }
 
+    /** 单例构造时把待机计时的初值摆正（旧实现靠 tickIdle 第一帧自愈，现在不会了）。 */
+    init {
+        host.idleAction = 0
+        host.idleT = -1.0f
+        host.idleNextIn = (Math.random().toFloat()) * 17.0f + 13.0f
+    }
+
+    /**
+     * **【v0.1.0·重写】触发一次随机动作。**
+     *
+     * 【改造前】这里从 5 个**硬编码**的待机小动作里挑一个，改网格字段（idleScaleY /
+     *   idleLiftPx / idleEyeScale / gazeTarget）做形变 —— 用户在动作页配的东西
+     *   一个都参与不进来，也没有「关掉」的开关。
+     *
+     * 【现在】只做一件事：告诉宿主「该播一次随机动作了」。
+     *   播不播、播哪个、能不能播（开关是否打开 / 随机组是否为空 / 是否贴边中），
+     *   全部由宿主（PetView → DollAnim.pickRandom → 仲裁层）裁决。
+     *
+     * 【间隔】仍是 13~30 秒（用户定案），且**允许连续抽到同一个动作**（用户明确定案）。
+     * 【开关关着时】**不做任何事**，5 秒后再看一次 ——
+     *   不能每帧都去问（那会每帧读一次 SharedPreferences）。
+     */
     private fun startIdleAction() {
-        var random = 0
-        do {
-            random = (Math.random() * 5.0).toInt() + 1
-            if (random != host.lastIdleAction) {
-                break
-            }
-        } while (Math.random() < 0.7)
-        host.lastIdleAction = random
-        host.idleAction = random
-        host.idleT = 0.0f
-        if (random == 1) {
-            host.idleDuration = 1.5f
+        if (!host.randomActionEnabled()) {
+            host.idleNextIn = 5.0f
             return
         }
-        if (random == 2) {
-            host.idleDuration = 2.8f
-            return
-        }
-        if (random == 3) {
-            host.idleDuration = 1.8f
-        } else if (random == PetView.IDLE_NOD) {
-            host.idleDuration = 1.2f
-        } else {
-            host.idleDuration = 0.8f
-        }
+        host.idleNextIn = (Math.random().toFloat()) * 17.0f + 13.0f
+        host.playRandomAction()
     }
 
     fun pokeIdle(f: Float) {
         host.idleNextIn = Math.min(host.idleNextIn, f)
     }
 
+    /**
+     * **【v0.1.0·重写】待机计时** —— 只剩「到点触发一次随机动作」这一件事。
+     *
+     * 【删掉了什么】改造前这里有一整套形变计算（伸懒腰 / 张望 / 眯眼 / 点头 / 小跳），
+     *   现在这些动作都是「随机动作组」里的真实动作（有帧、可编辑、可删除），
+     *   由播放层统一画，本方法不再碰网格。
+     *
+     * 【静止时仍把 4 个 idle 字段归位】万一某帧被判成「正在播待机形变」而留下了
+     *   非默认值（例如热更新 / 旧档回退），这里把它们拉回默认，保证画面干净。
+     *   这一步是纯保险，正常运行中这些字段恒为默认值。
+     */
     private fun tickIdle(f: Float) {
-        // 【r18·拖动原比例】拖动 / peek / 倾斜期间，待机贡献必须**平滑衰减到零**，
-        //   而不是瞬跳回 1.0 —— 否则呼吸态（idleScaleY 最高 1.05）会在拖动开始那一帧
-        //   被掐断，视觉上就是「人偶突然缩小了一下」（用户实测反馈的「长按缩小」）。
-        //   衰减与 dragLift 同速率（11×dt），保证「呼吸收回去」与「拖动抬起来」同步完成。
+        if (host.idleScaleY != 1.0f || host.idleLiftPx != 0.0f ||
+            host.idleEyeScale != 1.0f || host.idleTilt != 0.0f
+        ) {
+            host.idleScaleY = 1.0f
+            host.idleLiftPx = 0.0f
+            host.idleEyeScale = 1.0f
+            host.idleTilt = 0.0f
+        }
+        // 【贴边 / 拖动 / 倾斜期间不触发随机动作】用户定案「贴边状态下不随机」，
+        //   拖动中指头在屏上更不该冒出一个自主动作。
         if (host.dragging || host.peek || host.lean != 0.0f) {
-            host.idleScaleY = decayTo(host.idleScaleY, 1.0f, f)
-            host.idleLiftPx = decayTo(host.idleLiftPx, 0.0f, f)
-            host.idleEyeScale = decayTo(host.idleEyeScale, 1.0f, f)
-            host.idleTilt = decayTo(host.idleTilt, 0.0f, f)
             return
         }
-        host.idleScaleY = 1.0f
-        host.idleLiftPx = 0.0f
-        host.idleEyeScale = 1.0f
-        host.idleTilt = 0.0f
-        val f2 = host.idleT
-        if (f2 >= 0.0f) {
-            val f3 = f2 + (f / host.idleDuration)
-            host.idleT = f3
-            if (f3 >= 1.0f) {
-                host.idleT = -1.0f
-                host.idleAction = 0
-                host.idleNextIn = (Math.random().toFloat()) * 17.0f + 13.0f
-                return
-            }
-            val sin = Math.sin(f3 * 3.141592653589793).toFloat()
-            val i = host.idleAction
-            if (i == 1) {
-                host.idleScaleY = (0.05f * sin) + 1.0f
-                host.idleLiftPx = host.dp(6.0f) * sin
-                return
-            }
-            if (i == 2) {
-                host.gazeTarget = Math.sin(host.idleT * 3.141592653589793 * 2.0).toFloat()
-                host.gazeCountdown = 1.2f
-                return
-            } else if (i == 3) {
-                host.idleEyeScale = 1.0f - (sin * PetView.EYE_V)
-                return
-            } else if (i == PetView.IDLE_NOD) {
-                host.idleScaleY = 1.0f - (Math.sin(host.idleT * 3.141592653589793 * 4.0).toFloat() * 0.05f)
-                return
-            } else {
-                if (i != PetView.IDLE_HOP) {
-                    return
-                }
-                host.idleLiftPx = host.dp(16.0f) * sin
-                return
-            }
-        }
-        // 【拖动期间不再触达此处】上面的前置分支已把 idle 贡献平滑衰减并 return。
         val f4 = host.idleNextIn - f
         host.idleNextIn = f4
         if (f4 <= 0.0f) {
