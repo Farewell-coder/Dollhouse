@@ -57,6 +57,45 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     var petTopY = 0
     var petView: PetView? = null
     var snapAnim: Springs.Handle? = null
+
+    /* ============================ 甩抛（r22） ============================ */
+
+    /**
+     * 拖拽期间的**轴心轨迹**采样，抬手时用来估甩抛初速。
+     *
+     * 【为什么记轴心而不是手指】手指按下时未必落在轴心上，手指的位移 ≠ 人偶的位移；
+     *   而且手指抬手瞬间的最后一点常带抖动。记轴心的实际位置更贴近「人偶怎么动的」。
+     * 【为什么用 ArrayDeque】拖拽期间只追加、抬手裁一遍，头尾操作都是 O(1)；
+     *   用 ArrayList 每次 removeFirst 是 O(n)，长时间拖拽会变慢。
+     */
+    private val dragTrail = ArrayDeque<ThrowPhysics.Sample>()
+
+    /**
+     * 甩抛的帧回调句柄（null = 不在飞）。
+     *
+     * 【为什么是 FrameCallback 而不是 Runnable】驱动用的是 `Choreographer`（对齐 vsync，
+     *   不用不跑），它的注册/注销接口收的就是 `FrameCallback`。存成 Runnable 再强转
+     *   只是给自己挖坑：类型不安全，且 removeFrameCallback 那一步要写无谓的 as。
+     */
+    private var throwRef: android.view.Choreographer.FrameCallback? = null
+
+    /**
+     * 甩抛代次。
+     *
+     * 【为什么需要】取消 rAF 后已入队的回调仍可能执行一次；没有代次校验的话，
+     *   用户重新按住 → 取消飞行 → 那个残留回调又把位置写一次，表现为「刚抓住就弹了一下」。
+     */
+    private var throwToken = 0
+
+    /**
+     * 这次按下是否**打断了正在进行的飞行**。
+     *
+     * 【为什么需要】飞行中人偶可能在半空。若按下就 `cancelThrow()` 而不记一笔，
+     *   「单击一下就松手」的路径（`dragging == false`）**不会**调用 `settle()`，
+     *   人偶就永远停在半空 —— 重力没了、也没落位，看起来像卡住。
+     *   记下来后，抬手时补一次 `settle()` 把它放到合法位置。
+     */
+    private var throwInterrupted = false
     var touchSlop = ViewConfiguration.get(host).scaledTouchSlop
     var added = false
     var bubbleUp = false
@@ -186,6 +225,7 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         //   是否真的会播，取决于该人偶有没有「待机默认动作」；
         //   没有配置时动作层 `hasContent()` 恒为 false，绘制路径与改造前逐行一致。
         petView.enableActions(doll.id)
+        petView.actionViewportChanged = { requiredWidth -> resizeActionViewport(requiredWidth) }
         val layoutParams = WindowManager.LayoutParams(petView.windowWidth(), petView.petHeight(), overlayType(), 776, -3)
         lp = layoutParams
         layoutParams.gravity = 8388659
@@ -281,6 +321,16 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         cancelAway()
         ui.removeCallbacksAndMessages(null)
         snapAnim?.cancel()
+        // 【r22·甩抛】飞行是 Choreographer 上的常驻回调，摘窗时不停会一直跑
+        //   （每帧去 updateViewLayout 一个已移除的窗口 → 抛异常被我们自己 catch 掉，
+        //    表现为「窗口关了 CPU 还在转」）。这里显式取消。
+        cancelThrow()
+        // 【顺序陷阱】cancelThrow() 会顺手 startWander()（把走位从飞行里接回来），
+        //   而上面刚 stopWander() —— 顺序反了就等于「摘窗后又把走位排上」。
+        //   虽然 wanderStep 每步都判 petView/lp 为空即返回，不会真崩，
+        //   但留着一个空转的延时队列没有意义。这里再停一次，明确终态。
+        stopWander()
+        trailClear()
         talkInput?.release()
         talk?.release()
         val petView = petView
@@ -310,6 +360,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (!added) {
             return
         }
+        // 【r22·甩抛】暂离期间窗口不在 WindowManager 上，飞行循环每帧 updateViewLayout
+        //   会抛异常被 catch 掉，等于空转烧 CPU。这里显式停掉。
+        //   （cancelThrow 会顺手 startWander，紧接着 stopWander 归位。）
+        cancelThrow()
+        stopWander()
         petView.screenTick = null
         petView.stopAnim()
         try {
@@ -598,6 +653,193 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         rememberPivot()
     }
 
+    /* ============================ 甩抛（r22） ============================ */
+
+    /**
+     * 记录一次拖拽轨迹采样（**只在拖动中调用**）。
+     *
+     * 【为什么在这里裁旧样本】拖拽可能是几十秒的慢速移动，不裁的话列表会一直长；
+     *   而裁的成本是「一个 while 循环」，每帧最多删几个元素，可以忽略。
+     */
+    private fun trailPush(now: Long) {
+        dragTrail.addLast(ThrowPhysics.Sample(now, curPivotX, curPivotY))
+        // 留 2 倍窗口的余量：抬手时要再按 RELEASE_WINDOW_MS 裁一次，
+        //   这里多留一点免得边界上恰好只剩一个点（无法算速度）。
+        val keepFrom = now - ThrowPhysics.RELEASE_WINDOW_MS * 2
+        while (dragTrail.isNotEmpty() && dragTrail.first().t < keepFrom) {
+            dragTrail.removeFirst()
+        }
+    }
+
+    /** 清空轨迹（按下 / 取消时调）。 */
+    private fun trailClear() {
+        dragTrail.clear()
+    }
+
+    /** 人偶轴心当前允许的活动范围（由虚线框定，与 `settle` 的夹取同源）。 */
+    private fun throwBounds(pv: PetView): ThrowPhysics.Bounds {
+        val box = boundsBox()
+        val half = pv.petWidth() / 2f
+        val minX = box[0] + half
+        val maxX = box[2] - half
+        // 框比人偶窄时（极端缩放）退化成「恒在框中心」，不让 minX > maxX。
+        val (lo, hi) = if (maxX < minX) {
+            val mid = (box[0] + box[2]) / 2f
+            mid to mid
+        } else {
+            minX to maxX
+        }
+        // ---- 竖直方向：全部换算成「脚底 y」再交给积分器 ----
+        //
+        // 【坐标系必须统一，这里踩过坑】`ThrowPhysics.Bounds` 的 minY / groundY
+        //   都是**脚底（轴心）的屏幕 y**，而 `boundsBox()` 返回的是**窗口框**的
+        //   上下边。两者差一个 `pivotLocalY`（≈ 人偶身高，本机 543px）与气泡高度。
+        //
+        //   第一版直接把 `box[1]` 当 minY 传进去，实测「上甩一次人偶整只飞出屏幕」：
+        //   因为 box[1]≈72 被当成「脚底最高只能到 72」，等于允许「头顶到 -471」。
+        //
+        //   正确关系（同一份几何，settle / clampFeetY 也用它）：
+        //     windowY = feetY - pivotLocalY - bubble
+        //   所以「窗口顶边不低于 box[1]」等价于「feetY ≥ box[1] + pivotLocalY + bubble」。
+        val pivot = pv.pivotLocalY() + bubbleHeightIfUp()
+        // `curPivotY` 在 ACTION_DOWN 时就是按这个式子记的脚底坐标，直接用，不再重复加。
+        val feetNow = Math.round(curPivotY)
+        // 落地高度：走 settle 的同一套夹取（上限 = 框底边），避免「飞完落地又被猛拉一下」。
+        val groundFeet = clampFeetY(feetNow, host.resources.displayMetrics.heightPixels, 0).toFloat()
+        // 顶边 = 让「窗口顶」刚好贴住框顶，再往上就是脑袋出框。
+        val topFeet = box[1] + pivot
+        return ThrowPhysics.Bounds(lo, hi, groundFeet, topFeet)
+    }
+
+    /**
+     * 抬手：若轨迹表明是「甩」，进入飞行；否则走原来的就地吸附。
+     *
+     * 【为什么甩抛期间不做吸附】吸附是「贴到框边」的弹簧动画，与自由飞行互斥 ——
+     *   同时跑会出现「一边飞一边被拉向边缘」。飞行静止后再由 [settle] 决定吸附。
+     */
+    private fun releaseOrThrow(pv: PetView) {
+        val now = android.os.SystemClock.uptimeMillis()
+        val raw = ThrowPhysics.estimate(dragTrail.toList(), now)
+        val v = ThrowPhysics.applyPower(raw, ThrowPhysics.Params().throwPower)
+        if (!ThrowPhysics.isThrow(v)) {
+            // 不是甩：原地放下（原行为）。
+            placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
+            settle()
+            return
+        }
+        // 起飞前先退出贴边姿态：贴边是「脚在屏外」，飞行中要按正常姿态飞。
+        if (edgePeek) {
+            exitEdgePeek()
+        }
+        // 【飞行独占位置】走位会在每个 vsync 写 params.x/y，与飞行循环撞车 ——
+        //   需求书明确禁止「同时存在多套相互冲突的运动循环」。停掉，落地再接回。
+        stopWander()
+        startThrow(pv, v)
+    }
+
+    /**
+     * 启动甩抛飞行循环。
+     *
+     * 【为什么用 `Choreographer` 而不是 `postDelayed(16)`】
+     *   `postDelayed` 与屏幕刷新率无关：60Hz 上偶尔会挤两帧、120Hz 上又慢半拍，
+     *   视觉上是「飞起来一顿一顿」。`Choreographer` 的回调直接对齐 vsync，
+     *   且**不用不跑** —— 静止后我们立刻移除回调，没有常驻轮询。
+     */
+    private fun startThrow(pv: PetView, v0: ThrowPhysics.Velocity) {
+        cancelThrow()
+        val token = ++throwToken
+        val b = throwBounds(pv)
+        var x = curPivotX
+        var y = curPivotY
+        var vx = v0.vx
+        var vy = v0.vy
+        var last = android.os.SystemClock.uptimeMillis()
+        // 【为什么用 Choreographer 而不是自己起线程】位置必须写回窗口 LayoutParams，
+        //   那是 View 体系的属性，只能在主线程改；Choreographer 本身就在主线程且对齐 vsync。
+        val chor = android.view.Choreographer.getInstance()
+        val frame = object : android.view.Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                if (token != throwToken) {
+                    return
+                }
+                val now = android.os.SystemClock.uptimeMillis()
+                val dt = now - last
+                last = now
+                val s = ThrowPhysics.step(x, y, vx, vy, dt, b)
+                x = s.x
+                y = s.y
+                vx = s.vx
+                vy = s.vy
+                // 直接写位置：这里不走 placeByPivot（那个会做夹取与 rememberPivot，
+                //   每帧都 rememberPivot 会覆盖用户的落点记忆）。
+                val params = lp
+                val pvv = petView
+                if (params == null || pvv == null || token != throwToken) {
+                    cancelThrow()
+                    return
+                }
+                params.x = Math.round(x - pvv.pivotLocalX())
+                params.y = Math.round(y - pvv.pivotLocalY() - bubbleHeightIfUp())
+                try {
+                    // 与 attach / placeByPivot 同一条通道：窗口根视图就是 petView 本身。
+                    wm.updateViewLayout(pvv, params)
+                } catch (t: Throwable) {
+                    // 窗口已被摘除：静默结束，不崩。
+                    cancelThrow()
+                    return
+                }
+                curPivotX = x
+                curPivotY = y
+                if (s.landed) {
+                    // 落地反馈：让 PetView 做一次「着陆挤压」，与点击回弹同一套视觉语言。
+                    pvv.playLandedFeedback()
+                }
+                if (ThrowPhysics.shouldStop(s)) {
+                    cancelThrow() // 内部会顺带把走位接回来
+                    // 静止后交给原来的吸附逻辑决定「停哪、要不要贴边」。
+                    // 【顺序】先 settle 落位，再让走位从落好的位置继续 —— 反过来的话
+                    //   走位会从「半空残余位置」起步，看到人偶先飘一下再被吸附拉回。
+                    settle()
+                    startWander()
+                    return
+                }
+                throwRef = this
+                chor.postFrameCallback(this)
+            }
+        }
+        throwRef = frame
+        chor.postFrameCallback(frame)
+    }
+
+    /**
+     * 取消飞行（幂等）。
+     *
+     * ## 为什么「恢复走位」写在这里
+     *
+     * 飞行会独占 `params.x/y`（见 [wanderStep] 里的 `throwRef != null` 判据），
+     * 而走位一旦被停，全局只有 `attach()` 会再启动它。所以**每一处停止飞行的地方**
+     * 都必须把走位接回来，否则「甩一次 / 抓一次飞在空中的人偶」之后走位就永久失效。
+     *
+     * 放在这里而不是每个调用点：调用点有 5 处（落地、按下、摘窗、写窗口失败、
+     * detach），逐个写必然漏。
+     *
+     * 【为什么摘窗之后调一下 startWander 也没事】`startWander` 内部会先查
+     * `PetPrefs.wanderEnabled`，且 `wanderTick` 每步都取 `petView ?: return` /
+     * `lp ?: return`，摘窗后即使被排上也是空转即返回；下一次 `attach()` 会
+     * 重新 `startWander()` 并 `removeCallbacks` 去重，不会叠加。
+     */
+    private fun cancelThrow() {
+        throwToken++
+        val r = throwRef ?: return
+        throwRef = null
+        try {
+            android.view.Choreographer.getInstance().removeFrameCallback(r)
+        } catch (ignored: Throwable) {
+        }
+        // 只有「真的停了一段飞行」才需要接回走位（r == null 时上面已 return）。
+        startWander()
+    }
+
     fun snapToEdge(z: Boolean, i: Int) {
         // 【r15·收敛 !!】贴边动画的每一帧回调也在用 lp!!，摘窗后动画没停就会 NPE。
         val pv = petView ?: return
@@ -829,6 +1071,22 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
      * 应用新的人偶缩放：改 PetView 系数后重算窗口宽高并重摆。
      * 【短路】比例没变直接返回；【聊天窗】peek 态走 layoutMiniTalk 重排整组。
      */
+    /** 动作切换后只调整透明视口，保持人物中心、脚底与气泡位置不变。 */
+    private fun resizeActionViewport(requiredWidth: Int) {
+        val pv = petView ?: return
+        val params = lp ?: return
+        if (!added || peek || requiredWidth <= 0 || params.width == requiredWidth) return
+        val pivotX = params.x + pv.pivotLocalX()
+        val bubbleSpace = Math.max(0, params.height - pv.baseHeight())
+        params.width = requiredWidth
+        params.x = Math.round(pivotX - pv.pivotLocalX())
+        params.height = pv.baseHeight() + bubbleSpace
+        safeUpdate()
+        if (bubbleSpace > 0) {
+            pv.relayoutBubble(params.width, params.x)
+        }
+    }
+
     fun applyScale() {
         val petView = petView
         val params = lp
@@ -1235,6 +1493,12 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             curPivotY = pivotLocalY
             dragging = false
             snapAnim?.cancel()
+            // 【r22·甩抛】按下即接管：正在飞的人偶被抓住，飞行立刻停止。
+            // 【必须先记 throwInterrupted 再 cancelThrow】cancelThrow 会把
+            //   throwRef 置空；置空之后就分不出「刚才在飞」了。
+            throwInterrupted = throwRef != null
+            cancelThrow()
+            trailClear()
             // 【r19·睡觉唤醒】按下即唤醒（点击 / 拖动 / 长按都算）。
             if (sleeping) {
                 exitSleep()
@@ -1277,6 +1541,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
                     curPivotX = downPivotX + rawX
                     curPivotY = downPivotY + rawY
                     applyDragPlacement()
+                    // 【r22·甩抛】拖拽期间持续采样轴心位置，抬手时用来估初速。
+                    //   位置必须写在 applyDragPlacement 之后 —— 那个方法会夹取边界，
+                    //   采样当然要记「夹取后的真实位置」，否则估出来的速度是没发生过的。
+                    trailPush(android.os.SystemClock.uptimeMillis())
                     petView?.setDragVelocity(rawX2)
                     petView?.lookAt(Math.max(-1.0f, Math.min(1.0f, rawX2 / 900.0f)))
                 }
@@ -1292,12 +1560,31 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             ui.removeCallbacks(tapResolve)
         }
         if (dragging) {
+            // 拖动路径自带收尾（releaseOrThrow → 起飞 或 settle），标记作废。
+            throwInterrupted = false
             petView?.setDragging(false)
-            placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
-            settle()
+            // 【r22·甩抛】抬手不再直接吸附：先按轨迹判「是甩还是放下」。
+            //   · 甩 → 进入飞行（重力 + 反弹 + 摩擦），静止后自己调 settle() 收尾；
+            //   · 放下 → 走原来的就地吸附，与改造前完全一致。
+            //   注意这里**不再**先 placeByPivot 再 settle：那会把位置定死，
+            //   飞行起点就永远等于抬手点，甩出去的第一步是跳的。
+            val pv = petView
+            if (pv != null) {
+                curPivotX = Math.round(curPivotX).toFloat()
+                curPivotY = Math.round(curPivotY).toFloat()
+                releaseOrThrow(pv)
+            } else {
+                settle()
+            }
             // 【交互结束必须回落】拖动放下 → 回到待机档（若有默认动作就续播它）。
             petView?.interactionEnd()
         } else if (actionMasked == 1) {
+            // 【飞行被打断后必须落位】只点一下就松手时 dragging == false，
+            //   不走 releaseOrThrow；不补这一下，半空抓住的人偶会悬在那里。
+            if (throwInterrupted) {
+                throwInterrupted = false
+                settle()
+            }
             ui.removeCallbacks(longPressTick)
             // 【r19·摸头反馈】单击且落点在头部 1/3 区域时，额外触发 tap 动作。
             //   「头部」= 人偶精灵图的上 1/3 区域（以 PetView 坐标系计）。
@@ -1558,6 +1845,13 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         // 【本次修复·别抢吸附动画】贴边吸附 / 回原位正在跑时不要插一脚，
         //   否则两段动画同时写 params.x，会看到人偶在贴边和走位之间来回抽。
         if (snapAnim?.isRunning == true) {
+            return
+        }
+        // 【r22·甩抛】飞行中同理：位置由 Choreographer 的积分循环独占。
+        //   光靠 startThrow 里的 stopWander 不够 —— 若走位在飞行开始后才被
+        //   PetService / 设置变更重新排上（startWander 是 internal，别处会调），
+        //   这道判据保证它至少不会插进正在飞的这一段。
+        if (throwRef != null) {
             return
         }
         val b = boundsBox()

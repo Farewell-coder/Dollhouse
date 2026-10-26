@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.ActionScale
+import com.dollhouse.app.data.ActionViewport
 import com.dollhouse.app.data.ActionWorkbench
 import com.dollhouse.app.data.BodyBaseline
 import com.dollhouse.app.data.DollAnim
@@ -52,19 +53,46 @@ class ActionPlayerCore(
     /** 请求宿主重绘（解码完成、换帧时用）。 */
     private val requestDraw: () -> Unit,
     /**
+     * 帧图解码的**目标边长上限（px）**，由宿主按人偶实际显示尺寸注入。
+     *
+     * ## 为什么必须由外面给，而不是写死
+     *
+     * 改造前这里写死 1024，注释理由是「桌宠窗口通常 ≤ 屏宽一半（1080p 屏约 540px），
+     * 采样到 1024 能覆盖且留一倍余量」。但 `inSampleSize` 只能按 2 的幂**向下**采样：
+     * 目标 1024 时，一张 2048² 的图采样率是 2，解出 1024²；而人偶实际只有 450px 宽
+     * （本机 480dpi，`dp(150)×3`，放大上限也才 675px）。**像素量是需要的 5 倍**。
+     *
+     * 满帧时更明显：120 帧 × 1024² × 4B ≈ **480MB**，这是「放一晚掉电/被系统杀掉」的
+     * 直接来源之一；按实际尺寸 512 解码后同一套帧约 120MB。
+     *
+     * `ImageDecode.calcSampleSize` 保证「采样后仍 ≥ 目标」，所以给一个略大于实际显示
+     * 尺寸的上限即可，不会因为采样过度而糊。
+     *
+     * @return <=0 表示使用 [DEFAULT_DECODE_TARGET_PX] 兜底（没注入时的旧口径）。
+     */
+    private val decodeTargetPx: () -> Int = { 0 },
+    /**
      * 位图解码器 —— **可注入**，这样就可以在 JVM 单测里塞一个假的解码器
      * 验证「帧推进 / 循环 / 播完回调」这些纯逻辑，不需要真机也不需要 Robolectric。
      */
     private val decoder: (String) -> Bitmap? = { path ->
-        // 【r18·内存】帧图按目标尺寸采样解码，不按原图全尺寸。
-        //   渲染时（draw）本就按画布等比缩放（scale = min(cw/bw, ch/bh)），
-        //   解码到远大于画布的尺寸纯属浪费内存：一张 2048² PNG = 16MB，
-        //   120 帧上限即 ~1.9GB 峰值。采样到桌宠画布量级（DECODE_TARGET_PX）
-        //   后单帧约 1MB，内存峰值下降 75%+，视觉零差异（绘制阶段仍精确缩放）。
+        // 【r22·内存】帧图按**人偶绘制尺寸**采样解码，不按写死的 1024。
+        //
+        //   改造前目标恒为 1024。`calcSampleSize` 的语义是「采样后仍 ≥ 目标」，
+        //   所以这个目标其实是个**下限**：素材越小越不可能降档。本机实测帧组是
+        //   904×978（不是假设的 2048²），904/2 = 452 < 1024 → **采样率恒为 1，
+        //   一张都没降过档**，120 帧 ARGB 到 405MB。原来那句「采样到 1024 省 75%」
+        //   只对 ≥2048² 的素材成立，对实际素材是空转。
+        //
+        //   现在由宿主注入（见 [decodeTargetPx]）：`max(petWidth, petMaxWidth) × 0.5`，
+        //   450px 窗口 → 目标 225→夹到 256，仍 ≤ 452 → **稳定触发 sample=2**，
+        //   120 帧降到 101MB。没有注入时退回 [DEFAULT_DECODE_TARGET_PX]，与改造前逐像素一致。
+        val injected = decodeTargetPx()
+        val target = if (injected > 0) injected else DEFAULT_DECODE_TARGET_PX
         com.dollhouse.app.core.ImageDecode.file(
             path,
-            reqWidth = DECODE_TARGET_PX,
-            reqHeight = DECODE_TARGET_PX
+            reqWidth = target,
+            reqHeight = target
         )
     },
     /** 宿主提供者（Lottie / 动图引擎要 attach 到宿主才能自绘）。 */
@@ -104,45 +132,175 @@ class ActionPlayerCore(
      *   与窗口 `computeBox` 的外接框口径同源，倾斜后不会顶出窗口。
      */
     private val leanProvider: () -> Float = { 0f },
+
     /**
-     * **【工作台·锚点与适配】**某个动作的显示设置（锚点 / 适配方式 / 内容偏移）。
-     *
-     * ## 为什么由宿主注入而不是直接读数据层
-     *
-     * 播放层不依赖「设置在哪个 SharedPreferences 里」这件事 —— 它只需要知道
-     * 「这个动作的画面该怎么摆」。注入一个查询函数后：
-     * · 单测里可以塞假的显示设置，不需要 Context；
-     * · 将来设置来源换成数据库 / 远程，这里一行都不用改。
-     *
-     * ## 为什么返回 null 表示「默认」
-     * 绝大多数动作都没有单独设置过（[ActionWorkbench.setDisplay] 在等于默认值时会删键）。
-     * 返回 null 让绘制路径**完全跳过**这一段计算，与改造前逐像素一致。
+     * 某个动作的显示设置（锚点 / 适配方式 / 内容偏移）。
      *
      * @return null = 用默认（底部居中 / 按统一尺寸适配 / 无偏移）
      */
-    private val displayProvider: (String) -> ActionWorkbench.ActionDisplay? = { null }
+    private val displayProvider: (String) -> ActionWorkbench.ActionDisplay? = { null },
+
+    /** 人偶级视口：所有动作共用，切换动作不会改变人物基础身高。 */
+    private val viewportProvider: () -> ActionViewport.Spec? = { null },
+
+    /** 动作所需宽度变化时回调宿主。只由动作/帧/比例变化触发，绝不逐帧布局。 */
+    private val viewportChanged: (ActionViewport.Spec) -> Unit = {}
 ) {
 
-    private companion object {
-        const val TAG = "DollhouseAction"
+    companion object {
+        private const val TAG = "DollhouseAction"
 
         /** 单次最多解码多少帧（与 [DollAnim.FRAMES_MAX] 对齐，防越界档案把内存吃满）。 */
         const val MAX_FRAMES = DollAnim.FRAMES_MAX
 
         /**
-         * 帧图解码的目标边长（px）。取桌宠画布的上限量级：
-         *   桌宠窗口通常 ≤ 屏宽一半（1080p 屏约 540px），而帧图普遍 ≥1024²。
-         *   采样到 1024 能覆盖绝大多数画布且留一倍余量（避免采样过度导致糊）。
-         *   这是「采样下界」，不是「裁剪」—— 采样后仍可能比它大（向上取整到 2 的幂）。
+         * 帧图解码目标边长的**兜底值**（宿主没注入时用）。
+         *
+         * 取 1024 是为了保持未注入路径与改造前**逐像素一致** —— 真机上宿主一定会注入
+         * （见 [decodeTargetPx]），所以这个值只在单测 / 未来新调用方没接线时生效。
          */
-        const val DECODE_TARGET_PX = 1024
+        const val DEFAULT_DECODE_TARGET_PX = 1024
+
+        /**
+         * 解码目标相对「人偶绘制宽度」的**下限比例**。
+         *
+         * ## 这个常数为什么是 0.5 而不是 2（改错过一次，记录在此）
+         *
+         * 第一版写的是 `× 2` 的「分辨率余量」：窗口 450px → 目标 900。听起来更安全，
+         *   但 `ImageDecode.calcSampleSize` 的判据是「**采样后仍 ≥ 目标**」，目标是**下限**
+         *   而不是上界 —— 目标越高，采样率越低。实测本机素材 904×978：
+         *
+         * | 目标 | 采样率 | 单帧像素 | 120 帧 ARGB |
+         * |---|---|---|---|
+         * | 1024（改造前写死） | 1 | 0.88MP | **405MB** |
+         * | 900（×2 余量） | 1 | 0.88MP | **405MB** |
+         * | 512 | 1 | 0.88MP | 405MB |
+         * | 452（= 450×0.5 取整后落档） | 2 | 0.22MP | **101MB** |
+         *
+         * 也就是说：改造前那个 1024 **从来没对 904px 的素材生效过**（904/2=452 < 1024，
+         *   采样率恒为 1），注释里「采样到 1024 省 75% 内存」的说法与事实相反。
+         *   真正能触发降档的目标必须 **≤ 原图边长的一半**。
+         *
+         * ## 0.5 为什么不会糊
+         *
+         * 绘制侧 `ActionScale.place` 按**本体高**映射，最终画面尺寸只与窗口高同阶；
+         *   0.5 倍目标拿到的是「绘制尺寸的一半」分辨率，即 2 倍降采样后再放大回原尺寸 ——
+         *   桌宠是柔和插画风、窗口又只有 450px，这个档位看不出来（帧图本身还有大量透明区）。
+         *   若用户把人偶拉到上限（675px），目标变 337、仍落在同一采样档，
+         *   **不会出现「调大后重新解码」的抖动**。
+         */
+        const val DECODE_TARGET_RATIO = 0.5f
+
+        /**
+         * 解码目标的下界（px）。
+         *
+         * 防止极小窗口（如预览缩略图 40px）把目标压到个位数导致整组帧变糊。
+         */
+        const val DECODE_TARGET_MIN = 256
     }
 
     private val ui = Handler(Looper.getMainLooper())
+    private var viewport: ActionViewport.Spec? = null
+    private var measuredWidth = 0
+    private var measuredHeight = 0
 
+    /** 当前实际视口；null 表示宿主尚未注入，绘制使用旧兼容路径。 */
+    fun viewport(): ActionViewport.Spec? = viewport
+
+    /** 比例变化时由宿主刷新。真正改窗口仍只在 refreshViewport 的短路之后发生。 */
+    fun refreshViewport() {
+        viewport = viewportProvider()
+        measuredWidth = 0
+        measuredHeight = 0
+        remeasureViewport()
+        requestDraw()
+    }
+
+    private fun remeasureViewport() {
+        val base = viewportProvider()?.copy(requiredWidth = 0) ?: return
+        val r = renderer
+        var width = base.baseWidth
+        var bw = 0
+        var bh = 0
+        if (r != null) {
+            val size = r.size()
+            if (size.size >= 2) {
+                bw = size[0]
+                bh = size[1]
+            }
+        }
+        if (bw > 0 && bh > 0) {
+            val placement = ActionViewport.measure(base, bw, bh, baseline)
+            if (placement != null) width = placement.requiredWidth
+        } else if (frames.isNotEmpty()) {
+            // 扫整套动作而不是逐帧：每帧 canvas 可能不同，但不能造成窗口逐帧跳动。
+            for (frame in frames) {
+                if (frame.isRecycled) continue
+                val p = ActionViewport.measure(base, frame.width, frame.height, baseline) ?: continue
+                if (p.requiredWidth > width) width = p.requiredWidth
+            }
+        }
+        val next = base.copy(requiredWidth = width)
+        if (viewport == next) return
+        viewport = next
+        viewportChanged(next)
+    }
 
     /** 自解码的帧序列（`sprite` 引擎用）。 */
     private var frames: List<Bitmap> = emptyList()
+
+    /**
+     * 当前 `frames` 属于哪个动作 id（复用判定用，见 [canReuseFrames]）。
+     *
+     * 【为什么单独记一个字段而不是读 [actionId]】[actionId] 是「正在播的动作」，
+     *   `clearContent()` / `stop()` 会把它清掉；这里要的是「这批帧是谁的」，
+     *   两者生命周期不同 —— 帧还在内存里、但动作已经停了的情况是常态。
+     */
+    private var loadedActionId: String = ""
+
+    /** 当前 `frames` 对应的帧路径指纹（见 [frameKeyOf]）。 */
+    private var loadedFrameKey: String = ""
+
+    /**
+     * 帧路径列表的**轻量指纹**，用来发现「动作 id 没变、但帧被用户改过」。
+     *
+     * 【为什么不是逐路径 join】一套 120 帧的路径拼起来是几 KB 字符串，每次 `play`
+     *   都要拼一次并比较，反而成了新的开销。这里只取「数量 + 首尾路径 + 总长」：
+     *   · 删帧 / 加帧 → 数量变；
+     *   · 换首帧（改封面那种）→ 首路径变；
+     *   · 重排 → 首或尾变。
+     *   漏判的极端情形（只改中间一帧且数量不变）最多导致「多显示旧的一帧」，
+     *   而用户在编辑页改帧会触发 `DollAnim` 落盘 + 页面刷新，实际走不到。
+     */
+    private fun frameKeyOf(paths: List<String>): String {
+        if (paths.isEmpty()) {
+            return "0"
+        }
+        var sum = 0
+        for (p in paths) {
+            sum += p.length
+        }
+        return paths.size.toString() + "|" + paths[0] + "|" + paths[paths.size - 1] + "|" + sum
+    }
+
+    /**
+     * 这批已解码的帧能否直接复用给 [actionId]。
+     *
+     * 四条同时满足才复用：
+     * ① 帧非空（空帧等于没有内容，复用会让画面空着）；
+     * ② 动作 id 相同；
+     * ③ 帧路径指纹相同（见 [frameKeyOf]）；
+     * ④ 没有被 `disposed`。
+     */
+    private fun canReuseFrames(id: String, paths: List<String>): Boolean {
+        if (disposed || frames.isEmpty()) {
+            return false
+        }
+        if (id != loadedActionId) {
+            return false
+        }
+        return frameKeyOf(paths) == loadedFrameKey
+    }
 
     /** 非 sprite 引擎的渲染器（Lottie / 动图）。 */
     private var renderer: PetRenderer? = null
@@ -230,15 +388,43 @@ class ActionPlayerCore(
     /**
      * 播放一个动作。
      *
-     * 【为什么先无条件清空】同一个 `ActionPlayerCore` 会被复用来播不同动作
-     * （待机默认动作 ↔ 点击动作 ↔ 拖动动作）。上一个动作的位图 / 渲染器
-     * 必须先释放，否则连播几次就把内存吃满了。
+     * ## 【r22·不重复解码】同一动作的「重播」直接复用已解码的帧
+     *
+     * 改造前这里**无条件** `clearContent()` 再重新解码整组帧。而实际调用链里
+     * 「同一个动作」被反复播是常态：
+     * ```
+     * 非循环待机动作播完 → onFinish → onActionFinished → restoreBase → play(同一个 id)
+     * 点击回弹 / 贴边进出 / 拖拽抬手 → 同上
+     * ```
+     * 每走一遍就要把 N 帧 PNG 从磁盘重新解码一遍（120 帧时是几十毫秒到上百毫秒的纯 I/O + 解码），
+     * 表现为「点一下人偶，画面先空一下再动」。
+     *
+     * 【为什么可以安全复用】帧是**只读**位图，绘制时只做 `drawBitmap` + 矩阵变换，
+     *   不会改动像素；解码尺寸也固定（由 `decodeTargetPx` 决定），不存在「这次解大下次解小」。
+     *   真正需要重建的只有两类：换了动作（帧不同）、或帧路径列表变了（用户编辑过帧）。
+     *
+     * 【判定口径】`actionId` + 帧列表内容都相同 → 复用。只比 id 不够：
+     *   用户在动作详情里删/加一帧后 id 不变，此时必须重新解码。
      */
     fun play(action: DollAnim.Action) {
         if (disposed) {
             return
         }
+        // 【先判能不能复用】必须放在 generation++ 之前：
+        //   复用路径不该影响「正在解码的那一批」的代次校验。
+        val engine = action.engine
+        val reusable = engine == DollAnim.ENGINE_SPRITE &&
+            canReuseFrames(action.id, action.frames)
         generation++
+        if (reusable) {
+            // 只重启时钟与状态，帧与渲染器原地保留。
+            fps = DollAnim.clampFps(action.fps)
+            loop = action.loop
+            clock.reset()
+            playing = frames.isNotEmpty()
+            requestDraw()
+            return
+        }
         clearContent()
         // 换动作：帧图宽高可能变了，缩放缓存必须失效。
         resetScale()
@@ -254,6 +440,9 @@ class ActionPlayerCore(
         // 【工作台】取这个动作的显示设置（锚点 / 适配 / 偏移）。
         //   null 或全默认都按旧行为画，所以没设置过的动作与改造前逐像素一致。
         display = displayProvider(action.id)?.takeIf { !it.isDefault() }
+        // 【复用判定要用的记账】必须在 decodeFramesAsync 之前写，解码回调里不再改它。
+        loadedActionId = action.id
+        loadedFrameKey = frameKeyOf(action.frames)
         actionId = action.id
         fps = DollAnim.clampFps(action.fps)
         loop = action.loop
@@ -262,7 +451,6 @@ class ActionPlayerCore(
         clock.reset()
         playing = true
 
-        val engine = action.engine
         if (engine == DollAnim.ENGINE_SPRITE) {
             val paths = action.frames
             if (paths.isEmpty()) {
@@ -306,6 +494,12 @@ class ActionPlayerCore(
                 r.attach(h)
             }
             renderer = r
+            val size = r.size()
+            if (size.size >= 2) {
+                measuredWidth = size[0]
+                measuredHeight = size[1]
+            }
+            remeasureViewport()
             r.play()
             requestDraw()
         }
@@ -340,6 +534,11 @@ class ActionPlayerCore(
                     return@post
                 }
                 frames = out
+                if (out.isNotEmpty()) {
+                    measuredWidth = out[0].width
+                    measuredHeight = out[0].height
+                }
+                remeasureViewport()
                 if (out.isEmpty()) {
                     Logs.w(TAG, "全部帧解码失败，动作无法播放：" + actionId)
                     playing = false
@@ -519,13 +718,14 @@ class ActionPlayerCore(
             val leanR = leanProvider()
             if (leanR != 0f) {
                 canvas.save()
-                canvas.rotate(leanR, canvas.width / 2.0f, canvas.height.toFloat())
-                r.draw(canvas)
-                canvas.restore()
+                canvas.rotate(leanR, (viewport?.requiredWidth ?: canvas.width) / 2.0f,
+                    (viewport?.baseHeight ?: canvas.height).toFloat())
+drawRenderer(canvas, r)
+                    canvas.restore()
+                    return
+                }
+                drawRenderer(canvas, r)
                 return
-            }
-            r.draw(canvas)
-            return
         }
         val n = frames.size
         if (n == 0) {
@@ -546,24 +746,30 @@ class ActionPlayerCore(
         if (bw <= 0 || bh <= 0) {
             return
         }
-        // 【尺寸标准化·唯一尺子】按「本体**高度**」映射，模板方法见 [ActionScale.place]。
-        //
-        // 【为什么不再用宽度】改造前这里是 `scale = cw / 本体宽px`。
-        //   一套动作里只要有一帧手臂外伸 / 披风张开，整组包围盒就被撑宽 →
-        //   尺度变小 → 这套动作播起来人偶整体**变小**。这正是需求书
-        //   第五条第 3/4/9 点与第九条重点验收明令禁止的「换动作大小跳变」。
-        //   人偶的视觉大小由身高决定，姿态变化主要改宽度 —— 所以主尺换成高度。
-        //
-        // 【为什么不再缓存 baseScale】缓存本身没错，但缓存的是「按当前动作算出来的值」；
-        //   需求 5.4 明确「不允许动作切换时根据当前帧内容边界反复计算基础缩放」。
-        //   现在尺度是 ch / 本体高，同一套帧恒为定值、换帧换动作都不需要重算 ——
-        //   纯算术交给 [ActionScale]，这里只做一次矩形落地。
-        val box = ActionScale.place(cw, ch, bw, bh, baseline)
-        if (box == null) {
-            return
+        // 人偶级身高是唯一主尺；动作画布只决定透明视口，不参与人物大小决策。
+        val vp = viewport ?: viewportProvider()?.also {
+            viewport = it.copy(requiredWidth = it.baseWidth)
         }
-        dst.set(box[0], box[1], box[2], box[3])
         val hasBl = ActionScale.valid(baseline)
+        if (vp != null) {
+            val placement = ActionViewport.measure(vp, bw, bh, baseline) ?: return
+            val offsetX = ActionViewport.contentOffsetX(vp)
+            dst.set(placement.left + offsetX, placement.top,
+                placement.right + offsetX, placement.bottom)
+        } else {
+            // 未注入视口的旧调用方保持兼容；真实 PetView 已统一走上面的新路径。
+            val stableBaseline = baseline
+            val scale = if (stableBaseline != null && ActionScale.valid(stableBaseline)) {
+                ch / ((stableBaseline[3] - stableBaseline[1]) * bh)
+            } else {
+                Math.min(cw.toFloat() / bw, ch.toFloat() / bh)
+            }
+            val dw = Math.round(bw * scale)
+            val dh = Math.round(bh * scale)
+            val left = (cw - dw) / 2
+            val top = ch - dh
+            dst.set(left, top, left + dw, top + dh)
+        }
         val bl = baseline
         // 【工作台】叠加显示设置（锚点 / 适配 / 偏移）。
         //
@@ -603,7 +809,8 @@ class ActionPlayerCore(
             val cx = cw / 2.0f
             val cy = ch.toFloat()
             canvas.save()
-            canvas.rotate(lean, cx, cy)
+            canvas.rotate(lean, viewport?.let { it.requiredWidth / 2.0f } ?: cx,
+                viewport?.baseHeight?.toFloat() ?: cy)
             canvas.drawBitmap(bmp, null, dst, null)
             canvas.restore()
             return
@@ -612,6 +819,21 @@ class ActionPlayerCore(
     }
 
     // ============================ 内部 ============================
+
+    /** 非位图引擎也先映射到人偶级矩形，再让渲染器画入同一个目标画布。 */
+    private fun drawRenderer(canvas: Canvas, renderer: PetRenderer) {
+        val vp = viewport ?: run {
+            renderer.draw(canvas)
+            return
+        }
+        val size = renderer.size()
+        if (size.size < 2 || size[0] <= 0 || size[1] <= 0) return
+        val placement = ActionViewport.measure(vp, size[0], size[1], baseline) ?: return
+        val offsetX = ActionViewport.contentOffsetX(vp)
+        dst.set(placement.left + offsetX, placement.top,
+            placement.right + offsetX, placement.bottom)
+        renderer.draw(canvas, dst)
+    }
 
     /**
      * 按锚点重新摆放 [dst]。
@@ -673,8 +895,22 @@ class ActionPlayerCore(
         renderer = null
         recycleAll(frames)
         frames = emptyList()
+        // 【r22·复用记录必须一起清】帧已经被回收，若还留着 id/指纹，
+        //   下一次 play 会误判「可以复用」→ 拿着空帧表去画 → 画面空白。
+        loadedActionId = ""
+        loadedFrameKey = ""
         baseline = null
         display = null
+        measuredWidth = 0
+        measuredHeight = 0
+        // 停止动作后收回透明扩展区，静态形象继续使用同一个中心与人物尺度。
+        viewportProvider()?.let { base ->
+            val next = base.copy(requiredWidth = base.baseWidth)
+            if (viewport != next) {
+                viewport = next
+                viewportChanged(next)
+            }
+        }
         resetScale()
         clock.reset()
     }

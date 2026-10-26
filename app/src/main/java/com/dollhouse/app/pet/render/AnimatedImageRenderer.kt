@@ -191,20 +191,16 @@ class AnimatedImageRenderer : PetRenderer {
     }
 
     override fun draw(canvas: Canvas) {
-        if (released) {
-            return
-        }
-        val cw = canvas.width
-        val ch = canvas.height
-        if (cw <= 0 || ch <= 0 || w <= 0 || h <= 0) {
-            return
-        }
-        // 等比缩放居中，与 Lottie 渲染器同口径（避免宽高比失真）。
-        val scale = Math.min(cw.toFloat() / w, ch.toFloat() / h)
+        draw(canvas, android.graphics.Rect(0, 0, canvas.width, canvas.height))
+    }
+
+    override fun draw(canvas: Canvas, target: android.graphics.Rect) {
+        if (released || w <= 0 || h <= 0 || target.isEmpty) return
+        val scale = Math.min(target.width().toFloat() / w, target.height().toFloat() / h)
         val dw = Math.round(w * scale)
         val dh = Math.round(h * scale)
-        val left = (cw - dw) / 2
-        val top = (ch - dh) / 2
+        val left = target.left + (target.width() - dw) / 2
+        val top = target.top + (target.height() - dh) / 2
         dst.set(left, top, left + dw, top + dh)
 
         val d = animDrawable

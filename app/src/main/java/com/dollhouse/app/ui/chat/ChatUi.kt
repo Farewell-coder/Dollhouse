@@ -331,8 +331,11 @@ object ChatUi {
         val items = ChatState.items
         val tick = ChatState.scrollTick
         // 【r13·思考过程】是否渲染思考框（设置里的开关）。
+        // 【r25】`PetPrefs.showThinking` 每次调用都要 `getSharedPreferences` + getBoolean；
+        //   放在组合体里等于「每次滚动 / 每次流式刷新都重读一次」。用 ctx 作 key 记住即可 ——
+        //   开关变化会触发主题刷新（ThemeRefresh）导致本页重组，且本函数不依赖它的实时性。
         val ctx0 = LocalContext.current
-        val showThink = PetPrefs.showThinking(ctx0)
+        val showThink = remember(ctx0) { PetPrefs.showThinking(ctx0) }
         // 【下标补偿】「加载更早」入口与「思考中」占位都不是 [ChatState.items] 的成员，
         //   却各自占着 LazyColumn 的一个位置：列表下标 = items 下标 + offset，
         //   滚动目标与滚动回调必须按同一口径平移，否则收回判据会整体错位一格。
@@ -372,7 +375,19 @@ object ChatUi {
             if (ChatState.hasPrev) {
                 item(key = "loadEarlier") { LoadEarlierRow(host) }
             }
-            itemsIndexed(items, key = { i, _ -> "m$i" }) { idx, item ->
+            // 【r25·key 必须是稳定标识，不能用下标】
+            //   旧写法 `key = { i, _ -> "m$i" }` 把「位置」当身份：
+            //   · 「加载更早」把一批消息插到前面 → 每条的下标全变 → Compose 认为
+            //     **所有项都是新的**，整列表重建（长会话就是几百个气泡重新组合 + 重测量）；
+            //   · 收起展开态（删掉补回批）同理，反向再来一次；
+            //   · 流式期间尾项文本每 60ms 变一次，虽然下标没变，但整列仍要复检。
+            //   改用「历史下标」作身份：历史里的消息 index 是稳定且唯一的；
+            //   仅流式占位气泡 index = -1，它永远只有一条且永远在尾部，单独给固定 key。
+            //   规则抽在 [ChatKeys]（纯函数），由 `ChatKeysTest` 钉住。
+            itemsIndexed(
+                items,
+                key = { _, it -> ChatKeys.of(it) }
+            ) { idx, item ->
                 // 【消息间距】改造前相邻气泡之间**没有间距**，连续几条像一整块；
                 //   这里统一给 6dp（与列表页卡片间距 10、行间距 8 同族但更紧，
                 //   因为聊天需要更高信息密度）。首条不加，避免顶部空一截。
@@ -524,13 +539,18 @@ object ChatUi {
         val screenW = LocalConfiguration.current.screenWidthDp
         // 【气泡宽度档位】设置里「聊天 → 气泡宽度」的窄/适中/宽三档，
         //   改造前这里写死 0.72 恒等于「适中」，另两档拨了没反应。
-        val ratio = when (PetPrefs.bubbleWidth(ctx)) {
-            0 -> 0.60f
-            2 -> 0.84f
-            else -> 0.72f
+        // 【r25】这两项每个气泡都要读，而流式回复期间所有可见气泡每 60ms 重组一次 ——
+        //   等于每帧几十次 SharedPreferences 读（内部也会持锁）。设置项不会在流式期间变，
+        //   用 remember 固定住；用户改设置会走 ThemeRefresh → 整页重组，届时重新读。
+        val ratio = remember(ctx) {
+            when (PetPrefs.bubbleWidth(ctx)) {
+                0 -> 0.60f
+                2 -> 0.84f
+                else -> 0.72f
+            }
         }
         val maxW = (screenW * ratio).dp
-        val showAva = PetPrefs.showAvatar(ctx)
+        val showAva = remember(ctx) { PetPrefs.showAvatar(ctx) }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start

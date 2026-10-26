@@ -15,6 +15,7 @@ import android.view.View
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollSizeSpec
+import com.dollhouse.app.data.ActionViewport
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.pet.behavior.ActionSemantic
 import com.dollhouse.app.pet.behavior.PetBehaviorController
@@ -637,9 +638,17 @@ class PetView(context: Context) : View(context) {
         textPaint.textSize = dp(150.0f) * BUBBLE_TEXT_RATIO * f
         // 气泡的几何（圆角/内边距/尾巴/行距）也要跟着缩放，否则放大后人偶配一颗小气泡。
         bubble.setScale(f)
+        // 【r25·修气泡不重排】比例变了 → 字号变了 → 换行位置也变了。
+        //   旧实现只改了 textSize，没有让气泡重新排版；于是把「窄档」切到「宽档」
+        //   之后，气泡仍在按旧字号的宽度换行，文字被截断或留大片空白。
+        //   【为什么先判 hasContent】没内容时 relayout 是纯空转，每次比例变化都跑一次没必要。
+        if (bubble.hasContent()) {
+            bubble.relayout(bubbleAvailWidth().toFloat(), dp(1.0f))
+        }
         // 【v0.1.0】比例变了 → 窗口尺寸也变了，动作播放层的缩放缓存必须失效，
         //   否则要等下一帧发现帧图宽高变化（其实没变）才重算，表现为「调大后动作偏小」。
         action?.resetScale()
+        action?.refreshViewport()
         invalidate()
     }
 
@@ -841,9 +850,14 @@ class PetView(context: Context) : View(context) {
         }
         computeBox(boxBuf)
         val buf = boxBuf
-        fArr[0] = buf[0]
-        fArr[1] = buf[1] + headroom()
-        fArr[2] = buf[2]
+        val baseWidth = buf[0]
+        val baseHeight = buf[1] + headroom()
+        val actionWidth = action?.viewport()?.requiredWidth ?: 0
+        // 动作需要更宽画布时向两侧对称扩展；人物中心与脚底锚点保持不变。
+        val extra = Math.max(0, actionWidth - Math.round(baseWidth))
+        fArr[0] = baseWidth + extra
+        fArr[1] = baseHeight
+        fArr[2] = buf[2] + extra / 2.0f
         fArr[3] = buf[3] + headroom()
     }
 
@@ -1127,7 +1141,17 @@ class PetView(context: Context) : View(context) {
         //   这一句只是两次引用比较 + 一次 `hasContent()`，原有绘制路径**一行都没变**。
         val act = action
         if (act != null && act.hasContent()) {
-            act.draw(canvas)
+            val vp = act.viewport()
+            if (vp != null) {
+                // 动作矩形以基础窗口中心为轴；实际画布加宽后只平移这一次。
+                val offset = (width - vp.baseWidth) / 2f - ActionViewport.contentOffsetX(vp)
+                canvas.save()
+                canvas.translate(offset, 0f)
+                act.draw(canvas)
+                canvas.restore()
+            } else {
+                act.draw(canvas)
+            }
             return
         }
         val pw = petWidth()
@@ -1236,6 +1260,10 @@ class PetView(context: Context) : View(context) {
         canvas.save()
         canvas.translate(ex, y)
         canvas.scale(f4, f4)
+        // 【r25·修 Paint 状态泄漏】旧实现直接改 emotePaint.style：若中途异常
+        //   （Canvas 抛错 / Bitmap 被回收），style 会残留成 STROKE，
+        //   下一帧表情就变成空心描边。用局部变量暂存，画完恢复。
+        val savedStyle = emotePaint.style
         emotePaint.style = Paint.Style.STROKE
         emotePaint.strokeWidth = petWidth() * EMOTE_STROKE_RATIO
         emotePaint.color = UiKit.card()
@@ -1245,6 +1273,7 @@ class PetView(context: Context) : View(context) {
         emotePaint.color = emoteColor(expr)
         emotePaint.alpha = Math.max(0, Math.min(255, i))
         canvas.drawText(emoteGlyph(expr), 0.0f, 0.0f, emotePaint)
+        emotePaint.style = savedStyle
         canvas.restore()
     }
 
@@ -1267,8 +1296,11 @@ class PetView(context: Context) : View(context) {
         }
         val saved = expression
         expression = expr
-        buildMesh(pw, fh, v[0], v[9], v[10], v[11])
-        expression = saved
+        try {
+            buildMesh(pw, fh, v[0], v[9], v[10], v[11])
+        } finally {
+            expression = saved
+        }
         return verts
     }
 
@@ -1399,8 +1431,11 @@ class PetView(context: Context) : View(context) {
         }
         val saved = expression
         expression = expr
-        buildMesh(pw, fh, v[0], v[9], v[10], v[11])
-        expression = saved
+        try {
+            buildMesh(pw, fh, v[0], v[9], v[10], v[11])
+        } finally {
+            expression = saved
+        }
         // 【r16·三链收敛】几何走 [PetTransform] —— 与 onDraw **调用同一份 applyTo**。
         //   改造前这里手工复制了 onDraw 的整条变换链（连注释都在提醒「与 onDraw 逐参数对齐」
         //   「必须用 post*」），是三条链里最容易走样的一条。现在公式只在 PetTransform 里存在。
@@ -1480,6 +1515,24 @@ class PetView(context: Context) : View(context) {
         anim.setDragging(z)
     }
 
+    /**
+     * **【r22·甩抛落地】** 播一次着陆压缩反馈。
+     *
+     * 【为什么复用 `landT` 而不是新造一套】`PetAnimator` 每帧把 `landT` 从 0 推到 1
+     *   （0.38 秒走完，推到 1 后自动置 -1），画面上的「压扁 → 回弹」完全由它驱动。
+     *   所以这里只需要把相位归零、再让帧循环醒一次 —— 一笔新状态都不必加。
+     *
+     * 【为什么先判 -1 之外的值】如果人偶此刻正在播「跳跃落地」的着陆（`landT >= 0`），
+     *   重复归零会让压缩卡在起始相位反复重来，看起来像抽搐。只在「没有着陆在进行」时才触发。
+     */
+    fun playLandedFeedback() {
+        if (landT >= 0f) {
+            return
+        }
+        landT = 0f
+        wakeFrame()
+    }
+
     fun setDragVelocity(f: Float) {
         anim.setDragVelocity(f)
     }
@@ -1508,6 +1561,10 @@ class PetView(context: Context) : View(context) {
 
     /** 动作播放层；为 null 表示「本视图不播动作」（编辑页预览、通知预览等）。 */
     private var action: ActionPlayerCore? = null
+
+    /** 由窗口层同步 LayoutParams；不在视图绘制阶段直接操作 WindowManager。 */
+    internal var actionViewportChanged: ((Int) -> Unit)? = null
+    private var pendingActionViewportWidth = 0
 
     /** 本视图当前绑定的动作来源（人偶 id），用于把语义解析成动作。 */
     private var actionDollId: String? = null
@@ -1543,6 +1600,27 @@ class PetView(context: Context) : View(context) {
         val player = ActionPlayerCore(
             requestDraw = { invalidate() },
             hostProvider = { displayHost },
+            viewportProvider = {
+                if (peek) {
+                    // 迷你聊天使用独立的窗口布局，动作不得撑破输入框宽度。
+                    null
+                } else {
+                    val baseHeight = fullHeight()
+                    val base = ActionViewport.Spec(
+                        baseWidth = run {
+                        computeBox(boxBuf)
+                        Math.round(boxBuf[0]).coerceAtLeast(petWidth())
+                    },
+                        baseHeight = baseHeight,
+                        bodyHeight = baseHeight
+                    )
+                    base.copy(requiredWidth = pendingActionViewportWidth)
+                }
+            },
+            viewportChanged = { spec ->
+                pendingActionViewportWidth = spec.requiredWidth
+                actionViewportChanged?.invoke(spec.requiredWidth)
+            },
             // 【v0.1.0·动作大小统一】从烘帧记录里取「本体基准矩形」。
             //   有了它，播放层按「人偶本体」而不是「整张画布」映射到窗口 ——
             //   跳跃（画布高）与呼吸（画布矮）在桌面上就是同一个大小。
@@ -1565,6 +1643,28 @@ class PetView(context: Context) : View(context) {
                     null
                 } else {
                     com.dollhouse.app.data.ActionWorkbench.display(context, tag, actionId)
+                }
+            },
+            // 【r22·内存】帧图解码尺寸按人偶**实际绘制宽度**给，不再写死 1024。
+            //
+            //   算式：`max(当前宽, 上限宽) × DECODE_TARGET_RATIO`，并夹一个下界。
+            //
+            //   为什么取「上限宽」而不是当前宽：帧只解码一次，用户随时会把人偶拉大，
+            //   按当前值解码会「刚调大就糊」。
+            //
+            //   为什么乘 0.5 而不是乘 2：`calcSampleSize` 把目标当**下限**用
+            //   （「采样后仍 ≥ 目标」），目标越高采样率越低 —— 这里要的是**触发降档**，
+            //   不是要更多像素。实测 904×978 素材：0.5 档让 120 帧从 405MB 降到 101MB。
+            //   详见 `ActionPlayerCore.DECODE_TARGET_RATIO` 的注释（含对照表）。
+            decodeTargetPx = {
+                val w = Math.max(petWidth(), petMaxWidth())
+                if (w <= 0) {
+                    0
+                } else {
+                    Math.max(
+                        ActionPlayerCore.DECODE_TARGET_MIN,
+                        Math.round(w * ActionPlayerCore.DECODE_TARGET_RATIO)
+                    )
                 }
             }
         )

@@ -171,6 +171,15 @@
              exported 必须 true（server 在别的进程）、multiprocess 必须 false（否则拿错 uid）。
              声明 permission 是为了让这个 provider 只被本应用与 shell 身份访问。 -->
         <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/crash_log_paths" />
+        </provider>
+        <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
             android:exported="true"

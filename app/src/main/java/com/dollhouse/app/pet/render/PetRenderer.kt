@@ -108,4 +108,9 @@ interface PetRenderer {
 
     /** 画到画布。 */
     fun draw(canvas: Canvas)
+
+    /** 画到宿主统一计算的目标矩形；旧渲染器默认保持原行为。 */
+    fun draw(canvas: Canvas, target: android.graphics.Rect) {
+        draw(canvas)
+    }
 }

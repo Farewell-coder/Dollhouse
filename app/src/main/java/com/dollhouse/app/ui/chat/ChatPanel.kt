@@ -1630,8 +1630,16 @@ class ChatPanel(
         }
         val last = cur[cur.size - 1]
         if (last.role == "assistant" && last.index < 0 && !last.isSummary) {
-            ChatState.items = cur.subList(0, cur.size - 1).toList() +
-                    last.copy(text = txt, think = think.ifEmpty { null })
+            // 【r25·流式只换尾元素】旧写法 `cur.subList(0, n-1).toList() + last.copy(...)`
+            //   每 60ms 都把「除尾项外的全部元素」重新拷进一个新 List，再拼一项 ——
+            //   长会话（200 条）时是 200 次引用拷贝 + 2 个新 List，且每次都换掉列表身份，
+            //   Compose 侧只能整体重新比对。现在只浅拷一层、替换最后一项：
+            //   元素引用一个不变（下面 `itemsIndexed` 的 key 与内容比对才能短路），
+            //   旧实现里「下标 key」会让整个尾部都重新组合。
+            val next = ArrayList<ChatItem>(cur.size)
+            next.addAll(cur)
+            next[next.size - 1] = last.copy(text = txt, think = think.ifEmpty { null })
+            ChatState.items = next
         } else {
             ChatState.items = cur + ChatItem("assistant", txt, null, -1, false, false,
                     think.ifEmpty { null }, 0L)

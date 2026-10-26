@@ -242,29 +242,21 @@ class LottieRenderer : PetRenderer {
      *   映射进当前画布，避免宽高比失真（矢量图拉伸会明显穿帮）。
      */
     override fun draw(canvas: Canvas) {
-        if (released) {
-            return
-        }
+        draw(canvas, android.graphics.Rect(0, 0, canvas.width, canvas.height))
+    }
+
+    override fun draw(canvas: Canvas, target: android.graphics.Rect) {
+        if (released || w <= 0 || h <= 0 || target.isEmpty) return
         val d = drawable ?: return
-        if (w <= 0 || h <= 0) {
-            return
-        }
-        val cw = canvas.width
-        val ch = canvas.height
-        if (cw <= 0 || ch <= 0) {
-            return
-        }
-        val scale = Math.min(cw.toFloat() / w, ch.toFloat() / h)
+        val scale = Math.min(target.width().toFloat() / w, target.height().toFloat() / h)
         val dw = Math.round(w * scale)
         val dh = Math.round(h * scale)
-        val left = (cw - dw) / 2
-        val top = (ch - dh) / 2
+        val left = target.left + (target.width() - dw) / 2
+        val top = target.top + (target.height() - dh) / 2
         dst.set(left, top, left + dw, top + dh)
         d.bounds = dst
         d.setAlpha(255)
         canvas.save()
-        // 【为什么不用 Color.TRANSPARENT 清底】悬浮窗的画布是透明的，
-        //   这里不需要也无法填背景 —— 只让 Lottie 把自己的图层画上来。
         d.draw(canvas)
         canvas.restore()
     }

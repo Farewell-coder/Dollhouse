@@ -431,6 +431,7 @@ object DhForm {
         content: @Composable ColumnScope.() -> Unit
     ) {
         val c = DhTokens.colors
+        val confirmGuard = com.dollhouse.app.ui.feedback.rememberConfirmGuard()
         ComposeDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(usePlatformDefaultWidth = true)
@@ -477,8 +478,10 @@ object DhForm {
                         if (posText != null) {
                             Spacer(Modifier.width(10.dp))
                             DialogButton(text = posText, primary = true) {
-                                onDismiss()
-                                onPos?.invoke()
+                                confirmGuard.runOnce {
+                                    onDismiss()
+                                    onPos?.invoke()
+                                }
                             }
                         }
                     }

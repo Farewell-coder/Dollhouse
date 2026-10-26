@@ -9,7 +9,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+import com.dollhouse.app.ui.feedback.AppMessage
+import com.dollhouse.app.ui.feedback.AppMessageQueue
+import com.dollhouse.app.ui.feedback.AppToast
+import com.dollhouse.app.ui.feedback.FeedbackBox
+import com.dollhouse.app.ui.feedback.MessageKind
+import kotlinx.coroutines.launch
 import com.dollhouse.app.core.CrashGuard
+import com.dollhouse.app.core.CrashLogExporter
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
@@ -76,10 +91,54 @@ object DeveloperOptionsPage {
 
     @Composable
     private fun Content(act: Activity) {
-        var tick by remember { mutableStateOf(0) }
+        var tick by remember { mutableIntStateOf(0) }
         val logOn = remember(tick) { Logs.isOn() }
-        val crashFiles = remember(tick) { CrashGuard.listFiles(act) }
+        var crashCount by remember { mutableIntStateOf(0) }
+        var crashFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+        var exporting by remember { mutableStateOf(false) }
+        var clearRequested by remember { mutableStateOf(false) }
+        val snackbarHost = remember { SnackbarHostState() }
+        val messages = remember { AppMessageQueue(snackbarHost) }
+        val scope = rememberCoroutineScope()
+        var mounted by remember { mutableStateOf(true) }
+        DisposableEffect(Unit) {
+            onDispose { mounted = false }
+        }
+        LaunchedEffect(tick) {
+            CrashLogExporter.loadSummary(act) { summary ->
+                if (!mounted) return@loadSummary
+                crashCount = summary.count
+                crashFiles = summary.latest
+            }
+        }
+        fun exportCrashLogs() {
+            if (exporting) return
+            if (crashCount == 0) {
+                AppToast.show(act, "没有可导出的崩溃记录")
+                return
+            }
+            exporting = true
+            CrashLogExporter.export(act) { result ->
+                if (!mounted) return@export
+                exporting = false
+                result.onSuccess { uri ->
+                    runCatching {
+                        act.startActivity(CrashLogExporter.shareIntent(act, uri))
+                    }.onFailure {
+                        AppToast.show(act, "没有可用的分享方式，请安装文件管理或分享应用", long = true)
+                    }
+                }.onFailure {
+                    val text = "导出失败：" + (it.message ?: it.javaClass.simpleName)
+                    scope.launch {
+                        messages.show(AppMessage(text, MessageKind.ERROR, actionLabel = "重试")) {
+                            exportCrashLogs()
+                        }
+                    }
+                }
+            }
+        }
 
+        FeedbackBox(snackbarHost, Modifier.fillMaxSize()) {
         DhKit.Page(
             title = "开发者选项",
             sub = "排障用，平时不用动",
@@ -99,11 +158,11 @@ object DeveloperOptionsPage {
             }
 
             DhKit.Card(collapsibleTitle = "崩溃记录") {
-                if (crashFiles.isEmpty()) {
+                if (crashCount == 0) {
                     DhKit.ValueRow(label = "记录数", value = "0")
                     DhForm.Note("没有崩溃记录。")
                 } else {
-                    DhKit.ValueRow(label = "记录数", value = crashFiles.size.toString())
+                    DhKit.ValueRow(label = "记录数", value = crashCount.toString())
                     val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.US)
                     for (f in crashFiles.take(5)) {
                         DhKit.ValueRow(
@@ -114,12 +173,18 @@ object DeveloperOptionsPage {
                     DhForm.Note("存放在应用缓存目录（cache/crash）。小肥鱼如果曾经意外退出，"
                             + "这里会留下当时的现场，方便查原因。")
                     DhKit.ActionRow(
+                        label = if (exporting) "正在导出…" else "导出错误日志",
+                        iconRes = Icons.IC_DOWNLOAD,
+                        desc = if (exporting) "正在后台汇总，请稍候" else "汇总全部记录，通过系统分享发送或保存",
+                        enabled = !exporting,
+                        tooltip = "汇总所有崩溃记录，按住查看说明"
+                    ) { exportCrashLogs() }
+                    DhKit.ActionRow(
                         label = "清空记录",
                         iconRes = Icons.IC_TRASH,
                         desc = "删掉全部崩溃现场"
                     ) {
-                        CrashGuard.clear(act)
-                        tick++
+                        clearRequested = true
                     }
                 }
             }
@@ -127,6 +192,23 @@ object DeveloperOptionsPage {
             DhKit.Card(collapsibleTitle = "说明") {
                 DhForm.Note("这一页里的开关只影响排障信息的收集，不影响聊天、人偶和任何功能。")
                 DhForm.Note("崩溃记录不会上传到任何地方，只存在你自己的手机里。")
+            }
+        }
+        }
+        if (clearRequested) {
+            DhForm.Alert(
+                title = "清空全部崩溃记录？",
+                onDismiss = { clearRequested = false },
+                posText = "清空",
+                onPos = {
+                    CrashGuard.clear(act)
+                    clearRequested = false
+                    tick++
+                    AppToast.show(act, "崩溃记录已清空")
+                },
+                negText = "取消"
+            ) {
+                Text("将删除本机保存的 $crashCount 份崩溃现场，删除后无法恢复。")
             }
         }
     }

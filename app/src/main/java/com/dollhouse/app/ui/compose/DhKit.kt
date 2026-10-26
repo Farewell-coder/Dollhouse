@@ -876,9 +876,11 @@ object DhKit {
         color: Color,
         modifier: Modifier = Modifier,
         label: String? = null,
+        tooltip: String? = null,
         onClick: () -> Unit
     ) {
         val hasLabel = !label.isNullOrEmpty()
+        val button: @Composable () -> Unit = {
         Row(
             modifier = modifier
                 // 【尺寸】有文字时不再固定 HIT 方形，改为内容宽 + 固定高，
@@ -905,6 +907,12 @@ object DhKit {
                 )
             }
         }
+        }
+        if (tooltip.isNullOrBlank()) {
+            button()
+        } else {
+            com.dollhouse.app.ui.feedback.HintTooltip(tooltip) { button() }
+        }
     }
 
     /* ============================ 长横条按钮 / 底部胶囊导航（r10） ============================ */
@@ -929,11 +937,13 @@ object DhKit {
         desc: String? = null,
         trailing: String? = null,
         enabled: Boolean = true,
+        tooltip: String? = null,
         onClick: (() -> Unit)? = null
     ) {
         val c = DhTokens.colors
         val clickable = enabled && onClick != null
         val hasDesc = !desc.isNullOrEmpty()
+        val row: @Composable () -> Unit = {
         Row(
             modifier = modifier
                 .fillMaxWidth()
@@ -977,6 +987,12 @@ object DhKit {
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+        }
+        if (tooltip.isNullOrBlank()) {
+            row()
+        } else {
+            com.dollhouse.app.ui.feedback.HintTooltip(tooltip) { row() }
         }
     }
 

@@ -38,9 +38,8 @@ import com.dollhouse.app.anim.Springs
  * 统一视觉与动效。配色 / 圆角 / 时长全部在此收口，
  * 页面代码不再散写裸值 —— 对齐参考软件 My Life, My Sim 的设计令牌。
  *
- * 【硬约束】本 App 不允许任何形式的 Toast / Snackbar / 自实现浮层短提示。
- *   历史：2026-10-03 全量删除（原 55 处调用 + 1 个出口），因其视觉上与系统通知冲突且很丑。
- *   新增按键 / 交互一律用页面内的文字变化、控件状态或页面跳转做反馈，禁止重新引入浮层短提示。
+ * 【反馈】Dialog 复用本文件；Toast / Snackbar 由 ui.feedback 提供轻量入口。
+ *   简单短消息不强制变成弹窗；需要用户处理的消息才使用 Snackbar 或确认框。
  */
 object UiKit {
     /*
@@ -1608,6 +1607,8 @@ object UiKit {
                 plp.leftMargin = dp(act, 10)
                 pb.layoutParams = plp
                 pb.setOnClickListener { v ->
+                    // 同一窗口的确认操作只接受第一次点击；取消/返回不走这里。
+                    pb.isEnabled = false
                     dlg.dismiss()
                     pos?.onClick(v)
                 }

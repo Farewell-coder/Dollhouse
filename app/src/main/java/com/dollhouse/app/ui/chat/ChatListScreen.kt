@@ -214,18 +214,8 @@ object ChatListScreen {
                         }
                     }
                 },
-                actions = {
-                    // 【r13·一人偶一对话】原「新建会话」按钮已移除。
-                    //   需求原文：「聊天界面不要无限添加，就像 QQ 好友一样，一个联系人对应的
-                    //   一个对话框，不要无限增加对话框；以后聊天界面的对话框都得绑定人偶」。
-                    //   会话是人偶的投影（见 ChatSessions.idForDoll），由人偶库决定有几条，
-                    //   用户不再能凭空造出孤儿对话 —— 所以这个入口从语义上就该消失，
-                    //   而不是留在那里点了报错。
-                    //   想开新对话的正确路径：去「人偶」新建/导入一只人偶，它自带一个对话框。
-                    DhKit.IconButton(Icons.IC_USERS, Design.SZ_MD, c.title, label = "人偶") {
-                        com.dollhouse.app.ui.doll.DollListScreen.open(act)
-                    }
-                }
+                // 右上角不重复提供人偶入口；人偶管理统一由底部「人偶」Tab进入。
+                actions = null
             )
 
             // ---------- 搜索框 ----------
