@@ -96,16 +96,22 @@ object CrashGuard {
         }
     }
 
-    /** 清掉全部崩溃记录（用户在设置里点「清除」时用）。 */
+    /** 清掉全部崩溃记录。返回是否真的没有留下任何文件，调用方不得盲报成功。 */
     @JvmStatic
-    fun clear(ctx: Context?) {
+    fun clear(ctx: Context?): Boolean {
         for (f in listFiles(ctx)) {
             try {
-                f.delete()
+                if (f.exists() && !f.delete()) {
+                    // 保留 lastSummary，因为至少还有一份现场没有删掉。
+                    return false
+                }
             } catch (ignored: Throwable) {
+                return false
             }
         }
-        lastSummary = null
+        val remaining = listFiles(ctx).isNotEmpty()
+        if (!remaining) lastSummary = null
+        return !remaining
     }
 
     /** 崩溃记录文件列表（按修改时间倒序）。 */

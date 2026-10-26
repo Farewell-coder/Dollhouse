@@ -97,6 +97,7 @@ object DeveloperOptionsPage {
         var crashFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
         var exporting by remember { mutableStateOf(false) }
         var clearRequested by remember { mutableStateOf(false) }
+        var clearing by remember { mutableStateOf(false) }
         val snackbarHost = remember { SnackbarHostState() }
         val messages = remember { AppMessageQueue(snackbarHost) }
         val scope = rememberCoroutineScope()
@@ -201,10 +202,21 @@ object DeveloperOptionsPage {
                 onDismiss = { clearRequested = false },
                 posText = "清空",
                 onPos = {
-                    CrashGuard.clear(act)
-                    clearRequested = false
-                    tick++
-                    AppToast.show(act, "崩溃记录已清空")
+                    if (clearing) return@Alert
+                    clearing = true
+                    CrashLogExporter.clear(act) { success ->
+                        if (!mounted) return@clear
+                        clearing = false
+                        clearRequested = false
+                        tick++
+                        if (success) {
+                            AppToast.show(act, "崩溃记录已清空")
+                        } else {
+                            scope.launch {
+                                messages.show(AppMessage("部分记录未能删除，请重试", MessageKind.ERROR))
+                            }
+                        }
+                    }
                 },
                 negText = "取消"
             ) {

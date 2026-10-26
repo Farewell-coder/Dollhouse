@@ -18,6 +18,7 @@ import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.DollSizeSpec
+import com.dollhouse.app.data.ActionViewport
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.pet.behavior.ActionSemantic
@@ -289,7 +290,16 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         // 【为什么用 post】此刻窗口还没 addView，lp 已是最终值；但 PetView 的
         //   pivotLocalX/Y 要等测量完成才稳定，丢到下一帧写才能取到准确锚点。
         ui.post { rememberPivot() }
-        petView.setOnTouchListener { _, motionEvent -> handleTouch(motionEvent) }
+        petView.setOnTouchListener { _, motionEvent ->
+            // 透明扩展区让事件穿回下层；已经开始的拖动/甩抛不因扩窗中断。
+            if (motionEvent.actionMasked == MotionEvent.ACTION_DOWN &&
+                !ActionViewport.isInBaseWindow(motionEvent.x, petView.width, petView.baseWindowWidth())
+            ) {
+                false
+            } else {
+                handleTouch(motionEvent)
+            }
+        }
         try {
             wm.addView(petView, layoutParams)
             added = true

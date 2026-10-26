@@ -1562,6 +1562,12 @@ class PetView(context: Context) : View(context) {
     /** 动作播放层；为 null 表示「本视图不播动作」（编辑页预览、通知预览等）。 */
     private var action: ActionPlayerCore? = null
 
+    /** 人物原窗口的触摸宽度，不含只为显示而增加的透明扩展区。 */
+    fun baseWindowWidth(): Int {
+        computeBox(boxBuf)
+        return Math.round(boxBuf[0]).coerceAtLeast(petWidth())
+    }
+
     /** 由窗口层同步 LayoutParams；不在视图绘制阶段直接操作 WindowManager。 */
     internal var actionViewportChanged: ((Int) -> Unit)? = null
     private var pendingActionViewportWidth = 0

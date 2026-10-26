@@ -71,4 +71,15 @@ object ActionViewport {
 
     /** 扩展窗口后，旧坐标只需整体平移这个差值。 */
     fun contentOffsetX(spec: Spec): Int = (spec.requiredWidth - spec.baseWidth) / 2
+
+    /**
+     * 透明扩展区只用于显示，不扩大触摸拦截面。
+     * 只在新一次按下时判断；拖动中扩窗不会中断当前手势。
+     */
+    fun isInBaseWindow(x: Float, actualWidth: Int, baseWidth: Int): Boolean {
+        if (actualWidth <= 0 || baseWidth <= 0 || actualWidth <= baseWidth) return true
+        if (!x.isFinite()) return false
+        val left = (actualWidth - baseWidth) / 2f
+        return x >= left && x < left + baseWidth
+    }
 }

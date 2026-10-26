@@ -21,6 +21,15 @@ object CrashLogExporter {
 
     data class Summary(val count: Int, val latest: List<File>)
 
+    fun clear(context: Context, callback: (Boolean) -> Unit) {
+        val app = context.applicationContext
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        worker.execute {
+            val success = runCatching { CrashGuard.clear(app) }.getOrDefault(false)
+            main.post { callback(success) }
+        }
+    }
+
     fun loadSummary(context: Context, callback: (Summary) -> Unit) {
         val app = context.applicationContext
         worker.execute {

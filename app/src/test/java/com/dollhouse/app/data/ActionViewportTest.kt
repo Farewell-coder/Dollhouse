@@ -1,6 +1,7 @@
 package com.dollhouse.app.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,6 +57,16 @@ class ActionViewportTest {
         val p = ActionViewport.measure(large, 1000, 1000, baseline)!!
         assertEquals(900, p.bottom - p.top)
         assertEquals(2 * spec.bodyHeight, large.bodyHeight)
+    }
+
+    @Test
+    fun expandedTransparentAreaDoesNotInterceptTouch() {
+        assertTrue(ActionViewport.isInBaseWindow(150f, 300, 300))
+        assertFalse(ActionViewport.isInBaseWindow(50f, 600, 300))
+        assertTrue(ActionViewport.isInBaseWindow(150f, 600, 300))
+        assertTrue(ActionViewport.isInBaseWindow(449f, 600, 300))
+        assertFalse(ActionViewport.isInBaseWindow(450f, 600, 300))
+        assertFalse(ActionViewport.isInBaseWindow(Float.NaN, 600, 300))
     }
 
     @Test
