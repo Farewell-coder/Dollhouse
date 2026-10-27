@@ -527,8 +527,9 @@ object HomeUi {
             return
         }
         try {
-            act.startActivity(Intent(act, com.dollhouse.app.ChatActivity::class.java))
-            act.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+            com.dollhouse.app.PageTransitions.start(
+                act, Intent(act, com.dollhouse.app.ChatActivity::class.java)
+            )
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
@@ -704,13 +705,14 @@ object HomeUi {
         inView.visibility = View.VISIBLE
         inView.alpha = 0f
         out.alpha = 1f
-        inView.animate().alpha(1f).setDuration(UiKit.D_LAYER.toLong())
-            .setInterpolator(UiKit.EASE_DECEL).start()
-        out.animate().alpha(0f).setDuration(UiKit.D_MICRO.toLong())
-            .setInterpolator(UiKit.EASE_ACCEL)
+        val duration = UiKit.pageTransitionDuration()
+        inView.animate().alpha(1f).setDuration(duration)
+            .setInterpolator(UiKit.EASE_STD).start()
+        out.animate().alpha(0f).setDuration(duration)
+            .setInterpolator(UiKit.EASE_STD)
             .withEndAction { hideOut(out) }.start()
-        // 【兜底】动画被打断时 withEndAction 不执行，靠这个延时任务把旧页真正收掉。
-        out.postDelayed({ hideOut(out) }, UiKit.D_LAYER.toLong() + 120L)
+        // 动画被取消时也要收掉旧页；重复隐藏由 hideOut 幂等处理。
+        out.postDelayed({ hideOut(out) }, duration + 120L)
     }
 
     /**
@@ -1080,7 +1082,9 @@ object HomeUi {
     @JvmStatic
     fun pickBackground(act: Activity) {
         try {
-            act.startActivity(Intent(act, BackgroundCropActivity::class.java))
+            com.dollhouse.app.PageTransitions.start(
+                act, Intent(act, BackgroundCropActivity::class.java)
+            )
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }

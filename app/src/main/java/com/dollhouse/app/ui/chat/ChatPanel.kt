@@ -202,7 +202,9 @@ class ChatPanel(
     internal fun openMain() {
         val intent = Intent(context, MainActivity::class.java)
         intent.flags = 335544320
-        context.startActivity(intent)
+        (context as? android.app.Activity)?.let {
+            com.dollhouse.app.PageTransitions.start(it, intent)
+        } ?: context.startActivity(intent)
     }
 
     /** 点「加载更早的历史记录」。 */

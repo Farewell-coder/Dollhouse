@@ -532,11 +532,21 @@ object UiKit {
         }
     }
 
-    /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 整页转场 300ms。 */
+    /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 普通页面转场 200ms。 */
     const val D_PRESS = 90
     const val D_MICRO = 180
     const val D_LAYER = 260
-    const val D_PAGE = 300
+    const val D_PAGE = 200
+
+    /** 系统关闭 Animator 时，普通页面直接切换，不播放装饰性转场。 */
+    @JvmStatic
+    fun pageTransitionDuration(): Long {
+        return if (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()) {
+            D_PAGE.toLong()
+        } else {
+            0L
+        }
+    }
 
     /** 列表错峰入场的每一档延迟（毫秒）。 */
     const val D_STAGGER = 26
@@ -1867,26 +1877,21 @@ object UiKit {
     }
 
 
-    /* ================= 整页转场：所有二级页共用 =================
-     * 【背景】各二级页原先都是 content.removeView(旧) + addView(新)，中间没有任何过渡，
-     *         观感是“畴”地一下整屏换掉 —— 这是全 App 最大的突兀源。
-     *         这里收口成三个方法，页面只管调用，不再自己拼 remove/add。
-     * 【单位】位移一律取容器宽度比例，不写死 dp，适配任意分辨率。
-     * 【为何不用 FragmentTransaction / ActivityOptions】本项目二级页不是 Fragment，
-     *         而是在 android.R.id.content 上手工叠的覆盖页；改造成 Fragment 会动到
-     *         所有页面的生命周期，风险远大于收益，所以就地给叠页加动效。
-     */
-
-    /** 屏宽（拿不到布局宽度时兜底用显示宽度）。 */
-    private fun pageW(content: ViewGroup): Int {
-        val w = content.width
-        return if (w > 0) w else content.resources.displayMetrics.widthPixels
+    // ================= 普通整页转场：所有旧 View 覆盖页共用 =================
+    // 仅对即将销毁的整页临时禁用输入，不触碰当前页的事件回调。
+    private fun disablePageInput(page: View) {
+        page.isEnabled = false
+        if (page is ViewGroup) {
+            for (i in 0 until page.childCount) {
+                disablePageInput(page.getChildAt(i))
+            }
+        }
     }
 
-    /**
-     * 打开一个覆盖页：新页自右侧滑入。
-     * 旧覆盖页立即移除 —— 它会被新页完全遮住，不给它做动画反而更干净、也不会残留视图。
-     */
+    // 只改变透明度；抽屉、底部面板、卡片与人偶动画继续使用各自独立规则。
+    // 沿用现有 View 层级与生命周期，不引入第二套导航。
+
+    /** 打开一个覆盖页：新页 200ms 淡入；同 tag 替换沿用原有立即释放语义。 */
     @JvmStatic
     fun openPage(content: ViewGroup?, page: View?, tag: String?) {
         if (content == null || page == null) {
@@ -1894,17 +1899,18 @@ object UiKit {
         }
         val old = if (tag == null) null else content.findViewWithTag<View>(tag)
         if (old != null) {
+            // 同 key 替换沿用原语义：立即释放旧页，避免转场期间双份交互与资源。
+            old.animate().cancel()
             content.removeView(old)
         }
         page.setTag(tag)
-        page.translationX = pageW(content) * 0.14f
+        page.translationX = 0f
         page.alpha = 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
-        // 【全局背景】覆盖页自铺一次全局背景（带不透明底，遮住下层同一张图避免叠影），
-        // 页内页面级不透明底色统一置透明，图只由页根画一次；卡片自身底色保留。
+        // 页根铺全局背景，页面底色保持既有规则。
         GlobalBackground.installPage(page)
-        page.animate().translationX(0f).alpha(1f)
-            .setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL).start()
+        val duration = pageTransitionDuration()
+        page.animate().alpha(1f).setDuration(duration).setInterpolator(EASE_STD).start()
     }
 
     /** 同层内容替换（切分段 / 翻日期 / 二级页重建）：只交叉淡入，不做位移，避免方向误导。 */
@@ -1914,12 +1920,21 @@ object UiKit {
             return
         }
         val old = if (tag == null) null else content.findViewWithTag<View>(tag)
+        if (old != null) {
+            // 只让新页接收触摸，同时保留旧页短暂淡出。
+            old.animate().cancel()
+            disablePageInput(old)
+        }
         page.setTag(tag)
         page.alpha = 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
         // 同 openPage：页根铺全局背景，页内页面级底色置透明，避免与宿主重复叠图。
         GlobalBackground.installPage(page)
-        page.animate().alpha(1f).setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL)
+        if (old != null) {
+            old.animate().alpha(0f).setDuration(pageTransitionDuration()).setInterpolator(EASE_STD)
+                .withEndAction { content.removeView(old) }.start()
+        }
+        page.animate().alpha(1f).setDuration(pageTransitionDuration()).setInterpolator(EASE_STD)
             .withEndAction {
                 // 挂在新页（一直在树上）的结束回调上，比挂旧页可靠。
                 val oldParent: ViewParent? = if (old == null) null else old.parent
@@ -1929,10 +1944,7 @@ object UiKit {
             }.start()
     }
 
-    /**
-     * 关闭一个覆盖页：向右滑出 + 淡出后移除。
-     * 【幂等】removeView 对非子 View 是空操作，重复调用安全。
-     */
+    /** 关闭一个覆盖页：200ms 淡出后移除。重复调用保持幂等。 */
     @JvmStatic
     fun closePage(page: View?) {
         if (page == null) {
@@ -1942,8 +1954,10 @@ object UiKit {
             return
         }
         val parent = page.parent as ViewGroup
-        page.animate().translationX(pageW(parent) * 0.14f).alpha(0f)
-            .setDuration(D_LAYER.toLong()).setInterpolator(EASE_ACCEL)
+        page.translationX = 0f
+        disablePageInput(page)
+        page.animate().alpha(0f)
+            .setDuration(pageTransitionDuration()).setInterpolator(EASE_STD)
             .withEndAction {
                 parent.removeView(page)
             }.start()

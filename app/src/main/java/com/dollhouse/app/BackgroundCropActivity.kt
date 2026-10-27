@@ -56,6 +56,10 @@ class BackgroundCropActivity : Activity() {
         }
     }
 
+    override fun finish() {
+        PageTransitions.finish(this)
+    }
+
     override fun onCreate(bundle: Bundle?) {
         super.onCreate(bundle)
         // 【修·选图回调丢失】与 PickFileActivity 同一个坑：重建时不能再弹一次相册，

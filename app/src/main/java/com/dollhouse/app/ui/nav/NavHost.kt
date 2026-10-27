@@ -4,10 +4,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -185,6 +186,17 @@ object NavHost {
                 //   故：**只有真正存在覆盖层时才渲染**。栈里只剩底座时这里什么都不画，
                 //   ComposeView 不参与命中测试，底座零干扰。
                 if (stack.size > 1) {
+                    // 系统关闭 Animator 时直接完成导航，不播放装饰性透明度动画。
+                    // 不改变页面栈、状态恢复或返回路径。
+                    val pageEnter: EnterTransition
+                    val pageExit: ExitTransition
+                    if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+                        pageEnter = fadeIn(animationSpec = tween(UiKit.D_PAGE))
+                        pageExit = fadeOut(animationSpec = tween(UiKit.D_PAGE))
+                    } else {
+                        pageEnter = EnterTransition.None
+                        pageExit = ExitTransition.None
+                    }
                     // 【必须提供 NavigationEventDispatcherOwner】`NavDisplay` 内部用
                     //   `NavigationBackHandler` 接管系统返回 / 预测性返回手势，而它读
                     //   `LocalNavigationEventDispatcherOwner`，**取不到就直接抛异常**
@@ -237,73 +249,11 @@ object NavHost {
 //   不会绕过 `ProviderNav.handleInternalBack`。
                         onBack = { runCatching { act.onBackPressed() } },
                         modifier = Modifier.fillMaxSize(),
-                        // 【丝滑转场】Nav3 默认转场是「淡入淡出」（`fadeIn togetherWith fadeOut`，
-                        //   300ms 线性）。在本工程里它有两个问题：
-                        //   ① 观感生硬：覆盖页是整屏不透明页，纯淡变看起来像「闪一下」，
-                        //      没有旧实现那种「从右侧推进来」的方向感（用户报的「卡顿」）；
-                        //   ② 淡变期间两层同时绘制，而每层都是 Compose→AndroidView 包裹的
-                        //      重型 View 树，叠绘开销让掉帧更明显。
-                        //   这里改成**推入式滑动**：入栈整层自右向左推进，出栈整层自左向右退回。
-                        //   两层同速同向移动、始终拼满整屏，所以不会露出下层底座的缝。
-                        //   【为什么滑动比淡变更顺】滑动的位移是渲染层合成（GPU 一次绘制即可），
-                        //   不涉及两层 alpha 混合重绘，帧时间更稳。
-                        //
-                        //   【曲线与时长直接复用 UiKit 的既有动效词汇】单一真源，避免两套口径：
-                        //   · 入场 = `D_PAGE`(300ms) + `LinearOutSlowInEasing`
-                        //     —— 即 cubic-bezier(0,0,0.2,1)，与 `UiKit.EASE_DECEL` 逐位相同；
-                        //   · 出场 = `D_LAYER`(260ms) + `FastOutLinearInEasing`
-                        //     —— 即 cubic-bezier(0.4,0,1,1)，与 `UiKit.EASE_ACCEL` 逐位相同。
-                        //   「离开比进入更快」正是旧实现刻意的视觉习惯（见 UiKit 注释）。
-                        transitionSpec = {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Left,
-                                tween(
-                                    durationMillis = UiKit.D_PAGE,
-                                    easing = LinearOutSlowInEasing
-                                )
-                            ) togetherWith slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Left,
-                                tween(
-                                    durationMillis = UiKit.D_PAGE,
-                                    easing = LinearOutSlowInEasing
-                                )
-                            )
-                        },
-                        // 【返回/出栈】方向镜像：整层自左向右退回，离开更快（D_LAYER）。
-                        popTransitionSpec = {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Right,
-                                tween(
-                                    durationMillis = UiKit.D_LAYER,
-                                    easing = FastOutLinearInEasing
-                                )
-                            ) togetherWith slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Right,
-                                tween(
-                                    durationMillis = UiKit.D_LAYER,
-                                    easing = FastOutLinearInEasing
-                                )
-                            )
-                        },
-                        // 【预测性返回】手势拖动过程中跟手预览退场。
-                        //   【为什么本工程基本用不到】宿主是原生 `Activity`，未在 Manifest 里开启
-                        //   `android:enableOnBackInvokedCallback`，系统不会下发预测性返回手势；
-                        //   这里给出与 pop 一致的规格，是为「日后开启」预留一致观感，零额外成本。
-                        predictivePopTransitionSpec = {
-                            slideIntoContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Right,
-                                tween(
-                                    durationMillis = UiKit.D_LAYER,
-                                    easing = FastOutLinearInEasing
-                                )
-                            ) togetherWith slideOutOfContainer(
-                                AnimatedContentTransitionScope.SlideDirection.Right,
-                                tween(
-                                    durationMillis = UiKit.D_LAYER,
-                                    easing = FastOutLinearInEasing
-                                )
-                            )
-                        },
+                        // 普通页面前进、返回与预测性返回共用纯透明度规则。
+                        // 每层仍是独立 LayerShield：转场开始即由栈顶独占交互。
+                        transitionSpec = { pageEnter togetherWith pageExit },
+                        popTransitionSpec = { pageEnter togetherWith pageExit },
+                        predictivePopTransitionSpec = { pageEnter togetherWith pageExit },
                         // 【不做尺寸动画】本工程的场景永远是整屏页，尺寸恒定；
                         //   关掉 `sizeTransform` 可以省去每帧的子项测量与布局动画开销 ——
                         //   这是「切页更顺」的另一半原因（帧时间少一段 layout 计算）。

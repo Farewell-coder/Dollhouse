@@ -96,6 +96,10 @@ class CoverCropActivity : Activity() {
         }
     }
 
+    override fun finish() {
+        PageTransitions.finish(this)
+    }
+
     override fun onCreate(bundle: Bundle?) {
         super.onCreate(bundle)
         dollId = intent?.getStringExtra(EXTRA_DOLL) ?: ""
@@ -852,7 +856,7 @@ class CoverCropActivity : Activity() {
             try {
                 val i = Intent(act, CoverCropActivity::class.java)
                 i.putExtra(EXTRA_DOLL, dollId)
-                act.startActivity(i)
+                PageTransitions.start(act, i)
             } catch (t: Throwable) {
                 Logs.w(TAG, "打不开封面裁剪页", t)
             }
