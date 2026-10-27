@@ -30,6 +30,7 @@ The current doll is a whale girl named "Little Fatty Fish". She blinks, sways wh
 - **Image handling**: background cropping and text recognition, with OCR provided by Google ML Kit.
 - **Optional device control**: system command access through Shizuku; installing and starting lamda adds tapping, swiping, typing, app launching, and screen reading. None of these are required for the desktop pet or a configured chat.
 - **Background operation**: foreground service, boot restore, and keep-alive settings improve survival, though system battery and background policies still apply.
+- **Diagnostics**: the last entry on the About page opens real local error and crash groups, searchable records, stack traces, related events, storage checks, system exit reasons, and verified ZIP exports. Severe errors are always retained; detailed runtime logging has a separate switch.
 
 ## Install
 
@@ -48,6 +49,15 @@ Device control requires installing, starting, and authorizing [Shizuku](https://
 - Conversations, memories, and settings are stored in the app's private directory on this device. When chatting online, the relevant conversations, memories, and tool results are sent to your configured service as required by the feature; credentials are used for request authentication. Check for sensitive information before exporting or sharing a configuration.
 - ML Kit and its Google dependencies are governed by their own terms and data handling rules; this is not a promise that the app never touches the network or never produces SDK diagnostics.
 - Authorized device commands may read the screen, files, and settings, and may change device state. Model-generated instructions can be wrong; tool output or a granted permission should not be treated as a security guarantee.
+
+## v0.1.2
+- Rebuilt the former debug page as a native Diagnostics Center, now the last entry on About.
+- Added real grouped statistics, severity filters, keyword search, error details, full stack traces, related logs, self-checks, and system-provided process exit records.
+- Added verified single-error and complete ZIP exports containing manifests, summaries, raw structured logs, error details, and system information.
+- Severe errors persist independently of detailed logging. JSONL logs rotate after 1 MB per file, retain up to 8 MB, and expire after 7 days. Legacy crash text remains readable.
+- Connected image, frame-sequence, and standalone Lottie action creation; fixed frame append overwrites, Lottie previews, fixed-slot engine changes, model-package rollback, reference cleanup, and archive size accounting.
+
+See the [changelog](CHANGELOG.md) for details. Version: versionName **0.1.2** / versionCode **12**.
 
 ## v0.1.1
 This update improves doll animation display, crash diagnostics, interaction feedback, and local build caching.

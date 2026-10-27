@@ -176,7 +176,7 @@ object AppearancePage {
                 //   与设置页多选项 / 底栏选中态同一套语义色，全 App 一致。
                 .background(if (selected) c.option else Color.Transparent)
                 .pressable(onClick)
-                .padding(vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {

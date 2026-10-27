@@ -149,7 +149,7 @@ object OcrEngine {
                     out = join(Tasks.await(task, TIMEOUT_SEC, TimeUnit.SECONDS))
                 }
             } catch (t: Throwable) {
-                Logs.w(TAG, "识别失败，按「没读出文字」处理：" + imagePath, t)
+                Logs.w(TAG, "识别失败，按「没读出文字」处理", t)
             } finally {
                 if (bmp != null && !bmp.isRecycled) {
                     bmp.recycle()

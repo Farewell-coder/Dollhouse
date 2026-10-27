@@ -310,7 +310,7 @@ object MemExtractor {
         val root = try {
             JSONObject(json)
         } catch (unused: Throwable) {
-            Logs.w(TAG, "[apply] JSON 解析失败，原文前 200 字：" + (raw ?: "").take(200), null)
+            Logs.w(TAG, "[apply] JSON 解析失败，原文长度=" + (raw?.length ?: 0), null)
             return 0
         }
         var count = 0

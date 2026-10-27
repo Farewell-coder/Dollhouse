@@ -84,8 +84,15 @@ object DollImportWizardPage {
     private const val MODE_REPLACE = "replace"
 
     @JvmStatic
-    fun open(act: MainActivity, dollId: String) {
-        PageStack.push(act, PREFIX + dollId) { buildPage(act, dollId) }
+    fun open(
+        act: MainActivity,
+        dollId: String,
+        initialName: String = "",
+        initialGroup: String = com.dollhouse.app.data.DollAnim.GROUP_MANUAL
+    ) {
+        PageStack.push(act, PREFIX + dollId) {
+            ComposeHost.createView(act) { Content(act, dollId, initialName, initialGroup) }
+        }
     }
 
     /** 页面构造：供页面栈入栈与跨重建恢复共用。 */
@@ -96,7 +103,12 @@ object DollImportWizardPage {
     }
 
     @Composable
-    private fun Content(act: MainActivity, dollId: String) {
+    private fun Content(
+        act: MainActivity,
+        dollId: String,
+        initialName: String = "",
+        initialGroup: String = DollAnim.GROUP_MANUAL
+    ) {
         val c = DhTokens.colors
         // ---------- 向导状态 ----------
         // 已选文件（PickFileActivity 拷进 cacheDir 的稳定副本路径）。
@@ -107,14 +119,14 @@ object DollImportWizardPage {
         // 导入方式 + 目标动作（变体 / 替换要选一个现存动作）。
         var mode by remember { mutableStateOf(MODE_NEW) }
         var targetId by remember { mutableStateOf<String?>(null) }
-        var nameDraft by remember { mutableStateOf("") }
+        var nameDraft by remember { mutableStateOf(initialName) }
         // 提交中（防重复点）。
         var submitting by remember { mutableStateOf(false) }
         // 预览：第一张能认出的图片。
         var preview by remember { mutableStateOf<ImageBitmap?>(null) }
 
         // 分组选择：提到组件顶层，才能传给 doImport（B4 修复）。
-        var groupDraft by remember { mutableStateOf(DollAnim.GROUP_MANUAL) }
+        var groupDraft by remember { mutableStateOf(initialGroup) }
         val actions = remember(DollState.rev) { DollAnim.all(act, dollId) }
         // 默认目标：第一个手动组动作（替换 / 变体最常打的是它）。
         LaunchedEffect(actions) {
@@ -195,7 +207,9 @@ object DollImportWizardPage {
                     // 名字默认取第一个文件的文件名（去掉扩展名），用户可以改。
                     val first = File(paths[0]).name
                     val dot = first.lastIndexOf('.')
-                    nameDraft = if (dot > 0) first.substring(0, dot) else first
+                    if (nameDraft.isBlank()) {
+                        nameDraft = if (dot > 0) first.substring(0, dot) else first
+                    }
                     Thread({
                         val r = AnimImport.inspect(paths)
                         act.runOnUiThread {
@@ -511,7 +525,12 @@ object DollImportWizardPage {
             }
             val dst = File(officialDir, f.name)
             try {
-                f.renameTo(dst)
+                if (dst.exists() && !dst.delete()) {
+                    throw java.io.IOException("无法替换旧帧")
+                }
+                if (!f.renameTo(dst)) {
+                    throw java.io.IOException("rename failed")
+                }
                 moved.add(dst.absolutePath)
             } catch (t: Throwable) {
                 // rename 失败（跨挂载 / 同名已存在且被占用）→ 退回拷贝。
@@ -534,7 +553,10 @@ object DollImportWizardPage {
         val u = cur.copy(
             frames = moved,
             fps = DollAnim.clampFps(r.fps),
-            baseline = bl?.encode() ?: ""
+            baseline = bl?.encode() ?: "",
+            engine = DollAnim.ENGINE_SPRITE,
+            sourceId = "",
+            assetPath = ""
         )
         DollAnim.update(act, dollId, u)
 

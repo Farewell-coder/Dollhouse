@@ -136,7 +136,17 @@ object ModelValidator {
             errors.add("包内缺少清单声明的资源：" + missing.joinToString("、"))
         }
 
-        // ---------- ⑦ 动作语义 ----------
+        // ---------- ⑦ 动作语义与可播放内容 ----------
+        // 当前 sprite 播放器消费的是已登记的帧列表，不接受“单个图片 + assetPath”。
+        // 宁可导入前明确拒绝，也不能提示成功后留下永远播不了的记录。
+        if (manifest.actions.isEmpty() && ModelPackage.engineOf(manifest.entry) == DollAnim.ENGINE_SPRITE) {
+            errors.add("入口资源暂不支持单张图片，请使用 Lottie JSON 或动图")
+        }
+        for ((_, path) in manifest.actions) {
+            if (ModelPackage.engineOf(path) == DollAnim.ENGINE_SPRITE) {
+                errors.add("动作资源暂不支持单张图片：$path")
+            }
+        }
         for ((semantic, path) in manifest.actions) {
             if (!isKnownSemantic(semantic)) {
                 // 【为什么只是警告】语义表是「对外契约」，未来会加（任务书允许新增不允许改名）。

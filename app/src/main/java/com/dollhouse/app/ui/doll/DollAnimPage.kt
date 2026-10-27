@@ -2,6 +2,7 @@ package com.dollhouse.app.ui.doll
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.Context
 import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -29,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -164,6 +167,39 @@ object DollAnimPage {
         val group = action?.group ?: DollAnim.GROUP_MANUAL
         val fixed = DollAnim.isFixedGroup(group)
         val isEdge = group == DollAnim.GROUP_EDGE
+
+        // ---------- 非帧引擎预览：复用桌宠同一套渲染器 ----------
+        val engineAction = action?.takeIf {
+            it.engine != DollAnim.ENGINE_SPRITE && it.assetPath.isNotEmpty()
+        }
+        val previewRenderer = androidx.compose.runtime.remember(engineAction?.id, engineAction?.assetPath) {
+            if (engineAction == null) null else {
+                val r = com.dollhouse.app.pet.render.RendererRegistry.create(engineAction.engine)
+                val source = if (engineAction.engine == DollAnim.ENGINE_LOTTIE)
+                    com.dollhouse.app.pet.render.PetSource.Lottie(engineAction.assetPath)
+                else com.dollhouse.app.pet.render.PetSource.AnimatedImage(engineAction.assetPath)
+                if (r?.prepare(source) == true) r else { r?.release(); null }
+            }
+        }
+        var previewTick by remember { mutableStateOf(0L) }
+        DisposableEffect(previewRenderer) {
+            previewRenderer?.attach(object : com.dollhouse.app.pet.render.PetDisplayHost {
+                override fun context(): Context = act
+                override fun requestDraw() { previewTick++ }
+                override fun onSizeChanged(w: Int, h: Int) {}
+                override fun isShown(): Boolean = true
+                override fun isScreenOn(): Boolean = true
+            })
+            if (playing) previewRenderer?.play()
+            onDispose { previewRenderer?.release() }
+        }
+        LaunchedEffect(playing, previewRenderer) {
+            if (playing) previewRenderer?.play() else previewRenderer?.pause()
+            while (playing && previewRenderer != null) {
+                previewRenderer.advance(android.os.SystemClock.uptimeMillis())
+                kotlinx.coroutines.delay(16L)
+            }
+        }
 
         // ---------- 准备帧图 ----------
         LaunchedEffect(actionId) {
@@ -383,7 +419,12 @@ object DollAnimPage {
                     contentAlignment = Alignment.Center
                 ) {
                     val bmp = cache[curPath]
-                    if (bmp != null) {
+                    if (previewRenderer != null) {
+                        previewTick.let { }
+                        Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                            previewRenderer.draw(drawContext.canvas.nativeCanvas)
+                        }
+                    } else if (bmp != null) {
                         Image(
                             bitmap = bmp,
                             contentDescription = null,
@@ -395,7 +436,7 @@ object DollAnimPage {
                         )
                     } else {
                         Text(
-                            text = if (baking) "正在生成帧…" else if (frames.isEmpty()) "还没有帧" else "加载中…",
+                            text = if (baking) "正在生成帧…" else if (engineAction != null) "资源加载失败" else if (frames.isEmpty()) "还没有帧" else "加载中…",
                             color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
                             fontFamily = DhTokens.fonts
@@ -1034,7 +1075,7 @@ object DollAnimPage {
                 }
             ) {
                 Text(
-                    text = "会把这一格里的 " + frames.size + " 帧全部删掉，之后你可以导入新的一组图。\n\n" +
+                    text = "会把这一格里的动画与资源引用清空，之后你可以导入新的一组图。\n\n" +
                         "名字、描述、播放速度（以及贴边裁截线）都会保留。",
                     color = c.sub,
                     fontSize = UiKit.FS_BTN.sp,
@@ -1057,11 +1098,30 @@ object DollAnimPage {
                             return@setFileListener
                         }
                         val src = File(paths[0])
+                        val oldEngine = action?.engine ?: DollAnim.ENGINE_LOTTIE
                         val dstDir = DollAnim.framesDir(act, dollId, actionId)
                         val dst = File(dstDir, src.name)
+                        val incoming = File(dstDir, ".incoming_" + System.currentTimeMillis() + "_" + src.name)
                         try {
-                            src.copyTo(dst, overwrite = true)
+                            src.copyTo(incoming, overwrite = false)
+                            if (oldEngine == DollAnim.ENGINE_LOTTIE) {
+                                val check = com.dollhouse.app.pet.render.LottieRenderer()
+                                if (!check.prepare(com.dollhouse.app.pet.render.PetSource.Lottie(incoming.absolutePath))) {
+                                    incoming.delete()
+                                    throw IllegalArgumentException(check.lastError() ?: "Lottie 文件无效")
+                                }
+                                check.release()
+                            }
+                            if (!incoming.renameTo(dst)) {
+                                incoming.copyTo(dst, overwrite = true)
+                                incoming.delete()
+                            }
+                            src.delete()
                         } catch (t: Throwable) {
+                            incoming.delete()
+                            src.delete()
+                            HomeUi.showNotice(act, "资源替换失败", t.message ?: "原资源保持不变。")
+                            return@setFileListener
                         }
                         val old = DollAnim.byId(act, dollId, actionId) ?: return@setFileListener
                         val u = old.copy(assetPath = dst.absolutePath)
@@ -1394,10 +1454,29 @@ object DollAnimPage {
                 return@setFileListener
             }
             Thread({
-                val dir = DollAnim.framesDir(act, dollId, actionId)
-                // 交给统一的成果文件解析器：json / 动图 / 精灵图 / 压缩包 / 纯图都认。
+                val official = DollAnim.framesDir(act, dollId, actionId)
+                val dir = File(official.parentFile, actionId + "__append_" + System.currentTimeMillis())
+                // 先写临时目录：追加不能从 i0000 开始覆盖已有帧。
                 val r = com.dollhouse.app.data.AnimImport.import(act, paths, dir)
-                val dst = ArrayList(r.frames)
+                val dst = ArrayList<String>()
+                val occupied = DollAnim.byId(act, dollId, actionId)?.frames ?: emptyList()
+                for ((index, path) in r.frames.withIndex()) {
+                    var n = occupied.size + index
+                    var target = File(official, String.format("i%04d.png", n))
+                    while (target.exists()) {
+                        n++
+                        target = File(official, String.format("i%04d.png", n))
+                    }
+                    val source = File(path)
+                    val ok = try {
+                        source.renameTo(target) || run {
+                            source.copyTo(target, overwrite = false)
+                            true
+                        }
+                    } catch (t: Throwable) { false }
+                    if (ok) dst.add(target.absolutePath)
+                }
+                dir.deleteRecursively()
                 // 【中间副本用完即清】PickFileActivity 拷进 cacheDir 的那份不再需要。
                 for (p in paths) {
                     try {
@@ -1441,7 +1520,10 @@ object DollAnimPage {
                     val u = cur.copy(
                         frames = list,
                         fps = DollAnim.clampFps(r.fps),
-                        baseline = bl?.encode() ?: ""
+                        baseline = bl?.encode() ?: "",
+                        engine = DollAnim.ENGINE_SPRITE,
+                        sourceId = "",
+                        assetPath = ""
                     )
                     DollAnim.update(act, dollId, u)
                     done(list)
@@ -1465,6 +1547,11 @@ object DollAnimPage {
     private fun uninstallModel(act: MainActivity, dollId: String, sourceId: String, done: () -> Unit) {
         if (sourceId.isEmpty()) {
             return
+        }
+        for (old in DollAnim.all(act, dollId)) {
+            if (old.sourceId == sourceId) {
+                com.dollhouse.app.data.ActionLibrary.purgeRefs(act, dollId, old.id)
+            }
         }
         DollAnim.removeBySource(act, dollId, sourceId)
         ModelRepository.remove(act, dollId, sourceId)

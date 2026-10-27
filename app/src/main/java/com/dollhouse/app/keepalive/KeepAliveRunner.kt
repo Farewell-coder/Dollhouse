@@ -42,7 +42,11 @@ class KeepAliveRunner @Inject constructor(
 ) {
 
     /** 保活模块的结构化并发作用域。应用级，进程退出即随 Application 一并取消。 */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate +
+        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+            com.dollhouse.app.core.DiagnosticsStore.record(context, com.dollhouse.app.core.DiagnosticsStore.Severity.ERROR,
+                "KeepAliveRunner", "保活协程任务失败", error, "coroutine")
+        })
 
     /**
      * 退避重试的合并阀。

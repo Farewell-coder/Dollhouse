@@ -50,6 +50,8 @@ import com.dollhouse.app.ui.theme.UiKit
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 
 /**
  * 【职责】「动作」清单页：这只人偶的**全部动作**，按五个组分区展示。
@@ -939,7 +941,7 @@ object DollActionPage {
         )
         val modeHints = arrayOf(
             "先有个容器，进详情页后可以一张一张添加、删除、调顺序。",
-            "可以多选：一串帧图、动图、精灵图集、压缩包都能识别并自动排序。",
+            "可以多选：一串帧图、动图、精灵图集、压缩包都能识别，按选择顺序导入。",
             "Lottie 的 .json 会被存成「动作的入口资源」，直接由 Lottie 引擎播放。",
             "按模型包规范 v1 打包的 .zip，含清单、预览图与资源；会先做安全检查再导入。"
         )
@@ -954,6 +956,16 @@ object DollActionPage {
                 }
                 val name = draft.trim()
                 val group = DollAnim.SWAPPABLE_GROUPS[groupIdx]
+                if (mode == 1) {
+                    onDismiss()
+                    DollImportWizardPage.open(act, dollId, name, group)
+                    return@Alert
+                }
+                if (mode == 2) {
+                    onDismiss()
+                    pickNewLottie(act, dollId, name, group)
+                    return@Alert
+                }
                 val a = DollAnim.add(
                     act, dollId, name.ifBlank { "新动作" }, "",
                     emptyList(), DollAnim.FPS_DEFAULT, true, group
@@ -996,14 +1008,59 @@ object DollActionPage {
             )
             when (mode) {
                 0 -> DhForm.Note("创建后进入详情页：可以一次导入整组图，也可以逐张添加、删除、调顺序。")
-                1 -> DhForm.Note("创建后进入详情页，点「添加帧」导入那组图片（支持多选、自动排序）。")
-                2 -> DhForm.Note("创建后进入详情页，在「资源管理」里指定入口 .json 文件。")
+                1 -> DhForm.Note("打开图片导入向导：选择并检查资源后，再确认创建动作。")
+                2 -> DhForm.Note("选择自包含的 Lottie .json；校验和保存成功后才创建动作。")
                 else -> DhForm.Note(
                     "会打开文件选择器，选一个按模型包规范 v1 打包的 .zip；" +
                         "确认前会先做安全检查，不会直接写入。"
                 )
             }
         }
+    }
+
+    /** 新建独立 Lottie 动作：先验证并复制到私有目录，成功后才登记动作。 */
+    private fun pickNewLottie(act: MainActivity, dollId: String, name: String, group: String) {
+        com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
+            if (paths.isEmpty()) {
+                if (failed) HomeUi.showNotice(act, "读取失败", "没能读取选中的文件，请重试。")
+                return@setFileListener
+            }
+            Thread({
+                val src = File(paths[0])
+                var saved: File? = null
+                try {
+                    val renderer = com.dollhouse.app.pet.render.LottieRenderer()
+                    if (!renderer.prepare(com.dollhouse.app.pet.render.PetSource.Lottie(src.absolutePath))) {
+                        throw IllegalArgumentException(renderer.lastError() ?: "不是有效的 Lottie 动画")
+                    }
+                    renderer.release()
+                    val id = "lottie_" + UUID.randomUUID().toString().replace("-", "").take(12)
+                    val dst = File(DollAnim.framesDir(act, dollId, id), "animation.json")
+                    src.copyTo(dst, overwrite = false)
+                    saved = dst
+                    val action = DollAnim.Action(
+                        id = id, name = name.ifBlank { "Lottie 动作" }, group = group,
+                        engine = DollAnim.ENGINE_LOTTIE, assetPath = dst.absolutePath
+                    )
+                    if (!DollAnim.addEngineAction(act, dollId, action)) {
+                        throw java.io.IOException("动作保存失败")
+                    }
+                    src.delete()
+                    act.runOnUiThread {
+                        HomeUi.notifyPetReload(act)
+                        DollState.bump()
+                        DollAnimPage.open(act, dollId, id)
+                    }
+                } catch (t: Throwable) {
+                    saved?.delete()
+                    src.delete()
+                    act.runOnUiThread {
+                        HomeUi.showNotice(act, "Lottie 导入失败", t.message ?: "文件无效，请重新选择。")
+                    }
+                }
+            }, "dh-lottie-import").start()
+        }
+        com.dollhouse.app.PickFileActivity.startFiles(act, false)
     }
 
     /** 非帧序列引擎在列表里的显示名（避免写死字符串在多处）。 */

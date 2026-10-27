@@ -147,6 +147,11 @@ object AboutPage {
                 InfoRow("版本", "v" + versionName(act), pill = false)
                 // 【更新检查】入口行放版本下方 —— 用户找「我是不是最新版」时视线就在这里。
                 UpdateEntry(act)
+                DhKit.ActionRow(
+                    label = "诊断中心",
+                    iconRes = Icons.IC_SHIELD_CHECK,
+                    desc = "本地日志、错误详情与诊断包"
+                ) { DeveloperOptionsPage.open(act) }
             }
         }
     }

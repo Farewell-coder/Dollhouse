@@ -14,7 +14,6 @@ import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.ChatSettingsPage
 import com.dollhouse.app.ui.settings.AppearancePage
-import com.dollhouse.app.ui.settings.DeveloperOptionsPage
 import com.dollhouse.app.ui.settings.MemSettingsPage
 import com.dollhouse.app.ui.settings.SleepSettingsPage
 import com.dollhouse.app.ui.settings.VisionModelPage
@@ -142,16 +141,7 @@ object SettingsScreen {
             ) {
                 VisionModelPage.open(act)
             }
-            // 【r15·开发者选项】日志开关 + 崩溃记录入口。
-            //   【为什么放这里】同上：全局、与具体人偶无关的排障设置。
-            //   日志开关默认关；崩溃记录是本轮新加的进程级兜底产物，给用户一个能看能清的地方。
-            DhKit.ActionRow(
-                label = "开发者选项",
-                iconRes = Icons.IC_TERMINAL,
-                desc = "日志开关 / 崩溃记录"
-            ) {
-                DeveloperOptionsPage.open(act)
-            }
+            // 诊断中心入口已迁至「关于」页最后一项。
             // 【r19·随机走位】人偶在屏幕范围内缓慢游走（每 8 秒走一步）。
             //   【为什么放实验】新功能、默认关闭，由用户决定是否启用。
             //   【功能说明】开启后人偶会自己在框内缓慢移动，像活物一样；

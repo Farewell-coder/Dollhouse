@@ -1020,7 +1020,9 @@ object AnimImport {
             val zf = ZipFile(f)
             val entries = zf.entries()
             var n = 0
+            var totalBytes = 0L
             while (entries.hasMoreElements() && out.size < DollAnim.FRAMES_MAX - start) {
+                if (n >= 512 || totalBytes > 64L * 1024L * 1024L) break
                 val e = entries.nextElement()
                 if (e.isDirectory) {
                     continue
@@ -1034,7 +1036,18 @@ object AnimImport {
                 val target = File(tmp, "e" + n + "_" + File(e.name).name)
                 try {
                     zf.getInputStream(e).use { ins ->
-                        target.outputStream().use { os -> ins.copyTo(os) }
+                        target.outputStream().use { os ->
+                            val buf = ByteArray(16 * 1024)
+                            while (true) {
+                                val read = ins.read(buf)
+                                if (read < 0) break
+                                totalBytes += read
+                                if (totalBytes > 64L * 1024L * 1024L) {
+                                    throw java.io.IOException("压缩包解压后超过 64MB")
+                                }
+                                os.write(buf, 0, read)
+                            }
+                        }
                     }
                 } catch (t: Throwable) {
                     continue

@@ -29,6 +29,8 @@ import java.util.Locale
  *   不占用户可见空间，也随「清除缓存」一并清掉。
  */
 object CrashGuard {
+    @JvmStatic
+    fun isInstalled(): Boolean = installed
 
     private const val TAG = "DollhouseCrash"
 
@@ -65,6 +67,7 @@ object CrashGuard {
             val prev = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
                 try {
+                    DiagnosticsStore.crash(app, thread, throwable)
                     record(app, thread, throwable)
                 } catch (ignored: Throwable) {
                     // 兜底里的兜底：记录失败绝不能再抛，否则会盖掉原始崩溃。

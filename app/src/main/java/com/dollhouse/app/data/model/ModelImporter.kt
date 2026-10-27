@@ -2,6 +2,7 @@ package com.dollhouse.app.data.model
 
 import android.content.Context
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.ActionLibrary
 import com.dollhouse.app.data.DollAnim
 import java.io.File
 import java.io.FileOutputStream
@@ -269,6 +270,9 @@ object ModelImporter {
         //   与本文档开头承诺的「要么完整成功、要么什么都不变」正好相反。
         //   现在只有跨过「提交点」（即已经 deleteTree(finalDir)）之后的失败才清理正式目录。
         var committing = false
+        val backupDir = File(finalDir.parentFile, finalDir.name + ".backup")
+        var backedUp = false
+        var installed = false
         try {
             zip = ZipFile(File(zipPath))
             var total = 0L
@@ -299,15 +303,7 @@ object ModelImporter {
                         "含不允许的文件类型，已终止导入：" + rel
                     )
                 }
-                total += e.size
-                if (total > ModelPackage.MAX_TOTAL_BYTES) {
-                    // 防 zip bomb：声明体积超限时立刻停，不要先解出来再判断。
-                    fail(tmpDir)
-                    return Result(
-                        Code.IO_FAIL, m.id, m.name, 0, emptyList(),
-                        "解压后体积超过上限（" + (ModelPackage.MAX_TOTAL_BYTES / 1024 / 1024) + "MB）"
-                    )
-                }
+                // 不信任 ZipEntry.size：未知或伪造时，以实际写出的字节数为准。
                 val out = File(tmpDir, rel)
                 // 再确认一次「父目录没被 ../ 或符号链接带出去」。
                 if (!out.canonicalPath.startsWith(tmpDir.canonicalPath + File.separator)) {
@@ -324,43 +320,54 @@ object ModelImporter {
                 }
                 zip.getInputStream(e).use { input ->
                     FileOutputStream(out).use { output ->
-                        input.copyTo(output)
+                        val buf = ByteArray(16 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            total += n
+                            if (total > ModelPackage.MAX_TOTAL_BYTES) {
+                                throw java.io.IOException("模型包解压后超过大小上限")
+                            }
+                            output.write(buf, 0, n)
+                        }
                     }
                 }
             }
 
             // ---------- 全部解完了，才动「正式目录」 ----------
             committing = true
-            deleteTree(finalDir)
-            if (!tmpDir.renameTo(finalDir)) {
-                // 【为什么退化到逐文件复制】部分 ROM 上跨挂载点 rename 会失败；
-                //   此时用复制代替，成功与否以「最终目录里有清单」为准。
-                val copied = try {
-                    tmpDir.copyRecursively(finalDir, overwrite = true)
-                    true
-                } catch (t: Throwable) {
-                    Logs.w(TAG, "复制到目标目录失败", t)
-                    false
+            deleteTree(backupDir)
+            if (finalDir.exists()) {
+                if (!finalDir.renameTo(backupDir)) {
+                    throw java.io.IOException("无法备份原有模型")
                 }
-                if (!copied) {
-                    fail(tmpDir)
-                    return Result(
-                        Code.IO_FAIL, m.id, m.name, 0, emptyList(),
-                        "写入目标目录失败"
-                    )
-                }
-                deleteTree(tmpDir)
+                backedUp = true
             }
+            if (!tmpDir.renameTo(finalDir)) {
+                tmpDir.copyRecursively(finalDir, overwrite = false)
+            }
+            if (!File(finalDir, ModelPackage.MANIFEST).isFile) {
+                throw java.io.IOException("新模型目录不完整")
+            }
+            installed = true
+            deleteTree(tmpDir)
+            deleteTree(backupDir)
         } catch (t: Throwable) {
-            Logs.w(TAG, "解压失败", t)
+            Logs.w(TAG, "解压或提交失败", t)
             fail(tmpDir)
-            // 【r21·修数据丢失】只有已经删过正式目录时才清它；否则原模型必须原样保留。
             if (committing) {
-                deleteTree(finalDir)
+                if (installed) deleteTree(finalDir)
+                if (backedUp && backupDir.exists()) {
+                    deleteTree(finalDir)
+                    if (!backupDir.renameTo(finalDir)) {
+                        backupDir.copyRecursively(finalDir, overwrite = true)
+                        deleteTree(backupDir)
+                    }
+                }
             }
             return Result(
                 Code.IO_FAIL, m.id, m.name, 0, emptyList(),
-                "解压失败：" + (t.message ?: t.javaClass.simpleName)
+                "导入失败，原有模型已保留：" + (t.message ?: t.javaClass.simpleName)
             )
         } finally {
             try {
@@ -370,6 +377,11 @@ object ModelImporter {
         }
 
         // ---------- 登记动作 ----------
+        // 覆盖包时先移除上一版来源动作，避免新版取消的语义继续指向已替换资源。
+        for (old in DollAnim.all(ctx, dollId)) {
+            if (old.sourceId == m.id) ActionLibrary.purgeRefs(ctx, dollId, old.id)
+        }
+        DollAnim.removeBySource(ctx, dollId, m.id)
         val actionCount = registerActions(ctx, dollId, m, finalDir, inspection.entries)
 
         // ---------- 登记模型包 ----------

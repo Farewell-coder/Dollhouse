@@ -93,13 +93,16 @@ object Logs {
         if (isOn()) {
             Log.i(tag, msg)
         }
+        DiagnosticsStore.record(app, DiagnosticsStore.Severity.INFO, tag, msg)
     }
 
     /** 惰性版：关闭时不构造字符串（热路径优先用这个）。 */
     @JvmStatic
     fun i(tag: String, msg: () -> String) {
         if (isOn()) {
-            Log.i(tag, msg())
+            val text = msg()
+            Log.i(tag, text)
+            DiagnosticsStore.record(app, DiagnosticsStore.Severity.INFO, tag, text)
         }
     }
 
@@ -108,6 +111,7 @@ object Logs {
         if (isOn()) {
             Log.w(tag, msg)
         }
+        DiagnosticsStore.record(app, DiagnosticsStore.Severity.WARNING, tag, msg)
     }
 
     @JvmStatic
@@ -115,6 +119,7 @@ object Logs {
         if (isOn()) {
             Log.w(tag, msg, t)
         }
+        DiagnosticsStore.record(app, DiagnosticsStore.Severity.WARNING, tag, msg, t)
     }
 
     @JvmStatic
@@ -122,5 +127,6 @@ object Logs {
         if (isOn()) {
             Log.e(tag, msg, t)
         }
+        DiagnosticsStore.record(app, DiagnosticsStore.Severity.ERROR, tag, msg, t)
     }
 }

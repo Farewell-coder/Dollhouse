@@ -727,7 +727,7 @@ object DollAnim {
             if (!isFixedGroup(list[i].group)) {
                 return false
             }
-            if (list[i].frames.isEmpty()) {
+            if (list[i].frames.isEmpty() && list[i].assetPath.isEmpty()) {
                 return false
             }
             // 连带删盘上的帧文件：留着就是孤儿目录，且「清空后重新导入」会与旧帧混在一起。
@@ -741,7 +741,10 @@ object DollAnim {
                 }
             } catch (ignored: Throwable) {
             }
-            list[i] = list[i].copy(frames = emptyList(), assetPath = "")
+            list[i] = list[i].copy(
+                frames = emptyList(), assetPath = "", engine = ENGINE_SPRITE,
+                sourceId = "", baseline = ""
+            )
             save(ctx, dollId, list)
             return true
         }
