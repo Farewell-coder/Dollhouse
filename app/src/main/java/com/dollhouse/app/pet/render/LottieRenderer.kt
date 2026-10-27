@@ -34,8 +34,8 @@ class LottieRenderer : PetRenderer {
     private companion object {
         const val TAG = "DollhouseLottie"
 
-        /** Lottie 资源图缓存上限（个数）。超出按 LRU 淘汰并回收位图。 */
-        const val IMAGE_CACHE_MAX = 64
+        /** Lottie 资源图缓存按实际像素字节限容，避免「64 张超大图」绕过个数上限。 */
+        const val IMAGE_CACHE_MAX_BYTES = 16 * 1024 * 1024
     }
 
     private var host: PetDisplayHost? = null
@@ -47,26 +47,18 @@ class LottieRenderer : PetRenderer {
     private var h = 0
     /** 未应用任何变换时的目标绘制区（按人偶窗口尺寸等比缩放居中）。 */
     private val dst = Rect()
+    private val fullCanvasDst = Rect()
+    private val sizeBuffer = IntArray(2)
 
     /**
-     * 按需解码的图片缓存（文件名 → 位图），同一张图只解一次。
+     * 按需解码的图片缓存。按像素字节限容，而不是仅按图片个数。
      *
-     * 【r18·内存】从 HashMap 换成带容量上限的 LruCache：
-     *   HashMap 无上限，Lottie 资源图多的话长会话内存单调上涨，只能靠 release 兜底。
-     *   LruCache 按「最近最少使用」自动淘汰，上限内命中行为与 HashMap 完全一致，
-     *   超限时回收最久未用的（淘汰的 Bitmap 在此处 recycle，因为本类是唯一持有者）。
-     *   上限按「个数」而非字节 —— Lottie 资源图通常数量少、尺寸小，个数上限更直观。
+     * 位图由 Lottie 的 ImageAssetManager 与本缓存共同引用：LRU 淘汰只表示这里
+     * 不再缓存，不能 recycle，否则 Lottie 下一帧可能绘制已回收的共享位图。
+     * 本类 release 时先停止并释放 drawable，再清缓存，由系统统一回收像素。
      */
-    private val imageCache = object : android.util.LruCache<String, Bitmap>(IMAGE_CACHE_MAX) {
-        override fun entryRemoved(
-            evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?
-        ) {
-            // 仅在「被淘汰」（evicted=true）时回收；被 put 新值替换的不在此回收
-            // （新值可能引用同一张图，由调用方生命周期管）。
-            if (evicted && !oldValue.isRecycled) {
-                oldValue.recycle()
-            }
-        }
+    private val imageCache = object : android.util.LruCache<String, Bitmap>(IMAGE_CACHE_MAX_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
     }
 
     override fun engine(): String = Engine.LOTTIE
@@ -218,19 +210,7 @@ class LottieRenderer : PetRenderer {
         }
         drawable = null
         host = null
-        // 【必须回收缓存里的位图】这些图是本渲染器自己解码的（不是借用素材池），
-        //   不回收就是纯粹的内存泄漏 —— 每个模型包几十张图，肉眼可见。
-        //   LruCache.snapshot() 拿只读副本遍历，避免遍历时被并发淘汰触发 entryRemoved。
-        for (b in imageCache.snapshot().values) {
-            try {
-                if (!b.isRecycled) {
-                    b.recycle()
-                }
-            } catch (ignored: Throwable) {
-            }
-        }
-        // evictAll() 会逐条触发 entryRemoved(evicted=true)，此时位图已在上面的循环
-        //   回收过了，entryRemoved 里的 isRecycled 守卫会跳过重复 recycle（幂等）。
+        // drawable 已先断开；这里只释放本类的缓存引用，不强制 recycle 共享位图。
         imageCache.evictAll()
     }
 
@@ -242,7 +222,8 @@ class LottieRenderer : PetRenderer {
      *   映射进当前画布，避免宽高比失真（矢量图拉伸会明显穿帮）。
      */
     override fun draw(canvas: Canvas) {
-        draw(canvas, android.graphics.Rect(0, 0, canvas.width, canvas.height))
+        fullCanvasDst.set(0, 0, canvas.width, canvas.height)
+        draw(canvas, fullCanvasDst)
     }
 
     override fun draw(canvas: Canvas, target: android.graphics.Rect) {
@@ -315,5 +296,5 @@ class LottieRenderer : PetRenderer {
     }
 
     /** 供外部查询原始尺寸（资源管理界面显示用）。 */
-    fun intrinsicSize(): IntArray = intArrayOf(w, h)
+    fun intrinsicSize(): IntArray = size()
 }

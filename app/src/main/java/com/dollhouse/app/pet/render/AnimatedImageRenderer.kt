@@ -44,6 +44,8 @@ class AnimatedImageRenderer : PetRenderer {
     /** 动图播放一次的时长（用于循环取模）。 */
     private var movieDurationMs = 0
     private val dst = Rect()
+    private val fullCanvasDst = Rect()
+    private val sizeBuffer = IntArray(2)
 
     override fun engine(): String = Engine.ANIMIMAGE
 
@@ -191,7 +193,8 @@ class AnimatedImageRenderer : PetRenderer {
     }
 
     override fun draw(canvas: Canvas) {
-        draw(canvas, android.graphics.Rect(0, 0, canvas.width, canvas.height))
+        fullCanvasDst.set(0, 0, canvas.width, canvas.height)
+        draw(canvas, fullCanvasDst)
     }
 
     override fun draw(canvas: Canvas, target: android.graphics.Rect) {
@@ -219,7 +222,7 @@ class AnimatedImageRenderer : PetRenderer {
     }
 
     /** 供外部查询原始尺寸（资源管理界面显示用）。 */
-    fun intrinsicSize(): IntArray = intArrayOf(w, h)
+    fun intrinsicSize(): IntArray = size()
 
     /**
      * 占位保留：`Animatable2` 在 API 28+ 用于注册动画回调。

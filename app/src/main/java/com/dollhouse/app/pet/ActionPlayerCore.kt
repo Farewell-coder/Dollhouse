@@ -200,6 +200,15 @@ class ActionPlayerCore(
     }
 
     private val ui = Handler(Looper.getMainLooper())
+    /** 所有动作共用一个解码线程；旧动作只解码到下一帧边界，不并发堆积整组位图。 */
+    private val decodeQueue = SerialLatestDecoder<Bitmap>(
+        decode = { path -> decoder(path) },
+        dispose = { bitmap ->
+            if (!bitmap.isRecycled) bitmap.recycle()
+        },
+        onDecoded = { gen, decoded -> acceptDecodedFrames(gen, decoded) },
+        onError = { t -> Logs.w(TAG, "帧组解码中断", t) }
+    )
     private var viewport: ActionViewport.Spec? = null
     private var measuredWidth = 0
     private var measuredHeight = 0
@@ -416,6 +425,8 @@ class ActionPlayerCore(
         val reusable = engine == DollAnim.ENGINE_SPRITE &&
             canReuseFrames(action.id, action.frames)
         generation++
+        decodeQueue.invalidate()
+        decodeTickets.clear()
         if (reusable) {
             // 只重启时钟与状态，帧与渲染器原地保留。
             fps = DollAnim.clampFps(action.fps)
@@ -515,41 +526,36 @@ class ActionPlayerCore(
      */
     private fun decodeFramesAsync(paths: List<String>, gen: Int) {
         val take = if (paths.size > MAX_FRAMES) paths.subList(0, MAX_FRAMES).toList() else paths
-        Thread {
-            val out = ArrayList<Bitmap>(take.size)
-            for (p in take) {
-                try {
-                    val b = decoder(p)
-                    if (b != null) {
-                        out.add(b)
-                    }
-                } catch (t: Throwable) {
-                    Logs.w(TAG, "解码失败：" + File(p).name, t)
-                }
+        // 队列与播放器各有代次；提交后显式绑定两者，回调仍按播放器代次验收。
+        val ticket = decodeQueue.submit(take)
+        decodeTickets[ticket] = gen
+    }
+
+    /** 解码队列 ticket → 播放器代次，仅在主线程读写。 */
+    private val decodeTickets = HashMap<Int, Int>()
+
+    /** 后台完成整组解码后，由主线程接管位图所有权；失效时也在主线程回收。 */
+    private fun acceptDecodedFrames(ticket: Int, out: List<Bitmap>) {
+        ui.post {
+            val gen = decodeTickets.remove(ticket)
+            if (disposed || gen == null || gen != generation) {
+                recycleAll(out)
+                return@post
             }
-            ui.post {
-                // 【代次校验】切走之后回来的解码结果直接丢弃并回收，不污染新动作。
-                if (disposed || gen != generation) {
-                    recycleAll(out)
-                    return@post
-                }
-                frames = out
-                if (out.isNotEmpty()) {
-                    measuredWidth = out[0].width
-                    measuredHeight = out[0].height
-                }
-                remeasureViewport()
-                if (out.isEmpty()) {
-                    Logs.w(TAG, "全部帧解码失败，动作无法播放：" + actionId)
-                    playing = false
-                } else {
-                    // 【v0.1.0】帧图就绪后重新起表：解码期间帧循环没在推进，
-                    //   基准若沿用旧值会让第一帧立刻被判定「已经过很久」而跳过。
-                    clock.reset()
-                }
-                requestDraw()
+            frames = out
+            if (out.isNotEmpty()) {
+                measuredWidth = out[0].width
+                measuredHeight = out[0].height
             }
-        }.apply { name = "dh-action-decode" }.start()
+            remeasureViewport()
+            if (out.isEmpty()) {
+                Logs.w(TAG, "全部帧解码失败，动作无法播放：" + actionId)
+                playing = false
+            } else {
+                clock.reset()
+            }
+            requestDraw()
+        }
     }
 
     /** 推进一帧（主线程，由 `PetView.tick` 调）。 */
@@ -658,6 +664,8 @@ class ActionPlayerCore(
             return
         }
         generation++
+        decodeQueue.invalidate()
+        decodeTickets.clear()
         playing = false
         actionId = ""
         clearContent()
@@ -679,8 +687,9 @@ class ActionPlayerCore(
         playing = false
         actionId = ""
         clearContent()
+        decodeQueue.close()
         onFinish = null
-        ui.removeCallbacksAndMessages(null)
+        // 不移除已投递的完成回调：它携带待回收位图，执行时会按 disposed 自行释放。
     }
 
     // ============================ 绘制 ============================

@@ -166,6 +166,16 @@ object ChatSessions {
         return null
     }
 
+    /** 在一次操作已读取的快照中查项，避免同一事务反复解析 conv_index。 */
+    private fun findIn(all: JSONArray, id: String?): JSONObject? {
+        if (id == null) return null
+        for (i in 0 until all.length()) {
+            val o = all.optJSONObject(i)
+            if (o != null && id == o.optString("id")) return o
+        }
+        return null
+    }
+
     private fun firstOf(arr: JSONArray?): JSONObject? {
         var i = 0
         while (arr != null && i < arr.length()) {
@@ -472,7 +482,7 @@ object ChatSessions {
             }
             PetPrefs.removeConvExtras(ctx, oldId)
             // 当前会话指向（分池）
-            val p = poolOf(find(ctx, newId))
+            val p = poolOf(findIn(all, newId))
             val cur = getCurrent(ctx, p)
             if (oldId == cur) {
                 setCurrent(ctx, p, newId)
@@ -574,7 +584,7 @@ object ChatSessions {
             // 【当前会话若被清掉】指向第一条仍存在的，避免指向一个不存在的 id。
             for (p in arrayOf(POOL_SELF, POOL_PET)) {
                 val cur = getCurrent(ctx, p)
-                if (cur.isNotEmpty() && find(ctx, cur) == null) {
+                if (cur.isNotEmpty() && findIn(keep, cur) == null) {
                     val f = firstOf(listOf(keep, p))
                     setCurrent(ctx, p, if (f == null) "" else f.optString("id"))
                 }
@@ -619,23 +629,22 @@ object ChatSessions {
                 break
             }
         }
-        val first = firstOf(listOf(listAll(ctx), POOL_PET))
+        // 同一个快照完成迁移后的查询；原来这里及当前项校验会重复读盘、解析 3~5 次。
+        val first = firstOf(listOf(all, POOL_PET))
         if (first == null) {
             val id: String
-            if (find(ctx, PET_ID) != null) {
-                // 该 id 已被别的池占用（理论上不该发生）：换个带池前缀的新 id。
+            if (findIn(all, PET_ID) != null) {
                 id = createIn(ctx, POOL_PET, "p", "人偶")
             } else {
                 id = PET_ID
                 try {
-                    val arr = listAll(ctx)
                     val o = JSONObject()
                     o.put("id", id)
                     o.put("title", "人偶")
                     o.put("pool", POOL_PET)
                     o.put("updated", System.currentTimeMillis())
-                    arr.put(o)
-                    saveAll(ctx, arr)
+                    all.put(o)
+                    saveAll(ctx, all)
                 } catch (unused: Throwable) {
                 }
             }
@@ -643,8 +652,8 @@ object ChatSessions {
             return id
         }
         val cur = PetPrefs.convCurrentPet(ctx)
-        if (cur != null && !cur.isEmpty() && find(ctx, cur) != null
-            && POOL_PET == poolOf(find(ctx, cur))) {
+        val current = findIn(all, cur)
+        if (!cur.isNullOrEmpty() && current != null && POOL_PET == poolOf(current)) {
             return cur
         }
         val id2 = first.optString("id")
@@ -707,9 +716,9 @@ object ChatSessions {
             return id
         }
         var cur = getCurrent(ctx, p)
-        val co = if (cur == null || cur.isEmpty()) null else find(ctx, cur)
+        val co = findIn(all, cur)
         if (co == null || p != poolOf(co)) {
-            val f = firstOf(listOf(listAll(ctx), p))
+            val f = firstOf(listOf(all, p))
             cur = if (f == null) "" else f.optString("id")
             setCurrent(ctx, p, cur)
         }
@@ -720,16 +729,13 @@ object ChatSessions {
 
     @JvmStatic
     fun rename(ctx: Context, id: String, title: String?) {
-        val o = find(ctx, id)
-        if (o == null) {
-            return
-        }
+        val arr = listAll(ctx)
+        val o = findIn(arr, id) ?: return
         try {
             o.put("title", if (title == null || title.trim().isEmpty()) "未命名" else title.trim())
         } catch (unused: Throwable) {
             return
         }
-        val arr = listAll(ctx)
         for (i in 0 until arr.length()) {
             val it = arr.optJSONObject(i)
             if (it != null && id == it.optString("id")) {
@@ -800,16 +806,13 @@ object ChatSessions {
     /** 有新消息时刷新会话的 updated 时间戳。 */
     @JvmStatic
     fun touch(ctx: Context, id: String) {
-        val o = find(ctx, id)
-        if (o == null) {
-            return
-        }
+        val arr = listAll(ctx)
+        val o = findIn(arr, id) ?: return
         try {
             o.put("updated", System.currentTimeMillis())
         } catch (unused: Throwable) {
             return
         }
-        val arr = listAll(ctx)
         for (i in 0 until arr.length()) {
             val it = arr.optJSONObject(i)
             if (it != null && id == it.optString("id")) {
