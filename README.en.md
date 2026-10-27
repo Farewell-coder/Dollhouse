@@ -49,21 +49,27 @@ Device control requires installing, starting, and authorizing [Shizuku](https://
 - ML Kit and its Google dependencies are governed by their own terms and data handling rules; this is not a promise that the app never touches the network or never produces SDK diagnostics.
 - Authorized device commands may read the screen, files, and settings, and may change device state. Model-generated instructions can be wrong; tool output or a granted permission should not be treated as a security guarantee.
 
-## v0.1.0
-The action system is rebuilt: every action now belongs to one of five slots — **always-on / edge / drag** (each doll has exactly one of each; they cannot be deleted or regrouped, and their content is swapped by clearing and importing a new set of images), plus **random / manual** (freely added and removed, and only these two can be swapped between each other).
-- **The pet actually plays them now**: idle plays the always-on slot, snapping to a screen edge plays the edge slot (using that action's own cut-off ratio), picking it up plays the drag slot, and leaving the edge switches back automatically.
-- **Random-action switch** (Control page, per doll): when on, one random action plays every 13-30 seconds - never while docked to an edge or while dragging. Older profiles get it turned on once during the upgrade.
-- **Gesture actions** are narrowed to members of the "manual" group.
-- **Editor**: the actions page opens with three fixed slot cards, followed by two collapsible groups; an edge action's detail page gains a draggable cut-off line; the top bar gains "restore built-in actions".
-- Also fixed: playing the edge action after leaving the edge, random actions interrupting a gesture action, the cut-off line jumping on drag, the list not refreshing after a delete, and full-rate frame looping while the screen is off.
+## v0.1.1
+This update improves doll animation display, crash diagnostics, interaction feedback, and local build caching.
 
-**Interface layer rebuilt**: fixed "tapping a button on the new page hits the page underneath". Several screens are stacked on top of each other, and each one used to decide on its own whether it should accept touches, so nobody defined the combined state. It is now one shared decision, and the layer below stops responding entirely while a transition plays. The profile drawer is a real screen now (open something inside it, come back, the drawer is still there exactly as it was), and a right swipe on the home screen opens it while a left swipe closes it, with the start area kept clear of the system gesture edge.
+### Doll animation display
+- Use a consistent base display scale, so dolls no longer change size unexpectedly when switching actions or adjusting scale.
+- Reserve horizontal space for actions such as waving and outstretched arms, reducing clipping at the sides.
+- Use consistent drawing rules for bitmaps, Lottie, and animated images while preserving aspect ratios and character anchors.
+- Transparent extension areas are display-only and do not intercept touches on the underlying screen.
 
-**Appearance and consistency**: secondary pages get proper clearance below the top edge; every bottom bar in the app now uses the same capsule; the thin light border around the chat screen is gone; display size moved into "Edit doll → Appearance"; "Restore" only shows up on the built-in default profile.
+### Crash diagnostics
+- Add "Export error logs" under "Developer options → Crash records".
+- Gather existing crash records, app version, device model, and system information in the background for sharing or saving through the system share sheet.
+- Handle malformed files, empty records, repeated taps, and missing share targets; clearing records requires explicit confirmation.
+- Clear records in the background and report success or failure based on the actual result.
 
-**App icon**: new artwork with recomputed proportions. The adaptive canvas is 108dp but the launcher only shows the central 72dp, so filling the whole canvas cut off about a third of the composition; it is now scaled into the safe area by the doll's circumscribed radius, with the black corners removed by connected region and extended outward using the outline's own edge colour.
+### Messages and feedback
+- Keep the existing visual theme while improving shared confirmation dialogs, Toast / Snackbar, and Tooltip handling.
+- Retry failed exports through Snackbar and use Toast for simple status messages.
+- Prevent duplicate confirmation submissions and allow buttons to show short explanations when held.
 
-See the [changelog](CHANGELOG.md) for details. Version: versionName **0.1.0** / versionCode **10**.
+See the [changelog](CHANGELOG.md) for details. Version: versionName **0.1.1** / versionCode **11**.
 
 ## Build
 
