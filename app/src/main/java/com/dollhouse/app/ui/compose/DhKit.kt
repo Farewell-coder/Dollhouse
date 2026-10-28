@@ -608,7 +608,10 @@ object DhKit {
                 .background(c.soft)
                 .then(if (enabled) Modifier.pressable { onCheckedChange(!checked) } else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f))
-                .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) 10.dp else 9.dp)
+                // 【v0.1.4·行高对齐】原来开关行用 10/9 dp 垂直内边距，而 ValueRow 用 12 dp，
+                //   同一张卡里两者相邻时，开关行会比信息行矮 2~3dp，看上去像缩了一号。
+                //   这里与 ValueRow 统一取 PAD_ROW；开关本身高 32dp，不影响 MIN_ROW_H。
+                .padding(horizontal = PAD_ROW.dp, vertical = 10.dp)
                 .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

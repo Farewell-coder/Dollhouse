@@ -124,7 +124,7 @@ object DollLookTab {
                     }
                     Spacer(Modifier.width(14.dp))
                     Column {
-                        DhKit.SwitchRow(name = "使用这张背景", checked = on) { v ->
+                        DhKit.SwitchRow(name = "使用这张背景", iconRes = Icons.IC_IMAGE, checked = on) { v ->
                             DollProfile.setChatBgEnabled(act, dollId, v)
                             tick++
                             // 【必须重刷背景】背景是「取色那一刻」合成进视图背景里的，
@@ -226,6 +226,7 @@ object DollLookTab {
             )
             DhKit.SwitchRow(
                 name = "气泡磨砂",
+                iconRes = Icons.IC_APERTURE,
                 checked = DollProfile.bubbleFrost(act, dollId)
             ) { v ->
                 DollProfile.setBubbleFrost(act, dollId, v)

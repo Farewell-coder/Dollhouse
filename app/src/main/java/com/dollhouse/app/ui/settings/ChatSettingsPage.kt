@@ -15,6 +15,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「对话显示」设置页：流式输出 + 思考过程（r13 新增）。
@@ -85,6 +86,7 @@ object ChatSettingsPage {
                 DhForm.Note("开着时她的回复会一个字一个字冒出来，不用等整段生成完。")
                 DhKit.SwitchRow(
                     name = "流式输出",
+                    iconRes = Icons.IC_ACTIVITY,
                     checked = remember(tick) { PetPrefs.streamOutput(act) }
                 ) { on ->
                     PetPrefs.setStreamOutput(act, on)
@@ -99,6 +101,7 @@ object ChatSettingsPage {
                 DhForm.Note("推理型模型思考时说的「心里话」，会单独存在回复上方，点一下展开。")
                 DhKit.SwitchRow(
                     name = "显示思考过程",
+                    iconRes = Icons.IC_BRAIN,
                     checked = remember(tick) { PetPrefs.showThinking(act) }
                 ) { on ->
                     PetPrefs.setShowThinking(act, on)
@@ -117,6 +120,7 @@ object ChatSettingsPage {
                         + "开着下面这个开关时，最近 3 条示范会随每次对话一起发出去，让她更贴近你喜欢的说法。")
                 DhKit.SwitchRow(
                     name = "把示范带进对话",
+                    iconRes = Icons.IC_BOOK_HEART,
                     checked = remember(tick) { PetPrefs.learnEnabled(act) }
                 ) { on ->
                     PetPrefs.setLearnEnabled(act, on)

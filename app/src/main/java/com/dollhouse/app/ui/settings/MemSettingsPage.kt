@@ -90,6 +90,7 @@ object MemSettingsPage {
                 DhForm.Note("开着她才会在聊天里自己记东西；关掉后只能手动加。")
                 DhKit.SwitchRow(
                     name = "自动保存记忆",
+                    iconRes = Icons.IC_SAVE,
                     checked = remember(tick) { PetPrefs.mem2Auto(act) }
                 ) { on ->
                     PetPrefs.setMem2Auto(act, on)
@@ -140,6 +141,7 @@ object MemSettingsPage {
                 DhForm.Note("开着时，每次开口前按相关性挑几条记忆带上；关掉就只按时间取最近的。")
                 DhKit.SwitchRow(
                     name = "记忆检索",
+                    iconRes = Icons.IC_SCAN,
                     checked = remember(tick) { PetPrefs.mem2Search(act) }
                 ) { on ->
                     PetPrefs.setMem2Search(act, on)

@@ -20,6 +20,7 @@ import com.dollhouse.app.data.OutputRule
 import com.dollhouse.app.data.PersonaInject
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「角色设定」高级段的三个编辑弹窗（r13 新增）。
@@ -105,7 +106,7 @@ object DollInjectDialog {
             label = "优先级",
             hint = "数字越大越靠后（越靠近对话，模型越容易照做）"
         )
-        DhKit.SwitchRow(name = "启用", checked = enabled) { enabled = it; persist() }
+        DhKit.SwitchRow(name = "启用", iconRes = Icons.IC_PLUG, checked = enabled) { enabled = it; persist() }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
             // 【r15·补删除按钮】编辑既有条目时才出现 —— 新增时没有可删的东西。
@@ -194,15 +195,15 @@ object DollLoreDialog {
             label = "关键词",
             hint = "用逗号分隔，例：学校，教室，上课"
         )
-        DhKit.SwitchRow(name = "常驻激活（不用匹配）", checked = constant) { constant = it; persist() }
-        DhKit.SwitchRow(name = "关键词按正则解释", checked = useRegex) { useRegex = it; persist() }
+        DhKit.SwitchRow(name = "常驻激活（不用匹配）", iconRes = Icons.IC_PIN, checked = constant) { constant = it; persist() }
+        DhKit.SwitchRow(name = "关键词按正则解释", iconRes = Icons.IC_TAGS, checked = useRegex) { useRegex = it; persist() }
         DhForm.Input(
             value = depth,
             onValueChange = { depth = it.filter { ch -> ch.isDigit() }; persist() },
             label = "扫描最近几条消息",
             hint = "默认 4"
         )
-        DhKit.SwitchRow(name = "启用", checked = enabled) { enabled = it; persist() }
+        DhKit.SwitchRow(name = "启用", iconRes = Icons.IC_BOOK_OPEN, checked = enabled) { enabled = it; persist() }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
             // 【r15·补删除按钮】编辑既有条目时才出现 —— 新增时没有可删的东西。
@@ -296,10 +297,10 @@ object DollRuleDialog {
             label = "替换为",
             hint = "留空 = 删掉匹配到的内容"
         )
-        DhKit.SwitchRow(name = "只影响显示（不改历史）", checked = visual) { visual = it; persist() }
-        DhKit.SwitchRow(name = "作用于她说的话", checked = forHer) { forHer = it; persist() }
-        DhKit.SwitchRow(name = "作用于你说的话", checked = forMe) { forMe = it; persist() }
-        DhKit.SwitchRow(name = "启用", checked = enabled) { enabled = it; persist() }
+        DhKit.SwitchRow(name = "只影响显示（不改历史）", iconRes = Icons.IC_EYE_OFF, checked = visual) { visual = it; persist() }
+        DhKit.SwitchRow(name = "作用于她说的话", iconRes = Icons.IC_BOT, checked = forHer) { forHer = it; persist() }
+        DhKit.SwitchRow(name = "作用于你说的话", iconRes = Icons.IC_USER_ROUND, checked = forMe) { forMe = it; persist() }
+        DhKit.SwitchRow(name = "启用", iconRes = Icons.IC_REFRESH, checked = enabled) { enabled = it; persist() }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
             // 【r15·补删除按钮】编辑既有条目时才出现 —— 新增时没有可删的东西。

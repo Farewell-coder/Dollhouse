@@ -781,6 +781,7 @@ object DollAnimPage {
                 //   播完定格在最后一帧等于卡死（拖动时长不可控尤其明显）。
                 DhKit.SwitchRow(
                     name = if (fixed) "循环播放（固定位强制开启）" else "循环播放",
+                    iconRes = Icons.IC_REFRESH,
                     checked = if (fixed) true else (action?.loop ?: true)
                 ) { on ->
                     if (fixed) {

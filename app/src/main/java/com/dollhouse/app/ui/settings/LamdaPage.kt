@@ -366,7 +366,7 @@ object LamdaPage {
             ActionRow("停止服务", Design.icons.STOP, idle && running, false) { stop(st) }
             // 【自动保活】开关必须落到真实配置上：重进页面读的是 prefs，不是内存里的临时值。
             var autoOn by remember { mutableStateOf(PetPrefs.lamdaAutoStart(ctx)) }
-            DhKit.SwitchRow(name = "自动保活", checked = autoOn, onCheckedChange = { now ->
+            DhKit.SwitchRow(name = "自动保活", iconRes = Icons.IC_SHIELD_CHECK, checked = autoOn, onCheckedChange = { now ->
                 autoOn = now
                 PetPrefs.setLamdaAutoStart(ctx, now)
                 if (now) {

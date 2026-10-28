@@ -294,7 +294,7 @@ object DeveloperOptionsPage {
         var clearing by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         DhKit.Card {
-            DhKit.SwitchRow("记录详细运行日志", detailed) { detailed = it; Logs.setOn(act, it); changed() }
+            DhKit.SwitchRow("记录详细运行日志", detailed, iconRes = Icons.IC_TERMINAL) { detailed = it; Logs.setOn(act, it); changed() }
             DhForm.Note("关闭时停止可选普通日志的持久化；警告、错误和未捕获崩溃仍保留基础记录。")
             DhKit.ValueRow("严重错误基础记录", "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow("错误前后关键事件", "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
             DhKit.ValueRow("日志保留策略", "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)

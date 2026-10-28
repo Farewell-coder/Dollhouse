@@ -203,7 +203,7 @@ object AppearancePage {
                 value = ThemeManager.MODE_NAMES[HomeState.themeMode],
                 iconRes = Icons.IC_SUN
             ) { HomeUi.pickThemeMode(act) }
-            DhKit.SwitchRow(name = "莫奈主题色", checked = HomeState.monet) { on ->
+            DhKit.SwitchRow(name = "莫奈主题色", iconRes = Icons.IC_PALETTE, checked = HomeState.monet) { on ->
                 HomeUi.onMonetChanged(on, act)
             }
             // 【从壁纸取色】用户定案要保留的能力：把系统壁纸提取的主题色用起来。
@@ -232,7 +232,7 @@ object AppearancePage {
 
         DhKit.Card(collapsibleTitle = "全局背景", titleIcon = Icons.IC_IMAGE) {
             // ---------- 开关（关键：关闭时保留全部配置）----------
-            DhKit.SwitchRow(name = "使用自定义背景", checked = enabled) { on ->
+            DhKit.SwitchRow(name = "使用自定义背景", iconRes = Icons.IC_IMAGE, checked = enabled) { on ->
                 PetPrefs.setBgEnabled(act, on)
                 tick++
                 // 【必须重刷】背景由 [GlobalBackground] 合成后抄进各视图背景里，
@@ -367,7 +367,7 @@ object AppearancePage {
 
         DhKit.Card(collapsibleTitle = "你（用户侧）的气泡", titleIcon = Icons.IC_MESSAGE_SQUARE) {
             DhForm.Note("「你」的气泡全局统一一套 —— 所有会话里长得一样。人偶那边可以各自不同。")
-            DhKit.SwitchRow(name = "显示头像", checked = showAvatar) { on ->
+            DhKit.SwitchRow(name = "显示头像", iconRes = Icons.IC_CIRCLE_USER, checked = showAvatar) { on ->
                 PetPrefs.setShowAvatar(act, on)
                 tick++
                 ThemeRefresh.bumpAll()
@@ -375,7 +375,7 @@ object AppearancePage {
             // 【语义说清楚】用户定案：「人偶发的就显示人偶头像 用户发的就显示用户的头像」。
             //   这里必须把那句话翻给用户看，否则「显示头像」会被理解成「一个头像管两边」。
             DhForm.Note("打开后：人偶发的消息显示**她**的头像，你发的消息显示**你**的头像。")
-            DhKit.SwitchRow(name = "气泡磨砂", checked = frost) { on ->
+            DhKit.SwitchRow(name = "气泡磨砂", iconRes = Icons.IC_APERTURE, checked = frost) { on ->
                 PetPrefs.setBubbleUserFrost(act, on)
                 tick++
                 ThemeRefresh.bumpAll()
@@ -458,6 +458,7 @@ object AppearancePage {
         DhKit.Card(collapsibleTitle = "图标与交互", titleIcon = Icons.IC_SPARKLES) {
             DhKit.SwitchRow(
                 name = "点击穿透（桌宠）",
+                iconRes = Icons.IC_CROSSHAIR,
                 checked = PetPrefs.touchThrough(act)
             ) { on ->
                 HomeUi.setTouchThrough(act, on)

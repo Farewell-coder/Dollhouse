@@ -36,6 +36,7 @@ object WanderSettingsPage {
             DhKit.Card(collapsibleTitle = "开关", titleIcon = Icons.IC_SPARKLES) {
                 DhKit.SwitchRow(
                     name = "启用随机走位",
+                    iconRes = Icons.IC_WAYPOINTS,
                     checked = PetPrefs.wanderEnabled(act)
                 ) { on ->
                     PetPrefs.setWanderEnabled(act, on)
