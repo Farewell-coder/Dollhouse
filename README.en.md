@@ -50,36 +50,7 @@ Device control requires installing, starting, and authorizing [Shizuku](https://
 - ML Kit and its Google dependencies are governed by their own terms and data handling rules; this is not a promise that the app never touches the network or never produces SDK diagnostics.
 - Authorized device commands may read the screen, files, and settings, and may change device state. Model-generated instructions can be wrong; tool output or a granted permission should not be treated as a security guarantee.
 
-## v0.1.2
-- Rebuilt the former debug page as a native Diagnostics Center, now the last entry on About.
-- Added real grouped statistics, severity filters, keyword search, error details, full stack traces, related logs, self-checks, and system-provided process exit records.
-- Added verified single-error and complete ZIP exports containing manifests, summaries, raw structured logs, error details, and system information.
-- Severe errors persist independently of detailed logging. JSONL logs rotate after 1 MB per file, retain up to 8 MB, and expire after 7 days. Legacy crash text remains readable.
-- Connected image, frame-sequence, and standalone Lottie action creation; fixed frame append overwrites, Lottie previews, fixed-slot engine changes, model-package rollback, reference cleanup, and archive size accounting.
-
-See the [changelog](CHANGELOG.md) for details. Version: versionName **0.1.2** / versionCode **12**.
-
-## v0.1.1
-This update improves doll animation display, crash diagnostics, interaction feedback, and local build caching.
-
-### Doll animation display
-- Use a consistent base display scale, so dolls no longer change size unexpectedly when switching actions or adjusting scale.
-- Reserve horizontal space for actions such as waving and outstretched arms, reducing clipping at the sides.
-- Use consistent drawing rules for bitmaps, Lottie, and animated images while preserving aspect ratios and character anchors.
-- Transparent extension areas are display-only and do not intercept touches on the underlying screen.
-
-### Crash diagnostics
-- Add "Export error logs" under "Developer options → Crash records".
-- Gather existing crash records, app version, device model, and system information in the background for sharing or saving through the system share sheet.
-- Handle malformed files, empty records, repeated taps, and missing share targets; clearing records requires explicit confirmation.
-- Clear records in the background and report success or failure based on the actual result.
-
-### Messages and feedback
-- Keep the existing visual theme while improving shared confirmation dialogs, Toast / Snackbar, and Tooltip handling.
-- Retry failed exports through Snackbar and use Toast for simple status messages.
-- Prevent duplicate confirmation submissions and allow buttons to show short explanations when held.
-
-See the [changelog](CHANGELOG.md) for details. Version: versionName **0.1.1** / versionCode **11**.
+See the [changelog](CHANGELOG.md) for details.
 
 ## Build
 
