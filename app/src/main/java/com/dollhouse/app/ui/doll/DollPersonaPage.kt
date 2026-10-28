@@ -240,6 +240,7 @@ object DollPersonaPage {
                     DhKit.ActionRow(
                         label = (if (inj.name.isEmpty()) "未命名注入" else inj.name)
                                 + "（" + InjectPos.label(inj.position) + "）",
+                        iconRes = Icons.IC_PLUG,
                         trailing = "›"
                     ) {
                         DollInjectDialog.show(act, id, inj.id) { tick++ }
@@ -256,7 +257,7 @@ object DollPersonaPage {
                 for (e in lores) {
                     val label = if (e.name.isEmpty()) "未命名条目" else e.name
                     val hit = if (e.constantActive) "常驻" else (e.keywords.size.toString() + " 个关键词")
-                    DhKit.ActionRow(label = label, trailing = hit) {
+                    DhKit.ActionRow(label = label, iconRes = Icons.IC_BOOK_OPEN, trailing = hit) {
                         DollLoreDialog.show(act, id, e.id) { tick++ }
                     }
                 }
@@ -271,6 +272,7 @@ object DollPersonaPage {
                 for (r in rules) {
                     DhKit.ActionRow(
                         label = if (r.name.isEmpty()) "未命名规则" else r.name,
+                        iconRes = Icons.IC_REFRESH,
                         trailing = if (r.enabled) "启用" else "已停用"
                     ) {
                         DollRuleDialog.show(act, id, r.id) { tick++ }

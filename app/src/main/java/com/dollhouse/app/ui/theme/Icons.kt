@@ -424,9 +424,6 @@ object Icons {
     /** 橡皮（Lucide eraser）：清空固定壳的内容（只清帧，保留名字）。 */
     @JvmField
     val IC_ERASER = R.drawable.ic_eraser
-    /** 图钉（Lucide pin）：固定三格的区段标题。 */
-    @JvmField
-    val IC_PIN = R.drawable.ic_pin
     /** 取图并按 color 上色。返回的 Drawable 每次都是新实例，可安全用于不同 View。 */
     @JvmStatic
     fun get(ctx: Context?, resId: Int, color: Int): Drawable? {

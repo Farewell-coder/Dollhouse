@@ -266,6 +266,7 @@ object DollLookTab {
 
         DhKit.ValueRow(
             label = "气泡颜色",
+            iconRes = Icons.IC_MESSAGE_SQUARE,
             value = if (cur == 0) {
                 "跟随主题"
             } else {

@@ -330,10 +330,12 @@ object SettingsScreen {
             ) { AppearancePage.open(act) }
             DhKit.ValueRow(
                 label = "当前主题",
-                value = ThemeManager.MODE_NAMES[HomeState.themeMode]
+                value = ThemeManager.MODE_NAMES[HomeState.themeMode],
+                iconRes = Icons.IC_SUN
             ) { AppearancePage.open(act) }
             DhKit.ValueRow(
                 label = "全局背景",
+                iconRes = Icons.IC_IMAGE,
                 value = when {
                     !HomeState.bgSet -> "未设置"
                     PetPrefs.bgEnabled(act) -> "已开启"

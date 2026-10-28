@@ -222,11 +222,11 @@ object DeveloperOptionsPage {
         DhKit.Card {
             DhForm.Badge(level(e.severity), DhTokens.colors.err, DhForm.semanticBg(DhTokens.colors.err))
             Text(e.message, Modifier.padding(top = 10.dp), color = DhTokens.colors.title, fontSize = 17.sp, fontFamily = DhTokens.fontsBold)
-            DhKit.ValueRow("错误编号", e.code); DhKit.ValueRow("事件 ID", e.eventId)
-            DhKit.ValueRow("所属模块", e.module); DhKit.ValueRow("发生时间", time(e.timestamp))
-            DhKit.ValueRow("线程", e.thread.ifEmpty { "未采集" }); DhKit.ValueRow("异常类型", e.exceptionType.ifEmpty { "未采集" })
-            DhKit.ValueRow("发生次数", "${e.count} 次"); DhKit.ValueRow("首次发生", time(e.firstTimestamp))
-            DhKit.ValueRow("关联操作 ID", e.operationId.ifEmpty { "未采集" }); DhKit.ValueRow("应用版本", e.appVersion.ifEmpty { "未采集" })
+            DhKit.ValueRow("错误编号", e.code, iconRes = Icons.IC_CIRCLE_ALERT); DhKit.ValueRow("事件 ID", e.eventId, iconRes = Icons.IC_TAGS)
+            DhKit.ValueRow("所属模块", e.module, iconRes = Icons.IC_BLOCKS); DhKit.ValueRow("发生时间", time(e.timestamp), iconRes = Icons.IC_CLOCK_3)
+            DhKit.ValueRow("线程", e.thread.ifEmpty { "未采集" }, iconRes = Icons.IC_ACTIVITY); DhKit.ValueRow("异常类型", e.exceptionType.ifEmpty { "未采集" }, iconRes = Icons.IC_WARNING)
+            DhKit.ValueRow("发生次数", "${e.count} 次", iconRes = Icons.IC_REFRESH); DhKit.ValueRow("首次发生", time(e.firstTimestamp), iconRes = Icons.IC_CLOCK_3)
+            DhKit.ValueRow("关联操作 ID", e.operationId.ifEmpty { "未采集" }, iconRes = Icons.IC_LINK_2); DhKit.ValueRow("应用版本", e.appVersion.ifEmpty { "未采集" }, iconRes = Icons.IC_PACKAGE)
             Column(Modifier.fillMaxWidth().padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DiagnosticPanel("详情", e.readable(), detailsOpen, enabled = true) { detailsOpen = !detailsOpen }
                 DiagnosticPanel("堆栈", e.stackTrace, stackOpen, enabled = e.stackTrace.isNotBlank()) { stackOpen = !stackOpen }
@@ -296,8 +296,8 @@ object DeveloperOptionsPage {
         DhKit.Card {
             DhKit.SwitchRow("记录详细运行日志", detailed) { detailed = it; Logs.setOn(act, it); changed() }
             DhForm.Note("关闭时停止可选普通日志的持久化；警告、错误和未捕获崩溃仍保留基础记录。")
-            DhKit.ValueRow("严重错误基础记录", "始终开启"); DhKit.ValueRow("错误前后关键事件", "有界内存缓冲，随错误保存")
-            DhKit.ValueRow("日志保留策略", "7 天；单文件 1 MB；总量 8 MB")
+            DhKit.ValueRow("严重错误基础记录", "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow("错误前后关键事件", "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
+            DhKit.ValueRow("日志保留策略", "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
             DhKit.ActionRow("清理 15 天前的诊断记录", iconRes = Icons.IC_TRASH, desc = "最近 15 天的日志与崩溃记录保持不变") { clear = true }
         }
         if (clear) DhForm.Alert("清理 15 天前的诊断记录？", { if (!clearing) clear = false }, "清理", {

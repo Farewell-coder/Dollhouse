@@ -200,7 +200,8 @@ object AppearancePage {
         DhKit.Card(collapsibleTitle = "主题模式", titleIcon = Icons.IC_SUN) {
             DhKit.ValueRow(
                 label = "当前模式",
-                value = ThemeManager.MODE_NAMES[HomeState.themeMode]
+                value = ThemeManager.MODE_NAMES[HomeState.themeMode],
+                iconRes = Icons.IC_SUN
             ) { HomeUi.pickThemeMode(act) }
             DhKit.SwitchRow(name = "莫奈主题色", checked = HomeState.monet) { on ->
                 HomeUi.onMonetChanged(on, act)
@@ -278,7 +279,8 @@ object AppearancePage {
             // ---------- 铺法 ----------
             DhKit.ValueRow(
                 label = "背景填充",
-                value = PetPrefs.BG_MODES[HomeState.bgMode]
+                value = PetPrefs.BG_MODES[HomeState.bgMode],
+                iconRes = Icons.IC_LAYOUT_GRID
             ) { HomeUi.pickBgMode(act) }
         }
 
@@ -380,7 +382,8 @@ object AppearancePage {
             }
             DhKit.ValueRow(
                 label = "气泡宽度",
-                value = BUBBLE_WIDTH_NAMES[width]
+                value = BUBBLE_WIDTH_NAMES[width],
+                iconRes = Icons.IC_PANEL_RIGHT
             ) { HomeUi.pickBubbleWidth(act) }
         }
 
@@ -528,7 +531,8 @@ object AppearancePage {
         var draft by remember { mutableStateOf("") }
         DhKit.ValueRow(
             label = "字体颜色",
-            value = if (HomeState.fontColor == 0) "跟随主题" else HomeUi.hex(HomeState.fontColor)
+            value = if (HomeState.fontColor == 0) "跟随主题" else HomeUi.hex(HomeState.fontColor),
+            iconRes = Icons.IC_PALETTE
         ) {
             draft = if (HomeState.fontColor == 0) "" else HomeUi.hex(HomeState.fontColor).substring(1)
             open = true

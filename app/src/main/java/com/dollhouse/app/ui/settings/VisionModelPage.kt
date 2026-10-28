@@ -18,6 +18,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「识图模型」设置页（r15 新增）：指定用哪个模型来"看"图片。
@@ -107,7 +108,7 @@ object VisionModelPage {
                     picked.isNotEmpty() -> "已失效（模型被删或关闭了视觉）"
                     else -> "跟随当前聊天模型"
                 }
-                DhKit.ValueRow(label = "识图模型", value = nowText)
+                DhKit.ValueRow(label = "识图模型", value = nowText, iconRes = Icons.IC_EYE)
                 DhForm.Note("不指定时：聊天模型自己会看图就直接看图，不会看图就用本地识别（只认文字）。")
             }
 
@@ -118,6 +119,7 @@ object VisionModelPage {
                 } else {
                     DhKit.ActionRow(
                         label = "跟随当前聊天模型",
+                        iconRes = Icons.IC_BOT,
                         desc = "不单独指定，用到哪个模型就用哪个的看图能力"
                     ) {
                         PetPrefs.setVisionModel(act, "")
@@ -127,6 +129,7 @@ object VisionModelPage {
                         val pv = ProviderStore.providers(act).firstOrNull { it.id == m.providerId }
                         DhKit.ActionRow(
                             label = m.displayName,
+                            iconRes = Icons.IC_EYE,
                             desc = if (pv == null) "供应商已删除" else pv.name,
                             trailing = if (m.id == picked) "✓" else null
                         ) {
