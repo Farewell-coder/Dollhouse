@@ -10,13 +10,13 @@
 
 <br>
 
-<a href="https://github.com/Farewell-coder/Dollhouse/releases/latest"><img src="https://img.shields.io/badge/下载-Releases-6C5CE7?style=flat-square&logo=android&logoColor=white" alt="下载 Releases"></a>
+<a href="https://github.com/Farewell-coder/Dollhouse/releases/latest"><img src="https://img.shields.io/badge/下载-Releases-6C5CE7?style=flat&logo=android&logoColor=white" alt="下载 Releases"></a>
 &nbsp;
-<a href="#快速开始"><img src="https://img.shields.io/badge/Android-7.0+-F3F1FF?style=flat-square&logo=android&logoColor=6C5CE7" alt="Android 7.0+"></a>
+<a href="#快速开始"><img src="https://img.shields.io/badge/Android-7.0+-F3F1FF?style=flat&logo=android&logoColor=6C5CE7" alt="Android 7.0+"></a>
 &nbsp;
-<a href="LICENSE"><img src="https://img.shields.io/badge/开源-GPL--3.0-F3F1FF?style=flat-square&logo=opensourceinitiative&logoColor=6C5CE7" alt="GPL-3.0"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/开源-GPL--3.0-F3F1FF?style=flat&logo=opensourceinitiative&logoColor=6C5CE7" alt="GPL-3.0"></a>
 &nbsp;
-<a href="README.en.md"><img src="https://img.shields.io/badge/语言-English-F3F1FF?style=flat-square" alt="English"></a>
+<a href="README.en.md"><img src="https://img.shields.io/badge/语言-English-F3F1FF?style=flat" alt="English"></a>
 
 </div>
 
