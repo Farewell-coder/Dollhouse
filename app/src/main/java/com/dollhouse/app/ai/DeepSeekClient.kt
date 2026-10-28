@@ -252,7 +252,8 @@ object DeepSeekClient {
                         errText = "模型返回结构不对"
                     }
                 } else {
-                    errText = buildHttpError(code, text, str2, jSONArray2)
+                    // 【v0.1.4·诊断】同上：回显真实端点而不是 baseUrl。
+                    errText = buildHttpError(code, text, urlText, jSONArray2)
                 }
             } catch (t: Throwable) {
                 msgObject = null
@@ -404,7 +405,9 @@ object DeepSeekClient {
                 val code = c.responseCode
                 if (code < 200 || code >= 300) {
                     val err = ApiClient.readBody(c, code)
-                    throw IllegalStateException(buildHttpError(code, err, baseUrl, tools))
+                    // 【v0.1.4·诊断】报错里回显的必须是**这一轮真正打出去的地址**（urlText），
+                    //   不能再用 baseUrl —— 用户拿 baseUrl 去对，看着本来就是对的，会反复改配置。
+                    throw IllegalStateException(buildHttpError(code, err, urlText, tools))
                 }
                 val input = c.inputStream
                 val reader = input.bufferedReader(Charsets.UTF_8)

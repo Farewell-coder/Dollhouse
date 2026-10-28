@@ -43,11 +43,21 @@ class ActionViewportTest {
     }
 
     @Test
-    fun missingBaselineUsesWholeFrameAsStableRuler() {
+    fun missingBaselineAlignsByWidthToMatchStaticImage() {
+        // 【为什么改成断言宽度】缺 baseline 时的基准规则已在 v0.1.4 定案为「按宽度对齐」：
+        //   静态形象是 `petWidth × 高宽比`，所以动作画布也必须让**人物宽度**落在 petWidth 上，
+        //   否则同一只人偶换到一个画布更宽 / 更窄的动作时会整体放大缩小（真机表现为「一大一小」）。
+        //
+        //   旧断言（两者显示高都等于 450）对应的是「按高度对齐」：
+        //   那样 500×500 显示宽 450、250×500 显示宽 225 —— 正是要被修掉的症状本身。
         val idle = ActionViewport.measure(spec, 500, 500, null)!!
         val narrow = ActionViewport.measure(spec, 250, 500, null)!!
-        assertEquals(450, idle.bottom - idle.top)
-        assertEquals(450, narrow.bottom - narrow.top)
+        // 宽度恒定：这是「同一把尺子」的直接体现。
+        assertEquals(spec.baseWidth, idle.right - idle.left)
+        assertEquals(spec.baseWidth, narrow.right - narrow.left)
+        // 高度随画布宽高比走：500×500 → 1:1 → 300；250×500 → 1:2 → 600。
+        assertEquals(300, idle.bottom - idle.top)
+        assertEquals(600, narrow.bottom - narrow.top)
         assertEquals(spec.baseWidth, narrow.requiredWidth)
     }
 
