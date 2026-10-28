@@ -1,89 +1,153 @@
 <div align="center">
 
-<img src="assets/icon.png" width="112" height="112" alt="Dollhouse">
+<br>
+
+<img src="assets/icon.png" width="108" height="108" alt="Dollhouse">
 
 # Dollhouse
 
-Android 桌宠应用，把悬浮人偶、聊天和记忆管理放在一起。
+**一间亮着灯的小房子，等着喜欢的角色住进来。**
 
-[![最新版](https://img.shields.io/github/v/release/Farewell-coder/Dollhouse?style=flat-square&label=%E6%9C%80%E6%96%B0%E7%89%88&color=6b4ee6)](https://github.com/Farewell-coder/Dollhouse/releases/latest)
-[![Android](https://img.shields.io/badge/Android-7.0%2B-3ddc84?style=flat-square)](#安装)
-[![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)](LICENSE)
+<br>
 
-[![下载最新版本](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC-APK-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Farewell-coder/Dollhouse/releases/latest)
-[![English](https://img.shields.io/badge/Language-English-555555?style=for-the-badge)](README.en.md)
+<a href="https://github.com/Farewell-coder/Dollhouse/releases/latest"><img src="https://img.shields.io/badge/下载-Releases-6C5CE7?style=flat-square&logo=android&logoColor=white" alt="下载 Releases"></a>
+&nbsp;
+<a href="#快速开始"><img src="https://img.shields.io/badge/Android-7.0+-F3F1FF?style=flat-square&logo=android&logoColor=6C5CE7" alt="Android 7.0+"></a>
+&nbsp;
+<a href="LICENSE"><img src="https://img.shields.io/badge/开源-GPL--3.0-F3F1FF?style=flat-square&logo=opensourceinitiative&logoColor=6C5CE7" alt="GPL-3.0"></a>
+&nbsp;
+<a href="README.en.md"><img src="https://img.shields.io/badge/语言-English-F3F1FF?style=flat-square" alt="English"></a>
 
 </div>
 
 ---
 
-当前人偶是鲸鱼娘「小肥鱼」。她会眨眼、待机摆动、贴边探头；可以拖动，点击弹出台词气泡，三击唤出迷你输入框。在其他应用上也能发起聊天，需要查看历史时再进入完整聊天界面。
+有时候，我只是希望手机里能多一点生气。
 
-## 功能
+不是多一个催促我的工具，也不是多一个需要完成的任务，而是一个安静待在屏幕角落的小家伙。闲下来时看它眨眨眼，点它一下会有回应，忽然想说几句话，也不用特意去找谁。
 
-- **人偶互动**：拖动、贴边吸附、位置保存、大小调整和动画。
-- **聊天**：多轮对话、流式回复、会话历史；迷你框与完整聊天界面共用会话。AI 对话需自行配置联网服务，不内置离线模型。
-- **记忆**：会话自动总结、长期记忆自动保存、记忆自动精简是三个独立开关；记忆库主视图为**力导向图谱**，可拖拽、缩放、点节点看详情、点连线看关系，也可手动为记忆建立关联。
-- **提供商与模型**：管理多套服务配置、模型列表与收藏。实际协议、流式与工具调用兼容性取决于所用服务。
-- **外观**：跟随系统、浅色、深色、纯黑主题；壁纸取色、人偶大小、背景图与毛玻璃。背景分**人偶层 / 全局层**两级回落，可为单个人偶单独设置聊天背景与气泡颜色。壁纸取色不可用时回退内置配色。
-- **我的资料**：聊天列表左上角头像进入，可设置自己的头像、昵称与个性签名。
-- **图片处理**：背景裁剪与文字识别，OCR 使用 Google ML Kit。
-- **可选设备操作**：通过 Shizuku 提供系统命令能力；安装并启动 lamda 后可扩展点按、滑动、输入、打开应用和读取界面等操作。无需这些组件也能使用桌宠及已配置的聊天。
-- **后台运行**：前台服务、开机恢复和保活设置用于提高存活率，仍受系统省电与后台策略影响。
-- **诊断中心**：关于页最后一项进入。查看真实错误与崩溃分组、异常堆栈和关联日志，搜索筛选记录，执行日志自检，读取系统提供的进程退出原因，并导出经过完整性校验的 ZIP 诊断包。严重错误始终保留基础记录，详细运行日志可单独开关。
+Dollhouse 就是从这样的念头开始的。
 
-## 安装
+做着做着，我又觉得，桌宠不该永远只有一张脸、几句固定的台词。它应该能慢慢变成你喜欢的样子：有自己的角色、动作，也记得你们聊过什么。
 
-1. 在 [Releases](https://github.com/Farewell-coder/Dollhouse/releases) 下载 APK，允许安装未知来源应用。
-2. 打开应用，授予悬浮窗权限并启动桌宠；通知权限用于显示运行通知。
-3. 如需聊天，在设置中填写自己的服务配置；如后台经常被关闭，可按设置引导调整电池优化和厂商自启动选项。
+所以，Dollhouse 不只是一张会动的图片，也不只是一个套上 AI 的聊天窗口。我更想把它做成一间可以慢慢布置的小房子——**房子是平台，住在里面的角色，才是故事的开始。**
 
-最低 Android 7.0（API 24），目标 Android 14（API 34）。已在 OPPO / ColorOS 14 构建和装机验证，不代表所有厂商和系统均已验证。
+目前住着的是鲸鱼娘「小肥鱼」。她会眨眼、待机摆动，也会贴着屏幕边缘探出头来。
 
-设备操作需要自行安装、启动并授权 [Shizuku](https://github.com/RikkaApps/Shizuku)。[lamda](https://github.com/firerpa/lamda) 是可选的外部组件，不随 APK 分发；当前下载包约 204 MB，下载后还需在应用中解包并启动，以实际提示为准。第三方组件遵循其自身条款。
+## 这间房子里有什么
 
-## 权限与数据
+### 一个会回应你的小家伙
 
-- 悬浮窗用于人偶及聊天窗口；前台服务和通知用于后台运行；开机广播用于恢复人偶；电池优化白名单为可选项。
-- 网络权限用于配置的对话服务、联网工具和可选组件下载；震动权限用于触摸反馈。图片通过系统选择器选取。
-- 对话、记忆和配置保存在本机应用私有目录。联网聊天时，相关对话、记忆以及工具结果会按功能需要发送给所配置的服务；凭据用于请求认证。导出或分享配置前请检查是否含敏感信息。
-- ML Kit 及其 Google 依赖适用各自条款和数据处理规则，不能据此承诺应用完全不联网或不产生 SDK 诊断数据。
-- 授权后的设备命令可能读取界面、文件和设置，也可能修改设备状态。模型生成的指令可能出错，不应把工具输出或权限授权视为安全保证。
+角色可以悬浮在其他应用之上，不必每次想见它都先打开 Dollhouse。
+
+- 拖动、贴边吸附、位置保存和大小调整
+- 待机、动画与屏幕边缘互动
+- 点击弹出台词气泡，三击唤出迷你输入框
+- 前台服务、开机恢复与后台保活设置
+
+### 想说话时，它就在
+
+迷你输入框和完整聊天界面共用同一场对话，想到哪里就聊到哪里，回头也能找到之前说过的话。
+
+支持多轮对话、流式回复和会话历史。你可以管理多套模型服务、模型列表与收藏，也可以设置自己的头像、昵称和个性签名。
+
+AI 对话需要自行配置联网服务，项目不内置离线模型。实际能力取决于你选择的服务与模型。
+
+### 让那些话不被轻易忘记
+
+会话自动总结、长期记忆保存、记忆自动精简，是三个可以分别决定的开关。
+
+记忆库不是一排冰冷的列表，而是一张可以拖拽、缩放的力导向图谱。点节点看一段记忆，点连线看它们之间的关系，也可以亲手把两段记忆连起来。
+
+### 按你的喜好慢慢布置
+
+跟随系统、浅色、深色、纯黑主题，支持壁纸取色、背景图与毛玻璃。背景分为人偶层和全局层两级回落，也可以给单个角色单独设置聊天背景和气泡颜色。
+
+角色与动作也会继续完善，让不同的角色有不同的表现，而不是换一张图就结束。
+
+### 出一些状况时，也别靠猜
+
+关于页最后一项是诊断中心。这里可以看到错误与崩溃分组、异常堆栈和关联日志，也能搜索、筛选、执行日志自检，或导出经过完整性校验的 ZIP 诊断包。
+
+严重错误会保留基础记录，详细运行日志则可以单独开关。
+
+## 快速开始
+
+1. 从 [Releases](https://github.com/Farewell-coder/Dollhouse/releases) 下载 APK，建议优先选择稳定版本。
+2. 安装并打开应用，授予悬浮窗权限，启动桌宠；通知权限用于显示运行通知。
+3. 如果想聊天，在设置里填入自己的模型服务配置。
+4. 如果后台经常被系统关闭，可以按应用内的引导调整电池优化与厂商自启动选项。
+
+最低支持 **Android 7.0（API 24）**，目标 **Android 14（API 34）**。项目已在 OPPO / ColorOS 14 上构建和装机验证，但这不代表所有厂商与系统版本都已验证。
+
+设备操作是可选的扩展能力，需要自行安装、启动并授权 [Shizuku](https://github.com/RikkaApps/Shizuku)。[lamda](https://github.com/firerpa/lamda) 同样是可选组件，不随 APK 分发。没有它们，桌宠和已配置的聊天依然可以正常使用。
+
+## 关于权限与数据
+
+有些权限是为了让它正常陪伴你，有些则只在明确需要时才用到：
+
+- 悬浮窗用于人偶和聊天窗口；前台服务与通知用于后台运行；开机广播用于恢复人偶。
+- 网络用于你配置的对话服务、联网工具及可选组件下载。
+- 对话、记忆和配置保存在本机应用私有目录。联网聊天时，相关内容会按功能需要发送给你所配置的服务。
+- 凭据只用于请求认证。导出或分享配置前，请检查是否包含敏感信息。
+- OCR 使用 Google ML Kit，相关依赖遵循各自的条款与数据处理规则。
+- 授权后的设备命令可能读取界面、文件和设置，也可能修改设备状态。模型生成的指令可能出错，重要操作请自行核实。
 
 ## 更新公告
 
-各版本的新功能、改进与修复内容不再在此罗列，统一收录于更新记录，欢迎前往查看。
+每个版本添了什么、改了什么、修好了什么，都认真记在更新记录里，不再在这里堆成一长串。
 
-更新公告详见 [更新记录](CHANGELOG.md)。
+欢迎前往 [更新记录](CHANGELOG.md) 查看。
 
-## 构建
+## 从源码构建
 
-需要 JDK 17、Android SDK 36；工程使用 Gradle 8.11.1、AGP 8.9.1、Kotlin 2.2.10。源码为纯 Kotlin，无 Java 源文件。
+需要 JDK 17、Android SDK 36；工程使用 Gradle 8.11.1、AGP 8.9.1、Kotlin 2.2.10，源码为纯 Kotlin。
 
 ```bash
 git clone https://github.com/Farewell-coder/Dollhouse.git
 cd Dollhouse
+
 # 在 local.properties 中配置本机 SDK 路径。
 # gradle.properties 含手机 arm64 构建的本地 aapt2 路径；
 # 普通桌面环境须移除该覆盖项，或改成可用的本机路径。
 ./gradlew assembleDebug
 ```
 
-发布签名请参照 `keystore.properties.example` 配置自己的密钥，再运行 `./gradlew assembleRelease`。产物在 `app/build/outputs/apk/`。签名凭据和构建产物不入库；自行签名的包不能直接覆盖官方签名包。
+发布签名请参照 `keystore.properties.example` 配置自己的密钥，再运行 `./gradlew assembleRelease`。产物位于 `app/build/outputs/apk/`。
 
-## 第三方声明
+签名凭据和构建产物不入库；自行签名的包不能直接覆盖官方签名包。
+
+## 一起把房子修好
+
+Dollhouse 是开源项目，也是一个仍在慢慢生长的想法。
+
+如果你喜欢这个方向，欢迎阅读源码、反馈问题、提出建议或提交代码。让角色的动作自然一点，让页面返回可靠一点，让内存占用少一点——这些具体的小改进，都会让这间房子住起来更舒服。
+
+- [GitHub 仓库](https://github.com/Farewell-coder/Dollhouse)
+- [版本与安装包](https://github.com/Farewell-coder/Dollhouse/releases)
+- [问题反馈与建议](https://github.com/Farewell-coder/Dollhouse/issues)
+
+## 第三方声明与许可
 
 | 来源 | 用途 | 许可或条款 |
 | --- | --- | --- |
 | [Lucide](https://github.com/lucide-icons/lucide) | 图标路径的 Android 适配 | ISC，Feather 衍生部分为 MIT |
 | [Shizuku API](https://github.com/RikkaApps/Shizuku-API) | 授权与系统接口客户端 | MIT；不等同于独立管理器的许可 |
 | Kotlin、协程、Hilt / Dagger、AndroidX 等 | 运行时及依赖 | Apache-2.0 等，逐项见清单 |
-| Google ML Kit / Play services | 文字识别及其依赖 | Google ML Kit / Android SDK 条款，适用独立第三方条款 |
+| Google ML Kit / Play services | 文字识别及其依赖 | Google ML Kit / Android SDK 条款 |
 
 完整版权、许可及构建依赖清单见 [第三方声明](THIRD_PARTY_NOTICES.md) 和 [licenses](licenses/)。
 
-## 许可与免责声明
-
-Dollhouse 自有代码采用 [GPL-3.0](LICENSE)，Copyright (C) 2026 Farewell-coder；第三方内容遵循各自许可。移植和适配记录见第三方声明与更新记录。
+Dollhouse 自有代码采用 [GPL-3.0](LICENSE)，Copyright (C) 2026 Farewell-coder；第三方内容遵循各自许可。
 
 本项目按“现状”提供，不保证适配所有设备。AI 回复及设备操作可能出错，重要信息和高权限操作请自行核实。此说明不减少适用开源许可赋予的权利，也不排除法律规定不可免除的责任。
+
+---
+
+<div align="center">
+
+房子还在慢慢修，故事也还没有写完。
+
+**欢迎来到 Dollhouse。**
+
+</div>
