@@ -50,7 +50,11 @@ Device control requires installing, starting, and authorizing [Shizuku](https://
 - ML Kit and its Google dependencies are governed by their own terms and data handling rules; this is not a promise that the app never touches the network or never produces SDK diagnostics.
 - Authorized device commands may read the screen, files, and settings, and may change device state. Model-generated instructions can be wrong; tool output or a granted permission should not be treated as a security guarantee.
 
-See the [changelog](CHANGELOG.md) for details.
+## Release Notes
+
+New features, improvements, and fixes for each release are no longer listed here; they are all collected in the changelog.
+
+See the [changelog](CHANGELOG.md) for the full release notes.
 
 ## Build
 
