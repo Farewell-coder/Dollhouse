@@ -34,7 +34,25 @@ jobs:
           java-version: '17'
 
       - name: 装 Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          # 【必须显式指定 packages】v3 默认请求 "tools platform-tools"，
+          # 而 Google 已于 2026-09-17 把 `tools` 包从 SDK 仓库下架，
+          # sdkmanager 直接 exit 1：Warning: Failed to find package 'tools'。
+          # 后果不是「少装个工具」，而是**整个 job 在装 SDK 这一步就挂了**，
+          # 单元测试与 release 编译一次都没跑起来（构建结论为「失败」但代码其实没问题）。
+          # 现在只要求 platform-tools（提供 adb 等），
+          # platform 与 build-tools 由 AGP 按 build.gradle 声明自动下载，
+          # 这一步只需要提供 sdkmanager 并接受许可。
+          packages: 'platform-tools'
+
+      # 【显式安装编译所需平台】工程 compileSdk = 36、build-tools 35.0.0。
+      # 交给 AGP 自动下载也能work，但「自动下载」与「接受许可」在无交互 CI 上
+      # 偶发因许可未接受而中断；显式装一次把不确定性提前消灭。
+      - name: 安装编译平台
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
       - name: 缓存 Gradle
         uses: actions/cache@v4
