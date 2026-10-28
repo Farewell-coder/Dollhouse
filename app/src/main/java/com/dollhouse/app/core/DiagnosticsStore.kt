@@ -182,12 +182,44 @@ object DiagnosticsStore {
     /** 原始结构化日志仅供后台导出流式读取，避免把普通日志丢弃。 */
     internal fun rawLogFiles(ctx: Context): List<File> = logs(dir(ctx)).sortedBy { it.lastModified() }
 
-    fun query(ctx: Context, severity: Severity? = null, text: String = "", offset: Int = 0, limit: Int = 60): List<DiagnosticEvent> {
+    data class QueryPage(val items: List<DiagnosticEvent>, val hasMore: Boolean)
+
+    /**
+     * 日志查看器专用：逐行读取、只保留有限分组，不调用会装载全部事件的 summary()。
+     * 总量受 8 MB 存储上限约束；内存另以 500 个候选分组封顶，避免大量不同错误撑大页面。
+     */
+    fun queryPage(ctx: Context, severity: Severity? = null, module: String = "", text: String = "",
+                  offset: Int = 0, limit: Int = 30): QueryPage {
         val q = text.trim().lowercase()
-        return summary(ctx).groups.asSequence().filter { severity == null || it.severity == severity }
-            .filter { q.isEmpty() || listOf(it.message, it.module, it.code, it.exceptionType, it.category).joinToString(" ").lowercase().contains(q) }
-            .drop(offset.coerceAtLeast(0)).take(limit.coerceIn(1, 200)).toList()
+        val candidates = LinkedHashMap<Pair<Severity, String>, DiagnosticEvent>()
+        logs(dir(ctx)).sortedByDescending { it.lastModified() }.forEach { f ->
+            runCatching {
+                f.forEachLine(Charsets.UTF_8) { line ->
+                    val e = DiagnosticEvent.parse(line) ?: return@forEachLine
+                    if (severity != null && e.severity != severity) return@forEachLine
+                    if (module.isNotEmpty() && e.module != module) return@forEachLine
+                    if (q.isNotEmpty() && !listOf(e.message, e.module, e.code, e.exceptionType, e.category)
+                            .joinToString(" ").lowercase().contains(q)) return@forEachLine
+                    val key = e.severity to (e.module + e.exceptionType + e.message)
+                    val previous = candidates.remove(key)
+                    candidates[key] = if (previous == null) e else e.copy(
+                        count = previous.count + 1,
+                        firstTimestamp = minOf(previous.firstTimestamp, e.timestamp),
+                        context = e.context.ifEmpty { previous.context },
+                        stackTrace = e.stackTrace.ifEmpty { previous.stackTrace }
+                    )
+                    if (candidates.size > 500) candidates.remove(candidates.entries.first().key)
+                }
+            }
+        }
+        val from = offset.coerceAtLeast(0)
+        val pageSize = limit.coerceIn(1, 100)
+        val sorted = candidates.values.sortedByDescending { it.timestamp }
+        return QueryPage(sorted.drop(from).take(pageSize), sorted.size > from + pageSize)
     }
+
+    fun query(ctx: Context, severity: Severity? = null, text: String = "", offset: Int = 0, limit: Int = 60): List<DiagnosticEvent> =
+        queryPage(ctx, severity = severity, text = text, offset = offset, limit = limit).items
 
     fun exits(ctx: Context): List<ExitRecord> {
         if (Build.VERSION.SDK_INT < 30) return emptyList()
@@ -212,11 +244,40 @@ object DiagnosticsStore {
         return SelfCheck(!lastFailure.get() && s.corrupted == 0 && CrashGuard.isInstalled(), items)
     }
 
-    fun clear(ctx: Context): Boolean {
+    /** 仅清理 15 天前的记录。JSONL 逐行筛选，混合新旧记录的文件不得整份删除。 */
+    @Synchronized fun clear(ctx: Context): Boolean {
         val latch = CountDownLatch(1); var ok = false
         worker.execute {
-            ok = runCatching { logs(dir(ctx)).all { !it.exists() || it.delete() } && CrashGuard.clear(ctx) }.getOrDefault(false)
-            synchronized(contextLock) { contextEvents.clear() }; latch.countDown()
+            ok = runCatching {
+                val cutoff = System.currentTimeMillis() - 15L * 24L * 3600L * 1000L
+                var success = true
+                logs(dir(ctx)).forEach { file ->
+                    val temp = File(file.parentFile, file.name + ".prune.tmp")
+                    var kept = 0
+                    file.bufferedReader(Charsets.UTF_8).use { reader ->
+                        temp.bufferedWriter(Charsets.UTF_8).use { writer ->
+                            reader.forEachLine { line ->
+                                val event = DiagnosticEvent.parse(line)
+                                if (event == null || event.timestamp >= cutoff) {
+                                    writer.appendLine(line); kept++
+                                }
+                            }
+                        }
+                    }
+                    if (kept == 0) {
+                        if (!file.delete()) success = false
+                        temp.delete()
+                    } else if (!temp.renameTo(file)) {
+                        temp.delete(); success = false
+                    }
+                }
+                CrashGuard.listFiles(ctx).filter { it.lastModified() < cutoff }.forEach {
+                    if (it.exists() && !it.delete()) success = false
+                }
+                synchronized(contextLock) { contextEvents.removeAll { it.timestamp < cutoff } }
+                success
+            }.getOrDefault(false)
+            latch.countDown()
         }
         return runCatching { latch.await(5, TimeUnit.SECONDS); ok }.getOrDefault(false)
     }

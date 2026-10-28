@@ -39,6 +39,49 @@ object ApiClient {
     @Volatile
     private var lastUrl: String = ""
 
+    /**
+     * 【v0.1.4】明文 HTTP 的应用层闸门。
+     *
+     * 【为什么需要】系统层 `network_security_config` 是安装期静态配置，没法在运行时
+     *   按用户填写的域名放开。要让「用户自己的 HTTP 中转站」能用，系统层只能整体放行；
+     *   放行之后**必须有一处代码负责拒绝**，否则等于退回「全站允许明文」的旧缺陷
+     *   （API Key 与聊天内容可被同网段中间人读到）。
+     *
+     * 【放行条件（三者之一）】
+     * · 目标是本机回环（127.0.0.1 / localhost / ::1）—— 流量不出本机，无中间人；
+     * · `https` 与其它非 http 协议 —— 不受此限制；
+     * · 供应商显式打开 [Provider.allowCleartext]。
+     *
+     * 【为什么抛 IllegalStateException 而不是 IOException】它是「配置问题」不是「网络问题」，
+     *   文案要能直接指导用户去勾开关，而不是让人以为对方服务器挂了。
+     */
+    @JvmStatic
+    @Throws(Exception::class)
+    fun guardCleartext(url: String, pv: Provider?) {
+        val u = url.trim().lowercase()
+        if (!u.startsWith("http://")) {
+            return
+        }
+        if (pv != null && pv.allowCleartext) {
+            return
+        }
+        val host = try {
+            val h = URL(url.trim()).host ?: ""
+            h.lowercase()
+        } catch (ignored: Throwable) {
+            ""
+        }
+        if (host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]") {
+            return
+        }
+        throw IllegalStateException(
+            "这个供应商走的是明文 HTTP（" + (if (host.isEmpty()) url else host) + "），" +
+                "默认被安全策略拦下。\n" +
+                "如果这是你自己搭的 / 可信任的服务，请在「编辑供应商」里打开「允许明文 HTTP」；\n" +
+                "否则请把地址改成 https://"
+        )
+    }
+
     /** 读取最近一次实际请求地址；还没发过请求时为空串。 */
     @JvmStatic
     fun lastRequestUrl(): String {
@@ -83,6 +126,11 @@ object ApiClient {
             throw IllegalStateException("还没填接口地址")
         }
         val k = if (key == null) "" else key.trim()
+        // 【v0.1.4】明文 HTTP 的应用层闸门。
+        //   系统层的 network_security_config 已放开明文（否则任何 http:// 都发不出去），
+        //   安全性改由这里保证：供应商没显式勾选「允许明文 HTTP」就不放行。
+        //   这样默认行为与改造前一致（默认禁明文），只有用户明确授权的供应商才走 HTTP。
+        guardCleartext(u, pv)
         // 【诊断】把最终地址记下来：界面才有能力回答「到底打向了哪个地址」。
         lastUrl = u
         val conn = URL(u).openConnection() as HttpURLConnection

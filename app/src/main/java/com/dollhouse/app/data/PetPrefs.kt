@@ -1784,4 +1784,31 @@ object PetPrefs {
         val id = if (dollId == null || dollId.isEmpty()) "_" else dollId
         return "random_action_" + id
     }
+
+    /* ============================ v0.1.4 甩抛开关 ============================ */
+
+    /**
+     * 甩抛（拖动后带惯性与重力反弹地飞出去）开关，**按人偶各管各**，**默认开**。
+     *
+     * 【默认开的理由】甩抛是本版之前就存在的手感（[com.dollhouse.app.pet.ThrowPhysics]），
+     *   不是本轮新增行为 —— 与「随机动作默认关」的语义相反：后者是新增的自发动作，
+     *   默认关才不扰人；这里关掉等于**移除**用户已经在用的手感，必须由用户主动关。
+     *
+     * 【关掉之后是什么行为】松手直接落位 + 吸附（`settle()`），与甩抛上线前逐行一致：
+     *   拖拽、贴边吸附、随机走位、拖拽倾斜全部保留，只是不再「飞出去」。
+     */
+    @JvmStatic
+    fun throwEnabled(context: Context, dollId: String?): Boolean {
+        return get(context).getBoolean(throwKey(dollId), true)
+    }
+
+    @JvmStatic
+    fun setThrowEnabled(context: Context, dollId: String?, on: Boolean) {
+        get(context).edit().putBoolean(throwKey(dollId), on).apply()
+    }
+
+    private fun throwKey(dollId: String?): String {
+        val id = if (dollId == null || dollId.isEmpty()) "_" else dollId
+        return "throw_enabled_" + id
+    }
 }

@@ -32,6 +32,26 @@ import androidx.navigation3.runtime.NavKey
  *     Nav3 下不再需要，但方法保留（空实现 + 说明），以免日后有人按旧注释找过来时困惑。
  */
 object PageStack {
+    /**
+     * 【v0.1.4·页内子屏返回拦截】
+     *
+     * 有些页面是「一层 [PageStack] + 内部多个子屏」的结构（诊断中心五个子屏、
+     * 供应商模块由 [com.dollhouse.app.ui.provider.ProviderNav] 自己管）。
+     * 这类页面只处理了顶栏返回箭头，系统返回键却直接落到 [handleBack] 把整层弹掉 ——
+     * 表现就是「在日志记录页按返回，直接回到关于」。
+     *
+     * 【用法】页面在 Compose 里挂上 [backInterceptor]，返回 true 表示「我吃掉了，别再弹栈」。
+     * 页面销毁时必须置回 null（否则会拦到别的页面的返回）。
+     *
+     * 【为什么要带 key】页面被压栈后**不会销毁**（Compose 侧仍然存活），
+     *   若只看「有没有登记」就会在它上面再叠一层页面时，把别人的返回也吃掉。
+     *   故登记时必须带上自己的栈 key，调用方先用 [isTop] 校验，只在它确实位于最上层时才询问。
+     */
+    class BackInterceptor(val key: String, val action: () -> Boolean)
+
+    @Volatile
+    @JvmStatic
+    var backInterceptor: BackInterceptor? = null
 
     /* ============================ 离开清理登记表 ============================ */
 

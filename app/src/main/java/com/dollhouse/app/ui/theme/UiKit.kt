@@ -124,6 +124,26 @@ object UiKit {
     @JvmField
     var SWITCH_OFF = 0xFFC9CEDD.toInt()
 
+    /**
+     * 【v0.1.4·UI 统一】开关**开启态**专用强调色（薄荷绿）。
+     *
+     * 【为什么不复用 [ACC]】开关表达的是「状态」，主色表达的是「可操作/选中」。
+     *   两者共用一套色会让整页（尤其莫奈主题下主色随机）变成一片同色，
+     *   开关开没开反而要靠位置去认。固定薄荷绿的好处：
+     *   · 与任何主色搭配都能一眼分辨开关状态；
+     *   · 深浅主题下对比度都够（见下面的亮度换算）。
+     *
+     * 【为什么**不加进** [snapshotPalette]】那个数组的下标是 ThemeManager 逐位覆盖的依据，
+     *   往中间插一项会让其后所有字段错位（一次全站换色事故）。本字段独立于主题调色板，
+     *   由主题切换时按明暗自动选一档（见 `ThemeManager` / `ThemeRefresh` 的调用点）。
+     */
+    @JvmField
+    var SWITCH_ON = 0xFF3ECFA0.toInt()
+
+    /** 开关滑块色：浅色主题纯白，深色主题略压暗避免「发光」刺眼。 */
+    @JvmField
+    var SWITCH_KNOB = 0xFFFFFFFF.toInt()
+
     /** 桌宠表情色（惊叹 / 开心 / 眩晕）。 */
     @JvmField
     var EMOTE_1 = 0xFFF2603C.toInt()

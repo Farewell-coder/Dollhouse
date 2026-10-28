@@ -163,11 +163,13 @@ class ChatPanel(
      *   修法：由调用方在**落库之后**传入 `history.length() - 1`。
      */
     private fun appendBubble(text: String, mine: Boolean, image: String?, index: Int = -1) {
+        // 每条本地提示拥有独立身份，不能与流式占位共用 "live" key。
+        val itemIndex = if (index < 0) -System.identityHashCode(Any()) else index
         ChatState.items = ChatState.items + ChatItem(
             role = if (mine) "user" else "assistant",
             text = text,
             image = image,
-            index = index,
+            index = itemIndex,
             isPrev = false,
             isSummary = false
         )
@@ -1540,10 +1542,8 @@ class ChatPanel(
                     // 【收尾】去掉流式占位气泡：最终内容统一由 handleReply / runTools 重新铺，
                     //   避免「流式气泡 + 落盘气泡」出现两条重复消息。
                     if (liveIndex >= 0) {
-                        val cur = ChatState.items
-                        if (liveIndex < cur.size) {
-                            ChatState.items = cur.subList(0, liveIndex).toList()
-                        }
+                        // 只按占位身份移除，不用可能已经过期的列表下标裁剪历史。
+                        ChatState.items = ChatState.items.filterNot { it.index < 0 }
                         liveIndex = -1
                     }
                     streamText = null

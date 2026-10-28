@@ -366,6 +366,25 @@ object Icons {
     @JvmField
     val IC_KEY_ROUND = R.drawable.ic_key_round
 
+    /* ================= v0.1.4 · 设置页 UI 统一新增（官方 Lucide 几何） =================
+     * 【来源】lucide-static 官方 SVG（ISC 协议），本工程既有转换规范：
+     *   24dp 视口 / 线宽 2 / 圆角端点 / 描边色占位白，运行期由主题上色。
+     * 【为什么新增这四个】设置页里「通知 / 电池优化 / 无感保活 / 快捷磁贴」原本没有图标，
+     *   与聊天卡片下级（有图标）风格割裂；这四个语义互不重叠，也不与既有图标撞义。
+     */
+    /** 铃铛（Lucide bell）：通知权限 / 消息提醒。 */
+    @JvmField
+    val IC_BELL = R.drawable.ic_bell
+    /** 充电电池（Lucide battery-charging）：电池优化白名单。 */
+    @JvmField
+    val IC_BATTERY_CHARGING = R.drawable.ic_battery_charging
+    /** 心跳折线（Lucide activity）：后台保活 / 运行状态。 */
+    @JvmField
+    val IC_ACTIVITY = R.drawable.ic_activity
+    /** 四宫格（Lucide layout-grid）：快捷设置磁贴 / 系统面板入口。 */
+    @JvmField
+    val IC_LAYOUT_GRID = R.drawable.ic_layout_grid
+
     // ---- 人格 / 情感 ----
     /** 带心的书（Lucide book-heart）：人设 / 性格设定。 */
     @JvmField

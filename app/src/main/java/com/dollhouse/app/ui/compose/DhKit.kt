@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -110,6 +111,25 @@ object DhKit {
     const val GAP_ROW = 8
     /** 图标命中区（dp）← UiKit.HIT_DP。 */
     const val HIT = 40
+
+    /**
+     * 【v0.1.4·UI 统一】所有设置行的左侧图标尺寸（dp）。
+     *
+     * 【为什么必须只有一个值】改造前同一页里有 14 / 16 / 18 三种：
+     *   SectionLabel 走 SZ_XS、ValueRow 走 SZ_SM、ActionRow 走 SZ_MD，
+     *   并排时视觉重量参差，看起来像三种层级的控件。
+     *   18dp 与 15sp 正文 / 24dp 开关三者比例最协调（图标略大于字高、明显小于开关）。
+     */
+    const val ICON_ROW_DP = 18f
+
+    /** 图标与文字的间距（dp）—— 全行统一，不用各组件自己定 6 / 8 / 10。 */
+    const val GAP_ICON = 10
+
+    /** 行内说明文字字号（sp）。比标题小两档，与 SUB 色配套。 */
+    const val FS_ROW_DESC = 12f
+
+    /** 行最小高度（dp）：保证无说明项与有说明项的可点区域都不低于 Android 建议的 48dp。 */
+    const val MIN_ROW_H = 48
 
     /** 页面水平内边距（dp）—— Tab 页与 [Page] 同一口径。 */
     const val PAD_PAGE = 16
@@ -494,6 +514,8 @@ object DhKit {
         modifier: Modifier = Modifier,
         // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
         iconRes: Int = 0,
+        /** 【v0.1.4】第二行说明；null / 空 = 单行，行高不额外增长。 */
+        desc: String? = null,
         onClick: (() -> Unit)? = null
     ) {
         val c = DhTokens.colors
@@ -504,31 +526,59 @@ object DhKit {
                 .clip(RoundedCornerShape(R_ROW.dp))
                 .background(c.soft)
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
-                .padding(horizontal = PAD_ROW.dp, vertical = PAD_ROW.dp),
+                .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp)
+                .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (iconRes != 0) {
-                // 【v0.1.0·修·图标偏小】这是「列表行主图标」，按 [Design] 口径应走 SZ_SM。
-                Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.sub)
-                Spacer(Modifier.width(8.dp))
+                RowIcon(iconRes)
+                Spacer(Modifier.width(GAP_ICON.dp))
             }
-            Text(
-                text = label,
-                modifier = Modifier.weight(1f),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
-            )
+            // 【v0.1.4】标题与说明收进同一个 Column：两行文字的基线由这一处决定，
+            //   调用方再怎么组合也不会出现「说明偏上 / 偏下」。
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                if (!desc.isNullOrEmpty()) {
+                    Text(
+                        text = desc,
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = c.sub,
+                        fontSize = FS_ROW_DESC.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                }
+            }
             if (!value.isNullOrEmpty()) {
+                Spacer(Modifier.width(12.dp))
+                // 标签和值都必须受剩余宽度约束；长 ID、路径或状态文本允许换行。
                 Text(
                     text = value,
+                    modifier = Modifier.weight(1.35f),
                     color = valueTint ?: c.sub,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.End
                 )
             }
         }
+    }
+
+    /**
+     * 【v0.1.4·UI 统一】行首图标的唯一画法。
+     *
+     * 【为什么要收口】改造前 ValueRow 用 SZ_SM、ActionRow 用 SZ_MD、SectionLabel 用 SZ_XS，
+     *   同一个列表里三种图标大小并排，视觉上像三个不同层级的控件。
+     *   现在统一 18dp + SUB 色，与 15sp 正文的视觉重量匹配（既不像小点、也不压过文字）。
+     */
+    @Composable
+    private fun RowIcon(iconRes: Int, tint: Color = DhTokens.colors.sub) {
+        Icon(iconRes = iconRes, sizeDp = ICON_ROW_DP, color = tint)
     }
     /* ============================ 开关行 / 权限行 / 步进器 ============================ */
 
@@ -541,6 +591,12 @@ object DhKit {
         name: String,
         checked: Boolean,
         modifier: Modifier = Modifier,
+        /** 【v0.1.4】第二行说明；null / 空 = 单行。 */
+        desc: String? = null,
+        /** 【v0.1.4】行首图标（Icons.IC_*）；0 = 不占位。 */
+        iconRes: Int = 0,
+        /** 【v0.1.4】false 时整行降透明度且不接收点击（与 ActionRow 的禁用口径一致）。 */
+        enabled: Boolean = true,
         onCheckedChange: (Boolean) -> Unit
     ) {
         val c = DhTokens.colors
@@ -550,22 +606,40 @@ object DhKit {
                 .padding(top = GAP_ROW.dp)
                 .clip(RoundedCornerShape(R_ROW.dp))
                 .background(c.soft)
-                .pressable { onCheckedChange(!checked) }
-                .padding(horizontal = PAD_ROW.dp, vertical = 10.dp),
+                .then(if (enabled) Modifier.pressable { onCheckedChange(!checked) } else Modifier)
+                .then(if (enabled) Modifier else Modifier.alpha(0.35f))
+                .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) 10.dp else 9.dp)
+                .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = name,
-                modifier = Modifier.weight(1f),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
+            if (iconRes != 0) {
+                RowIcon(iconRes)
+                Spacer(Modifier.width(GAP_ICON.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                if (!desc.isNullOrEmpty()) {
+                    Text(
+                        text = desc,
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = c.sub,
+                        fontSize = FS_ROW_DESC.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            // 【v0.1.4·防误触】开关自带 clickable，会消费掉按下事件 ——
+            //   点它只切开关，不会顺带触发外层整行的 pressable（否则会「切了又弹回去」）。
+            Switch(
+                checked = checked,
+                onCheckedChange = { if (enabled) onCheckedChange(it) }
             )
-            // 【修·开关圆球不跟进】原来这里先用 Material3 的 Switch，再叠一个空 Box 想「吃掉点击」，
-            //   结果空 Box 与开关同层，触摸落点被它拦走、开关自身的 onCheckedChange 收不到，
-            //   于是点一下轨道闪一下、圆球不移动。
-            //   现在改用本工程自绘的 Switch（与 UiKit.Switch 同尺寸同手感），点击只由它一处消费。
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
 
@@ -580,6 +654,10 @@ object DhKit {
         name: String,
         state: Int,
         modifier: Modifier = Modifier,
+        /** 【v0.1.4】行首图标（Icons.IC_*）；0 = 不占位。 */
+        iconRes: Int = 0,
+        /** 【v0.1.4】第二行说明（例如「申请后会跳到系统设置」）。 */
+        desc: String? = null,
         onClick: () -> Unit
     ) {
         val c = DhTokens.colors
@@ -597,22 +675,39 @@ object DhKit {
                 .clip(RoundedCornerShape(R_ROW.dp))
                 .background(c.soft)
                 .then(if (granted) Modifier else Modifier.pressable(onClick))
-                .padding(horizontal = PAD_ROW.dp, vertical = PAD_ROW.dp),
+                .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp)
+                .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (iconRes != 0) {
+                RowIcon(iconRes)
+                Spacer(Modifier.width(GAP_ICON.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                if (!desc.isNullOrEmpty()) {
+                    Text(
+                        text = desc,
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = c.sub,
+                        fontSize = FS_ROW_DESC.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
             Text(
-                text = name,
-                modifier = Modifier.weight(1f),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
-            )
-            Text(
-                text = if (granted) "已授权" else "未授权",
+                text = if (granted) "已授权" else if (state == 2) "待处理" else "未授权",
                 color = tint,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
             )
             Spacer(Modifier.width(4.dp))
             // 【r12】13f 不在 [Design] 的图标五档内 → 归到 SZ_XS(14)。
@@ -952,12 +1047,15 @@ object DhKit {
                 .background(c.soft)
                 .then(if (clickable) Modifier.pressable(onClick!!) else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f))
-                .padding(horizontal = PAD_ROW.dp, vertical = PAD_ROW.dp),
+                .padding(horizontal = PAD_ROW.dp, vertical = if (hasDesc) 10.dp else PAD_ROW.dp)
+                .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (iconRes != null) {
-                Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
-                Spacer(Modifier.width(10.dp))
+                // 【v0.1.4·UI 统一】原先是 SZ_MD(20dp)，与本页其他行的图标大小不一致；
+                //   统一走 ICON_ROW_DP，颜色也从 TITLE 改成 SUB（图标不该和标题一样重）。
+                RowIcon(iconRes)
+                Spacer(Modifier.width(GAP_ICON.dp))
             }
             // 【为什么用 Column 而不是再加一个 Text】两行时行高不该由调用方拼装 ——
             //   拼装会让「同一页两行行」与「单行行」的基线差几像素，看起来像两种控件。
@@ -973,7 +1071,7 @@ object DhKit {
                         text = desc!!,
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
-                        fontSize = UiKit.FS_TINY.sp,
+                        fontSize = FS_ROW_DESC.sp,
                         fontFamily = DhTokens.fonts
                     )
                 }
@@ -1499,7 +1597,7 @@ object DhKit {
             label = "sw"
         )
         val trackColor by animateColorAsState(
-            targetValue = if (checked) c.acc else c.switchOff,
+            targetValue = if (checked) c.switchOn else c.switchOff,
             animationSpec = DhAnim.COLOR_SPRING,
             label = "swc"
         )

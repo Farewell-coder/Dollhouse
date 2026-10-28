@@ -44,6 +44,7 @@ class Provider {
             p.enabled = o.optBoolean("enabled", true)
             p.useResponseApi = o.optBoolean("useResponseApi", false)
             p.resendHistoryReasoning = o.optBoolean("resendHistoryReasoning", false)
+            p.allowCleartext = o.optBoolean("allowCleartext", false)
             p.createdAt = o.optLong("createdAt", 0L)
             p.updatedAt = o.optLong("updatedAt", 0L)
             return p
@@ -63,6 +64,24 @@ class Provider {
     var useResponseApi: Boolean = false
     /** 多轮请求时把历史里的 reasoning 字段一并回传。 */
     var resendHistoryReasoning: Boolean = false
+
+    /**
+     * 【v0.1.4】是否允许这个供应商走**明文 HTTP**（`http://`）。
+     *
+     * 【为什么需要这个开关】很多自建 / 中转站只监听 HTTP（例如 `http://1.2.3.4:8080/v1`），
+     *   而 Android 9+ 默认禁止明文，请求会在发出前就被系统拦掉，报
+     *   `IOException: Cleartext HTTP traffic to ... not permitted`。
+     *   用户的观感是「第三方模型不支持」，实际是本地安全策略拦的。
+     *
+     * 【为什么做成「按供应商」而不是全局开关】
+     *   明文链路会把 API Key 与聊天内容暴露给同网段的人。默认理应关闭；
+     *   只有用户明确知道自己填的是什么服务时，才对这个供应商单独放行。
+     *   按供应商存，关掉别的供应商不受影响，也不会出现「开一次全局永远开着」。
+     *
+     * 【判定在哪做】系统层（`network_security_config`）是安装期静态配置，没法按域名
+     *   在运行时改，所以系统层统一放行，**由 [ApiClient] 在代码里按本字段拒绝**。
+     */
+    var allowCleartext: Boolean = false
     var createdAt: Long = 0L
     var updatedAt: Long = 0L
 
@@ -78,6 +97,7 @@ class Provider {
             o.put("enabled", enabled)
             o.put("useResponseApi", useResponseApi)
             o.put("resendHistoryReasoning", resendHistoryReasoning)
+            o.put("allowCleartext", allowCleartext)
             o.put("createdAt", createdAt)
             o.put("updatedAt", updatedAt)
         } catch (ignored: Throwable) {

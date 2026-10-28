@@ -2,6 +2,7 @@ package com.dollhouse.app.pet
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Paint
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Handler
@@ -200,6 +201,53 @@ class ActionPlayerCore(
     }
 
     private val ui = Handler(Looper.getMainLooper())
+
+    /* ============================ 【v0.1.4·动作过渡】交叉淡化 ============================ */
+
+    /**
+     * 正在淡出的「上一个动作」的一整套状态。
+     *
+     * 【为什么需要它】改造前 `play()` 换动作时直接 `clearContent()`：
+     *   旧帧当场回收、新帧还要异步解码 —— 中间那一两帧画面是**空的**
+     *   （`hasContent()` 为 false，绘制让回网格形变），然后新动作从第 0 帧硬切进来。
+     *   用户看到的就是「动作之间一闪 + 大小位置突变」，没有任何衔接。
+     *
+     * 【做法是同业界通行的那套】双缓冲交叉淡化（cross-fade）：
+     *   换动作时把当前这套帧降级成 [outgoing]，新动作正常淡入；
+     *   淡出期间 [outgoing] **继续推进自己的帧时钟**（画面不会冻结），
+     *   透明度按剩余时间线性衰减，淡完再真正回收。
+     */
+    private class Outgoing(
+        val frames: List<Bitmap>,
+        val clock: ActionFrameClock,
+        val baseline: FloatArray?,
+        val display: ActionWorkbench.ActionDisplay?,
+        val fps: Int,
+        val loop: Boolean,
+        val totalMs: Long,
+        var startMs: Long
+    )
+
+    private var outgoing: Outgoing? = null
+
+    /**
+     * 【v0.1.4·性能】淡出层复用的画笔。
+     *
+     * 【为什么要复用】淡出期间每帧都要 drawBitmap，如果每帧 `Paint()` 就是每帧一次对象分配：
+     *   140ms × 60fps ≈ 8 次/次切换，拖动/点击频繁时变成持续的 GC 压力。
+     *   Android 官方对自定义 View 的建议就是「onDraw 里不要分配对象」。
+     */
+    private val outgoingPaint = Paint().apply { isFilterBitmap = true }
+
+    /**
+     * 过渡时长（毫秒）。
+     *
+     * 【为什么是 140】60fps 下约 8.4 帧。再短（<80ms）肉眼看不出「淡」，等于没做；
+     *   再长（>220ms）会让人产生「点了但没反应」的迟滞感，拖动手势尤其明显。
+     *   这个区间与主流界面动效（Material 的 medium2 300ms 偏长，short4 200ms 偏中）
+     *   取折中，且在 90/120Hz 屏上仍能数出过渡帧。
+     */
+    private val fadeMs: Long = 140L
     /** 所有动作共用一个解码线程；旧动作只解码到下一帧边界，不并发堆积整组位图。 */
     private val decodeQueue = SerialLatestDecoder<Bitmap>(
         decode = { path -> decoder(path) },
@@ -436,7 +484,8 @@ class ActionPlayerCore(
             requestDraw()
             return
         }
-        clearContent()
+        // 【v0.1.4·动作过渡】换动作前，把当前这套帧降级为「淡出中」而不是当场回收。
+        demoteToOutgoing()
         // 换动作：帧图宽高可能变了，缩放缓存必须失效。
         resetScale()
         // 换动作：本体基准也属于「上一个动作」，必须重新取。
@@ -560,6 +609,11 @@ class ActionPlayerCore(
 
     /** 推进一帧（主线程，由 `PetView.tick` 调）。 */
     fun tick(nowMs: Long) {
+        // 【v0.1.4·动作过渡】淡出层在跑时，即便当前动作已经停了也要继续请求重绘：
+        //   否则透明度衰减不会体现在屏幕上，淡出层会「定格」在那里直到被下一次绘制覆盖。
+        if (outgoing != null) {
+            requestDraw()
+        }
         if (disposed || !playing) {
             return
         }
@@ -611,6 +665,12 @@ class ActionPlayerCore(
         if (disposed) {
             return false
         }
+        // 【v0.1.4·动作过渡】淡出层也算内容：新动作还在解码时，
+        //   靠它在屏幕上顶着，画面不会空一帧（原来这里返回 false，
+        //   绘制让回网格形变，用户看到动作闪一下）。
+        if (outgoing != null) {
+            return true
+        }
         if (renderer != null) {
             return true
         }
@@ -622,6 +682,11 @@ class ActionPlayerCore(
 
     /** 是否还有动画在推进（供帧率策略判断要不要全速）。 */
     fun isAnimated(): Boolean {
+        // 【v0.1.4·动作过渡】淡出期间必须全速：帧率一降到 30fps，
+        //   140ms 的过渡只剩 4 帧，肉眼会看成「闪一下」而不是「淡」。
+        if (outgoing != null) {
+            return true
+        }
         if (disposed || !playing) {
             return false
         }
@@ -719,6 +784,10 @@ class ActionPlayerCore(
         if (disposed) {
             return
         }
+        // 【v0.1.4·动作过渡】先把淡出层画在最底下，再叠当前动作。
+        //   分两层画而不是「一次画两张」的原因：两张帧各自有独立的基准与显示设置，
+        //   合成后的透明度也不一样（淡出层 alpha 递减、当前层始终不透明）。
+        drawOutgoingLayer(canvas)
         val r = renderer
         if (r != null) {
             // 【v0.1.0·贴边姿态】非帧序列引擎（Lottie / 动图）走同一套姿态口径。
@@ -829,6 +898,140 @@ drawRenderer(canvas, r)
 
     // ============================ 内部 ============================
 
+    /* ---------------- 【v0.1.4·动作过渡】交叉淡化的实现 ---------------- */
+
+    /**
+     * 把当前这套内容降级为「淡出中」。
+     *
+     * 【关键取舍】这里**不能**走 [clearContent]：那个方法会当场 `recycle` 位图，
+     *   淡出就没有内容可画了。这里只做「移交所有权」：
+     *   帧表、时钟、基准、显示设置全部搬进 [outgoing]，本对象的这些字段再清空。
+     *
+     * 【非位图引擎（Lottie / 动图）不做交叉淡化】渲染器的画面对象由它自己管，
+     *   没有「借用一份继续画」的公开能力；强行复用会与 `release()` 抢生命周期。
+     *   这类动作仍走原来的「直接释放 + 硬切」（它们本来就同步切换，不会留空帧）。
+     */
+    private fun demoteToOutgoing() {
+        // 先把上一次还没淡完的清掉（连续快速切换时只保留最近一层，避免叠三层画面）。
+        releaseOutgoing()
+        val r = renderer
+        if (r != null) {
+            try {
+                r.release()
+            } catch (t: Throwable) {
+                Logs.w(TAG, "释放渲染器失败", t)
+            }
+            renderer = null
+            return
+        }
+        if (frames.isEmpty()) {
+            loadedActionId = ""
+            loadedFrameKey = ""
+            return
+        }
+        val stepMs = if (fps > 0) 1000L / fps else 1000L / DollAnim.FPS_DEFAULT
+        outgoing = Outgoing(
+            frames = frames,
+            clock = clock,
+            baseline = baseline,
+            display = display,
+            fps = fps,
+            loop = loop,
+            totalMs = stepMs * frames.size,
+            startMs = android.os.SystemClock.uptimeMillis()
+        )
+        // 本对象不再持有这批帧（所有权已移交，避免两处同时 recycle）。
+        frames = emptyList()
+        loadedActionId = ""
+        loadedFrameKey = ""
+        baseline = null
+        display = null
+        measuredWidth = 0
+        measuredHeight = 0
+    }
+
+    /** 真正回收淡出层（淡完 / 被新的淡出顶替 / 释放时调用）。 */
+    private fun releaseOutgoing() {
+        val o = outgoing ?: return
+        outgoing = null
+        recycleAll(o.frames)
+    }
+
+    /**
+     * 画淡出层（在最底下）。
+     *
+     * 【透明度曲线】线性 1 → 0。用 easing（先快后慢）会更「高级」，
+     *   但两个动作叠在一起时先快后慢会让观众先看到明显的双层重影，
+     *   线性反而最不容易出错 —— 这也是多数引擎 crossfade 的默认。
+     */
+    private fun drawOutgoingLayer(canvas: Canvas) {
+        val o = outgoing ?: return
+        val now = android.os.SystemClock.uptimeMillis()
+        val elapsed = now - o.startMs
+        if (elapsed >= fadeMs) {
+            releaseOutgoing()
+            return
+        }
+        val n = o.frames.size
+        if (n <= 0) {
+            releaseOutgoing()
+            return
+        }
+        // 让淡出层继续按自己的 fps 推进：冻结帧淡出看起来像「静止图淡掉」。
+        if (n > 1) {
+            o.clock.advance(now, n)
+        }
+        val idx = if (o.clock.frame in 0 until n) o.clock.frame else 0
+        val bmp = o.frames[idx]
+        if (bmp.isRecycled) {
+            return
+        }
+        val remain = (fadeMs - elapsed).toFloat() / fadeMs.toFloat()
+        val alpha = Math.round(remain * 255f).coerceIn(0, 255)
+        if (alpha <= 0) {
+            return
+        }
+        drawOutgoingBitmap(canvas, bmp, o, alpha)
+    }
+
+    /** 把淡出层的一张帧画到它自己那套基准 / 显示设置算出的矩形上。 */
+    private fun drawOutgoingBitmap(canvas: Canvas, bmp: Bitmap, o: Outgoing, alpha: Int) {
+        val cw = canvas.width
+        val ch = canvas.height
+        val bw = bmp.width
+        val bh = bmp.height
+        if (cw <= 0 || ch <= 0 || bw <= 0 || bh <= 0) {
+            return
+        }
+        val vp = viewport ?: return
+        val placement = ActionViewport.measure(vp, bw, bh, o.baseline) ?: return
+        val offsetX = ActionViewport.contentOffsetX(vp)
+        dst.set(
+            placement.left + offsetX, placement.top,
+            placement.right + offsetX, placement.bottom
+        )
+        val dsp = o.display
+        if (dsp != null) {
+            if (dsp.fit == ActionWorkbench.FIT_CONTAIN) {
+                val s2 = Math.min(cw.toFloat() / bw, ch.toFloat() / bh)
+                val dw2 = Math.round(bw * s2)
+                val dh2 = Math.round(bh * s2)
+                val l2 = (cw - dw2) / 2
+                val t2 = (ch - dh2) / 2
+                dst.set(l2, t2, l2 + dw2, t2 + dh2)
+            }
+            if (dsp.ox != 0f || dsp.oy != 0f) {
+                // 【与 draw() 同口径】偏移按窗口宽高的比例换算成像素，
+                //   否则淡出层与当前层的位移会对不上（看起来像「跳了一下」）。
+                val dx = Math.round(dsp.ox * cw)
+                val dy = Math.round(dsp.oy * ch)
+                dst.offset(dx, dy)
+            }
+        }
+        outgoingPaint.alpha = alpha
+        canvas.drawBitmap(bmp, null, dst, outgoingPaint)
+    }
+
     /** 非位图引擎也先映射到人偶级矩形，再让渲染器画入同一个目标画布。 */
     private fun drawRenderer(canvas: Canvas, renderer: PetRenderer) {
         val vp = viewport ?: run {
@@ -893,6 +1096,9 @@ drawRenderer(canvas, r)
     }
 
     private fun clearContent() {
+        // 【v0.1.4·动作过渡】彻底清空时，淡出层也必须一起回收，
+        //   否则 stop() 之后画面还会残留半透明的上一个动作。
+        releaseOutgoing()
         val r = renderer
         if (r != null) {
             try {

@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.ImageStore
+import kotlinx.coroutines.withContext
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
@@ -167,18 +168,15 @@ object ChatUi {
             val doll = remember(dollId) {
                 if (dollId.isEmpty()) null else DollStore.byId(topCtx, dollId)
             }
-            val headAva = remember(convId, dollId) {
-                try {
-                    val custom = PetPrefs.convAvatar(topCtx, convId)
-                    if (custom.isNotEmpty()) {
-                        android.graphics.BitmapFactory.decodeFile(custom)
-                    } else if (doll == null) {
-                        null
-                    } else {
-                        DollStore.coverOf(topCtx, doll, 64)
-                    }
-                } catch (ignored: Throwable) {
-                    null
+            var headAva by remember(convId, dollId) { mutableStateOf<android.graphics.Bitmap?>(null) }
+            LaunchedEffect(convId, dollId) {
+                headAva = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val custom = PetPrefs.convAvatar(topCtx, convId)
+                        if (custom.isNotEmpty()) {
+                            com.dollhouse.app.core.ImageDecode.file(custom, 64, 64)
+                        } else if (doll == null) null else DollStore.coverOf(topCtx, doll, 64)
+                    }.getOrNull()
                 }
             }
             Row(
@@ -200,9 +198,10 @@ object ChatUi {
                         .background(c.soft),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (headAva != null && !headAva.isRecycled) {
+                    val headerBitmap = headAva
+                    if (headerBitmap != null && !headerBitmap.isRecycled) {
                         Image(
-                            bitmap = headAva.asImageBitmap(),
+                            bitmap = headerBitmap.asImageBitmap(),
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -483,27 +482,22 @@ object ChatUi {
     private fun BubbleAvatar(mine: Boolean) {
         val ctx = LocalContext.current
         val c = DhTokens.colors
-        val bmp: android.graphics.Bitmap? = remember(mine) {
-            try {
-                if (mine) {
-                    MyProfile.avatarBitmap(ctx, 64)
-                } else {
-                    val convId = ChatSessions.currentId(ctx)
-                    if (convId.isNullOrEmpty()) {
-                        null
-                    } else {
-                        val custom = PetPrefs.convAvatar(ctx, convId)
-                        if (custom.isNotEmpty()) {
-                            android.graphics.BitmapFactory.decodeFile(custom)
-                        } else {
-                            val dollId = PetPrefs.convDoll(ctx, convId)
-                            val doll = if (dollId.isEmpty()) null else DollStore.byId(ctx, dollId)
-                            if (doll == null) null else DollStore.coverOf(ctx, doll, 64)
+        var bmp by remember(mine) { mutableStateOf<android.graphics.Bitmap?>(null) }
+        LaunchedEffect(mine) {
+            bmp = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    if (mine) MyProfile.avatarBitmap(ctx, 64) else {
+                        val convId = ChatSessions.currentId(ctx)
+                        if (convId.isNullOrEmpty()) null else {
+                            val custom = PetPrefs.convAvatar(ctx, convId)
+                            if (custom.isNotEmpty()) com.dollhouse.app.core.ImageDecode.file(custom, 64, 64) else {
+                                val dollId = PetPrefs.convDoll(ctx, convId)
+                                val doll = if (dollId.isEmpty()) null else DollStore.byId(ctx, dollId)
+                                if (doll == null) null else DollStore.coverOf(ctx, doll, 64)
+                            }
                         }
                     }
-                }
-            } catch (ignored: Throwable) {
-                null
+                }.getOrNull()
             }
         }
         Box(
@@ -513,9 +507,10 @@ object ChatUi {
                 .background(c.soft),
             contentAlignment = Alignment.Center
         ) {
-            if (bmp != null && !bmp.isRecycled) {
+            val avatarBitmap = bmp
+            if (avatarBitmap != null && !avatarBitmap.isRecycled) {
                 Image(
-                    bitmap = bmp.asImageBitmap(),
+                    bitmap = avatarBitmap.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -635,16 +630,19 @@ object ChatUi {
         val labels = ArrayList<String>()
         val actions = ArrayList<() -> Unit>()
 
-        // ---- 双方都有 ----
-        labels.add("复制")
-        actions.add { host.copyAt(idx) }
-        labels.add("多选")
-        actions.add {
-            MultiSelect.on = true
-            MultiSelect.toggle(idx)
+        // ---- 双方都有；纯附件/空消息不提供文本专用操作 ----
+        val hasText = item.text.trim().isNotEmpty()
+        if (hasText) {
+            labels.add("复制")
+            actions.add { host.copyAt(idx) }
+            labels.add("多选")
+            actions.add {
+                MultiSelect.on = true
+                MultiSelect.toggle(idx)
+            }
+            labels.add("插入总结")
+            actions.add { host.insertSummaryAt(idx) }
         }
-        labels.add("插入总结")
-        actions.add { host.insertSummaryAt(idx) }
         labels.add("信息")
         actions.add { host.showItemInfo(idx) }
 

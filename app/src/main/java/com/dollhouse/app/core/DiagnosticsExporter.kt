@@ -65,9 +65,34 @@ object DiagnosticsExporter {
                     .onFailure { warnings += "${file.name}: ${it.javaClass.simpleName}" }
             }
             if (events.isEmpty() && single != null) add("logs/README.txt", "当前没有可导出的错误记录。\n")
-            val system = JSONObject().put("manufacturer", Build.MANUFACTURER).put("model", Build.MODEL)
+            val packageInfo = app.packageManager.getPackageInfo(app.packageName, 0)
+            val metrics = app.resources.displayMetrics
+            val config = app.resources.configuration
+            val memory = android.app.ActivityManager.MemoryInfo().also {
+                (app.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(it)
+            }
+            val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val system = JSONObject().put("manufacturer", Build.MANUFACTURER).put("brand", Build.BRAND).put("model", Build.MODEL)
+                .put("device", Build.DEVICE).put("product", Build.PRODUCT)
                 .put("android", Build.VERSION.RELEASE).put("api", Build.VERSION.SDK_INT)
-                .put("appVersion", versionName(app)).put("exportTime", System.currentTimeMillis())
+                .put("buildId", Build.ID).put("buildDisplay", Build.DISPLAY).put("buildType", Build.TYPE)
+                .put("supportedAbis", JSONArray(Build.SUPPORTED_ABIS.toList()))
+                .put("appVersion", versionName(app)).put("versionCode", packageInfo.longVersionCode)
+                .put("appProcess", android.os.Process.myPid()).put("elapsedRealtimeMs", android.os.SystemClock.elapsedRealtime())
+                .put("exportTime", System.currentTimeMillis()).put("timeZone", java.util.TimeZone.getDefault().id)
+                .put("locale", config.locales.toString()).put("fontScale", config.fontScale)
+                .put("nightMode", (config.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES)
+                .put("screenWidthPx", metrics.widthPixels).put("screenHeightPx", metrics.heightPixels)
+                .put("densityDpi", metrics.densityDpi).put("density", metrics.density.toDouble())
+                .put("availableMemoryBytes", memory.availMem).put("totalMemoryBytes", memory.totalMem).put("lowMemory", memory.lowMemory)
+                .put("dataAvailableBytes", android.os.StatFs(app.filesDir.absolutePath).availableBytes)
+                .put("dataTotalBytes", android.os.StatFs(app.filesDir.absolutePath).totalBytes)
+                .put("overlayPermission", android.provider.Settings.canDrawOverlays(app))
+                .put("notificationsEnabled", notificationManager.areNotificationsEnabled())
+                .put("detailedLogs", Logs.isOn())
+                .put("petServiceRunning", com.dollhouse.app.pet.PetToggle.isRunning(app))
+                .put("shizukuBinderAvailable", runCatching { rikka.shizuku.Shizuku.pingBinder() }.getOrDefault(false))
+                .put("shizukuPermission", runCatching { rikka.shizuku.Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED }.getOrDefault(false))
             add("system/environment.json", system.toString(2))
             val exits = JSONArray()
             if (single == null) DiagnosticsStore.exits(app).forEach { exits.put(JSONObject().put("timestamp", it.timestamp).put("reason", it.reason).put("description", it.description).put("trace", it.trace)) }

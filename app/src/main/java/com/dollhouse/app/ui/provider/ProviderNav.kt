@@ -31,6 +31,31 @@ import java.net.HttpURLConnection
  */
 object ProviderNav {
 
+    /**
+     * 【v0.1.4】新建供应商保存成功后的刷新钩子。
+     *
+     * 【为什么需要】保存发生在 [ProviderEditPage]（一个 Compose 页面，握不到外层壳的
+     *   局部变量），而「把占位页换成真列表」必须由 [ProviderDetailPage] 那个 View 壳来做
+     *   —— 它持有 `cfgPage / mdlPage` 两份缓存页。
+     *   两者之间没有引用关系，所以留一个由壳层注册、保存成功后调用的回调。
+     *
+     * 【为什么是单槽而不是列表】详情页在任意时刻最多只有一层（它就是栈顶），
+     *   注册时覆盖即可；页面销毁时置 null 避免泄漏。
+     */
+    @Volatile
+    private var onNewProviderSaved: (() -> Unit)? = null
+
+    @JvmStatic
+    fun bindNewProviderSavedHook(hook: (() -> Unit)?) {
+        onNewProviderSaved = hook
+    }
+
+    /** 通知壳层「新建态已经保存，id 可用」，让它按新 id 重建内容层。 */
+    @JvmStatic
+    fun notifyNewProviderSaved() {
+        onNewProviderSaved?.invoke()
+    }
+
     /** 整页挂在 android.R.id.content 上时用的 tag（沿用旧值，返回链无需改动）。 */
     const val TAG_PAGE = "feiyu_cfg_page"
     const val R_LIST = "list"
@@ -331,7 +356,12 @@ object ProviderNav {
         if (!isNewTop) {
             return
         }
-        STACK[STACK.size - 1] = R_DETAIL + providerId + ":" + TAB_CFG
+        // 【v0.1.4·修「保存后被弹回配置页」】保留用户**当前所在的 tab**。
+        //   原实现固定写 TAB_CFG：用户在「模型」tab 下保存时，栈顶会被改成配置 tab，
+        //   而详情页壳以为自己已经在配置 tab（`want != currentDetailTab()` 不成立），
+        //   于是既不切换内容也不重建 —— 屏幕停在模型页的占位文字上，看起来像没保存。
+        val keepTab = detailTabOf(top)
+        STACK[STACK.size - 1] = R_DETAIL + providerId + ":" + keepTab
     }
     /** 详情页路由里的供应商 id。 */
     @JvmStatic

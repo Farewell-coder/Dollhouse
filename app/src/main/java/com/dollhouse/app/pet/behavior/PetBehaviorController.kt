@@ -83,6 +83,26 @@ class PetBehaviorController {
      */
     private var idleSuspended = false
 
+    /**
+     * **【v0.1.4·拖动持续播放】当前正在进行的手势语义**（`drag` / `longpress` / `tap`），
+     * 没有手势在进行时为 null。
+     *
+     * 【为什么必须记这个】
+     * 改造前这里只有 [idleSuspended] 一个布尔，它表达的是「待机被挂起」，
+     * 但**回答不了「手势还在不在」**。于是出现两个问题：
+     *
+     * ① **拖动中途掉回待机**：拖拽动作若配成非循环，播完就走
+     *   `onFinish → onActionFinished → restoreBase`，手指还按在屏幕上，
+     *   人偶却已经切回站立的常驻动作 —— 用户看到的就是「拖到一半动作没了」。
+     * ② **无自动恢复**：拖动过程中若被任何一条路径（贴边判定、动作播完、主题刷新）
+     *   顶掉一次，就再也没人把它放回来 —— `interactionStart` 只在手指按下的那一瞬间
+     *   调用一次，之后整个拖动过程没有任何「我还在拖」的信号。
+     *
+     * 现在把这个状态显式记下来：[onActionFinished] 看它决定「重播还是回落」，
+     * [onInteractionHold] 看它决定「要不要把被顶掉的拖拽动作放回来」。
+     */
+    private var interactionSemantic: String? = null
+
     /** 注入依赖（宿主在构造后、首次使用前调用）。 */
     fun bind(resolver: ActionResolver?, player: ActionPlayer?) {
         this.resolver = resolver
@@ -373,6 +393,12 @@ class PetBehaviorController {
         if (released) {
             return false
         }
+        // 【v0.1.4·拖动持续播放】记下「手势还在进行」。
+        //   这一步必须在所有分支之前做：哪怕这次没能播上动作（语义没配 / 准入门槛拒绝），
+        //   「手指还按着」这个事实仍然成立，[onActionFinished] 要靠它决定不回落。
+        if (ActionSemantic.isStandard(semantic)) {
+            interactionSemantic = semantic
+        }
         val id = if (ActionSemantic.isStandard(semantic)) {
             resolver?.resolve(semantic)?.takeIf { gateOk(it, semantic) }
         } else {
@@ -424,6 +450,28 @@ class PetBehaviorController {
         if (released) {
             return
         }
+        // 【v0.1.4·拖动持续播放】手势还在进行时，绝不能回落待机。
+        //   【改之前】只要动作播完就 `restoreBase()`；拖拽动作配成非循环时，
+        //     手指还按在屏幕上，人偶已经切回站立 —— 用户看到「拖到一半动作没了」。
+        //   【现在】把同一个动作再播一次（等价于「一直播放」）：
+        //     · 循环动作本来就不会走到这里；
+        //     · 非循环动作播完重播，视觉上就是「拖动期间一直有这个动作」。
+        //   【为什么不直接 stop 留在末帧】末帧通常是一个静态姿势，
+        //     拖动几秒后人偶会完全不动，比没有动作更像「卡住了」。
+        val holding = interactionSemantic
+        if (holding != null) {
+            val id = currentActionId
+                ?: resolver?.resolve(holding)?.takeIf { gateOk(it, holding) }
+            if (id != null) {
+                currentSemantic = holding
+                currentActionId = id
+                state = PlaybackState.PLAYING
+                player?.play(id, holding)
+                return
+            }
+            // 手势中但该语义没配动作：不回落（回落会播待机，反而更突兀），保持现状。
+            return
+        }
         // 【v0.1.0】任何动作播完都回落到「基础态」—— 由 restoreBase 按贴边状态分流。
         //   改造前这里写的是「若当前是 idle 就停下，否则 onInteractionEnd」，
         //   而 onInteractionEnd 又硬写 play(IDLE) —— 贴边动作播完会跳回常驻，
@@ -444,6 +492,40 @@ class PetBehaviorController {
     }
 
     /**
+     * **【v0.1.4·拖动持续播放】手势仍在继续的心跳**（拖动的每个 ACTION_MOVE 调用）。
+     *
+     * 【它解决什么】拖动过程中可能有任意一条路径把拖拽动作顶掉：
+     *   贴边判定改了基础态、动作播完触发了回落、主题刷新重播了常驻壳……
+     *   而 `onInteractionStart` 只在手指按下的那一瞬间调过一次，
+     *   之后整个拖动过程没有任何「我还在拖」的信号，被顶掉就再也回不来。
+     *
+     * 【为什么不用「每隔 N 毫秒重播一次」】那会让循环动作不停从第 0 帧重启
+     *   （肉眼是抖动）。这里只在**发现当前播的不是该手势的动作**时才重播，
+     *   正常拖动期间一次都不会触发。
+     *
+     * @return 是否重新播上了（false = 无须动作 / 该语义没配动作）
+     */
+    fun onInteractionHold(semantic: String): Boolean {
+        if (released || !ActionSemantic.isStandard(semantic)) {
+            return false
+        }
+        interactionSemantic = semantic
+        idleSuspended = true
+        val id = resolver?.resolve(semantic)?.takeIf { gateOk(it, semantic) } ?: return false
+        // 已经在播这个语义的同一个动作：什么都不做（避免每帧重启时钟）。
+        if (currentSemantic == semantic && currentActionId == id &&
+            state == PlaybackState.PLAYING
+        ) {
+            return true
+        }
+        currentSemantic = semantic
+        currentActionId = id
+        state = PlaybackState.PLAYING
+        player?.play(id, semantic)
+        return true
+    }
+
+    /**
      * 交互结束：回到「基础态」。
      *
      * 【什么时候会被调】拖拽抬手、点击动画播完、长按判定取消等。
@@ -453,6 +535,10 @@ class PetBehaviorController {
         if (released) {
             return
         }
+        // 【v0.1.4·拖动持续播放】手势结束，清掉「还在进行」标记。
+        //   必须放在下面的 wasBase 早退之前：否则「手势中恰好停在基础态」
+        //   那一次会把标记永久留成 non-null，之后每次动作播完都会重播旧手势动作。
+        interactionSemantic = null
         val wasBase = ActionSemantic.IDLE == currentSemantic ||
             ActionSemantic.EDGE == currentSemantic
         if (wasBase) {
@@ -524,6 +610,8 @@ class PetBehaviorController {
         currentSemantic = null
         currentActionId = null
         idleSuspended = false
+        // 【v0.1.4】释放时清掉手势标记，避免幂等释放后残留状态影响下一次挂载。
+        interactionSemantic = null
         player?.stop()
         resolver = null
         player = null

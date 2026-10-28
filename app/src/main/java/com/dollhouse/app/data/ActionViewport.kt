@@ -43,7 +43,22 @@ object ActionViewport {
         // 显式提供但损坏的基准不能静默回退到整帧，否则同一动作会突然换尺子。
         if (baseline != null && !ActionScale.valid(baseline)) return null
         val bl = baseline
-        val bodyH = if (bl == null) bitmapHeight.toFloat() else (bl[3] - bl[1]) * bitmapHeight
+        // 【v0.1.4·修「比例一大一小」】身体高度的取法必须与静态形象同源。
+        //
+        // 【改造前】baseline 缺失时 `bodyH = bitmapHeight`，即把**整张画布高度**当成身体高度，
+        //   于是缩放比 = bodyHeight / 画布高 —— 这是「按高度对齐」。
+        //   而静态形象是 `fullHeight = petWidth × 高宽比`（按宽度对齐，见 PetView.fullHeight）。
+        //   两把尺子不一致，结果就是：换到一个画布更扁（或更瘦）的动作时，
+        //   人物被整体放大 / 缩小，肉眼看到「一会儿大一会儿小」。
+        //
+        // 【改造后】缺基准时假定「身体高度与画布宽度的比例 = 静态形象的高宽比」，
+        //   也就是退回**按宽度对齐** —— 与静态形象严格同一把尺子。
+        //   有有效基准时行为完全不变（baseline 提供的才是真身体框，比任何推测都准）。
+        val bodyH = if (bl == null) {
+            bitmapWidth * (spec.bodyHeight.toFloat() / spec.baseWidth)
+        } else {
+            (bl[3] - bl[1]) * bitmapHeight
+        }
         if (bodyH <= 0f) return null
 
         // 唯一尺子：人物高度。宽度只决定视口，不再反向缩小人物。

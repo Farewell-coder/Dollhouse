@@ -295,6 +295,15 @@ class MainActivity : Activity() {
      *      在非「聊天」Tab 时回到「聊天」，在「聊天」时返回 false 交给系统。
      */
     override fun onBackPressed() {
+        // 【v0.1.4·页内子屏优先】有些页面是「一层栈 + 内部多个子屏」（诊断中心），
+        //   子屏之间的返回不该把整层弹掉。这里的顺序必须在 PageStack 之前 ——
+        //   否则用户在「日志记录」按返回会直接退出整个诊断中心回到「关于」。
+        //   【为什么要校验 isTop】该页面被压栈后不会销毁（Compose 侧仍然存活），
+        //   只按「有没有登记」判断会在它上面再叠一层页面时把别人的返回也吃掉。
+        val interceptor = PageStack.backInterceptor
+        if (interceptor != null && PageStack.isTop(this, interceptor.key) && interceptor.action.invoke()) {
+            return
+        }
         if (ProviderNav.handleBack(this) || PageStack.handleBack(this)
                 || HomeUi.handleBack(this)) {
             return

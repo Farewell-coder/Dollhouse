@@ -114,9 +114,63 @@ object ProviderDetailPage {
             }
             return cfgPage!!
         }
+
+        /**
+         * 【v0.1.4·修「保存后模型页仍显示尚未保存」】
+         *
+         * ## 问题
+         * 新建供应商时壳层记的 `providerId` 是空串。用户在配置页点保存后，
+         * [ProviderEditPage] 会把**路由栈顶**换成真实 id（[ProviderNav.replaceDetailNew]），
+         * 但壳层这个 `providerId` 形参不会变 —— 它是页面创建时捕获的。
+         * 于是用户**不切 tab、直接在原地**的情况下，内容层仍是旧的占位页；
+         * 只有手动切一次 tab 才会走到 `pageFor(pid, want)` 用新 id 重建。
+         *
+         * 更常见的是「保存后立刻切模型」：切 tab 时读的是栈顶（这时已经有了真实 id），
+         * 本应正常 —— 但如果保存前后的栈顶写法没变（例如上一版 replaceDetailNew 漏调），
+         * 解析出来的仍是空串，模型页就一直是「尚未保存」。
+         *
+         * ## 修法
+         * 提供 [refreshContentIfIdChanged]：把「壳层记的 id」与「栈顶真实 id」比一次，
+         * 变了就丢弃旧缓存页、按新 id 重建。保存成功后被 [ProviderNav] 回调触发。
+         */
+        fun refreshContentIfIdChanged() {
+            val nowId = ProviderNav.currentDetailId(providerId)
+            // 两种情况必须什么都不做：
+            //   ① 仍是新建态（栈顶没有 id）—— 没有新 id 可切；
+            //   ② 栈顶 id 与进页时一致 —— 缓存页都有效。
+            if (nowId.isEmpty() || nowId == providerId) {
+                return
+            }
+            // id 真的换了（新建 → 已保存）。
+            //   【只重建模型页，绝不重建配置页】配置页此刻正显示着用户刚填完的表单，
+            //     重建成新页会把输入框内容整体清空 —— 那比「模型页显示尚未保存」更糟。
+            //     它内部的 pid 已在保存回调里改成新 id（见 ProviderEditPage 的 pid/saved），
+            //     后续切开关的即时写盘落在新 id 上，语义正确。
+            mdlPage = null
+            mdlPageId = null
+            // 只有在用户正停在「模型」页时才需要立刻换内容。
+            //   停在配置页时什么都不用做：等他点「模型」，pageFor 会按新 id 现建。
+            if (ProviderNav.TAB_MDL == ProviderNav.currentDetailTab()) {
+                slot.removeAllViews()
+                slot.addView(pageFor(nowId, ProviderNav.TAB_MDL), FrameLayout.LayoutParams(-1, -1))
+            }
+        }
         val body = pageFor(providerId, cur)
         slot.addView(body, FrameLayout.LayoutParams(-1, -1))
         root.addView(slot, FrameLayout.LayoutParams(-1, -1))
+
+        // 【v0.1.4】注册「新建态已保存」钩子：保存成功后由 [ProviderNav] 回调，
+        //   把占位页换成真内容。页面被摘除时必须解绑，否则旧壳会一直挂在单槽上。
+        ProviderNav.bindNewProviderSavedHook { refreshContentIfIdChanged() }
+        root.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                ProviderNav.bindNewProviderSavedHook { refreshContentIfIdChanged() }
+            }
+
+            override fun onViewDetachedFromWindow(v: View) {
+                ProviderNav.bindNewProviderSavedHook(null)
+            }
+        })
 
         // —— 悬浮胶囊底栏（【r21·统一口径】）——
         //

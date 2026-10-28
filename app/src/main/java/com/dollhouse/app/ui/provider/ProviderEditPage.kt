@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ai.ApiClient
+import com.dollhouse.app.ai.ApiEndpoint
 import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.KeyVault
@@ -72,6 +75,26 @@ object ProviderEditPage {
         arrayOf("阶跃星辰", "https://api.stepfun.com/v1"),
         arrayOf("OpenRouter", "https://openrouter.ai/api/v1"),
     )
+
+    /**
+     * 【v0.1.4】按已填地址反查它属于哪个内置端点，用于「选择服务」行回显。
+     * 【为什么只做前缀包含】编辑老供应商时地址可能是用户自己改过的（末尾多一个 /v1/、
+     *   或中转站套了一层），严格相等就一个都匹配不上；只要能认出是哪家就够用。
+     * 【匹配顺序】按 PRESETS 顺序首次命中即返回，与「先 OpenAI 后中转站」的内置顺序一致。
+     */
+    private fun presetNameOf(url: String?): String? {
+        val u = ApiEndpoint.ensure(url)
+        if (u.isEmpty()) {
+            return null
+        }
+        for (p in PRESETS) {
+            val pu = ApiEndpoint.ensure(p[1])
+            if (pu.isNotEmpty() && (u == pu || u.startsWith(pu + "/"))) {
+                return p[0]
+            }
+        }
+        return null
+    }
 
     /** 独立页形态：从设置页直接进（不带胶囊底栏）。 */
     internal fun build(act: Activity, providerId: String?): View {
@@ -147,6 +170,8 @@ object ProviderEditPage {
         var enabled by remember(src?.id) { mutableStateOf(src == null || src.enabled) }
         var respApi by remember(src?.id) { mutableStateOf(src != null && src.useResponseApi) }
         var resendReason by remember(src?.id) { mutableStateOf(src != null && src.resendHistoryReasoning) }
+        // 【v0.1.4】明文 HTTP 授权：默认关（与改造前的安全口径一致），按供应商单独放开。
+        var allowCleartext by remember(src?.id) { mutableStateOf(src != null && src.allowCleartext) }
         var keyPlain by remember { mutableStateOf(false) }
         var hintText by remember { mutableStateOf<String?>(null) }
         var hintOk by remember { mutableStateOf(false) }
@@ -154,6 +179,11 @@ object ProviderEditPage {
         //   不能继续读 providerId（那还是进页时的空串，写盘会造出一条孤儿记录）。
         var pid by remember(src?.id) { mutableStateOf(src?.id ?: providerId ?: "") }
         var saved by remember { mutableStateOf(created) }
+        // 【v0.1.4】常用端点选择弹窗开关 + 当前选中项的名称（仅用于回显，不参与保存逻辑）。
+        var presetSheet by remember { mutableStateOf(false) }
+        var pickedName by remember(src?.id) {
+            mutableStateOf(presetNameOf(src?.baseUrl))
+        }
 
         // 新建态补上通用默认 Base Url（编辑态不动用户已存值）。
         if (!created && base.isEmpty()) {
@@ -197,20 +227,20 @@ object ProviderEditPage {
             }
 
             // —— 常用端点（一键填入，省得手抄漏 /v1） ——
+            // 【v0.1.4·改点击弹选择框】原来是一排横向滚动的 Chip：12 个端点只露出前 4 个，
+            //   右边没有渐隐也没有箭头，用户根本看不出「还能往右滑」，以为只有这几个。
+            //   改成「一行入口 + 弹窗列表」：入口行把当前填入的服务名显示出来，
+            //   点开后在弹窗里一次性看全所有端点（纵向列表，不用猜能不能滑）。
             DhKit.Card {
                 DhKit.SectionLabel("常用端点（点一下填进上面的 API Base Url）", iconRes = Icons.IC_PLUG)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(top = 8.dp)
-                ) {
-                    for (p in PRESETS) {
-                        DhForm.Chip(text = p[0], modifier = Modifier.padding(end = 6.dp)) {
-                            base = p[1]
-                        }
-                    }
-                }
+                DhKit.ValueRow(
+                    label = "选择服务",
+                    value = pickedName ?: "未选择",
+                    iconRes = Icons.IC_PLUG,
+                    desc = "内置 12 家官网与中转站写法，也可选「空白模板」自己填",
+                    onClick = { presetSheet = true }
+                )
+                DhForm.Note("自建或中转站常用「空白模板」自己填；填 http:// 地址需要打开下面的「允许明文 HTTP」。")
             }
 
             // —— 地址预览：下单前先看清究竟会请求哪个 URL ——
@@ -235,6 +265,16 @@ object ProviderEditPage {
                     "把历史消息里的思考内容再次随请求发出；关掉则剥离",
                     resendReason
                 ) { resendReason = it }
+                // 【v0.1.4】明文 HTTP 授权。
+                //   【为什么必须明说风险】打开后 Key 与聊天内容会以明文经过网络，
+                //     同网段的人可以直接读到；这不是「高级选项」而是「安全让位」，
+                //     说明文字必须写到用户能看懂后果的程度。
+                SwitchRow(
+                    "允许明文 HTTP",
+                    "仅在你这台服务只支持 http:// 时打开。开启后密钥与聊天内容会明文传输，" +
+                        "同一网络下的其他人可能读到。https:// 地址无需打开。",
+                    allowCleartext
+                ) { allowCleartext = it }
             }
 
             if (hintText != null) {
@@ -257,7 +297,7 @@ object ProviderEditPage {
                         hintOk = false
                         hintText = "请填写 API Key"
                     } else {
-                        val probe = buildProvider(pid, name, base, path, enabled, respApi, resendReason)
+                        val probe = buildProvider(pid, name, base, path, enabled, respApi, resendReason, allowCleartext)
                         probe.apiKey = KeyVault.encrypt(raw)
                         if (probe.apiKey.isEmpty()) {
                             hintOk = false
@@ -276,12 +316,26 @@ object ProviderEditPage {
                 }
                 Spacer(Modifier.width(8.dp))
                 DhForm.PrimaryChip("保存") {
-                    val r = save(act, src, pid, name, key, base, path, enabled, respApi, resendReason)
+                    val r = save(act, src, pid, name, key, base, path, enabled, respApi, resendReason, allowCleartext)
                     if (r.id != null) {
                         // 新建态保存成功后页面标题要变；栈顶路由也要换成真实 id，
                         // 否则切「模型」栏时详情页解析不出 id，会落到「供应商已不存在」兜底页。
                         pid = r.id
                         saved = true
+                        // 【v0.1.4·修「保存了却显示尚未保存」】
+                        //   这里原先漏了这一步：只更新了本页的 pid / saved 两个本地状态，
+                        //   没有把**路由栈顶**从「新建态」换成「真实 id 的详情路由」。
+                        //   而切 tab 时详情页壳是现从栈顶解析 id 的（见
+                        //   ProviderDetailPage 里 `ProviderNav.currentDetailId(providerId)`），
+                        //   栈顶还是空 id → 解析出空串 → 模型页判定为新建态 →
+                        //   显示「这个供应商还没保存」。
+                        //   画面证据：配置页明明写着「已保存·连接正常（HTTP 200）」，
+                        //   模型页却是「尚未保存」，两页对同一件事给出相反结论。
+                        ProviderNav.replaceDetailNew(r.id)
+                        // 通知外层壳：栈顶 id 已从空变成真实 id，按新 id 重建内容层。
+                        //   不通知的话，用户「保存后不切 tab」时左侧仍是旧的占位/空表状态，
+                        //   切到「模型」也只在 id 未变时才复用缓存 —— 两条路都得有这一步。
+                        ProviderNav.notifyNewProviderSaved()
                     }
                     hintOk = true
                     hintText = r.text
@@ -300,9 +354,65 @@ object ProviderEditPage {
                 }
             }
         }
-    }
 
-    /** 一行开关（左标题 + 可选说明，右开关）。 */
+        // 【v0.1.4·常用端点选择弹窗】
+        //   【为什么放 Page 外面】弹窗是另一层 Composable 树，放进 Page 的滚动内容里
+        //     会跟着列表一起滚，语义也不对。放在页面根级，与滚动无关。
+        if (presetSheet) {
+            DhForm.Alert(
+                title = "选择常用端点",
+                onDismiss = { presetSheet = false },
+                negText = "取消"
+            ) {
+                // 【为什么纵向铺开而不是再排一次横向】这里一次性把所有端点摆在眼前，
+                //   不需要用户去猜「还能不能往右滑」——这正是原设计的核心缺陷。
+                // 【为什么限高 + 纵向滚动】12 家 + 空白模板共 13 行，带说明的行每行约 60dp，
+                //   全铺开会顶出屏幕（矮屏机型下底部几项直接看不见、也点不到）。
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    for (p in PRESETS) {
+                        val hit = p[0] == pickedName
+                        DhKit.ValueRow(
+                            label = p[0],
+                            value = if (hit) "已选" else null,
+                            valueTint = c.acc,
+                            iconRes = if (hit) Icons.IC_CHECK else Icons.IC_PLUG,
+                            desc = p[1],
+                            onClick = {
+                                base = p[1]
+                                pickedName = p[0]
+                                presetSheet = false
+                                hintOk = true
+                                hintText = "已填入「" + p[0] + "」的地址，如与你手上的不同可直接改上面的输入框"
+                            }
+                        )
+                    }
+                    // 【空白模板】给第三方 / 自建服务留一个入口。
+                    //   【为什么只清地址】名称、Key、路径都是用户自己填过的内容，
+                    //     清掉等于逼他重填一遍；而地址是唯一必须换的东西。
+                    DhKit.ValueRow(
+                        label = "空白模板",
+                        value = if (pickedName == null) "当前" else null,
+                        valueTint = c.acc,
+                        iconRes = Icons.IC_PLUG,
+                        desc = "清空地址自己填，适合第三方中转站或自建服务",
+                        onClick = {
+                            base = ""
+                            path = ModelRules.defaultChatPath(Provider.PROTO_OPENAI)
+                            pickedName = null
+                            presetSheet = false
+                            hintOk = true
+                            hintText = "地址已清空，请填你自己的 API Base Url（支持 http:// 与 https://）"
+                        }
+                    )
+                }
+            }
+        }
+    }
     @Composable
     private fun SwitchRow(name: String, desc: String?, on: Boolean, onToggle: (Boolean) -> Unit) {
         val c = DhTokens.colors
@@ -336,7 +446,8 @@ object ProviderEditPage {
         path: String,
         enabled: Boolean,
         respApi: Boolean,
-        resendReason: Boolean
+        resendReason: Boolean,
+        allowCleartext: Boolean
     ): Provider {
         val p = Provider()
         p.id = id
@@ -347,6 +458,7 @@ object ProviderEditPage {
         p.enabled = enabled
         p.useResponseApi = respApi
         p.resendHistoryReasoning = resendReason
+        p.allowCleartext = allowCleartext
         return p
     }
 
@@ -384,10 +496,11 @@ object ProviderEditPage {
         path: String,
         enabled: Boolean,
         respApi: Boolean,
-        resendReason: Boolean
+        resendReason: Boolean,
+        allowCleartext: Boolean
     ): Saved {
         val created = src != null
-        val p = buildProvider(pid, name, base, path, enabled, respApi, resendReason)
+        val p = buildProvider(pid, name, base, path, enabled, respApi, resendReason, allowCleartext)
         val rawKey = key.trim()
 
         val err = ModelRules.validate(p)

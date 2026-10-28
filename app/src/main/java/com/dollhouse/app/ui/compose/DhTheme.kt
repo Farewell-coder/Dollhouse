@@ -73,6 +73,8 @@ data class DhColors(
     val hintFg: Color,
     val hintBg: Color,
     val switchOff: Color,
+    /** 【v0.1.4】开关开启态强调色（薄荷绿，独立于主色）。 */
+    val switchOn: Color,
     val emote1: Color,
     val emote2: Color,
     val emote3: Color,
@@ -117,6 +119,7 @@ data class DhColors(
                 hintFg = Color(UiKit.HINT_FG),
                 hintBg = Color(UiKit.HINT_BG),
                 switchOff = Color(UiKit.SWITCH_OFF),
+                switchOn = Color(UiKit.SWITCH_ON),
                 emote1 = Color(UiKit.EMOTE_1),
                 emote2 = Color(UiKit.EMOTE_2),
                 emote3 = Color(UiKit.EMOTE_3),

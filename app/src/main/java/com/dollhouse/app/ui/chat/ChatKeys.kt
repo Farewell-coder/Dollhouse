@@ -37,6 +37,6 @@ object ChatKeys {
      * @return 历史里已有的消息 → `"h<index>"`；流式占位气泡 → [LIVE]
      */
     fun of(item: ChatItem): String {
-        return if (item.index >= 0) "h" + item.index else LIVE
+        return if (item.index >= 0) "h" + item.index else if (item.index == -1) LIVE else "local" + (-item.index.toLong())
     }
 }

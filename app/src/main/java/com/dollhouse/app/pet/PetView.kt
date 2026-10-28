@@ -861,6 +861,26 @@ class PetView(context: Context) : View(context) {
         fArr[3] = buf[3] + headroom()
     }
 
+    /**
+     * 【v0.1.4】动作扩展出来的「额外半宽」（像素，单侧）。
+     *
+     * 【为什么要暴露这个值】`geometry()` 里动作需要更宽画布时会向两侧对称扩窗：
+     *   `extra = max(0, actionWidth - baseWidth)`，单侧各 `extra / 2`。
+     *   窗口变宽了，但边界夹取（`PetWindow.settle`）仍只按 `petWidth()` 算半宽 ——
+     *   多出来的那截在贴边时会被屏幕/虚线框切掉，表现为「一抬手就被裁」。
+     *   静态形象 `extra == 0`，恒返回 0，夹取结果与改造前完全一致。
+     */
+    fun actionExtraHalf(): Int {
+        val actionWidth = action?.viewport()?.requiredWidth ?: 0
+        if (actionWidth <= 0) {
+            return 0
+        }
+        computeBox(boxBuf)
+        val baseWidth = Math.round(boxBuf[0])
+        val extra = Math.max(0, actionWidth - baseWidth)
+        return extra / 2
+    }
+
     fun windowWidth(): Int {
         geometry(boxBuf)
         return Math.round(boxBuf[0])
@@ -1746,6 +1766,18 @@ class PetView(context: Context) : View(context) {
     /** **【交互必须通知动作层】**交互结束（抬手 / 拖动放下）。 */
     internal fun interactionEnd() {
         behavior?.onInteractionEnd()
+    }
+
+    /**
+     * **【v0.1.4·拖动持续播放】手势仍在继续的心跳**（拖动的每个 MOVE 调用）。
+     *
+     * 【为什么需要它】`interactionStart` 只在手指按下那一刻调一次；
+     *   之后整个拖动过程没有任何「我还在拖」的信号，
+     *   拖拽动作一旦被其它路径顶掉（贴边判定 / 动作播完 / 主题刷新），就再也回不来。
+     *   由 `PetWindow` 在每个 MOVE 上调用，内部幂等（已在播就什么都不做）。
+     */
+    internal fun interactionHold(semantic: String): Boolean {
+        return behavior?.onInteractionHold(semantic) ?: false
     }
 
     /**

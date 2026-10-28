@@ -1,35 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  【B9 修复】明文 HTTP 从「全局放开」收窄为「仅本机回环地址放开」。
+  【v0.1.4·第三方 / 自建服务支持】系统层允许明文 HTTP，安全性改由代码保证。
 
-  ## 原来的问题
-  改造前这里是：
+  ## 为什么从「默认禁明文」改成「系统层放行」
+  改造前这里是 `<base-config cleartextTrafficPermitted="false" />`，
+  只有 127.0.0.1 / localhost 例外。它挡住了所有 `http://` 的第三方中转站与自建服务，
+  用户在「编辑供应商」里填 `http://1.2.3.4:8080/v1` 后，请求在发出前就被系统拦掉：
   ```
-  <base-config cleartextTrafficPermitted="true" />
+  IOException: Cleartext HTTP traffic to 1.2.3.4 not permitted
   ```
-  等于**允许全世界的明文 HTTP**。本应用会把用户的 API Key 放进请求头发出去，
-  而明文链路可被同网段的中间人直接读到 Key 与全部聊天内容 —— 这是本工程
-  唯一一处「配置层面把安全兜底关掉」的地方。
+  观感是「第三方模型不支持」，实际是本地安全策略拦的。
 
-  ## 为什么不能直接关成 false
-  本工程确实有一处**必须**走明文 HTTP 的依赖：
-  `LamdaManager.BASE = "http://127.0.0.1:65000"` —— lamda 是跑在本机的
-  设备自动化服务（firerpa），它是纯 HTTP 的本地服务，没有 TLS。
-  若一律禁明文，这个功能会直接失效（那是「为了安全把功能删掉」，不可接受）。
+  ## 为什么不能只对用户填的域名放开
+  `network_security_config` 是**安装期静态配置**，域名清单写死在这里，
+  用户随时改地址，配置不可能跟着变。所以系统层只能整体放行。
 
-  ## 收窄口径
-  · `<base-config cleartextTrafficPermitted="false">`：默认禁止明文，
-    所有 AI 供应商接口（全部是 https://）不受影响；
-  · `<domain-config>` 例外只开给 `127.0.0.1` 与 `localhost`：
-    回环流量不出本机，不存在中间人，业务上也无替代方案。
-  · 【为什么不加 `192.168.*`】那会把「局域网内的明文」也放进来，
-    而同网段的其它设备正是最现实的攻击面 —— 需要用到时再单独评估。
+  ## 放行之后安全性靠什么保证
+  `ApiClient.guardCleartext()` 是唯一的闸门：
+  · 默认拒绝一切 `http://`（与改造前行为一致）；
+  · 仅当供应商显式勾选「允许明文 HTTP」时才放行 —— 这是用户的**明确授权**；
+  · 本机回环（127.0.0.1 / localhost）始终放行：流量不出本机，无中间人，
+    且 lamda 设备自动化服务（firerpa）本身只有 HTTP，没有 TLS 可选。
+  换句话说：**「默认禁止」的策略没变，只是从系统层搬到了应用层**，
+  并额外给了用户一个按供应商打开的出口。
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

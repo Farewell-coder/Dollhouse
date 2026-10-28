@@ -75,10 +75,18 @@ class PetService : Service() {
     override fun onCreate() {
         super.onCreate()
         prefs = PetPrefs.get(this)
-        // 【r11 种子】默认配置的交谈 / 性格内容继承改造前的内置值；幂等，只写一次。
-        com.dollhouse.app.data.DollProfile.seedDefault(this)
         wm = getSystemService("window") as WindowManager
         win = PetWindowController(this)
+        // startForegroundService 有严格时限：必须在数据种子、对账等其他初始化之前升前台。
+        try {
+            PetNotifier.startForegroundCompat(this)
+        } catch (t: Throwable) {
+            Logs.w("Dollhouse", "PetService 无法升为前台服务", t)
+            PetNotifier.stopSafely(this)
+            return
+        }
+        // 【r11 种子】默认配置的交谈 / 性格内容继承改造前的内置值；幂等，只写一次。
+        com.dollhouse.app.data.DollProfile.seedDefault(this)
         // 【r12 消失对账】上一轮若没走到 onDestroy（被系统杀掉），人偶也算「消失」：
         //   给当时启用的每只补一次打点，然后清掉脏标记。
         //   【为什么放在 attach 之前】打点必须在窗口重建、消费 takeHiddenMs 之前完成。
@@ -127,6 +135,7 @@ class PetService : Service() {
         //   桌面上就会同时出现「桌宠」和「预览」两只人偶，语义冲突。
         //   这里与首页的拦截形成双保险（外部入口绕过首页也挡得住）。
         if (PetPrefs.isEditing(this)) {
+            PetNotifier.stopSafely(this)
             return 2
         }
         // 【r12 修 bug·没选人偶也出现人偶】启动前先确认「有没有启用的人偶」。
@@ -136,6 +145,7 @@ class PetService : Service() {
         //   只在首页拦是拦不住的，服务侧必须也挡一道。
         if (!win.hasEnabledDoll()) {
             PetNotifier.notifyNoDoll(this)
+            PetNotifier.stopSafely(this)
             return 2
         }
         // 【r12】置位「服务在跑」脏标记：正常收尾（STOP / onDestroy）会清掉它；

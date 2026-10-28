@@ -250,7 +250,15 @@ object DollEditScreen {
         }
         DhKit.SwitchRow(
             name = if (randReady) "随机动作" else "随机动作（先去添加随机动作）",
-            checked = randOn && randReady
+            checked = randOn && randReady,
+            // 【v0.1.4·UI 统一】行首补图标、说明移入行内第二行：
+            //   原来只有标题 + 下面一大段 Note，与页内其他「图标/标题/说明」行不是同一套结构。
+            iconRes = Icons.IC_SHUFFLE,
+            desc = if (randReady) {
+                "没事时每 13~30 秒自己播一个随机动作，贴边时不播"
+            } else {
+                "「动作」页的随机动作组是空的，先加一个并加上帧"
+            }
         ) { on ->
             if (!randReady) {
                 HomeUi.showNotice(
@@ -266,10 +274,38 @@ object DollEditScreen {
         }
         DhForm.Note(
             if (randReady) {
-                "打开后，她会在没事的时候每隔 13~30 秒自己播一个随机动作；" +
-                    "贴到屏幕边时不播。拖动、点击之类的操作随时能打断它。"
+                "拖动、点击之类的操作随时能打断它。"
             } else {
-                "「随机动作」组里还没有能播的动作 —— 加一个并加上帧，这个开关就能打开了。"
+                "加一个动作并加上帧，这个开关就能打开了。"
+            }
+        )
+
+        // ---------- 【v0.1.4】甩抛开关 ----------
+        //
+        // 【为什么要在这里】用户反馈「滑动的时候会弹来弹去」，要求给甩抛一个开关；
+        //   位置定案在「控制」页、紧挨随机动作开关。
+        // 【默认开】甩抛是本版之前就有的手感，关掉等于移除既有行为，必须由用户主动关。
+        var throwTick by remember(id) { mutableStateOf(0) }
+        val throwOn = remember(id, throwTick) { PetPrefs.throwEnabled(act, id) }
+        DhKit.SwitchRow(
+            name = "甩抛",
+            checked = throwOn,
+            iconRes = Icons.IC_MOVE,
+            desc = if (throwOn) {
+                "松手后顺着甩出方向飞出去，撞边弹几下再停"
+            } else {
+                "已关闭：松手就地放下，只做贴边吸附"
+            }
+        ) { on ->
+            PetPrefs.setThrowEnabled(act, id, on)
+            HomeUi.notifyPetReload(act)
+            throwTick++
+        }
+        DhForm.Note(
+            if (throwOn) {
+                "拖动、贴边吸附不受影响。想彻底不要这个手感就把它关掉。"
+            } else {
+                "拖动、贴边吸附不受影响。"
             }
         )
     }

@@ -176,6 +176,8 @@ object SettingsScreen {
             val sh = HomeState.shizuku
             DhKit.PermRow(
                 name = "Shizuku 授权",
+                iconRes = Icons.IC_KEY_ROUND,
+                desc = "通过 ADB 授权后可用系统级能力",
                 state = when (sh) {
                     com.dollhouse.app.device.ShizukuBridge.S_GRANTED -> 0
                     com.dollhouse.app.device.ShizukuBridge.S_NOT_RUNNING -> 2
@@ -183,27 +185,62 @@ object SettingsScreen {
                     else -> 1
                 }
             ) { HomeUi.shizukuClicked(act) }
-            DhKit.PermRow(name = "悬浮窗权限", state = if (HomeState.overlay) 0 else 1) {
+            DhKit.PermRow(
+                name = "悬浮窗权限",
+                iconRes = Icons.IC_APP_WINDOW,
+                desc = "人偶要浮在其他应用上就必须有它",
+                state = if (HomeState.overlay) 0 else 1
+            ) {
                 HomeUi.requestOverlay(act)
             }
-            DhKit.PermRow(name = "通知权限", state = if (HomeState.notif) 0 else 1) {
+            DhKit.PermRow(
+                name = "通知权限",
+                iconRes = Icons.IC_BELL,
+                desc = "保活通知与消息提醒",
+                state = if (HomeState.notif) 0 else 1
+            ) {
                 HomeUi.requestNotif(act)
             }
             // 保活分组：电池优化白名单 + 无感保活总开关。
-            DhKit.PermRow(name = "电池优化白名单", state = if (HomeState.battery) 0 else 1) {
+            DhKit.PermRow(
+                name = "电池优化白名单",
+                iconRes = Icons.IC_BATTERY_CHARGING,
+                desc = "加入后不容易被系统清掉",
+                state = if (HomeState.battery) 0 else 1
+            ) {
                 HomeUi.requestIgnoreBattery(act)
             }
-            DhKit.SwitchRow(name = "无感保活", checked = HomeState.keepAlive) { on ->
+            DhKit.SwitchRow(
+                name = "无感保活",
+                iconRes = Icons.IC_ACTIVITY,
+                desc = "允许应用持续执行相关后台任务",
+                checked = HomeState.keepAlive
+            ) { on ->
                 HomeUi.onKeepAliveChanged(on, act)
             }
             // 开关通道：磁贴 + 隐藏后台卡片 + 开关指令（三者是同一条启停通道的不同入口）。
-            DhKit.SwitchRow(name = "快捷设置磁贴", checked = HomeState.tile) { on ->
+            DhKit.SwitchRow(
+                name = "快捷设置磁贴",
+                iconRes = Icons.IC_LAYOUT_GRID,
+                desc = "从下拉快捷开关直接起停人偶",
+                checked = HomeState.tile
+            ) { on ->
                 HomeUi.onTileSwitchChanged(on, act)
             }
-            DhKit.SwitchRow(name = "隐藏后台卡片", checked = HomeState.hideRecents) { on ->
+            DhKit.SwitchRow(
+                name = "隐藏后台卡片",
+                iconRes = Icons.IC_EYE_OFF,
+                desc = "不在最近任务里露出这一页",
+                checked = HomeState.hideRecents
+            ) { on ->
                 HomeUi.onHideRecentsChanged(on, act)
             }
-            DhKit.ValueRow(label = "开关指令", value = "复制 ›") {
+            DhKit.ValueRow(
+                label = "开关指令",
+                iconRes = Icons.IC_LINK_2,
+                desc = "复制一条可粘贴到别处的指令",
+                value = "复制 ›"
+            ) {
                 HomeUi.copyToggleLink(act)
             }
         }
@@ -214,10 +251,20 @@ object SettingsScreen {
     @Composable
     private fun ChatCard(act: MainActivity) {
         DhKit.Card(collapsibleTitle = "聊天", titleIcon = Icons.IC_MESSAGE_SQUARE_HEART) {
-            DhKit.ValueRow(label = "提供商", value = "›") {
+            DhKit.ValueRow(
+                label = "提供商",
+                iconRes = Icons.IC_SERVER,
+                desc = "接口地址、密钥与模型列表",
+                value = "›"
+            ) {
                 ProviderNav.open(act)
             }
-            DhKit.ValueRow(label = "查看 Token", value = "›") {
+            DhKit.ValueRow(
+                label = "查看 Token",
+                iconRes = Icons.IC_GAUGE,
+                desc = "查看模型使用统计",
+                value = "›"
+            ) {
                 TokenStat.open(act)
             }
             // 【r13·记忆系统重构】原「自动总结 / 触发阈值」两项已删。

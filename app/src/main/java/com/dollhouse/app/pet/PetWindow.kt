@@ -108,7 +108,7 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
      *   因为每只人偶有自己的 returnSeconds，全局一个时长无法区分。 */
     var edgeAtLeft = false
     var petShown = true
-    var lastPlaceAt = 0L
+    // 【v0.1.4】原 `lastPlaceAt` 已删：拖拽改为按 vsync 写窗后，不再需要毫秒级节流。
     var dragging = false
     var away = false
     /** 上次「消失」的起始时刻（暂离摘窗）；0 = 当前没有进行中的消失计时。 */
@@ -335,6 +335,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         //   （每帧去 updateViewLayout 一个已移除的窗口 → 抛异常被我们自己 catch 掉，
         //    表现为「窗口关了 CPU 还在转」）。这里显式取消。
         cancelThrow()
+        // 【v0.1.4·拖拽丝滑化】拖拽写窗同样是 Choreographer 常驻回调，同理必须停。
+        //   `dragging` 可能在摘窗时仍为 true（拖到一半进程被杀/服务重启），
+        //   只靠 doFrame 里的 `if (!dragging)` 兜底会多跑一帧写窗，这里直接断掉。
+        stopDragFrame()
         // 【顺序陷阱】cancelThrow() 会顺手 startWander()（把走位从飞行里接回来），
         //   而上面刚 stopWander() —— 顺序反了就等于「摘窗后又把走位排上」。
         //   虽然 wanderStep 每步都判 petView/lp 为空即返回，不会真崩，
@@ -653,8 +657,13 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         }
         exitEdgePeek()
         // 框比人偶还窄时（极端缩放）直接贴右，保证不越界。
-        val half = pv.petWidth() / 2
-        val x = if (right - left <= pv.petWidth()) {
+        // 【v0.1.4·修「容易被边缘裁切」】半宽从「静态宽度」改成「实际绘制宽度」。
+        //   动作需要更宽画布时，`geometry()` 会向两侧对称扩窗（手伸出去的部分），
+        //   但这里的夹取仍只按 petWidth() —— 扩出来的那半截在贴到屏幕/虚线框边缘时
+        //   会被裁掉，用户看到的就是「动作一抬手就被切」。
+        //   静态形象没有扩展（extra == 0），半宽等于原值，行为逐像素不变。
+        val half = pv.petWidth() / 2 + pv.actionExtraHalf()
+        val x = if (right - left <= pv.petWidth() + pv.actionExtraHalf() * 2) {
             Math.round(right - half)
         } else {
             Math.max(Math.round(left + half), Math.min(Math.round(right - half), round2))
@@ -689,7 +698,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
     /** 人偶轴心当前允许的活动范围（由虚线框定，与 `settle` 的夹取同源）。 */
     private fun throwBounds(pv: PetView): ThrowPhysics.Bounds {
         val box = boundsBox()
-        val half = pv.petWidth() / 2f
+        // 【v0.1.4·与 settle 同口径】半宽必须包含动作扩展出来的部分，
+        //   否则「飞出去」时动作的手会伸出框外被切，而同一个动作手动拖到边界却不会被切 ——
+        //   两条路径给出两种边界，用户看到的就是「甩一下就被裁」。
+        val half = pv.petWidth() / 2f + pv.actionExtraHalf()
         val minX = box[0] + half
         val maxX = box[2] - half
         // 框比人偶窄时（极端缩放）退化成「恒在框中心」，不让 minX > maxX。
@@ -729,6 +741,13 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
      */
     private fun releaseOrThrow(pv: PetView) {
         val now = android.os.SystemClock.uptimeMillis()
+        // 【v0.1.4·甩抛开关】关掉时直接走「就地放下 + 吸附」，与甩抛上线前逐行一致。
+        //   放在估速之前：开关关着就不该做任何与甩抛相关的计算。
+        if (!PetPrefs.throwEnabled(host, doll.id)) {
+            placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
+            settle()
+            return
+        }
         val raw = ThrowPhysics.estimate(dragTrail.toList(), now)
         val v = ThrowPhysics.applyPower(raw, ThrowPhysics.Params().throwPower)
         if (!ThrowPhysics.isThrow(v)) {
@@ -946,12 +965,63 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         petView.notifyEdgeChanged()
     }
 
+    /**
+     * 【v0.1.4·拖拽丝滑化】拖拽位置写窗。
+     *
+     * 【改造前】触摸事件到达即 `updateViewLayout`，另有 12ms 节流：
+     *   · 触摸采样率（常见 120~240Hz）与屏幕刷新率（60~120Hz）不对齐，
+     *     一个 vsync 内可能连着写两次、下一个 vsync 一次都没写 → 肉眼可见的抖动；
+     *   · 12ms 节流在 120Hz 屏（8.3ms/帧）上会**跳过整帧**，表现为「跟不上手指」。
+     *
+     * 【改造后】事件只记坐标，位置在 `Choreographer` 回调里按 vsync 写一次：
+     *   · 与甩抛（[startThrow]）同一个时钟，抬手瞬间不会因为换驱动方式而跳一帧；
+     *   · 同一 vsync 内多次 MOVE 自然合并成一次写窗，写窗次数从「每个事件一次」降到「每帧一次」。
+     *
+     * 【为什么要保留一个 0 延迟的直写路径】手指刚按下、还没到下一个 vsync 时，
+     *   如果完全等帧，第一下会有最多 16ms 的延迟感。首次 MOVE 直接写一次，
+     *   之后交给 vsync —— 既没有首帧延迟，也不会高频写窗。
+     */
+    private val dragFrame = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!dragging) {
+                dragFramePosted = false
+                return
+            }
+            // 帧内再取一次最新位置：同一 vsync 期间到达的多个 MOVE 已合并进 curPivot。
+            placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
+            trailPush(android.os.SystemClock.uptimeMillis())
+            if (dragging) {
+                android.view.Choreographer.getInstance().postFrameCallback(this)
+            } else {
+                dragFramePosted = false
+            }
+        }
+    }
+
+    /** 拖拽帧回调是否已排队（保证同一时刻只有一个回调，避免写窗次数翻倍）。 */
+    private var dragFramePosted = false
+
+    /**
+     * 请求在下一个 vsync 写窗（幂等）。
+     * 【为什么不直接 postFrameCallback】同一 vsync 内多次 MOVE 会排队多个回调，
+     *   每次执行又各自续一个 —— 与帧循环踩过的坑一样，写窗次数会翻倍。
+     */
     fun applyDragPlacement() {
-        val currentTimeMillis = System.currentTimeMillis()
-        if (currentTimeMillis - lastPlaceAt < 12) {
+        if (dragFramePosted) {
             return
         }
-        lastPlaceAt = currentTimeMillis
+        dragFramePosted = true
+        android.view.Choreographer.getInstance().postFrameCallback(dragFrame)
+    }
+
+    /** 立即结束拖拽帧循环（抬手 / 打断 / 摘窗都必须调，否则会空转）。 */
+    private fun stopDragFrame() {
+        dragFramePosted = false
+        runCatching { android.view.Choreographer.getInstance().removeFrameCallback(dragFrame) }
+    }
+
+    /** 【v0.1.4】首帧直写：手指移动的第一下不等 vsync，消掉「跟手延迟」。 */
+    private fun applyDragPlacementNow() {
         placeByPivot(Math.round(curPivotX), Math.round(curPivotY))
     }
 
@@ -1550,13 +1620,18 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
                 if (dragging) {
                     curPivotX = downPivotX + rawX
                     curPivotY = downPivotY + rawY
+                    // 【v0.1.4·拖拽丝滑化】首帧直写一次（消掉跟手延迟），
+                    //   之后由 Choreographer 按 vsync 写窗，事件本身不再直接写窗口。
+                    applyDragPlacementNow()
                     applyDragPlacement()
-                    // 【r22·甩抛】拖拽期间持续采样轴心位置，抬手时用来估初速。
-                    //   位置必须写在 applyDragPlacement 之后 —— 那个方法会夹取边界，
-                    //   采样当然要记「夹取后的真实位置」，否则估出来的速度是没发生过的。
-                    trailPush(android.os.SystemClock.uptimeMillis())
+                    // 【v0.1.4】轨迹采样已移入 [dragFrame]：与写窗同帧进行，
+                    //   采样点因此与「实际画到屏幕上的位置」严格对齐（原来采样与写窗可能不同帧）。
                     petView?.setDragVelocity(rawX2)
                     petView?.lookAt(Math.max(-1.0f, Math.min(1.0f, rawX2 / 900.0f)))
+                    // 【v0.1.4·拖动持续播放】手指还按着 → 每个 MOVE 都确认一次「仍在拖动」。
+                    //   拖动中途若被贴边判定 / 动作播完 / 主题刷新顶掉，这里会自动放回来；
+                    //   正常拖动期间它是幂等的（同一个动作在播就什么都不做，不会重启时钟）。
+                    petView?.interactionHold(ActionSemantic.DRAG)
                 }
                 return true
             }
@@ -1572,6 +1647,9 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         if (dragging) {
             // 拖动路径自带收尾（releaseOrThrow → 起飞 或 settle），标记作废。
             throwInterrupted = false
+            // 【v0.1.4·拖拽丝滑化】先停掉 vsync 写窗循环：
+            //   不停的话，抬手后它还会再写一次窗，把 releaseOrThrow 刚算好的起点冲掉。
+            stopDragFrame()
             petView?.setDragging(false)
             // 【r22·甩抛】抬手不再直接吸附：先按轨迹判「是甩还是放下」。
             //   · 甩 → 进入飞行（重力 + 反弹 + 摩擦），静止后自己调 settle() 收尾；
