@@ -25,7 +25,25 @@ object ActionViewport {
         /** 人偶本体在屏幕上的统一高度；切换动作时保持不变。 */
         val bodyHeight: Int,
         /** 当前实际窗口宽度。 */
-        val requiredWidth: Int = baseWidth
+        val requiredWidth: Int = baseWidth,
+        /**
+         * **【v0.1.5·G-03 模型级基准】** 模型统一的「本体高度占画布比例」。
+         *
+         * 【为什么加在这里而不是改 measure 的签名】[Spec] 是**人偶级**规格
+         *   （一只人偶一套，`ActionPlayerCore` 只持有它），把「这只人偶的模型基准」
+         *   挂在它上面是天然的归属；而 `measure` 是纯函数，多一个参数就得改十几处调用。
+         *
+         * 【0f 的语义】没有模型级基准（旧档 / 未校准）⇒ 完全走改造前的逐动作逻辑，
+         *   老档行为逐像素不变。这是需求书 20.2.4「必须考虑旧数据读取」的落点。
+         */
+        val referenceFill: Float = 0f,
+        /**
+         * **【v0.1.5·G-03】** 当前动作相对模型基准的修正比例（默认 1 = 不修正）。
+         *
+         * 【为什么要按动作存】同一模型里，拖拽动作可能是「半蹲」、挥手动作可能是「站直」，
+         *   各自的 `scaleFix` 不同；基准是模型级，修正是动作级（19.7.3）。
+         */
+        val scaleFix: Float = 1f
     )
 
     /** 一帧的目标矩形及其所需窗口宽度。矩形以未扩展窗口的坐标系表示。 */
@@ -61,9 +79,40 @@ object ActionViewport {
         }
         if (bodyH <= 0f) return null
 
+        // **【v0.1.5·G-03 模型级基准】有模型基准时，尺子换成「模型基准」而不是「本动作自身」。**
+        //
+        // 【为什么必须换】改造前的 bodyH 是**这个动作自己的本体高**，于是每个动作各自铺满
+        //    `spec.bodyHeight` —— 同一只人偶，待机本体占画布 80%、拖拽占 60%，
+        //   两者都会被放大到同样高度，看起来"一致"；但那是因为它们**本来就该不同**：
+        //   拖拽帧里人物可能确实更矮（半蹲）。更要命的是**贴边**：它只画了露出的半身，
+        //   本体只占 50%，按自己的本体放大 → 人物整体被放大 1.6~2 倍，
+        //   用户看到的就是「一贴边人就变大」（需求书 19.7.8 明令禁止）。
+        //
+        // 【换法】`scale = bodyHeight / (referenceFill × bitmapHeight)`
+        //   → 本体高度等于 referenceFill 的动作，正好铺满 bodyHeight；
+        //     其余动作按**同一把尺子**换算，自然保持相对大小。
+        //   `spec.scaleFix` 是这个动作的微调（19.7.3），默认 1 = 不修正。
+        //
+        // 【referenceFill <= 0 时】没有模型基准（旧档 / 未校准）⇒ 仍用上面的 bodyH，
+        //   改造前行为逐像素不变。
+        val hasModelRef = spec.referenceFill.isFinite() && spec.referenceFill > 0f
+        val effBodyH = if (hasModelRef) {
+            // scaleFix 夹在 0.5~2.0（19.7.6）；非法值当作 1（不修正）。
+            val fix = if (spec.scaleFix.isFinite() && spec.scaleFix > 0f) {
+                Math.max(ModelBaseline.FIX_MIN, Math.min(ModelBaseline.FIX_MAX, spec.scaleFix))
+            } else {
+                1f
+            }
+            spec.referenceFill * bitmapHeight * fix
+        } else {
+            bodyH
+        }
+        if (effBodyH <= 0f) return null
+
         // 唯一尺子：人物高度。宽度只决定视口，不再反向缩小人物。
+        // 【v0.1.5·G-03】分母换成 effBodyH：有模型基准时它按基准算，没有时等于 bodyH。
         val safeScale = min(MAX_FRAME_SIDE / bitmapWidth, MAX_FRAME_SIDE / bitmapHeight)
-        val scale = min(spec.bodyHeight / bodyH, safeScale)
+        val scale = min(spec.bodyHeight / effBodyH, safeScale)
         if (!scale.isFinite() || scale <= 0f) return null
         val dw = (bitmapWidth * scale).roundToInt().coerceAtLeast(1)
         val dh = (bitmapHeight * scale).roundToInt().coerceAtLeast(1)

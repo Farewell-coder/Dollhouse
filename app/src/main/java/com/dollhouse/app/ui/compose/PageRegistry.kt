@@ -53,6 +53,16 @@ object PageRegistry {
                 // 【工作台】资源导入向导页。必须与 NavKeyCodec 那条成对出现 ——
                 //   少这一条的症状是「进程被回收后该层被静默跳过」。
                 || key.startsWith(com.dollhouse.app.ui.doll.DollImportWizardPage.PREFIX)
+                // 【v0.1.5·R-040】添加角色导入助手。必须与 NavKeyCodec 那条成对出现 ——
+                //   少这一条的症状是「进程被回收后该层被静默跳过」。
+                || key == com.dollhouse.app.ui.doll.ImportAssistantPage.PREFIX
+                // 【v0.1.5·19.2.3】更换模型页。同样必须与 NavKeyCodec 那条成对出现。
+                || key.startsWith(com.dollhouse.app.ui.doll.ReplaceModelPage.PREFIX)
+                // 【v0.1.5·8.9】模型管理页。同样必须与 NavKeyCodec 那条成对出现。
+                || key.startsWith(com.dollhouse.app.ui.doll.ModelManagePage.PREFIX)
+                || key.startsWith(com.dollhouse.app.ui.chat.FriendProfilePage.PREFIX)
+                || key.startsWith(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX)
+                || key.startsWith(com.dollhouse.app.ui.chat.ConversationHistoryPage.PREFIX)
                 || key.startsWith(DollAnimPage.PREFIX)
                 || key.startsWith(DollGesturePage.PREFIX)
                 || key.startsWith(DollAwayPage.PREFIX)
@@ -114,8 +124,33 @@ object PageRegistry {
                 act, key.substring(com.dollhouse.app.ui.doll.DollImportWizardPage.PREFIX.length)
             )
         }
+        // 【v0.1.5·R-040】添加角色导入助手（无参数，key 全等）。
+        if (key == com.dollhouse.app.ui.doll.ImportAssistantPage.PREFIX) {
+            return com.dollhouse.app.ui.doll.ImportAssistantPage.buildPage(act)
+        }
+        // 【v0.1.5·19.2.3】更换模型页（按前缀切出 dollId）。
+        if (key.startsWith(com.dollhouse.app.ui.doll.ReplaceModelPage.PREFIX)) {
+            return com.dollhouse.app.ui.doll.ReplaceModelPage.buildPage(
+                act, key.substring(com.dollhouse.app.ui.doll.ReplaceModelPage.PREFIX.length)
+            )
+        }
+        // 【v0.1.5·8.9】模型管理页（按前缀切出 dollId）。
+        if (key.startsWith(com.dollhouse.app.ui.doll.ModelManagePage.PREFIX)) {
+            return com.dollhouse.app.ui.doll.ModelManagePage.buildPage(
+                act, key.substring(com.dollhouse.app.ui.doll.ModelManagePage.PREFIX.length)
+            )
+        }
         // 【r13】动作详情页（播放器 + 帧序列编辑）。key = doll:anim:<dollId>:<actionId>。
         //   【顺序】必须排在 DollActionPage 之后：两者前缀互不为前缀，但显式排在一起更清楚。
+        if (key.startsWith(com.dollhouse.app.ui.chat.FriendProfilePage.PREFIX)) {
+            return com.dollhouse.app.ui.chat.FriendProfilePage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.FriendProfilePage.PREFIX.length))
+        }
+        if (key.startsWith(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX)) {
+            return com.dollhouse.app.ui.chat.FriendModelConfigPage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX.length))
+        }
+        if (key.startsWith(com.dollhouse.app.ui.chat.ConversationHistoryPage.PREFIX)) {
+            return com.dollhouse.app.ui.chat.ConversationHistoryPage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.ConversationHistoryPage.PREFIX.length))
+        }
         if (key.startsWith(DollAnimPage.PREFIX)) {
             return DollAnimPage.buildPage(act, key.substring(DollAnimPage.PREFIX.length))
         }

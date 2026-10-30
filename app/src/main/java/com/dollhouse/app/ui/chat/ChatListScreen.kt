@@ -135,6 +135,8 @@ object ChatListScreen {
         var renameDraft by remember { mutableStateOf("") }
         // 【r13】长按管理菜单的目标行（null = 不显示）。
         var menuFor by remember { mutableStateOf<ChatListData.Row?>(null) }
+        var filter by remember { mutableStateOf(0) }
+        var archivedView by remember { mutableStateOf(false) }
 
         // 【为什么要 LaunchedEffect】列表数据要读盘 + 解码头像，放主线程会卡首帧。
         //   两个 rev 任一变化即重新拉取：发完消息回到列表、删了会话、改了名，都能自动跟上。
@@ -161,16 +163,22 @@ object ChatListScreen {
          * 【多词】按空格切开，**每个词都要命中**（AND 语义）——
          *   搜「小肥 鱼」能同时收窄，比整串匹配更好用。
          */
-        val shown = remember(rows, query) {
+        val shown = remember(rows, query, filter, archivedView) {
+            val filteredState = rows.filter { it.archived == archivedView }
+            val filtered = when (filter) {
+                1 -> filteredState.filter { it.unread > 0 }
+                2 -> filteredState.filter { it.pinned }
+                else -> filteredState
+            }
             val q = query.trim()
             if (q.isEmpty()) {
-                rows
+                filtered
             } else {
                 val words = q.lowercase().split(' ', '\u3000').filter { it.isNotEmpty() }
                 if (words.isEmpty()) {
-                    rows
+                    filtered
                 } else {
-                    rows.filter { row ->
+                    filtered.filter { row ->
                         val hay = (row.title + "\n" + row.preview + "\n" + row.dollName).lowercase()
                         words.all { hay.contains(it) }
                     }
@@ -246,6 +254,13 @@ object ChatListScreen {
             }
 
             // ---------- 列表 / 空态 ----------
+            Row(Modifier.fillMaxWidth().padding(horizontal = PAD_H).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DhKit.OutlineChip(if (filter == 0) "全部 ·" else "全部") { filter = 0 }
+                DhKit.OutlineChip(if (filter == 1) "未读 ·" else "未读") { filter = 1 }
+                DhKit.OutlineChip(if (filter == 2) "置顶 ·" else "置顶") { filter = 2 }
+                Spacer(Modifier.weight(1f))
+                DhKit.OutlineChip(if (archivedView) "返回" else "归档") { archivedView = !archivedView }
+            }
             when {
                 !loaded -> {
                     // 首帧：数据还没回来。不显示「空」以免闪一下「没有会话」的文案。
@@ -331,12 +346,31 @@ object ChatListScreen {
                 }
                 // 【r19·置顶】把该会话顶到列表最前（ updated 时间戳改为当前，触发排序上浮）。
                 DhKit.ActionRow(
-                    label = "置顶",
-                    iconRes = Icons.IC_CHEVRON_UP
+                    label = if (menuRow.pinned) "取消置顶" else "置顶",
+                    iconRes = Icons.IC_PIN
                 ) {
-                    ChatListData.pinToTop(act, menuRow.id)
+                    val s = com.dollhouse.app.data.PersonaChatStateStore.get(act, menuRow.personaId)
+                    com.dollhouse.app.data.PersonaChatStateStore.set(act, menuRow.personaId, s.copy(pinned = !s.pinned))
                     menuFor = null
                     ChatState.bumpList()
+                }
+                DhKit.ActionRow(label = if (menuRow.unread > 0) "标为已读" else "标为未读", iconRes = Icons.IC_CHECK) {
+                    if (menuRow.unread > 0) ChatListData.markRead(act, menuRow.id)
+                    else PetPrefs.setConvRead(act, menuRow.id, 0)
+                    menuFor = null; ChatState.bumpList()
+                }
+                DhKit.ActionRow(label = if (menuRow.muted) "取消免打扰" else "免打扰", iconRes = Icons.IC_BELL) {
+                    val s = com.dollhouse.app.data.PersonaChatStateStore.get(act, menuRow.personaId)
+                    com.dollhouse.app.data.PersonaChatStateStore.set(act, menuRow.personaId, s.copy(muted = !s.muted))
+                    menuFor = null; ChatState.bumpList()
+                }
+                DhKit.ActionRow(label = if (menuRow.archived) "取消归档" else "归档", iconRes = Icons.IC_PACKAGE_CHECK) {
+                    val s = com.dollhouse.app.data.PersonaChatStateStore.get(act, menuRow.personaId)
+                    com.dollhouse.app.data.PersonaChatStateStore.set(act, menuRow.personaId, s.copy(archived = !s.archived))
+                    menuFor = null; ChatState.bumpList()
+                }
+                if (menuRow.personaId.isNotEmpty()) DhKit.ActionRow(label = "历史会话", iconRes = Icons.IC_MESSAGE_SQUARE) {
+                    ConversationHistoryPage.open(act, menuRow.personaId); menuFor = null
                 }
             }
         }
@@ -423,10 +457,9 @@ object ChatListScreen {
                         overflow = TextOverflow.Ellipsis
                     )
                     // 【池标签】让用户一眼知道这条是「人偶」还是「自聊」。
-                    if (row.isPet) {
-                        Spacer(Modifier.width(6.dp))
-                        Tag(text = "人偶")
-                    }
+                    if (row.conversationCount > 1) Tag(text = row.conversationCount.toString() + " 段会话")
+                    if (row.muted) Tag(text = "免打扰")
+                    if (row.pinned) Tag(text = "置顶")
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(

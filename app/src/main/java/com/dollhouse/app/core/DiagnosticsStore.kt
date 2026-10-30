@@ -93,7 +93,7 @@ object DiagnosticsStore {
                category: String = "runtime", operationId: String = "") {
         val app = ctx?.applicationContext ?: return
         val event = DiagnosticEvent(severity = severity, category = category, module = sanitize(module).take(80),
-            message = sanitize(message).take(4000), exceptionType = throwable?.javaClass?.name ?: "",
+            message = sanitize(message).take(if (category == "operation_session") 160000 else 4000), exceptionType = throwable?.javaClass?.name ?: "",
             stackTrace = throwable?.let { stack(it) }?.let { sanitize(it).take(65536) } ?: "",
             operationId = sanitize(operationId).take(100), appVersion = version(app),
             context = if (severity == Severity.ERROR || severity == Severity.CRASH) recentContext() else "")

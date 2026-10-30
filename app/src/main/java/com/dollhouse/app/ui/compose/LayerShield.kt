@@ -66,12 +66,15 @@ class LayerShield(context: Context) : FrameLayout(context) {
                 return
             }
             field = value
+            com.dollhouse.app.core.OperationRecorder.event("Layer", "blocking=$value owner=$gestureOwner tracking=$tracking")
             if (value && !tracking) {
                 // 子树里可能有按钮正处于按下态，补一个 CANCEL 让它回弹。
                 cancelChildren()
             }
         }
 
+    /** 当前 DOWN 序列是否由本层接收。序列内锁定所有权，禁止中途换层导致只收到 UP。 */
+    private var gestureOwner = false
     /** 本层是否正在跟踪一段手势（边缘滑动用）。跟踪期间屏蔽不打断。 */
     private var tracking = false
 
@@ -124,12 +127,24 @@ class LayerShield(context: Context) : FrameLayout(context) {
     private var velocityX = 0f
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // 【屏蔽】不下发给子树、也不消费 —— 对本层而言事件不存在。
-        //   排除 tracking：自己正在处理的手势必须走完，否则滑到一半会卡住。
-        if (blocking && !tracking) {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN || ev.actionMasked == MotionEvent.ACTION_UP) {
+            com.dollhouse.app.core.OperationRecorder.event("Touch", "action=${ev.actionMasked} blocking=$blocking owner=$gestureOwner")
+        }
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            // 新 DOWN 结束此前异常残留的序列；不能要求必须先收到上一段 CANCEL。
+            gestureOwner = !blocking
+            return if (gestureOwner) super.dispatchTouchEvent(ev) else false
+        }
+        if (!gestureOwner) {
+            // 新打开的层不得接收旧 DOWN 的 UP；所有权只在新序列重新计算。
             return false
         }
-        return super.dispatchTouchEvent(ev)
+        // 所有权锁定到序列结束。若中途屏蔽，setter 已向原子树补发 CANCEL。
+        val handled = super.dispatchTouchEvent(ev)
+        if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+            gestureOwner = false
+        }
+        return handled
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
@@ -222,6 +237,15 @@ class LayerShield(context: Context) : FrameLayout(context) {
         return true
     }
 
+    /** 回前台时终止可能跨 Activity 生命周期的旧手势，避免 DOWN/UP 落到不同层。 */
+    fun cancelPendingTouch() {
+        gestureOwner = false
+        tracking = false
+        maybeSwipe = false
+        gaveUp = false
+        parent?.requestDisallowInterceptTouchEvent(false)
+        cancelChildren()
+    }
     /** 给子树补一个 ACTION_CANCEL（屏蔽瞬间收尾按下态）。 */
     private fun cancelChildren() {
         try {

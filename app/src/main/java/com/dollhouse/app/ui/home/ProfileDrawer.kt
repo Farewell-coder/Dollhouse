@@ -255,6 +255,15 @@ object ProfileDrawer {
         com.dollhouse.app.ui.compose.LayerGate.refresh(a)
     }
 
+    /** 宿主销毁时清掉进程级抽屉状态，防止旧打开态屏蔽新 Activity。 */
+    fun resetForHostDestroy(act: MainActivity?) {
+        if (act == null || currentAct?.get() === act) {
+            settleJob?.cancel()
+            openedState.value = false
+            progressState.value = 0f
+            currentAct = null
+        }
+    }
     /** 最近一次承载抽屉的宿主（由 HomeUi 装配时登记）。 */
     private var currentAct: java.lang.ref.WeakReference<MainActivity>? = null
 

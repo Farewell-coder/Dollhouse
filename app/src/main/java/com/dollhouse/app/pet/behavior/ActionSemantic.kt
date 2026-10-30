@@ -47,6 +47,18 @@ object ActionSemantic {
     const val EDGE = "edge"
 
     /**
+     * **【v0.1.5·R-013 新增】贴入瞬间**：人偶刚吸附到屏幕边缘时**只播一次**的动作
+     * （对应「贴入瞬间」固定壳）。
+     *
+     * 【为什么不复用 [EDGE]】两者生命周期完全不同：
+     *   · [EDGE] = 贴边常驻，**循环**播放，直到用户再次拖动；
+     *   · [EDGE_IN] = 一次性过渡，播完立刻被 [EDGE] 接管。
+     *   若共用一个语义，仲裁层就无法表达「播完要自动换一个动作」这件事 ——
+     *   循环动作根本不会触发 `onActionFinished`，于是永远进不了贴边常驻。
+     */
+    const val EDGE_IN = "edge_in"
+
+    /**
      * **【v0.1.0·新增】随机**：13~30 秒自发触发一次的动作（对应「随机动作」组）。
      *
      * 【优先级为什么低于出现/消失】它是系统自发行为，不该抢生命周期事件。
@@ -64,13 +76,14 @@ object ActionSemantic {
 
     /** 全部标准语义（供校验器 / UI 列举）。 */
     val ALL: List<String> = listOf(
-        IDLE, EDGE, RANDOM, MANUAL, TAP, DRAG, LONG_PRESS, APPEAR, DISAPPEAR, SLEEP
+        IDLE, EDGE, EDGE_IN, RANDOM, MANUAL, TAP, DRAG, LONG_PRESS, APPEAR, DISAPPEAR, SLEEP
     )
 
     /** 人类可读名（UI 直接用，避免各处再写一份中文映射）。 */
     fun label(semantic: String): String = when (semantic) {
         IDLE -> "常驻"
         EDGE -> "贴边"
+        EDGE_IN -> "贴入"
         RANDOM -> "随机"
         MANUAL -> "手动"
         TAP -> "点击"
@@ -91,6 +104,7 @@ object ActionSemantic {
      * 【v0.1.0 全序】**手指在屏上 / 用户刚发起的 > 系统自发的 > 基础态**：
      * ```
      * DRAG(40) = LONG_PRESS(40)   手指按着，任何自动动作都不得抢画面
+     *       > EDGE_IN(38)          **v0.1.5** 刚松手吸边的那一刻，必须是全场最强
      *       > TAP(35)             刚点完，反馈必须优先
      *       > MANUAL(30)          用户在手势里点名要播的动作
      *       > APPEAR/DISAPPEAR(20) 生命周期
@@ -101,9 +115,21 @@ object ActionSemantic {
      * ```
      * 【为什么 EDGE > IDLE】两者都是「没有交互时的状态」，但「在屏幕边上」比「随便站着」
      *   更具体 —— 更具体的状态应该赢。
+     *
+     * **【v0.1.5·为什么 EDGE_IN 只低于 DRAG、却高于 TAP/MANUAL】** 按需求书 18.2 的
+     *   优先级表（DRAG 40 > EDGE_IN 30 > MANUAL 20 > AUTO 10 > IDLE/EDGE_HOLD 0），
+     *   贴入瞬间必须压过手动与自动，否则「刚贴到边上，某个还没播完的手动动作继续播完」
+     *   —— 用户看到的是「贴边之后还在挥手」，与 6.4「松手吸边 → 贴入瞬间」直接冲突。
+     *   数值上与文档的 30 不同（这里用 38），是因为**本工程的既有档位已经占用了那些数字**
+     *   （TAP=35、MANUAL=30），而 v2.1·19 要求「未被第 19 节覆盖的原需求全部继续有效」
+     *   → 不能为了对齐数字而打乱既有全序。**相对顺序与文档完全一致**，这才是需求的本意。
+     *
+     * 【为什么 EDGE_IN 低于 DRAG】手指还按着的时候不可能「刚刚吸边成功」——
+     *   吸边的定义就是松手。但拖动中若恰好触发了入边判定，拖拽必须赢（需求 6.5.1）。
      */
     fun priority(semantic: String): Int = when (semantic) {
         DRAG, LONG_PRESS -> 40
+        EDGE_IN -> 38
         TAP -> 35
         MANUAL -> 30
         APPEAR, DISAPPEAR -> 20

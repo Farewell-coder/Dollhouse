@@ -38,6 +38,20 @@ object NavKeyCodec {
     const val LEGACY_DEV_OPTIONS = "feiyu_dev_options_page"
     const val LEGACY_PROVIDER = "feiyu_cfg_page"
     const val LEGACY_DOLL_GROUPS = "doll:groups"
+
+    /** 好友资料页前缀（`chat:friend:<dollId>`）。必须与 `FriendProfilePage.PREFIX` 同值。 */
+    private const val P_FRIEND = "chat:friend:"
+    private const val P_CONVERSATIONS = "chat:conversations:"
+    private const val P_MODEL_CONFIG = "chat:model-config:"
+
+    /** **【v0.1.5·R-040】** 添加角色导入助手（无参数，key 全等）。 */
+    const val LEGACY_DOLL_ADD = "doll:add"
+
+    /** **【v0.1.5·19.2.3】** 更换模型页前缀（`doll:swap:<dollId>`）。 */
+    private const val P_SWAP = "doll:swap:"
+
+    /** **【v0.1.5·8.9】** 模型管理页前缀（`doll:model:<dollId>`）。 */
+    private const val P_MODEL = "doll:model:"
     /** 【r19】随机走位设置页 */
     const val LEGACY_WANDER = "settings:wander"
     /** 【r19】睡觉模式设置页 */
@@ -72,6 +86,18 @@ object NavKeyCodec {
             LEGACY_HOME == legacy -> HomeRoute
             LEGACY_DOLL_LIST == legacy -> DollListRoute
             LEGACY_DOLL_GROUPS == legacy -> DollGroupsRoute
+            // 【v0.1.5·R-040】添加角色导入助手。必须排在 `doll:` 各前缀判断之前：
+            //   `doll:add` 与 `doll:anim:` / `doll:action:` 互不为前缀，顺序不影响正确性，
+            //   但放在「精确全等」组里更符合本方法的书写规则（先全等、再长前缀）。
+            LEGACY_DOLL_ADD == legacy -> DollAddRoute
+            // 【本轮】好友资料页（`chat:friend:<dollId>`）。与 `doll:` 家族互不为前缀。
+            legacy.startsWith(P_FRIEND) -> FriendProfileRoute(legacy.removePrefix(P_FRIEND))
+            legacy.startsWith(P_CONVERSATIONS) -> ConversationHistoryRoute(legacy.removePrefix(P_CONVERSATIONS))
+            legacy.startsWith(P_MODEL_CONFIG) -> FriendModelConfigRoute(legacy.removePrefix(P_MODEL_CONFIG))
+            // 【v0.1.5·19.2.3】更换模型。`doll:swap:` 与其它 `doll:` 前缀互不为前缀。
+            legacy.startsWith(P_SWAP) -> DollSwapRoute(legacy.removePrefix(P_SWAP))
+            // 【v0.1.5·8.9】模型管理页。`doll:model:` 与其它 `doll:` 前缀互不为前缀。
+            legacy.startsWith(P_MODEL) -> DollModelRoute(legacy.removePrefix(P_MODEL))
             LEGACY_SETTINGS == legacy -> SettingsRoute
             LEGACY_MY_PROFILE == legacy -> MyProfileRoute
             LEGACY_APPEARANCE == legacy -> AppearanceRoute
@@ -136,7 +162,17 @@ object NavKeyCodec {
         null -> null
         HomeRoute -> LEGACY_HOME
         DollListRoute -> LEGACY_DOLL_LIST
-        DollGroupsRoute -> LEGACY_DOLL_GROUPS
+        is DollGroupsRoute -> LEGACY_DOLL_GROUPS
+        // 【v0.1.5·R-040】添加角色导入助手。
+        DollAddRoute -> LEGACY_DOLL_ADD
+        // 【本轮】好友资料页。
+        is FriendProfileRoute -> P_FRIEND + key.dollId
+        is ConversationHistoryRoute -> P_CONVERSATIONS + key.dollId
+        is FriendModelConfigRoute -> P_MODEL_CONFIG + key.dollId
+        // 【v0.1.5·19.2.3】更换模型。
+        is DollSwapRoute -> P_SWAP + key.dollId
+        // 【v0.1.5·8.9】模型管理页。
+        is DollModelRoute -> P_MODEL + key.dollId
         SettingsRoute -> LEGACY_SETTINGS
         MyProfileRoute -> LEGACY_MY_PROFILE
         AppearanceRoute -> LEGACY_APPEARANCE

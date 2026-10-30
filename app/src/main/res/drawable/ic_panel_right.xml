@@ -7,6 +7,8 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- 右侧竖线增加视觉重量，资源向左补偿 0.5dp 做光学居中。 -->
+    <group android:translateX="-0.5">
     <path
         android:pathData="M 5.0 3.0 h 14.0 a 2.0 2.0 0 0 1 2.0 2.0 v 14.0 a 2.0 2.0 0 0 1 -2.0 2.0 h -14.0 a 2.0 2.0 0 0 1 -2.0 -2.0 v -14.0 a 2.0 2.0 0 0 1 2.0 -2.0 Z"
         android:strokeColor="#FFFFFFFF"
@@ -21,4 +23,5 @@
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="#00000000" />
+    </group>
 </vector>

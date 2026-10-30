@@ -539,9 +539,20 @@ object NavHost {
      */
     fun push(ctx: Context?, legacy: String?, build: (() -> View?)?): Boolean {
         if (ctx == null || legacy.isNullOrEmpty() || build == null) {
+            // 【K-05】参数不成立也要告诉用户，不能静默返回 false。
+            //   注意：`build == null` 可能是页面自己的 bug，但那不是用户能修的东西，
+            //   所以文案统一按「缺少必要信息」说，细节只进日志。
+            NavFailure.report(
+                ctx, NavFailure.Stage.BAD_ARGUMENT, legacy,
+                detail = "ctx=" + (ctx != null) + " build=" + (build != null)
+            )
             return false
         }
-        val act = findActivity(ctx) ?: return false
+        val act = findActivity(ctx)
+        if (act == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NO_HOST, legacy)
+            return false
+        }
         install(act)
         // 【诊断】key 认不出时必须留痕。
         //   【为什么必须打日志】认不出会返回 null，`push` 随即失败 —— 调用方（页面自己的
@@ -550,7 +561,9 @@ object NavHost {
         //   （代码没问题、只是 key 转换静默失败）。留一条 W 级日志，下次一眼可见。
         val key = NavKeyCodec.toKey(legacy)
         if (key == null) {
-            Logs.w(TAG, "push failed: unrecognized key = " + legacy)
+            // 【K-05】不能只写日志。调用方几乎都不检查返回值，只留一条 W 等于「静默失败」：
+            //   用户看到「点了没反应」，我们这边日志默认还是关的，什么都拿不到。
+            NavFailure.report(ctx, NavFailure.Stage.UNKNOWN_KEY, legacy)
             return false
         }
         val stack = stackOf(act)
@@ -618,12 +631,27 @@ revisionOf(act).value = revisionOf(act).value + 1
      *   要么停在错的地方。现在由栈自己算。
      */
     fun popTo(ctx: Context?, legacy: String?): Boolean {
-        val act = findActivity(ctx) ?: return false
-        val target = NavKeyCodec.toKey(legacy) ?: return false
-        val stack = STACKS[System.identityHashCode(act)] ?: return false
+        val act = findActivity(ctx)
+        if (act == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NO_HOST, legacy)
+            return false
+        }
+        val target = NavKeyCodec.toKey(legacy)
+        if (target == null) {
+            NavFailure.report(ctx, NavFailure.Stage.UNKNOWN_KEY, legacy)
+            return false
+        }
+        val stack = STACKS[System.identityHashCode(act)]
+        if (stack == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NOT_INSTALLED, legacy)
+            return false
+        }
         val idx = stack.indexOfFirst { it == target }
         // 找不到、或命中的是栈底垫底的底座 → 无效目标（底座不是「页面」）。
         if (idx <= 0) {
+            // 【K-05】「回到某一层」失败也必须说出来：调用方通常紧接着做别的动作，
+            //   静默 false 会让后续操作发生在错误的页面上（比单纯没反应更难查）。
+            NavFailure.report(ctx, NavFailure.Stage.BAD_ARGUMENT, legacy, detail = "target not in stack")
             return false
         }
         if (idx == stack.size - 1) {
@@ -657,15 +685,29 @@ revisionOf(act).value = revisionOf(act).value + 1
      */
     fun reviseTop(ctx: Context?, build: (() -> View?)?): Boolean {
         if (build == null) {
+            NavFailure.report(ctx, NavFailure.Stage.BAD_ARGUMENT, null, detail = "reviseTop build == null")
             return false
         }
-        val act = findActivity(ctx) ?: return false
-        val stack = STACKS[System.identityHashCode(act)] ?: return false
+        val act = findActivity(ctx)
+        if (act == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NO_HOST, null)
+            return false
+        }
+        val stack = STACKS[System.identityHashCode(act)]
+        if (stack == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NOT_INSTALLED, null)
+            return false
+        }
         // 【栈底不变式】只有底座时没有「栈顶覆盖层」可换，与旧实现（空栈返回 false）一致。
         if (stack.size <= 1) {
             return false
         }
-        val topLegacy = NavKeyCodec.toLegacy(stack[stack.size - 1]) ?: return false
+        val topLegacy = NavKeyCodec.toLegacy(stack[stack.size - 1])
+        if (topLegacy == null) {
+            // 栈顶是「没有历史字符串形态」的新路由：原地重建无从登记，直接报出来。
+            NavFailure.report(ctx, NavFailure.Stage.UNKNOWN_KEY, null, detail = "top has no legacy form")
+            return false
+        }
         buildersOf(act)[topLegacy] = build
         revisionOf(act).value = revisionOf(act).value + 1
         // 【同一帧生效】原地重建后栈深不变，但栈顶那一层的内容已换，
@@ -680,10 +722,23 @@ revisionOf(act).value = revisionOf(act).value + 1
      * 【用途】需要「栈顶 key 换成另一个」的场景（如 `ProviderNav.resetForTab` 之外的工具调用）。
      */
     fun replaceTop(ctx: Context?, legacy: String?): Boolean {
-        val act = findActivity(ctx) ?: return false
-        val key = NavKeyCodec.toKey(legacy) ?: return false
-        val stack = STACKS[System.identityHashCode(act)] ?: return false
+        val act = findActivity(ctx)
+        if (act == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NO_HOST, legacy)
+            return false
+        }
+        val key = NavKeyCodec.toKey(legacy)
+        if (key == null) {
+            NavFailure.report(ctx, NavFailure.Stage.UNKNOWN_KEY, legacy)
+            return false
+        }
+        val stack = STACKS[System.identityHashCode(act)]
+        if (stack == null) {
+            NavFailure.report(ctx, NavFailure.Stage.NOT_INSTALLED, legacy)
+            return false
+        }
         if (stack.isEmpty()) {
+            NavFailure.report(ctx, NavFailure.Stage.BAD_ARGUMENT, legacy, detail = "stack empty")
             return false
         }
         stack[stack.size - 1] = key
@@ -761,11 +816,34 @@ revisionOf(act).value = revisionOf(act).value + 1
         val stack = stackOf(act)
         stack.clear()
         stack.add(HomeRoute)
+        var dropped = 0
+        var firstDropped: String? = null
         if (legacyKeys != null) {
             for (k in legacyKeys) {
-                NavKeyCodec.toKey(k)?.let { stack.add(it) }
+                val navKey = NavKeyCodec.toKey(k)
+                if (navKey == null) {
+                    // 【K-05】历史版本存档里可能有当前版本已认不出的页面。
+                    //   静默跳过 = 用户回来后发现「少了一层」却没有任何解释；
+                    //   这里先累计，最后一次性提示（逐条弹 Toast 会刷屏）。
+                    dropped++
+                    if (firstDropped == null) {
+                        firstDropped = k
+                    }
+                    continue
+                }
+                stack.add(navKey)
             }
         }
+        if (dropped > 0) {
+            NavFailure.report(
+                ctx, NavFailure.Stage.UNKNOWN_KEY, firstDropped,
+                detail = "restore dropped " + dropped + " layer(s)",
+                userText = "有 " + dropped + " 个页面没能恢复，已回到最近可用的位置"
+            )
+        }
+        // 【K-02 同源】恢复完成后立刻重算交互所有权：新栈顶那一层必须马上能收事件，
+        //   否则「恢复出来的页面点不动」，得等用户手动切一次页才活过来。
+        com.dollhouse.app.ui.compose.LayerGate.refresh(act)
     }
 
     /* ============================ 工具 ============================ */

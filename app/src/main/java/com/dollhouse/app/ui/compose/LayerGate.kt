@@ -135,6 +135,17 @@ object LayerGate {
         l.nav?.blocking = owner != Owner.NAV
     }
 
+    /** 回前台先清掉各层旧触摸，再按当前栈状态恢复唯一交互层。 */
+    @JvmStatic
+    fun settleTouches(act: Activity?) {
+        val l = if (act == null) null else LAYERS[act]
+        if (l == null) return
+        l.base?.cancelPendingTouch()
+        l.bar?.cancelPendingTouch()
+        l.drawer?.cancelPendingTouch()
+        l.nav?.cancelPendingTouch()
+        if (act != null) refresh(act)
+    }
     /** 宿主销毁时清理登记。 */
     @JvmStatic
     fun forget(act: Activity?) {

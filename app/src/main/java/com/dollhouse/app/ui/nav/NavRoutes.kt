@@ -106,6 +106,50 @@ data class DollPersonaRoute(val dollId: String) : NavKey
 @Serializable
 data object DollGroupsRoute : NavKey
 
+/**
+ * 好友资料页（`chat:friend:<dollId>`）。
+ *
+ * 【为什么参数是 dollId 而不是会话 id】资料页聚合的是「这个人」的人格、模型、
+ *   记忆与列表状态；会话是 `d_<dollId>` 的投影，可能被删除重建，不能当身份用。
+ */
+@Serializable
+data class FriendProfileRoute(val dollId: String) : NavKey
+@Serializable data class ConversationHistoryRoute(val dollId: String) : NavKey
+@Serializable data class FriendModelConfigRoute(val dollId: String) : NavKey
+
+/**
+ * **【v0.1.5·19.2.3】更换模型**（`doll:swap:<dollId>`）。
+ *
+ * 【为什么单独一条路由，而不复用 DollAddRoute】两者作用域根本不同：
+ *   · 添加角色 → 在角色库**新建**一个 Doll；
+ *   · 更换模型 → 在**当前** Doll 内替换视觉模型，角色 id / 人格 / 记忆全部不变。
+ *   需求 19.2.5 明确「提交失败则恢复旧模型；不得在角色库额外生成重复 Doll」，
+ *   共用一条路径迟早会把这两种语义混起来，所以从路由层就分开。
+ */
+@Serializable
+data class DollSwapRoute(val dollId: String) : NavKey
+
+/**
+ * **【v0.1.5·8.9】模型管理页**（`doll:model:<dollId>`）。
+ *
+ * 【为什么单独一条】它是「当前角色长什么样」的**查看 + 两个动作**的聚合页，
+ *   与「更换模型」（只做替换）、「资源导入」（只加动作）都不同：
+ *   本页只读展示四态状态，动作是跳出去的新的页面。
+ */
+@Serializable
+data class DollModelRoute(val dollId: String) : NavKey
+
+/**
+ * **【v0.1.5·R-040】添加角色导入助手**（`doll:add`）。
+ *
+ * 【为什么是无参数的对象】导入助手的会话由页面自己创建与管理（v2.1·21.1），
+ *   它不依附任何已存在的角色 —— 角色是在提交那一刻才产生的。
+ *   所以 key 里没有 dollId，与「资源导入向导」（`doll:import:<dollId>`）刻意区分开：
+ *   后者是给**已有角色**加动作，两者语义不同，不能共用 key。
+ */
+@Serializable
+data object DollAddRoute : NavKey
+
 /* ============================ 设置层 ============================ */
 
 /** 设置页（`feiyu_settings_page`）。 */

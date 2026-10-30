@@ -106,6 +106,7 @@ class ChatPanel(
     private var streamText: StringBuilder? = null
     /** 【r13·流式】在途的流式思考累积。 */
     private var streamThink: StringBuilder? = null
+    private var activeGeneration: com.dollhouse.app.data.GenerationTask? = null
     // 【r13·入口收拢】原 `drawer: ChatDrawer?` 字段已移除（抽屉没了，见 openDrawer 处的说明）。
     /** 摘要分割标题在 [ChatState.items] 里的下标（-1 = 本会话无摘要头）。 */
     private var summaryIndex = -1
@@ -143,6 +144,7 @@ class ChatPanel(
         //   【为什么必须判空】否则每进一次聊天页就多一句开场白（历史会越滚越长）。
         seedGreetingIfEmpty()
         ChatHistoryStore.loadHistory(this)
+        ChatState.input = com.dollhouse.app.data.ChatDraftStore.load(context, boundDollId(), ChatSessions.currentId(context)).text
         renderHistory()
         refreshInputRow()
         refreshCtxRing()
@@ -202,11 +204,20 @@ class ChatPanel(
 
     /** 点提示条：跳主界面。 */
     internal fun openMain() {
+        val act = context as? MainActivity
+        if (act != null) {
+            // 已在主界面内的聊天 Tab：直接打开供应商，不重复启动主界面。
+            com.dollhouse.app.ui.provider.ProviderNav.open(act)
+            return
+        }
         val intent = Intent(context, MainActivity::class.java)
-        intent.flags = 335544320
+        intent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         (context as? android.app.Activity)?.let {
             com.dollhouse.app.PageTransitions.start(it, intent)
         } ?: context.startActivity(intent)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            (context as? android.app.Activity)?.let { com.dollhouse.app.ui.provider.ProviderNav.open(it) }
+        }, 300L)
     }
 
     /** 点「加载更早的历史记录」。 */
@@ -238,6 +249,9 @@ class ChatPanel(
     /** 输入框内容变化（Compose 侧单向数据流）。 */
     internal fun onInputChange(text: String) {
         ChatState.input = text
+        val d = com.dollhouse.app.data.ChatDraft()
+        d.text = text
+        com.dollhouse.app.data.ChatDraftStore.save(context, boundDollId(), ChatSessions.currentId(context), d)
     }
 
     /** 工具条：模型配置面板。 */
@@ -1357,9 +1371,7 @@ class ChatPanel(
             return
         }
         if (!canChat()) {
-            val intent = Intent(context, MainActivity::class.java)
-            intent.flags = 335544320
-            context.startActivity(intent)
+            com.dollhouse.app.ui.home.HomeUi.showNotice(context, "还没有可用模型", "请先到「设置 → 模型」添加模型，才能发送消息。")
             return
         }
         if (str3 != null) {
@@ -1369,6 +1381,7 @@ class ChatPanel(
             text = "看看这张图。"
         }
         ChatState.input = ""
+        com.dollhouse.app.data.ChatDraftStore.clear(context, boundDollId(), ChatSessions.currentId(context))
         // 【顺序】先落库、再挂气泡 —— 这样气泡能拿到它在 history 里的真实下标，
         //   长按菜单才定位得到（见 appendBubble 的说明）。
         ChatHistoryStore.push(this, "user", text, str2)
@@ -1414,10 +1427,19 @@ class ChatPanel(
     }
 
     fun askModel(jSONArray: JSONArray, i: Int, z: Boolean) {
+        val personaId = boundDollId()
+        val conversationId = ChatSessions.currentId(context)
+        if (activeGeneration == null) {
+            activeGeneration = com.dollhouse.app.data.GenerationTask(
+                personaId = personaId,
+                conversationId = conversationId,
+                historySnapshot = JSONArray(jSONArray.toString())
+            ).also { com.dollhouse.app.data.GenerationTasks.put(it) }
+        }
         // 【r13·记忆分库】声明「这一轮属于哪只人偶」，供记忆工具写入时定位目标库。
         //   【为什么在这里】下面 runTools 会执行模型返回的 remember 调用，
         //   而工具执行时拿不到「正在跟谁聊」；不先声明就会写错库。
-        ChatToolRegistry.setDoll(boundDollId())
+        ChatToolRegistry.setDoll(personaId)
         // 【交互】记忆工具始终可用（AI 自己决定记什么）；联网工具按用户开关决定。
         val tools = if (z) buildTools() else null
         // 【思考框】计时起点：这一刻算「模型开始思考」。
@@ -1429,15 +1451,19 @@ class ChatPanel(
         //   取值用 PetPrefs 三件套：配了供应商时它们转发到 ProviderStore（拿的就是当前选中项），
         //   没配供应商时回退旧键，保证升级后老配置也照常能用（pv 为 null 时走裸 baseUrl + Bearer）。
         val pv = ProviderStore.activeProvider(context)
-        val key = PetPrefs.apiKey(context)
-        val baseUrl = PetPrefs.baseUrl(context)
-        val modelId = PetPrefs.model(context)
+        val cfg = com.dollhouse.app.data.PersonaChatConfigStore.effective(context, personaId, conversationId)
+        val selectedPv = if (cfg.providerId.isNotEmpty()) ProviderStore.findProvider(context, cfg.providerId)?.takeIf { it.enabled } else pv
+        val key = if (cfg.providerId.isNotEmpty()) ProviderStore.keyOf(context, selectedPv) else PetPrefs.apiKey(context)
+        val baseUrl = if (cfg.providerId.isNotEmpty()) selectedPv?.baseUrl else PetPrefs.baseUrl(context)
+        val modelId = if (cfg.modelId.isNotEmpty()) {
+            com.dollhouse.app.data.ModelStore.findModel(context, cfg.modelId)?.displayName ?: PetPrefs.model(context)
+        } else PetPrefs.model(context)
         // 【r13·流式】用户可在设置里关掉；关掉即整条走原来的非流式路径（零行为差异）。
-        if (useStream && PetPrefs.streamOutput(context)) {
-            askModelStream(pv, key, baseUrl, modelId, jSONArray, tools, i, z)
+        if (useStream && cfg.streamOutput) {
+            askModelStream(selectedPv, key, baseUrl, modelId, jSONArray, tools, i, z)
             return
         }
-        DeepSeekClient.chatRaw(pv, key, baseUrl, modelId, jSONArray, tools, samplingParams(false), task, object : DeepSeekClient.RawCallback {
+        DeepSeekClient.chatRaw(selectedPv, key, baseUrl, modelId, jSONArray, tools, samplingParams(false), task, object : DeepSeekClient.RawCallback {
             override fun onMessage(jSONObject: JSONObject?, str: String?) {
                 // 用户主动停止：静默收尾，不要当故障报出来。
                 if (DeepSeekClient.STOPPED == str) {
@@ -1653,12 +1679,13 @@ class ChatPanel(
 
     private fun samplingParams(z: Boolean): JSONObject {
         val jSONObject = JSONObject()
+        val cfg = com.dollhouse.app.data.PersonaChatConfigStore.effective(context, boundDollId(), ChatSessions.currentId(context))
         try {
             if (z) {
-                jSONObject.put("temperature", 0.7)
-                jSONObject.put("top_p", 0.9)
+                jSONObject.put("temperature", if (z) 0.7 else cfg.temperature)
+                jSONObject.put("top_p", cfg.topP)
+                jSONObject.put("max_tokens", cfg.maxTokens)
                 jSONObject.put("repeat_penalty", 1.15)
-                jSONObject.put("max_tokens", 220)
                 val jSONArray = JSONArray()
                 jSONArray.put("\n用户：")
                 jSONArray.put("\n主人：")
@@ -1667,14 +1694,14 @@ class ChatPanel(
                 jSONArray.put("\nassistant:")
                 jSONObject.put("stop", jSONArray)
             } else {
-                jSONObject.put("temperature", 1.2)
-                jSONObject.put("max_tokens", 500)
+                jSONObject.put("temperature", cfg.temperature)
+                jSONObject.put("max_tokens", cfg.maxTokens)
             }
             // 【三件套】思考程度（灯泡）：按档位补请求体字段。
             // 【坑】只有 2~5 档（加深）才发一个 reasoning_effort；0/1 档一律不发 ——
             //       enable_thinking 之类非标准字段在非流式请求下会被 Qwen 硬 400。
             //       若仍被服务端拒（参数类 400），onMessage 里会剥掉参数重试一次。
-            val thinkLevel = PetPrefs.thinkLevel(context)
+            val thinkLevel = cfg.thinkLevel
             if (!thinkDegraded && ThinkLevel.shouldInject(thinkLevel)) {
                 ThinkLevel.parameters(jSONObject, thinkLevel)
             }
@@ -1744,6 +1771,8 @@ class ChatPanel(
     }
 
     fun finishWithError(str: String?) {
+        activeGeneration?.let { com.dollhouse.app.data.GenerationTasks.finish(it.generationId) }
+        activeGeneration = null
         task = null
         // 【r13·不中断】等待态与思考框与视图无关，先收掉 ——
         //   否则用户离开期间出错，回来时输入框永远停在「停止」。
@@ -1768,6 +1797,8 @@ class ChatPanel(
      *   两者都空 → 走既有错误气泡。
      */
     fun handleReply(str: String?, reasoning: String?, costMs: Long) {
+        activeGeneration?.let { com.dollhouse.app.data.GenerationTasks.finish(it.generationId) }
+        activeGeneration = null
         task = null
         var body = str ?: ""
         var think = reasoning?.trim() ?: ""
@@ -1787,8 +1818,13 @@ class ChatPanel(
                 return
             }
             if (pet) {
-                body = think
-                think = ""
+                // 思考不是人偶的最终发言；保留思考记录，并明确提示本次没有正文。
+                setWaiting(false)
+                removeThinking()
+                ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
+                if (isAttachedToWindow) appendBubble("", false, null, history.length() - 1)
+                finishWithError("模型本次只返回了思考过程，没有生成回答，请重试")
+                return
             } else {
                 // 【r13·思考过程】纯思考内容（正文为空）：不再只挂一个「内存里的思考框」——
                 //   改为「正文为空 + 带推理」落盘。重铺时那条气泡不渲染文字（[ChatUi.Bubble]
@@ -1839,6 +1875,8 @@ class ChatPanel(
 
     /** 用户点「停止」：断掉在途连接，静默收尾（不报网络错误）。 */
     fun stopGenerating() {
+        activeGeneration?.let { com.dollhouse.app.data.GenerationTasks.finish(it.generationId) }
+        activeGeneration = null
         // 【OCR】若还在等 OCR 扫图，撕掉闸门，扫描回来直接作废（不再发请求）。
         sendPending = false
         val t = task
@@ -1850,10 +1888,10 @@ class ChatPanel(
 
     /** 按有无 API key 决定顶部提示条显隐。 */
     fun refreshHint() {
-        ChatState.hint = if (PetPrefs.hasKey(context)) {
+        ChatState.hint = if (com.dollhouse.app.ui.home.HomeUi.hasChatTarget(context)) {
             null
         } else {
-            "还没填 API key，点这里去设置 →"
+            "还没有可用的供应商模型，点这里去设置 →"
         }
     }
 

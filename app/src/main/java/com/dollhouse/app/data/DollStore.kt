@@ -35,6 +35,20 @@ object DollStore {
     private const val PREFIX_COVER = "cover_"
     private const val PREFIX_SPRITE = "sprite_"
 
+    /**
+     * **【v0.1.5·T-04】档案结构版本号**（与需求书 18.12 的 `model_schema_version` 同一件事）。
+     *
+     * 【为什么要它】旧档迁移必须**只跑一次** —— 否则每次启动都会重扫、重写一遍
+     *   Preferences，既浪费又可能把用户刚改的状态盖回去。
+     *
+     * 【取值约定】0 = 老档（无此键）；1 = 已收敛为单常驻。
+     *   将来若再加迁移，只往 [SCHEMA_SINGLE_ENABLED] 之上递增，不要改已有常量的值。
+     */
+    private const val KEY_SCHEMA_VERSION = "doll_schema_version"
+
+    /** 当前档案结构版本：1 = 单常驻已生效。 */
+    private const val SCHEMA_SINGLE_ENABLED = 1
+
     /** 日志标签（本对象只用它记录封面裁剪失败这类可恢复问题）。 */
     private const val TAG = "DollhouseDollStore"
 
@@ -45,7 +59,9 @@ object DollStore {
      * @param name    显示名。
      * @param cover   封面图绝对路径；空串 = 回落到形象图，再空则回落内置 `pet_front`。
      * @param sprite  形象图绝对路径；空串 = 用内置 `pet_front`。
-     * @param enabled 是否启用。允许多个同时启用，启动时逐个挂窗展示。
+     * @param enabled 是否常驻。**【v0.1.5·R-001 语义变更】同一时间只允许一个 true**；
+     *                写入统一走 [setActive] / [toggleEnabled]，两者都会把其余角色置 false。
+     *                旧档里的多个 true 由 [migrateToSingleEnabled] 在启动时收敛。
      * @param builtin 内置项（不可删除）。
      * @param group   【r14】所属分组名。**空串 = 未分组**（默认），列表里归到「未分组」组。
      *                【为什么存名字而不是分组 id】分组清单由 [PetPrefs.dollGroups] 持有，
@@ -76,7 +92,6 @@ object DollStore {
         val list = load(ctx)
         return ArrayList(list)
     }
-
     /** 已启用的人偶（多个人偶可同时启用）。 */
     @JvmStatic
     @Synchronized
@@ -89,6 +104,164 @@ object DollStore {
         }
         return out
     }
+
+    /* ==================== 【v0.1.5·单常驻】 ==================== */
+
+    /**
+     * **【v0.1.5·R-001 单常驻角色】全部「已启用」里唯一的那一个**（没有则 null）。
+     *
+     * 【为什么新增这个方法而不是继续用 [enabled]】
+     *   [enabled] 的签名是 `List`，凡是拿到 List 的调用方**天然允许**处理多个。
+     *   需求书 R-001 要求「屏幕上同时只能有一个常驻角色」，而 R-002 又要求
+     *   「角色库可以保存多个角色」—— 也就是说数据层仍要能存多个 `enabled=true` 的
+     *   历史档案（旧档就会有），但**运行期只认第一个**。
+     *   这里给出唯一出口，配合 [migrateToSingleEnabled] 把磁盘上的多 enabled 收敛掉。
+     *
+     * 【为什么取「列表里第一个」】见 [migrateToSingleEnabled] 的说明：列表首位是
+     *   默认配置，其次按用户添加顺序 —— 取第一个 = 取「历史最久 / 最可能是用户
+     *   一直在用的那一只」，是用户直觉上最不容易觉得「我的角色被换掉了」的选择。
+     */
+    @JvmStatic
+    @Synchronized
+    fun active(ctx: Context): Doll? {
+        for (d in load(ctx)) {
+            if (d.enabled) {
+                return d
+            }
+        }
+        return null
+    }
+
+    /**
+     * **【v0.1.5·R-001】把「设为常驻」写成互斥语义**：设 [id] 为唯一常驻，其余全部置 false。
+     *
+     * 【与 [toggleEnabled] 的分工】[toggleEnabled] 是「开关」，语义是「点一下切一下」；
+     *   本方法是「设常驻」，语义是**排他选择**。两个都保留：
+     *   · 列表页的方形/播放图标是开关（点已常驻的那只会变成「取消常驻」）；
+     *   · 「设为常驻」这类明确动作走本方法。
+     *
+     * 【为什么必须写在这一层】需求书 17.2 G-01 指出：PetService 启动时按
+     *   `DollStore.enabled()` 逐个建 PetWindow，**只要写入是互斥的，读取端天然只建一个**。
+     *   相反，如果在 UI 层逐个把别人关掉，任何一条绕过 UI 的写入路径（模型包导入、
+     *   存档修复、BootReceiver 兜底）都会把不变量破坏掉 —— 写在一处才守得住。
+     *
+     * @return 该人偶是否真的成了常驻（id 不存在或为空返回 false，且不改任何其他角色的状态）
+     */
+    @JvmStatic
+    @Synchronized
+    fun setActive(ctx: Context, id: String?): Boolean {
+        if (id == null) {
+            return false
+        }
+        val list = load(ctx)
+        var hit = false
+        for (d in list) {
+            if (d.id == id) {
+                hit = true
+                break
+            }
+        }
+        if (!hit) {
+            return false
+        }
+        var changed = false
+        for (i in list.indices) {
+            val want = list[i].id == id
+            if (list[i].enabled != want) {
+                list[i] = list[i].copy(enabled = want)
+                changed = true
+                // 被顶掉的那只 = 「从屏幕上消失」，与 toggleEnabled 的取消语义保持一致：
+                // 打上消失时刻，这样它下次被设为常驻时不会凭空从上次位置弹出来。
+                if (!want) {
+                    PetPrefs.setHiddenAt(ctx, list[i].id, System.currentTimeMillis())
+                }
+            }
+        }
+        if (changed) {
+            save(ctx, list)
+        }
+        return true
+    }
+
+    /**
+     * **【v0.1.5·T-04 旧档迁移】把磁盘上「多个 enabled=true」收敛成一个。**
+     *
+     * 【为什么必须有】旧版本明确允许「多个同时启用」（见 [Doll.enabled] 注释与
+     *   [enabled] 的「逐个挂窗」），老用户档案里就可能躺着好几只 true。
+     *   新版本运行期只建一个窗口 —— 如果不迁移，屏幕上只出现一只，但数据层仍写着
+     *   好几只 true，用户每次进列表都会看到「好几只都是常驻标记」，与桌面实际不符。
+     *
+     * 【保留谁】保留**列表里第一个** true 的（与 [active] 同一口径），其余置 false。
+     *   理由：列表首位是默认配置、其后按用户添加顺序，第一个 = 历史最久的那只。
+     *
+     * 【一个 true 都没有时怎么办】**v2.1·19.5.4 裁决**：
+     *   「迁移时没有 enabled=true：仅在首次迁移且有默认角色时启用默认角色一次。
+     *     迁移完成后，用户主动关闭常驻角色，重启不能再次自动启用。」
+     *
+     *   【与 r12「必须选才出现」的关系】两者看似冲突，实际可以同时满足 ——
+     *   关键是区分「真的从旧版本升级上来」和「全新安装」：
+     *   · **旧档升级**（Preferences 里已经有 `dolls_json`）：用户此前一直在用这个软件，
+     *     升级后桌面突然空了会以为坏了 ⇒ 按 19.5.4 启用默认角色一次。
+     *   · **全新安装**（`dolls_json` 键根本不存在）：用户还没做过任何选择，
+     *     按 r12 定案「没有选择就不要出现人偶」⇒ **不启用**。
+     *   区分依据就是 [KEY_DOLLS] 是否存在，在 [load] 改写它之前先读一次原值。
+     *
+     *   【迁移后用户主动关闭不会被重新打开】本方法只在 schema_version < 1 时执行，
+     *   跑完立刻把版本号写成 1，之后无论重启多少次都不会再进来。
+     *
+     * 【只跑一次】用 [KEY_SCHEMA_VERSION] 记录，避免每次启动都重写一遍 Preferences。
+     *
+     * @return 是否发生了改动（调用方据此决定要不要刷新桌宠）
+     */
+    @JvmStatic
+    @Synchronized
+    fun migrateToSingleEnabled(ctx: Context): Boolean {
+        val prefs = PetPrefs.get(ctx)
+        if (prefs.getInt(KEY_SCHEMA_VERSION, 0) >= SCHEMA_SINGLE_ENABLED) {
+            return false
+        }
+        // 【先读原值】必须在 load()/save() 之前判断，否则会被补出来的默认配置掩盖。
+        val hadArchive = !prefs.getString(KEY_DOLLS, "").isNullOrEmpty()
+        val list = load(ctx)
+        var keep = -1
+        for (i in list.indices) {
+            if (list[i].enabled) {
+                keep = i
+                break
+            }
+        }
+        var changed = false
+        if (keep >= 0) {
+            // 有多个 enabled：保留第一个（稳定顺序 = 列表顺序），其余置 false。
+            for (i in list.indices) {
+                if (i != keep && list[i].enabled) {
+                    list[i] = list[i].copy(enabled = false)
+                    changed = true
+                }
+            }
+            if (changed) {
+                Logs.i(TAG, "migrate: keep enabled doll id=" + list[keep].id +
+                    " (was " + (keep + 1) + "th in list), others disabled")
+            }
+        } else if (hadArchive) {
+            // 旧档升级且一只都没启用：按 19.5.4 启用默认角色一次。
+            for (i in list.indices) {
+                if (list[i].id == DEFAULT_ID) {
+                    list[i] = list[i].copy(enabled = true)
+                    changed = true
+                    Logs.i(TAG, "migrate: legacy archive had no enabled doll, enabled default once")
+                    break
+                }
+            }
+        }
+        if (changed) {
+            save(ctx, list)
+        }
+        // 无论是否改动都要落版本号：否则每次启动都会重新扫描一遍。
+        prefs.edit().putInt(KEY_SCHEMA_VERSION, SCHEMA_SINGLE_ENABLED).commit()
+        return changed
+    }
+
 
     /** 按 id 取一个；取不到返回 null。 */
     @JvmStatic
@@ -490,7 +663,14 @@ object DollStore {
         return false
     }
 
-    /** 切换启用态并落盘，返回切换后的状态。内置默认配置同样可切换（它只是不可删除）。 */
+    /**
+     * 切换常驻态并落盘，返回切换后的状态。内置默认配置同样可切换（它只是不可删除）。
+     *
+     * **【v0.1.5·R-001 语义变更】开启一个 = 其余全部关闭。**
+     * 【为什么改这里而不是只在 UI 层关别人】列表页的方形/播放图标背后就是本方法，
+     *   而模型包导入、存档修复等路径也可能写 enabled —— 只要**所有写入都经过本方法
+     *   或 [setActive]**，不变量就守得住；散在调用点去关别人则必然漏。
+     */
     @JvmStatic
     @Synchronized
     fun toggleEnabled(ctx: Context, id: String?): Boolean {
@@ -502,6 +682,15 @@ object DollStore {
             if (list[i].id == id) {
                 val next = !list[i].enabled
                 list[i] = list[i].copy(enabled = next)
+                // 【v0.1.5·单常驻】开启时把其它角色全部关掉（含给它们打消失时刻）。
+                if (next) {
+                    for (j in list.indices) {
+                        if (j != i && list[j].enabled) {
+                            list[j] = list[j].copy(enabled = false)
+                            PetPrefs.setHiddenAt(ctx, list[j].id, System.currentTimeMillis())
+                        }
+                    }
+                }
                 save(ctx, list)
                 // 【r12 用户定案】「取消启用」= 这只人偶从屏幕消失且**不会自己回来**
                 //   ⇒ 算「人偶消失」，给它打上消失时刻；重新启用时据此决定要不要回初始位置。
@@ -584,6 +773,10 @@ object DollStore {
         // 【v0.1.0】动作也要清：删人偶之后再新建、万一复用同一个 id，
         //   旧动作会「复活」；而且默认配置的重置语义要求动作一起回出厂。
         DollAnim.clearAll(ctx, id)
+        // 【v0.1.5·19.3】待机回退记录也要清：不清理的话，下次万一复用同一个 id，
+        //   新人偶会继承「上一只的回退动作 id」，而那个动作早就随 clearAll 没了 ——
+        //   结果就是 resolve 每次都判失效、每次都重算，白跑一遍。
+        IdleFallback.clear(ctx, id)
         if (id == DEFAULT_ID) {
             // 默认配置删掉 → 立刻重建一个出厂的（排在首位）。
             rebuildDefault(ctx)
@@ -734,6 +927,11 @@ object DollStore {
         return coverOf(ctx, doll, 1024)
     }
 
+    /** 内置默认角色从安装第一帧就有封面；空白模板仍保持真正的空封面。 */
+    @JvmStatic
+    fun hasImmediateCover(doll: Doll?): Boolean =
+        doll != null && (doll.cover.isNotEmpty() || doll.id == DEFAULT_ID)
+
     /**
      * 【r24·修内存与主线程卡顿】按目标边长解码封面。
      *
@@ -752,7 +950,11 @@ object DollStore {
     fun coverOf(ctx: Context, doll: Doll?, reqPx: Int): Bitmap? {
         val path = if (doll == null) "" else doll.cover
         if (path.isEmpty()) {
-            return null
+            // 内置默认配置的模型随 APK 分发，封面也必须首屏直接可见。
+            // 空白模板仍保持空封面，不能回落成默认角色。
+            return if (doll?.id == DEFAULT_ID) {
+                BitmapFactory.decodeResource(ctx.resources, R.drawable.pet_front)
+            } else null
         }
         return decodeFile(path, reqPx)
     }

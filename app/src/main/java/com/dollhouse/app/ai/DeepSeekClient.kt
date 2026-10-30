@@ -141,15 +141,8 @@ object DeepSeekClient {
         }
         val optString: String? = if (jSONObject == null) null else jSONObject.optString("content", "")
         if (optString == null || optString.trim().isEmpty()) {
-            // 【v2.9.4】兜底：推理型模型会把正文写进 reasoning_content、content 留空。
-            //  只在 content 为空时启用，完全不影响正常返回路径。
-            val rc: String? = if (jSONObject == null) null else jSONObject.optString("reasoning_content", "")
-            if (rc != null && !rc.trim().isEmpty()) {
-                Logs.i("DollhouseMemo", "[parse] content 为空，回退 reasoning_content len=" + rc.length)
-                callback.onResult(rc.trim(), null)
-                return
-            }
-            Logs.i("DollhouseMemo", "[parse] content 与 reasoning_content 均为空，判定为空内容")
+            // reasoning_content 是思考过程，不是最终回答；禁止冒充正文。
+            Logs.i("DollhouseMemo", "[parse] content 为空，判定为空内容")
             callback.onResult(null, "模型返回了空内容")
         } else {
             callback.onResult(optString.trim(), null)
@@ -193,10 +186,7 @@ object DeepSeekClient {
         if (content != null && !content.trim().isEmpty()) {
             return content.trim()
         }
-        val rc: String? = if (msg == null) "" else msg.optString("reasoning_content", "")
-        if (rc != null && !rc.trim().isEmpty()) {
-            return rc.trim()
-        }
+        // 只有 content 是最终答案。reasoning_content 由聊天流单独展示。
         return null
     }
 

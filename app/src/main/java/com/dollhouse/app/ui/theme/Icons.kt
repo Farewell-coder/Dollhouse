@@ -206,6 +206,70 @@ object Icons {
     @JvmField
     val IC_IMAGE_PLUS = R.drawable.ic_image_plus
 
+    /* ================= 【R-112·Lucide 补图】 =================
+     * 来源：lucide-icons/lucide main 分支官方 SVG（ISC 协议）。
+     * 转换：svg2vector.py（path/circle/rect/line/polyline/polygon → VectorDrawable）。
+     * 用途：高手路径四行、预览页拖动与大小检查、模型管理页导入模型包、添加动作弹窗。
+     * 命名：与工程既有 IC_* 同口径，24dp 视口 / 线宽 2 / 圆角端点 / 占位白描边。
+     */
+    /** 站立姿态：高手路径「站着的她」（必需行）。 */
+    @JvmField
+    val IC_PERSON_STANDING = R.drawable.ic_person_standing
+    /** 手持：高手路径「拖动时的她」。 */
+    @JvmField
+    val IC_HAND_METAL = R.drawable.ic_hand_metal
+    /** 鼠标指针方块：高手路径「贴入瞬间的她」（一次性的入场动作）。 */
+    @JvmField
+    val IC_SQUARE_MOUSE_POINTER = R.drawable.ic_square_mouse_pointer
+    /** 抓握：贴边常驻（贴在边上）。 */
+    @JvmField
+    val IC_GRAB = R.drawable.ic_grab
+    /** 对齐顶边：大小检查「对齐头顶」。 */
+    @JvmField
+    val IC_ALIGN_START_VERTICAL = R.drawable.ic_align_start_vertical
+    /** 对齐底边：大小检查「对齐脚底」。 */
+    @JvmField
+    val IC_ALIGN_END_VERTICAL = R.drawable.ic_align_end_vertical
+    /** 脚印：对齐脚底（比抽象箭头更直观）。 */
+    @JvmField
+    val IC_FOOTPRINTS = R.drawable.ic_footprints
+    /** 尺：大小检查 / 手动微调。 */
+    @JvmField
+    val IC_RULER = R.drawable.ic_ruler
+    /** 画笔：高手卡片（会画画、懂素材）。 */
+    @JvmField
+    val IC_BRUSH = R.drawable.ic_brush
+    /** 魔杖：新手卡片（拎包入住，少操作）。 */
+    @JvmField
+    val IC_WAND_SPARKLES = R.drawable.ic_wand_sparkles
+    /** 用户+笔：已有角色添加动作。 */
+    @JvmField
+    val IC_USER_ROUND_PEN = R.drawable.ic_user_round_pen
+    /** 三维移动：预览页「可拖动」提示。 */
+    @JvmField
+    val IC_MOVE_3D = R.drawable.ic_move_3d
+    /** 模型包校验通过：模型管理页「导入模型包」。 */
+    @JvmField
+    val IC_PACKAGE_CHECK = R.drawable.ic_package_check
+    /** 放大：手动微调里的「放大 / 缩小」辅助。 */
+    @JvmField
+    val IC_MAXIMIZE_2 = R.drawable.ic_maximize_2
+    /** 扫描线：显示待机轮廓（对齐参考线）。 */
+    @JvmField
+    val IC_SCAN_LINE = R.drawable.ic_scan_line
+    /** 清单勾选：验收 / 大小检查结果摘要。 */
+    @JvmField
+    val IC_LIST_CHECKS = R.drawable.ic_list_checks
+    /** 打开的书：查看支持格式（帮助入口）。 */
+    @JvmField
+    val IC_BOOK_OPEN = R.drawable.ic_book_open
+    /** 钢笔工具：手动微调入口（与 IC_BRUSH 区分：BRUSH=高手卡片，PEN_TOOL=精细调节）。 */
+    @JvmField
+    val IC_PEN_TOOL = R.drawable.ic_pen_tool
+    /** 抓握点阵：拖拽热区指示（可拖动预览）。 */
+    @JvmField
+    val IC_GRIP = R.drawable.ic_grip
+
     /* ================= 【r13·导航改造】三 Tab 与聊天列表用图标 =================
      * 【来源】全部取自 lucide-static 官方 SVG（ISC 协议）v1.55.0，
      *   经 /root/dh_lucide/convert.py 转成 VectorDrawable，与本工程既有图标
@@ -329,8 +393,6 @@ object Icons {
     @JvmField
     val IC_CABLE = R.drawable.ic_cable
     /** 书本（Lucide book-open）：记忆库 / 知识库设置。 */
-    @JvmField
-    val IC_BOOK_OPEN = R.drawable.ic_book_open
     /** 聊天气泡与心（Lucide message-square-heart）：对话情感 / 对话显示策略。 */
     @JvmField
     val IC_MESSAGE_SQUARE_HEART = R.drawable.ic_message_square_heart
@@ -355,8 +417,6 @@ object Icons {
     @JvmField
     val IC_TAGS = R.drawable.ic_tags
     /** 魔法棒（Lucide wand-sparkles）：AI 生成 / 智能配置。 */
-    @JvmField
-    val IC_WAND_SPARKLES = R.drawable.ic_wand_sparkles
 
     // ---- 安全 / 凭据 ----
     /** 盾牌对勾（Lucide shield-check）：安全 / 已校验 / 凭据保护。 */
@@ -416,8 +476,6 @@ object Icons {
     @JvmField
     val IC_PANEL_RIGHT = R.drawable.ic_panel_right
     /** 抓手（Lucide grab）：拖拽动作固定壳。 */
-    @JvmField
-    val IC_GRAB = R.drawable.ic_grab
     /** 洗牌（Lucide shuffle）：随机动作组。 */
     @JvmField
     val IC_SHUFFLE = R.drawable.ic_shuffle

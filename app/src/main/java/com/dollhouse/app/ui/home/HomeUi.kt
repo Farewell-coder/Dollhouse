@@ -445,8 +445,11 @@ object HomeUi {
     @JvmStatic
     fun showNotice(ctx: Context, title: String, message: String) {
         val act = UiKit.findActivity(ctx) ?: return
-        UiKit.showDialog(act, title, UiKit.dialogMessage(act, message), "知道了", null, null, null)
+        // 同类提示只保留一个，连续点击不会叠出一串对话框。
+        if (noticeDialog?.isShowing == true) return
+        noticeDialog = UiKit.showDialog(act, title, UiKit.dialogMessage(act, message), "知道了", null, null, null)
     }
+    private var noticeDialog: android.app.Dialog? = null
 
     /**
      * 启停桌宠：点下即切目标态，随后轮询真实状态纠偏。
@@ -519,13 +522,7 @@ object HomeUi {
      */
     @JvmStatic
     fun openChat(act: Activity) {
-        if (!hasChatTarget(act)) {
-            HomeState.chatAvailable = false
-            // 【全工程禁用 Toast】走既有合法通道：原生 Dialog + 标题 + 正文 + 「知道了」。
-            showNotice(act, "还没有可用的聊天模型",
-                "先去「设置 → 模型配置」添加一个可用的聊天模型，才能开始对话。")
-            return
-        }
+        // 对话界面始终允许进入；是否有可用模型只在真正发送消息时检查。
         try {
             com.dollhouse.app.PageTransitions.start(
                 act, Intent(act, com.dollhouse.app.ChatActivity::class.java)

@@ -113,13 +113,24 @@ object ChatUi {
     /* ============================ 顶栏 ============================ */
 
     /**
-     * 顶栏：整条可拖动 + 返回 / 抽屉 / 标题 / 上下文环。
+     * 顶栏：标题区可拖动 + 返回 / 抽屉 / 标题 / 上下文环。
      * 【顺序】返回键必须排在标题之前：标题 weight=1 会吃掉剩余宽度，先加标题会把返回键挤到最右。
+     *
+     * **【v0.1.5·K-01】拖拽只绑标题区，不再绑整行。**
+     * 【改造前的毛病】`drag` 挂在整条 Row 上 —— 拖动窗口与「点返回」共用同一个手势区域，
+     *   手指在返回键附近有 1~2dp 抖动时，`detectDragGestures` 先吃掉事件、
+     *   抬手时 click 被判定为「拖拽后抬手」而不触发 ⇒ 用户报的「返回键有时候点不动」。
+     * 【修法】把 `drag` 从 Row 移到**标题那一列**（身份区）上：
+     *   · 返回按钮、右侧操作按钮各自独占自己的手势区域，绝不被拖拽抢；
+     *   · 标题区（头像 + 名字那一块）仍然整块可拖，这是用户拖窗口最自然的落点。
+     * 【为什么不干脆去掉拖拽】拖动聊天窗口是本工程既有能力（无边框浮窗场景），
+     *   需求书 19.9 只要求「不得覆盖返回按钮」，不是要取消拖拽。
      */
     @Composable
     private fun TopBarRow(host: ChatPanel) {
         val c = DhTokens.colors
         val topCtx = androidx.compose.ui.platform.LocalContext.current
+        // 【v0.1.5·K-01】拖拽手势——只交给下面的「标题区」，不交给整条 Row。
         val drag = Modifier.pointerInput(host) {
             var lastX = 0f
             var lastY = 0f
@@ -142,8 +153,7 @@ object ChatUi {
             modifier = Modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 8.dp)
-                .then(drag),
+                .padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.IconButton(iconRes = Icons.IC_ARROW_LEFT, sizeDp = 20f, color = c.title) {
@@ -185,7 +195,10 @@ object ChatUi {
                     .padding(start = 4.dp)
                     // 【r19·聊天搜索】长按标题唤出搜索框（不占布局空间）。
                     .pressable(
-                        onClick = {},
+                        onClick = {
+                            val a = host.activity as? com.dollhouse.app.MainActivity
+                            if (a != null) com.dollhouse.app.ui.chat.FriendProfilePage.open(a, dollId)
+                        },
                         onLongClick = { host.showSearchDialog() }
                     ),
                 verticalAlignment = Alignment.CenterVertically
@@ -236,6 +249,10 @@ object ChatUi {
                 }
             }
             CtxRingView(host)
+            DhKit.IconButton(Icons.IC_MORE, Design.SZ_MD, c.title) {
+                val a = host.activity as? com.dollhouse.app.MainActivity
+                if (a != null && dollId.isNotEmpty()) ConversationHistoryPage.open(a, dollId)
+            }
         }
     }
 
@@ -583,7 +600,9 @@ object ChatUi {
                     // 【可选文本】消息正文支持长按选中复制 —— 与长按弹菜单不冲突：
                     //   选中手势在文字自身，菜单在气泡空白与整块长按，两者各管一段。
                     SelectionContainer {
-                        Text(
+                        if (!mine && item.text.contains(":::card")) {
+                            BlockRenderer(item.text, true)
+                        } else Text(
                             text = item.text,
                             color = if (mine) c.onAcc else c.title,
                             fontSize = UiKit.FS_BTN.sp,

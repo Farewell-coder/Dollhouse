@@ -143,7 +143,13 @@ class ActionPlayerCore(
 
     /** 人偶级视口：所有动作共用，切换动作不会改变人物基础身高。 */
     private val viewportProvider: () -> ActionViewport.Spec? = { null },
-
+    /**
+     * **【v0.1.5·G-03】**按动作 id 取「相对模型基准的修正比例」（默认 1 = 不修正）。
+     *
+     * 【为什么单独一个 provider 而不是塞进 viewportProvider】见 [withActionFix] 的说明：
+     *   viewportProvider 不知道当前是哪个动作，而修正值是**动作级**的。
+     */
+    private val fixProvider: ((actionId: String) -> Float)? = null,
     /** 动作所需宽度变化时回调宿主。只由动作/帧/比例变化触发，绝不逐帧布局。 */
     private val viewportChanged: (ActionViewport.Spec) -> Unit = {}
 ) {
@@ -266,15 +272,44 @@ class ActionPlayerCore(
 
     /** 比例变化时由宿主刷新。真正改窗口仍只在 refreshViewport 的短路之后发生。 */
     fun refreshViewport() {
-        viewport = viewportProvider()
+        viewport = withActionFix(viewportProvider())
         measuredWidth = 0
         measuredHeight = 0
         remeasureViewport()
         requestDraw()
     }
 
+    /**
+     * **【v0.1.5·G-03】把「当前动作的 scaleFix」灌进规格。**
+     *
+     * 【为什么在这里而不是 `viewportProvider` 里】provider 的签名是 `() -> Spec?`，
+     *   它只知道「哪只人偶」，不知道「哪个动作」。而 `scaleFix` 是**按动作**存的
+     *   （19.7.3：基准是模型级、修正是动作级）。本类恰好在 [load] 时就知道当前动作 id，
+     *   由它把两者合起来最自然，也不必为了一个字段去改 provider 的签名（那要牵动宿主）。
+     *
+     * 【为什么读一次就够】用户在「大小检查」里改过修正值之后会主动触发刷新
+     *   （界面会调 `refreshViewport`）；播放过程中不重算 —— 19.7.4 明确禁止
+     *   「每次播放时重新估算并反复覆盖」，否则会产生累积缩放误差。
+     */
+    private fun withActionFix(base: ActionViewport.Spec?): ActionViewport.Spec? {
+        if (base == null) {
+            return null
+        }
+        // 没有模型基准时 scaleFix 无意义（measure 会忽略它），不必白读一次存储。
+        if (base.referenceFill <= 0f) {
+            return base
+        }
+        val p = fixProvider ?: return base
+        val aid = actionId ?: return base
+        if (aid.isEmpty()) {
+            return base
+        }
+        val fix = p(aid)
+        return if (fix == base.scaleFix) base else base.copy(scaleFix = fix)
+    }
+
     private fun remeasureViewport() {
-        val base = viewportProvider()?.copy(requiredWidth = 0) ?: return
+        val base = withActionFix(viewportProvider()?.copy(requiredWidth = 0)) ?: return
         val r = renderer
         var width = base.baseWidth
         var bw = 0

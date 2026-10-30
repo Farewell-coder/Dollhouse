@@ -44,6 +44,7 @@ class NavKeyCodecTest {
             "doll:persona:abc",           // DollPersonaPage
             "doll:action:abc",            // DollActionPage
             "doll:anim:abc|def",          // DollAnimPage
+            "doll:import:abc",            // DollImportWizardPage（工作台导入向导）
             // 供应商 / 聊天 / 记忆库 / Token
             "feiyu_cfg_page",             // ProviderNav
             // 注意：`chat:list` 不在这里 —— 它虽定义了 KEY，但全工程没有任何地方

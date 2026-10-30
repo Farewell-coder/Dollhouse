@@ -151,6 +151,7 @@ object PageStack {
      */
     @JvmStatic
     fun push(ctx: Context?, key: String?, build: (() -> View?)?): Boolean {
+        com.dollhouse.app.core.OperationRecorder.event("Navigation", "push ${key.orEmpty()}")
         return NavHost.push(ctx, key, build)
     }
 

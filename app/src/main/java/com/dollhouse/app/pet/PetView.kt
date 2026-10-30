@@ -14,6 +14,7 @@ import android.text.TextPaint
 import android.view.View
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollAnim
+import com.dollhouse.app.data.IdleFallback
 import com.dollhouse.app.data.DollSizeSpec
 import com.dollhouse.app.data.ActionViewport
 import com.dollhouse.app.data.PetPrefs
@@ -1638,7 +1639,26 @@ class PetView(context: Context) : View(context) {
                         Math.round(boxBuf[0]).coerceAtLeast(petWidth())
                     },
                         baseHeight = baseHeight,
-                        bodyHeight = baseHeight
+                        bodyHeight = baseHeight,
+                        // **【v0.1.5·G-03 模型级基准】**
+                        //   把「这只人偶的模型基准 + 当前动作修正」灌进 Spec。
+                        //   【为什么在这里读】本 block 只在换动作 / 换人偶时被调用一次
+                        //   （`viewportProvider` 由 `ActionPlayerCore.refreshViewport` 触发），
+                        //   不是逐帧；放这里不会引入每帧 IO。
+                        //   【没有基准时返回 0f / 1f】→ measure 完全走旧逻辑，老档行为不变。
+                        referenceFill = run {
+                            val tag = actionDollId
+                            if (tag.isNullOrEmpty()) {
+                                0f
+                            } else {
+                                com.dollhouse.app.data.ModelBaseline.ref(context, tag)
+                                    .takeIf { it.isValid() }?.referenceFill ?: 0f
+                            }
+                        },
+                        // 【动作级修正】19.7.3：只对本动作生效，不改模型基准。
+                        //   【在哪填】本 provider 不知道当前动作，交给 ActionPlayerCore
+                        //   在测量时用 `fixProvider` 覆盖（见 withActionFix）。
+                        scaleFix = 1f
                     )
                     base.copy(requiredWidth = pendingActionViewportWidth)
                 }
@@ -1646,6 +1666,17 @@ class PetView(context: Context) : View(context) {
             viewportChanged = { spec ->
                 pendingActionViewportWidth = spec.requiredWidth
                 actionViewportChanged?.invoke(spec.requiredWidth)
+            },
+            // **【v0.1.5·G-03】动作级修正比例**（相对模型基准）。
+            //   由播放层在测量视口时按**当前动作 id** 取用（见 ActionPlayerCore.withActionFix），
+            //   因为只有它知道此刻播的是哪个动作。
+            fixProvider = { actionId ->
+                val tag = actionDollId
+                if (tag.isNullOrEmpty()) {
+                    1f
+                } else {
+                    com.dollhouse.app.data.ActionScaleFix.fix(context, tag, actionId)
+                }
             },
             // 【v0.1.0·动作大小统一】从烘帧记录里取「本体基准矩形」。
             //   有了它，播放层按「人偶本体」而不是「整张画布」映射到窗口 ——
@@ -1706,7 +1737,18 @@ class PetView(context: Context) : View(context) {
         b.bind(
             // 解析：语义 → 动作 id（数据层问答，动作层不依赖数据层）。
             PetBehaviorController.ActionResolver { semantic ->
-                DollAnim.bySemantic(context, dollId, semantic)?.id
+                val direct = DollAnim.bySemantic(context, dollId, semantic)?.id
+                if (direct != null) {
+                    direct
+                } else if (semantic == ActionSemantic.IDLE) {
+                    // 【v2.1·19.3 降级矩阵最后一行】待机缺失不是错误，是正常降级：
+                    //   必须落到**持久化的确定回退动作**上，而不是随每次启动挑到不同动作，
+                    //   也不是干脆不播（那样画面只剩基础形变，用户会以为角色坏了）。
+                    //   回退 id 由 IdleFallback 在导入时写定，此处只读。
+                    IdleFallback.resolve(context, dollId)
+                } else {
+                    null
+                }
             },
             // 播放：真正落到 ActionPlayerCore 上。
             object : PetBehaviorController.ActionPlayer {
@@ -1789,6 +1831,38 @@ class PetView(context: Context) : View(context) {
      */
     internal fun notifyEdgeChanged() {
         behavior?.onEdgeChanged()
+    }
+
+    /**
+     * **【v0.1.5·R-013】真实吸附到边缘** —— 先播一次「贴入瞬间」，播完自动接「贴边常驻」。
+     *
+     * 【只给谁用】[com.dollhouse.app.pet.PetWindow.enterEdgePeek]，且仅在**一次真实的
+     *   拖拽松手吸附**时。启动恢复 / 旋转重建必须用 [notifyEdgeRestored]。
+     */
+    internal fun notifyEdgeEnter() {
+        behavior?.onEdgeEnter()
+    }
+
+    /**
+     * **【v0.1.5·R-016】恢复贴边姿态**（启动 / 旋转 / 进程重建）—— 直接进贴边常驻。
+     *
+     * 【为什么必须与 [notifyEdgeEnter] 分开】需求书 19.3 补充规则 4：
+     *   EDGE_IN 只能由真实的「拖拽松手并成功吸边」触发，否则每次启动都播一遍入边动画。
+     */
+    internal fun notifyEdgeRestored() {
+        behavior?.onEdgeRestored()
+    }
+
+    /**
+     * **【v0.1.5·G-03】重算动作视口**（模型级基准变了之后由窗口层调用）。
+     *
+     * 【和 `setScaleFactor` 的区别】那条路是「用户改了显示比例」——
+     *   要先 `resetScale`（清掉缩放缓存）再重算；这里只是基准变了，
+     *   帧图尺寸和显示比例都没变，直接重算即可。
+     */
+    internal fun refreshActionViewport() {
+        action?.refreshViewport()
+        invalidate()
     }
 
     /** 供渲染器（Lottie / 动图）查询宿主能力：重绘、可见性、屏幕状态。 */

@@ -275,17 +275,42 @@ class BehaviorPriorityTest {
      */
     @Test
     fun semanticTable_hasTenStandardIds() {
-        assertEquals(10, ActionSemantic.ALL.size)
-        assertEquals(10, ActionSemantic.ALL.toSet().size)
+        // 【v0.1.5·G-02】语义表从 10 个扩到 11 个：新增 `edge_in`（贴入瞬间）。
+        //   需求 19.3 补充规则 4 要求「贴入瞬间」必须能作为独立语义被仲裁层识别
+        //   （只能由真实拖拽松手吸边触发），所以它必须进标准表而不是当私有字符串。
+        assertEquals(11, ActionSemantic.ALL.size)
+        assertEquals(11, ActionSemantic.ALL.toSet().size)
         for (s in listOf(
             "idle", "tap", "drag", "longpress", "appear", "disappear", "sleep",
-            "edge", "random", "manual"
+            "edge", "random", "manual", "edge_in"
         )) {
             assertTrue("缺少标准语义：" + s, ActionSemantic.ALL.contains(s))
             assertTrue(ActionSemantic.isStandard(s))
         }
         assertFalse(ActionSemantic.isStandard(null))
         assertFalse(ActionSemantic.isStandard("bogus"))
+    }
+
+    /**
+     * 【v0.1.5·G-02】贴入瞬间的优先级位置。
+     *
+     * 【判据】它必须
+     * · **低于拖拽** —— 贴入播放中途再次按住拖动，要立刻切到拖拽（TC-018）；
+     * · **高于贴边常驻** —— 吸边后先播贴入，而不是直接进循环；
+     * · 与点击反馈的相对顺序不重要（两者不会同时发生），但必须落在同一量级。
+     *
+     * 【为什么不用文档字面的 30】本工程 `MANUAL = 30` 已占用该值，
+     *   而 19 节要求「未被第 19 节覆盖的原需求全部继续有效」。取 38
+     *   保证**相对顺序**与文档一致（DRAG 40 > EDGE_IN > TAP 35 > MANUAL 30），
+     *   同时不破坏既有档位的语义。
+     */
+    @Test
+    fun semanticPriority_edgeInPlacement() {
+        val drag = ActionSemantic.priority(ActionSemantic.DRAG)
+        val edgeIn = ActionSemantic.priority(ActionSemantic.EDGE_IN)
+        val edge = ActionSemantic.priority(ActionSemantic.EDGE)
+        assertTrue("拖拽 > 贴入瞬间", drag > edgeIn)
+        assertTrue("贴入瞬间 > 贴边常驻", edgeIn > edge)
     }
 
     /**

@@ -63,7 +63,7 @@ import java.io.File
  * ```
  * ① 选文件      → 只拿到路径，什么都不写
  * ② 识别与校验  → 逐项显示「认成什么 / 能不能导 / 为什么不能」（[AnimImport.inspect]）
- * ③ 选导入方式  → 新建动作 / 作为变体 / 替换现有动作
+ * ③ 选导入方式  → 添加动作 / 作为变体 / 替换现有动作
  * ④ 确认提交    → 这一步才真正写盘；取消则磁盘上零痕迹
  * ```
  *
@@ -332,7 +332,7 @@ object DollImportWizardPage {
                 when (mode) {
                     MODE_NEW -> {
                         DhForm.Gap()
-                        DhKit.SectionLabel("放到哪一组")
+                        DhKit.SectionLabel("什么时候播放")
                         for (g in DollAnim.SWAPPABLE_GROUPS) {
                             DhKit.CheckRow(text = g, selected = groupDraft == g) { groupDraft = g }
                         }

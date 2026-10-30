@@ -104,19 +104,40 @@ object DollAnim {
     const val GROUP_ALWAYS = "常驻动作"
     const val GROUP_EDGE = "贴边动作"
     const val GROUP_DRAG = "拖拽动作"
+
+    /**
+     * **【v0.1.5·R-010 新增】贴入瞬间**：人偶刚吸附到屏幕边缘时**只播一次**的动画。
+     *
+     * 【为什么要和 [GROUP_EDGE] 分开】需求书 18.5 / v2.1·19.3 明确区分两个动作：
+     *   · 贴入瞬间（edgeIn）：吸附那一刻播一次，播完进贴边常驻；
+     *   · 贴边常驻（edgeLoop，即历史沿用至今的 [GROUP_EDGE]）：贴着边缘期间一直循环。
+     *   改造前只有「贴边动作」一个壳，于是「先播一次贴入、再循环」这件事表达不出来 ——
+     *   只能二选一，用户看到的要么是「贴边动作被无限循环」、要么是「入边那一下没有过渡」。
+     *
+     * 【为什么复用「贴边动作」当贴边常驻、而不是把四个都改名】见 v2.1·20.2.4
+     *   「任何数据结构变化必须同时考虑旧数据读取」：`贴边动作` 这个**字符串值**已经
+     *   写进了千万份存档的 JSON 里，改名就要写一次全量迁移，且历史模型包（manifest
+     *   里存的是字符串）会全部失效。保留原值、只**追加**新组，是最小改动且零迁移。
+     */
+    const val GROUP_EDGE_IN = "贴入瞬间"
     const val GROUP_RANDOM = "随机动作"
     const val GROUP_MANUAL = "手动动作"
 
     /**
-     * 界面上的分组顺序：固定三组永远排最前（常驻 → 贴边 → 拖拽），其后随机、手动。
+     * 界面上的分组顺序：固定四组永远排最前（常驻 → 拖拽 → 贴入瞬间 → 贴边），
+     * 其后随机、手动。
      * 【为什么顺序也要在数据层】界面按这个顺序渲染分组；顺序变了只改这一处。
+     *
+     * **【v0.1.5·为什么把贴入瞬间排在贴边之前】** 需求书 6.4 的状态转换是
+     *   「拖拽 → 贴入瞬间 → 贴边常驻」，界面顺序跟随真实播放顺序，
+     *   用户读卡片时看到的就是「会依次发生的事」，不需要额外解释。
      */
     val GROUP_ORDER: List<String> = listOf(
-        GROUP_ALWAYS, GROUP_EDGE, GROUP_DRAG, GROUP_RANDOM, GROUP_MANUAL
+        GROUP_ALWAYS, GROUP_DRAG, GROUP_EDGE_IN, GROUP_EDGE, GROUP_RANDOM, GROUP_MANUAL
     )
 
-    /** 三个固定壳（不可删 / 不可换组）。顺序与展示顺序一致。 */
-    val FIXED_GROUPS: List<String> = listOf(GROUP_ALWAYS, GROUP_EDGE, GROUP_DRAG)
+    /** 固定壳（不可删 / 不可换组）。顺序与展示顺序一致。 */
+    val FIXED_GROUPS: List<String> = listOf(GROUP_ALWAYS, GROUP_DRAG, GROUP_EDGE_IN, GROUP_EDGE)
 
     /** 允许「新建」与「换组」的组（只有这两个）。 */
     val SWAPPABLE_GROUPS: List<String> = listOf(GROUP_RANDOM, GROUP_MANUAL)
@@ -126,16 +147,23 @@ object DollAnim {
     fun isFixedGroup(group: String?): Boolean = group != null && FIXED_GROUPS.contains(group)
 
     /**
-     * **【v0.1.0】三个固定壳的动作 id —— 历史沿用，永不改变。**
+     * **【v0.1.0】固定壳的动作 id —— 历史沿用，永不改变。**
      *
      * 【为什么沿用旧 id 而不是新造 `slot_always`】
      *   ① `drag` 与语义 `ActionSemantic.DRAG` 同名 → `bySemantic("drag")` 直接命中，
      *      「拖动时播拖拽动作」这条链路一行都不用改；
      *   ② 旧存档里这三个动作的帧图路径全部保留，用户已经烘好的呼吸 36 帧不会白扔。
+     *
+     * **【v0.1.5·新增 [SLOT_EDGE_IN_ID]】** 只追加、不改旧值。旧存档里没有这个 id，
+     *   [all] 会按 [FIXED_GROUPS] 自动补一个空壳 —— 于是老用户升级后
+     *   动作页自然多出「贴入瞬间」这一格（未设置 = 走降级矩阵，不报错）。
      */
     const val SLOT_ALWAYS_ID = "breath"
     const val SLOT_EDGE_ID = "peek"
     const val SLOT_DRAG_ID = "drag"
+
+    /** 【v0.1.5】贴入瞬间壳的动作 id。不复用 `peek`（那已经是贴边常驻）。 */
+    const val SLOT_EDGE_IN_ID = "edgein"
 
     /** 组 → 固定壳 id（非固定组返回 null）。 */
     @JvmStatic
@@ -143,6 +171,7 @@ object DollAnim {
         GROUP_ALWAYS -> SLOT_ALWAYS_ID
         GROUP_EDGE -> SLOT_EDGE_ID
         GROUP_DRAG -> SLOT_DRAG_ID
+        GROUP_EDGE_IN -> SLOT_EDGE_IN_ID
         else -> null
     }
 
@@ -152,6 +181,7 @@ object DollAnim {
         SLOT_ALWAYS_ID -> GROUP_ALWAYS
         SLOT_EDGE_ID -> GROUP_EDGE
         SLOT_DRAG_ID -> GROUP_DRAG
+        SLOT_EDGE_IN_ID -> GROUP_EDGE_IN
         else -> null
     }
 
@@ -834,6 +864,99 @@ object DollAnim {
      * 【r16 语义·builtin 不再是权限】普通动作一律可删（含内置的 16 个），
      *   `builtin` 只说明「它是工程自带的」。删错了由「删人偶 → 重建出厂配置」兜底。
      */
+    /**
+     * 【R-112 九.4】删除前判定：这一删会不会让角色「一个可播放动作都不剩」。
+     *
+     * 三种结果：
+     *  - [LastActionCheck.NOT_LAST]  删了还有别的可播动作，正常删。
+     *  - [LastActionCheck.NEED_IDLE] 删完就空了，但角色有形象图 —— 允许删，
+     *    删除方随后应调 [ensureAtLeastOneAction] 自动生成 1 帧待机。
+     *  - [LastActionCheck.BLOCK]     删完就空了且没有形象图 —— **必须阻止**，
+     *    提示「至少保留一个动作」。
+     *
+     * 【为什么判断放在数据层而不是 UI】数据规则要求「不允许出现零可播动作的角色」。
+     *   放在 UI 会有第二入口（批量清空 / 卸载模型包）绕过去；放在这里，任何删除路径
+     *   都必须先过这一关。
+     */
+    enum class LastActionCheck { NOT_LAST, NEED_IDLE, BLOCK }
+
+    @JvmStatic
+    fun checkBeforeRemove(ctx: Context, dollId: String?, id: String?): LastActionCheck {
+        if (dollId.isNullOrEmpty()) {
+            return LastActionCheck.NOT_LAST
+        }
+        val list = load(ctx, dollId)
+        // 「可播放」= 有帧或有入口资源。空壳不算（它本来就画不出东西）。
+        var playable = 0
+        var removingPlayable = false
+        for (a in list) {
+            val ok = a.frames.isNotEmpty() || a.assetPath.isNotEmpty()
+            if (!ok) continue
+            playable++
+            if (a.id == id) removingPlayable = true
+        }
+        // 删的不是可播动作，或者删完仍有可播动作 —— 都不算「最后一个」。
+        if (!removingPlayable || playable > 1) {
+            return LastActionCheck.NOT_LAST
+        }
+        // 只剩这一个可播动作。看角色有没有形象图可兜底。
+        val doll = DollStore.byId(ctx, dollId)
+        return if (doll != null && doll.sprite.isNotEmpty()) {
+            LastActionCheck.NEED_IDLE
+        } else {
+            LastActionCheck.BLOCK
+        }
+    }
+
+    /**
+     * 【R-112 九.4 前半】删除后兜底：角色一个可播动作都不剩时，用形象图自动生成 1 帧待机。
+     *
+     * @return true = 已确保至少有一个可播动作（本来就有 / 刚生成）；
+     *         false = 无法保证（没有形象图）。
+     *
+     * 【为什么写进常驻壳而不是新建一个动作】常驻壳是「待机」的唯一真源。
+     *   新建一个普通动作当待机，语义上是错的 —— 它不会在无交互时自动播。
+     */
+    @JvmStatic
+    @Synchronized
+    fun ensureAtLeastOneAction(ctx: Context, dollId: String?): Boolean {
+        if (dollId.isNullOrEmpty()) {
+            return false
+        }
+        val list = load(ctx, dollId)
+        for (a in list) {
+            if (a.frames.isNotEmpty() || a.assetPath.isNotEmpty()) {
+                return true
+            }
+        }
+        val doll = DollStore.byId(ctx, dollId) ?: return false
+        if (doll.sprite.isEmpty()) {
+            return false
+        }
+        // 常驻壳可能在 / 可能不在（老档案被手工删过）。两种都要能写。
+        val idle = byId(ctx, dollId, SLOT_ALWAYS_ID)
+        val target = idle ?: Action(
+            id = SLOT_ALWAYS_ID,
+            name = "待机",
+            group = GROUP_ALWAYS,
+            loop = true,
+            builtin = true
+        )
+        val updated = target.copy(frames = listOf(doll.sprite), loop = true)
+        if (idle == null) {
+            list.add(updated)
+        } else {
+            for (i in list.indices) {
+                if (list[i].id == SLOT_ALWAYS_ID) {
+                    list[i] = updated
+                    break
+                }
+            }
+        }
+        save(ctx, dollId, list)
+        return true
+    }
+
     @JvmStatic
     @Synchronized
     fun remove(ctx: Context, dollId: String?, id: String?): Boolean {
@@ -872,6 +995,9 @@ object DollAnim {
             }
         } catch (t: Throwable) {
         }
+        // 【R-112 九.4】删完兜底：一个可播动作都不剩时用形象图生成 1 帧待机。
+        ensureAtLeastOneAction(ctx, dollId)
+        IdleFallback.invalidate()
         return true
     }
 
@@ -968,13 +1094,16 @@ object DollAnim {
     /**
      * 按语义 ID 找动作。
      *
-     * 【v0.1.0·语义 → 固定壳】三个持续态语义直接落到三个壳上：
+     * 【v0.1.0·语义 → 固定壳】四个状态语义直接落到四个壳上：
      * · `idle` → 常驻壳 · `edge` → 贴边壳 · `drag` → 拖拽壳
+     * · **`edge_in`（v0.1.5）→ 贴入瞬间壳**
      * 其余语义（tap / longpress / appear / disappear / sleep）仍按「动作 id 与语义同名」匹配
      * （模型包导入时就是按这个约定生成 id 的）。
      *
      * 【空壳必须返回 null】壳里没内容时播放层没有任何东西可画；返回一个空动作会让
      *   仲裁层误以为「播上了」，把画面从网格形变抢走却又画不出东西 —— 人偶会「消失」。
+     *   **这也正是「贴入瞬间」缺失时的降级入口**：返回 null ⇒ 仲裁层直接跳到贴边常驻
+     *   （需求书 19.3 降级矩阵第 3 行），不需要额外的 if 判断。
      */
     @JvmStatic
     fun bySemantic(ctx: Context, dollId: String?, semantic: String): Action? {
@@ -985,6 +1114,7 @@ object DollAnim {
             "idle" -> SLOT_ALWAYS_ID
             "edge" -> SLOT_EDGE_ID
             "drag" -> SLOT_DRAG_ID
+            "edge_in" -> SLOT_EDGE_IN_ID
             else -> semantic
         }
         val hit = byId(ctx, dollId, id) ?: return null

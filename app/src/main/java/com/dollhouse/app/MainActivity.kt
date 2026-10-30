@@ -11,6 +11,7 @@ import com.dollhouse.app.pet.PetToggle
 import com.dollhouse.app.ui.compose.PageRegistry
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.home.ResumeSettle
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.ThemeManager
@@ -103,9 +104,13 @@ class MainActivity : Activity() {
         // 【r11 种子】默认配置的交谈 / 性格内容继承改造前的内置值；幂等，只写一次。
         //   放在首页装配之前：编辑页 / 聊天页首帧就要能读到这份种子。
         com.dollhouse.app.data.DollProfile.seedDefault(this)
+// 【装配】
         // 【装配】首页 + 设置页两棵 ComposeView 由 HomeUi 一次性建好并挂进 content。
         //   不再 setContentView：Compose 页是「页面」而不是「内容视图」，走同一条挂载通道。
         HomeUi.apply(this)
+        addContentView(com.dollhouse.app.ui.compose.ComposeHost.createView(this) {
+            com.dollhouse.app.ui.compose.OperationRecorderButton()
+        }, android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
         // 【状态栏嵌入】状态栏透明 + 铺满，消除顶部那条系统灰。
         //   放在页面挂载之后：需要 content 里已有子项才好按 insets 让位。
         UiKit.applyEdgeToEdge(this)
@@ -251,6 +256,22 @@ class MainActivity : Activity() {
         //   回前台时多页同时可见，视觉上就是三个页面叠在一起（用户截图报的那个）。
         //   本方法只做状态归位（零动画、幂等），回前台「静止在终点」，正好符合预期。
         HomeUi.settleTabs(this)
+        // 【K-02 回前台重算交互闸门】—— 这三件事以前回前台**都没做**，症状是
+        //   「切后台再回来，界面看着正常但点不动 / 点了触发的是下层」。
+        //
+        //   【为什么会失效】交互所有权由 [LayerGate] 按「栈深 + 抽屉状态」算出，
+        //   而它是**事件驱动**的：只在入栈 / 出栈 / 抽屉开关时重算。
+        //   一旦离开前台期间发生了这些变化（贴边 / 通知点进来推了一页 / 抽屉被系统手势收起），
+        //   回调链被切后台打断，回到前台时各层 [LayerShield.blocking] 还停在旧值上，
+        //   于是「上层以为自己是背景层、不收事件，下层以为自己是背景层、也不收」。
+        //
+        //   【正确做法】回前台无条件重算一次（幂等），并且**顺手把三件配套的事也做掉**：
+        //   ① 回前台重算闸门 —— 让层权限与当前栈 / 抽屉真实状态对齐；
+        //   ② 清掉过期手势窗口 —— 切后台时留下的 tapResolve / longPressTick 定时器
+        //      在回来后才触发，会把「离开前的点击」当成「回来后的点击」派发。
+        ResumeSettle.settle(this)
+        com.dollhouse.app.data.DefaultModelWarmup.schedule(this)
+
         // 【Shizuku】监听挂在这一对生命周期里：授权结果 / 服务后启动都要能自动刷回界面。
         if (!shizukuListenersOn) {
             shizukuListenersOn = true
@@ -266,6 +287,8 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        com.dollhouse.app.core.OperationRecorder.event("Lifecycle", "MainActivity pause")
+        com.dollhouse.app.data.DefaultModelWarmup.cancel()
         ticker.removeCallbacks(tick)
         // 【Shizuku】摘掉监听，避免页面不在前台时还持有 Activity 引用。
         ShizukuBridge.removePermissionListener(shizukuPermListener)
@@ -281,7 +304,11 @@ class MainActivity : Activity() {
      *   新实例会在 onCreate 用新身份建新桶并逐层还原，两边不会互串。
      */
     override fun onDestroy() {
+        com.dollhouse.app.core.OperationRecorder.event("Lifecycle", "MainActivity destroy")
+        com.dollhouse.app.data.DefaultModelWarmup.cancel()
         PageStack.reset(this)
+        com.dollhouse.app.ui.home.ProfileDrawer.resetForHostDestroy(this)
+        com.dollhouse.app.ui.compose.LayerGate.forget(this)
         super.onDestroy()
     }
 

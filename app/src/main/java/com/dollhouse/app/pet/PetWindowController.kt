@@ -58,14 +58,23 @@ class PetWindowController(private val host: PetService) {
      *   需求定案：「没有选择使用人偶的情况下 就不要出现人偶 …… 必须得选择人偶 才会出现所选的人偶」。
      *   兜底会让用户在「一只都没启用」时仍然看到一只默认配置人偶，与「必须选」的语义直接冲突。
      *   现在空列表 = 什么都不挂（由 [PetService] 负责随之停服务）。
+     *
+     * **【v0.1.5·R-001 单常驻】最多返回一只。**
+     * 【为什么要在这里再截一道】数据层已经互斥（`DollStore.setActive` / `toggleEnabled`），
+     *   但本方法在**服务运行期间**会被反复调用（RELOAD、旋转、主题切换），
+     *   而档案可能被外部改坏（降级安装、手动改 Preferences、多进程写入）。
+     *   运行期兜底一份 = 「屏幕上同时只有一个角色」这条不变量在任何情况下都成立。
+     *   截取的规则与数据层迁移一致：取列表里第一个 enabled（= 历史最久的那只）。
      */
     private fun dollsToShow(): List<DollStore.Doll> {
-        return DollStore.enabled(host)
+        // 【v0.1.5·单常驻】用 active() 而不是 enabled()：前者语义上就是「唯一的那一个」。
+        val one = DollStore.active(host)
+        return if (one == null) emptyList() else listOf(one)
     }
 
     /** 【r12】当前有没有启用的人偶（供 PetService 判断要不要启动 / 停服务）。 */
     fun hasEnabledDoll(): Boolean {
-        return DollStore.enabled(host).isNotEmpty()
+        return DollStore.active(host) != null
     }
 
     /**
@@ -131,6 +140,22 @@ class PetWindowController(private val host: PetService) {
     fun cancelAwayAll() {
         for (window in windows) {
             window.cancelAway()
+        }
+    }
+
+    /**
+     * 【K-02】逐窗口清掉过期的**手势定时器**（回前台对账）。
+     *
+     * 【为什么不能只清「正在按」的那一只】用户被切走时按的是哪一只我们并不知道
+     *   （也不该猜）。窗口数量只有一只（单常驻），成本可以忽略；
+     *   而漏清一只的代价是「回来后被幽灵点击弹了聊天」，比多清一次难解释得多。
+     *
+     * 【幂等】`settleGestures()` 只 `removeCallbacks` 并复位手势状态机，
+     *   没有待触发定时器时是空操作，不会打断任何正在播放的动作。
+     */
+    fun settleGesturesAll() {
+        for (window in windows) {
+            window.settleGestures()
         }
     }
 

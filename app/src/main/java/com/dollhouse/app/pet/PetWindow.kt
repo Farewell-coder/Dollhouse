@@ -227,6 +227,14 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         //   没有配置时动作层 `hasContent()` 恒为 false，绘制路径与改造前逐行一致。
         petView.enableActions(doll.id)
         petView.actionViewportChanged = { requiredWidth -> resizeActionViewport(requiredWidth) }
+        // **【v0.1.5·G-03 模型级基准】上桌时确保这只人偶有基准。**
+        //   【为什么在后台线程】[ModelBaselineCalculator.ensure] 要解码四个状态动作的全部帧图
+        //   （最坏 120 帧 × 每帧 0.22MP），主线程做会让窗口挂载卡顿几百毫秒（N-007 / N-001）。
+        //   【为什么放在 attach 之后】先把人偶正常显示出来（用原有逻辑），基准算完再
+        //   `refreshViewport` 让播放层按新尺子重算 —— 用户看到的是「先出现，再对齐大小」，
+        //   而不是「迟迟不出现」。
+        //   【幂等】ensure 内部已有基准时立刻返回，重复 attach（旋转 / 主题切换）零成本。
+        ensureModelBaselineAsync()
         val layoutParams = WindowManager.LayoutParams(petView.windowWidth(), petView.petHeight(), overlayType(), 776, -3)
         lp = layoutParams
         layoutParams.gravity = 8388659
@@ -268,7 +276,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         //   回归优先于姿态记忆：这次是「回家」，不该再趴回边上。
         val i5 = if (wantHome) -1 else prefs.getInt(key("edge_side"), -1)
         if (i5 >= 0) {
-            enterEdgePeek(i5 == 0)
+            // **【v0.1.5·R-016】启动恢复贴边姿态 —— 用「恢复」入口，不播贴入瞬间。**
+            //   需求书 19.3 补充规则 4：EDGE_IN 只能由真实拖拽松手吸附触发，
+            //   启动 / 重建 / 旋转都不得重复播放。旧代码走 enterEdgePeek（真吸附入口），
+            //   升级后会变成「每次冷启动人偶都抽搐一下」，那是明显的观感退化。
+            enterEdgePeekRestored(i5 == 0)
         } else {
             // 【r12】初始落位夹到虚线框内（框可超出屏幕，所以不能用屏幕宽当边界）。
             val box0 = boundsBox()
@@ -630,6 +642,43 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         return Math.max(minY, Math.min(maxY, i))
     }
 
+    /* ============================ 回前台对账（K-02） ============================ */
+
+    /**
+     * 清掉过期的**手势定时器**，把手势状态机复位到「没按过」。
+     *
+     * 【要解决的幽灵点击】点击是在抬手后用 `postDelayed(tapResolve, TAP_WINDOW_MS)` 结算的，
+     *   长按是按下时 `postDelayed(longPressTick)`。用户按着人偶的瞬间被电话 / 通知切走，
+     *   这两个任务仍然排在 ui 队列里；等界面回到前台它们照常触发 ——
+     *   于是「我没点，它自己弹了气泡 / 自己开了聊天 / 自己播了个动作」。
+     *
+     * 【为什么不能只 removeCallbacks】`GestureCore` 内部还记着 down / 计数 / 长按已触发
+     *   等状态。只丢定时器而状态还是「按着」，下一个 UP 事件会把它当成一次有效点击，
+     *   派生出**比原来更多**的错 —— 必须连状态机一起 [GestureCore.cancel]。
+     *
+     * 【边界】不做：不停动作播放、不改位置、不关气泡。回前台时用户看到的东西应当
+     *   与离开前一致，只有「还没兑现的输入」必须作废。
+     *   【处理拖拽中断】若离开时正在拖（`dragging == true`），抬手事件多半已经丢了，
+     *   人偶会永远停在「拖动中」状态（跟随后续 MOVE 走）。这里就地收尾：
+     *   停帧循环、摘掉 dragging 标记、把动作层从 DRAG 档位放回待机。
+     */
+    fun settleGestures() {
+        ui.removeCallbacks(tapResolve)
+        ui.removeCallbacks(longPressTick)
+        gesture.cancel()
+        if (dragging) {
+            // 与 ACTION_CANCEL 分支保持同一套收尾动作，但**不做吸附/飞行**：
+            // 回来时人偶原地不动比「突然被吸到边上」更符合预期。
+            dragging = false
+            throwInterrupted = false
+            stopDragFrame()
+            petView?.setDragging(false)
+            // 动作层：DRAG 档位必须让出去，否则待机循环永远回不来。
+            petView?.interactionEnd()
+        }
+        petView?.setTouchBusy(false)
+    }
+
     fun settle() {
         // 【r15·收敛 !!】这是**真实崩溃路径**：手指抬起（handleTouch 的 ACTION_UP）会走到这里，
         //   而 detach() 恰好在同一帧把 petView / lp 置空时，旧代码四处 !! 会直接抛 NPE。
@@ -929,7 +978,19 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         })
     }
 
-    fun enterEdgePeek(z: Boolean) {
+    /**
+     * 【v0.1.0】进入贴边姿态。
+     *
+     * **【v0.1.5·R-013】默认视为「真实吸附」—— 播一次贴入瞬间。**
+     * 【为什么要区分】需求书 19.3 补充规则 4 要求「启动恢复 / 进程重建 / 旋转
+     *   均不得重复播放 EDGE_IN」，而那些场景此前也走本方法。现在：
+     *   · 真实松手吸附 → 本方法（`animateIn = true`）
+     *   · 启动恢复 / 旋转重建 → [enterEdgePeekRestored]
+     *
+     * @param z 是否贴左边
+     * @param animateIn 是否播「贴入瞬间」。true = 真实吸附；false = 恢复，直接贴边常驻。
+     */
+    fun enterEdgePeek(z: Boolean, animateIn: Boolean = true) {
         val petView = petView
         if (petView == null) {
             return
@@ -942,7 +1003,60 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         //   【为什么不再用 playSemantic(EDGE)】那样只是「尝试按优先级播一次」：
         //   若此刻正播着手势动作（MANUAL 30），贴边(12) 会被拒绝，于是人偶贴到边上
         //   却仍播旧动作。贴边是**模式切换**，该直接重算基础态。
-        petView.notifyEdgeChanged()
+        //
+        // 【v0.1.5】改成：真实吸附先播「贴入瞬间」，播完由仲裁层自动接「贴边常驻」；
+        //   恢复场景直接用 [PetView.notifyEdgeRestored] 走贴边常驻。
+        if (animateIn) {
+            petView.notifyEdgeEnter()
+        } else {
+            petView.notifyEdgeRestored()
+        }
+    }
+
+    /**
+     * **【v0.1.5·R-016】恢复贴边姿态**（启动 / 旋转 / 重建）—— 直接进贴边常驻，
+     * 不播贴入瞬间。
+     *
+     * 【为什么必须和 [enterEdgePeek] 分开】需求书 19.3 补充规则 4 是硬性要求：
+     *   每次启动或旋转都重播一次「入边动画」会被用户看成「人偶抽搐」。
+     *   语义上「贴入瞬间」只属于**一次真实的拖拽松手吸附**。
+     */
+    fun enterEdgePeekRestored(z: Boolean) {
+        enterEdgePeek(z, animateIn = false)
+    }
+
+    /**
+     * **【v0.1.5·G-03】后台补算模型级基准，算完让播放层重算视口。**
+     *
+     * 【为什么单独一个方法】[attach] 里要调它，将来导入完成 / 换模型也会调它 ——
+     *   收口成一处，避免"某个入口忘了刷新视口"导致画面还用着旧尺子。
+     *
+     * 【线程模型】计算在单线程池跑；`refreshViewport` 必须回主线程
+     *   （它内部会 `requestDraw` + 触发 `viewportChanged` 回调去改窗口宽度）。
+     *   【为什么用单线程池而不是新建 Thread】同一只人偶的多次 attach 可能并发触发，
+     *   串行执行天然避免两次计算交错写盘（19.5.6「必须互斥处理并避免并发操作」）。
+     */
+    private fun ensureModelBaselineAsync() {
+        val dollId = doll.id
+        val appCtx = host.applicationContext
+        baselineExecutor.execute {
+            try {
+                val before = com.dollhouse.app.data.ModelBaseline.ref(appCtx, dollId)
+                val after = com.dollhouse.app.data.ModelBaselineCalculator.ensure(appCtx, dollId)
+                // 没变化就别刷（避免每次 attach 都触发一次窗口重排）。
+                if (after == null || after == before) {
+                    return@execute
+                }
+                ui.post {
+                    // 人偶可能已经被摘窗 / 换人偶了：只在仍是同一只时才刷新。
+                    if (petView != null && doll.id == dollId) {
+                        refreshActionViewportNow()
+                    }
+                }
+            } catch (t: Throwable) {
+                Logs.w("DollhousePetWindow", "ensureModelBaseline failed", t)
+            }
+        }
     }
 
     fun exitEdgePeek() {
@@ -1164,6 +1278,29 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         safeUpdate()
         if (bubbleSpace > 0) {
             pv.relayoutBubble(params.width, params.x)
+        }
+    }
+
+    /**
+     * **【v0.1.5·G-03】重算动作视口**（模型基准变了之后调）。
+     *
+     * 【为什么不直接调 `resizeActionViewport`】那条路只在 `requiredWidth` 变化时才动手；
+     *   而基准变化可能只改**高度/位置**而不改宽度 —— 必须让播放层重新 `measure` 一遍。
+     *   这里先让播放层重算（它内部会回调 [resizeActionViewport]），再按需重排高度。
+     */
+    private fun refreshActionViewportNow() {
+        val pv = petView ?: return
+        pv.refreshActionViewport()
+        val params = lp ?: return
+        if (!added) {
+            return
+        }
+        // 高度也可能因基线变化而变（窗口高 = baseHeight + 气泡空间）。
+        val bubbleSpace = Math.max(0, params.height - pv.baseHeight())
+        val wantH = pv.baseHeight() + bubbleSpace
+        if (params.height != wantH) {
+            params.height = wantH
+            safeUpdate()
         }
     }
 
@@ -1984,6 +2121,21 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         const val WANDER_INTERVAL_MS = 8000L
         /** 单步最大位移（dp）：避免全屏瞬移。 */
         const val WANDER_RANGE_DP = 120f
+
+        /**
+         * **【v0.1.5·G-03】模型基准计算用的单线程池**（进程内共享）。
+         *
+         * 【为什么单线程】同一只人偶可能被并发触发多次（attach / 导入完成 / 用户点重算），
+         *   串行执行保证两次写盘不会交错（19.5.6）；单线程也足够 ——
+         *   一次计算最多解码几百帧，用户感知上是「几百毫秒内完成」。
+         * 【为什么是 daemon】桌宠服务随时可能被系统杀掉，daemon 线程不会拖住进程退出。
+         */
+        private val baselineExecutor: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                val t = Thread(r, "doll-baseline")
+                t.isDaemon = true
+                t
+            }
     }
 
     internal fun petJump() {

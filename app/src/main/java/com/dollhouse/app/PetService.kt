@@ -121,6 +121,14 @@ class PetService : Service() {
             win.attachAll()
             return 1
         }
+        if (ACTION_RESUME_SETTLE == action) {
+            // 【K-02】界面回到前台：把可能停在队列里的手势定时器清掉。
+            //   用户按下人偶的瞬间被电话/通知切走，tapResolve / longPressTick 仍在 ui 队列里，
+            //   回到前台后照样会触发 —— 表现就是「我没点，它自己动了 / 自己弹了聊天」。
+            //   这里只丢定时器，不动播放状态、不动位置，幂等。
+            win.settleGesturesAll()
+            return 1
+        }
         if (ACTION_REFRESH == action) {
             // 主题切换后刷新桌宠取色；顺带做屏幕尺寸自检（拿 REFRESH 当「旋转必然经过的一个点」）。
             // 各窗口内部按 added 守卫，暂离中的窗口不会被误操作。
@@ -243,6 +251,15 @@ class PetService : Service() {
         const val ACTION_RELOAD = "RELOAD"
         const val ACTION_START = "START"
         const val ACTION_STOP = "STOP"
+
+        /**
+         * 【K-02】界面回到前台时的一次性对账：清掉桌面人偶上过期的**手势定时器**。
+         *
+         * 【为什么要一条独立动作】它和 [ACTION_REFRESH] 语义不同：
+         *   REFRESH 是「重读主题 / 屏幕尺寸」（视觉层），而这一条只丢定时器（输入层）。
+         *   合并会让「切主题」误清手势、「回前台」白做一次重排，两边都是副作用。
+         */
+        const val ACTION_RESUME_SETTLE = "RESUME_SETTLE"
 
         /**
          * 【r11 起只作种子】单击台词的出厂默认值，由 [com.dollhouse.app.data.DollProfile.seedDefault]

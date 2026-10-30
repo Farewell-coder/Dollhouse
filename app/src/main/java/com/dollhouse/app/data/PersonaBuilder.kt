@@ -182,6 +182,7 @@ object PersonaBuilder {
      */
     private fun composePersona(name: String?, persona: String, spec: PersonaSpec): String {
         val sb = StringBuilder()
+        sb.append("需要分点或分类说明时，可用 :::card{icon=\"archive\"} 包裹，标题用 ###，以 ::: 结束；其余回答正常使用 Markdown。\n\n")
         val p = persona.trim()
         if (p.isNotEmpty()) {
             sb.append(p)

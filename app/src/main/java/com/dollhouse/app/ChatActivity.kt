@@ -48,6 +48,9 @@ class ChatActivity : Activity() {
         }, true)
         this.panel = chatPanel
         setContentView(chatPanel)
+        addContentView(com.dollhouse.app.ui.compose.ComposeHost.createView(this) {
+            com.dollhouse.app.ui.compose.OperationRecorderButton()
+        }, android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
         // 【状态栏嵌入】聊天页同样铺满 + 状态栏透明；ChatPanel 顶栏自己让出高度。
         UiKit.applyEdgeToEdge(this)
         this.panel!!.refreshHint()
@@ -114,6 +117,9 @@ class ChatActivity : Activity() {
             //   没有离屏消息时重铺结果与现状一致，不会闪。
             chatPanel.reloadHistory()
         }
+        // 【K-02】本页也会挂覆盖页（点「Token 统计」进 TokenStat），回前台的交互闸门同样要重算，
+        //   否则「从别的应用切回来，Token 统计页点不动、或者下层被穿过」。
+        com.dollhouse.app.ui.home.ResumeSettle.settle(this)
     }
 
     /**

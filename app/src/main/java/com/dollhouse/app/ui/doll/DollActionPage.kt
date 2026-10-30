@@ -268,7 +268,7 @@ object DollActionPage {
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    for (g in DollAnim.FIXED_GROUPS) {
+                    for (g in DollAnim.FIXED_GROUPS.filter { it != DollAnim.GROUP_EDGE_IN }) {
                         val fixedAction = remember(groups, g) {
                             var hit: DollAnim.Action? = null
                             for (p in groups) {
@@ -280,6 +280,7 @@ object DollActionPage {
                         }
                         Box(modifier = Modifier.weight(1f)) {
                             SlotCard(
+                                dollId = id,
                                 group = g,
                                 action = fixedAction,
                                 onOpen = {
@@ -295,8 +296,9 @@ object DollActionPage {
                     }
                 }
                 DhForm.Note(
-                    "常驻 / 贴边 / 拖拽是固定三格，永远存在，不能删也不能换组。点开会改" +
-                        "名、调速度、逐帧编辑；贴边那一格还能拖一条裁截线决定露出多少。"
+                    "常驻 / 拖拽 / 贴边是固定三格，永远存在，不能删也不能换组。" +
+                        "常驻 = 平时站着；拖拽 = 手指按住移动时；贴边 = 贴着边缘期间一直循环。" +
+                        "进入贴边可以设置必选的循环动画，也可以补充可选的贴入瞬间。"
                 )
             }
 
@@ -360,29 +362,6 @@ object DollActionPage {
                 onDone = {
                     newOpen = false
                     tick++
-                },
-                onImportModel = {
-                    newOpen = false
-                    com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
-                        if (paths.isEmpty()) {
-                            if (failed) {
-                                pkgMsg = "没能读取选中的文件，请重试。"
-                            }
-                            return@setFileListener
-                        }
-                        val zip = paths[0]
-                        Thread({
-                            val r = ModelImporter.inspect(act, zip, id)
-                            act.runOnUiThread {
-                                pkgZip = zip
-                                pkgCheck = r
-                                if (!r.canInstall) {
-                                    pkgMsg = r.summary()
-                                }
-                            }
-                        }, "dh-model-inspect").start()
-                    }
-                    com.dollhouse.app.PickFileActivity.startFiles(act, false)
                 }
             )
         }
@@ -469,7 +448,12 @@ object DollActionPage {
                 onDismiss = { delId = null },
                 posText = "删除",
                 onPos = {
-                    DollAnim.remove(act, id, delTarget)
+                    // 【R-112 九.4】最后一个动作且无形象图时拒绝删除，并说明原因。
+                    if (!DollAnim.remove(act, id, delTarget)) {
+                        HomeUi.showNotice(act, "至少保留一个动作", "这是最后一个动作了。先给她一张形象图，再删除。")
+                        delId = null
+                        return@Alert
+                    }
                     // 【顺序要紧】先删动作再清引用：反过来若 remove 失败，
                     //   引用已经被擦掉，用户的手势会莫名其妙失效。
                     val n = ActionLibrary.purgeRefs(act, id, delTarget)
@@ -668,6 +652,7 @@ object DollActionPage {
      */
     @Composable
     private fun SlotCard(
+        dollId: String,
         group: String,
         action: DollAnim.Action?,
         onOpen: () -> Unit,
@@ -756,22 +741,12 @@ object DollActionPage {
             //   出现两种排法（一列 + 一行），卡片高度被拉高，视觉上也比别处松散。
             //   【为什么改成三列等分】固定位卡片宽度足够放三个 2 字按钮；
             //   等分后每个命中区都 ≥ 40dp，比原来「清空」整行的超宽按钮更均匀。
-            if (!empty) {
+            if (!empty && dollId != DollStore.DEFAULT_ID) {
                 Spacer(Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("清空", iconRes = Icons.IC_ERASER) { onClear() }
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    // 【工作台】复制 / 导出对固定位同样有意义：用户把内置常驻动作
-                    //   当作模板、复制一份再改成别的，比从零导入省事得多。
-                    Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("复制", iconRes = Icons.IC_COPY, onClick = onDuplicate)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        DhKit.MiniChip("导出", iconRes = Icons.IC_DOWNLOAD, onClick = onExport)
-                    }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    DhKit.MiniChip("清空", iconRes = Icons.IC_ERASER) { onClear() }
+                    Spacer(Modifier.width(12.dp))
+                    DhKit.MiniChip("导出", iconRes = Icons.IC_DOWNLOAD, onClick = onExport)
                 }
             }
         }
@@ -789,6 +764,10 @@ object DollActionPage {
         DollAnim.GROUP_ALWAYS -> Icons.IC_INFINITY
         DollAnim.GROUP_EDGE -> Icons.IC_PANEL_RIGHT
         DollAnim.GROUP_DRAG -> Icons.IC_GRAB
+        // 【v0.1.5】贴入瞬间：入边那一下的过渡，用「移入」语义的图标。
+        //   【为什么不新画图标】工程已集成 Lucide 子集（见 ui/theme/Icons.kt），
+        //   为一个固定卡新增 drawable 收益很低；IC_MOVE 与「滑入边缘」的语义也对得上。
+        DollAnim.GROUP_EDGE_IN -> Icons.IC_MOVE
         DollAnim.GROUP_RANDOM -> Icons.IC_SHUFFLE
         DollAnim.GROUP_MANUAL -> Icons.IC_HAND
         else -> Icons.IC_SPARKLES
@@ -910,7 +889,7 @@ object DollActionPage {
     /* ============================ 新建弹窗 ============================ */
 
     /**
-     * 新建动作：**只允许建随机 / 手动两种**。
+     * 【R-112 七节】添加动作：只允许随机 / 手动两种（四态在状态动画里设置）。
      *
      * 【为什么固定三组不在选项里】它们是天生存在的壳，
      *   建成「第二个常驻」没有意义 —— 换内容的方式是清空壳再导入。
@@ -921,8 +900,7 @@ object DollActionPage {
         dollId: String,
         initialGroup: String = DollAnim.GROUP_MANUAL,
         onDismiss: () -> Unit,
-        onDone: () -> Unit,
-        onImportModel: () -> Unit = {}
+        onDone: () -> Unit
     ) {
         var draft by remember { mutableStateOf("") }
         // 目标组（0 = 随机，1 = 手动）—— 由调用方带入，默认落「手动」。
@@ -931,29 +909,23 @@ object DollActionPage {
                 Math.max(0, DollAnim.SWAPPABLE_GROUPS.indexOf(initialGroup))
             )
         }
-        // 来源：0 = 只建空壳，1 = 导入图片/序列帧，2 = 导入 Lottie，3 = 模型包。
+        // 【R-112 七.3】来源只有三种。模型包不在这里。
         var mode by remember { mutableStateOf(0) }
         val modes = arrayOf(
-            "只建空壳（稍后逐张加帧）",
-            "导入图片 / 序列帧",
-            "导入 Lottie 动画（.json）",
-            "导入模型包（.zip）"
+            "空白动作",
+            "图片 / 序列帧",
+            "Lottie"
         )
         val modeHints = arrayOf(
-            "先有个容器，进详情页后可以一张一张添加、删除、调顺序。",
-            "可以多选：一串帧图、动图、精灵图集、压缩包都能识别，按选择顺序导入。",
-            "Lottie 的 .json 会被存成「动作的入口资源」，直接由 Lottie 引擎播放。",
-            "按模型包规范 v1 打包的 .zip，含清单、预览图与资源；会先做安全检查再导入。"
+            "先创建，稍后逐帧添加。",
+            "PNG、GIF、WebP、ZIP。可以多选。",
+            "Bodymovin 导出的 .json。"
         )
         DhForm.Alert(
-            title = "新建动作",
+            title = "添加动作",
             onDismiss = onDismiss,
-            posText = if (mode == 3) "选择文件" else "创建",
+            posText = if (mode == 0) "创建" else "选择文件",
             onPos = {
-                if (mode == 3) {
-                    onImportModel()
-                    return@Alert
-                }
                 val name = draft.trim()
                 val group = DollAnim.SWAPPABLE_GROUPS[groupIdx]
                 if (mode == 1) {
@@ -980,19 +952,18 @@ object DollActionPage {
             },
             negText = "取消"
         ) {
-            DhKit.SectionLabel("放到哪一组")
-            for (i in DollAnim.SWAPPABLE_GROUPS.indices) {
-                val g = DollAnim.SWAPPABLE_GROUPS[i]
-                DhKit.CheckRow(
-                    text = g + (if (g == DollAnim.GROUP_RANDOM) "（会自己隔一会儿播一次）"
-                    else "（绑到手势才会播）"),
-                    selected = groupIdx == i
-                ) { groupIdx = i }
-            }
-            DhForm.Note(
-                "常驻 / 贴边 / 拖拽是固定三格，不在新建里出现 —— 想换它们的内容，" +
-                    "到上面那三格点「清空」再导入。"
-            )
+            // 【R-112 七节】副标题：明确告诉用户「这是给谁的」，避免他以为在新建独立动作。
+            DhForm.Note("给 " + (DollStore.byId(act, dollId)?.name ?: "这个角色"))
+            DhKit.SectionLabel("什么时候播放")
+            DhKit.CheckRow(
+                text = "自动：待机时每隔 15–60 秒自己播放一次",
+                selected = groupIdx == 0
+            ) { groupIdx = 0 }
+            DhKit.CheckRow(
+                text = "手动：点击角色时随机播放",
+                selected = groupIdx == 1
+            ) { groupIdx = 1 }
+            DhForm.Note("待机、拖拽和贴边在「状态动画」里设置。")
             DhForm.Gap()
             DhKit.SectionLabel("来源")
             for (i in modes.indices) {
@@ -1009,12 +980,9 @@ object DollActionPage {
             when (mode) {
                 0 -> DhForm.Note("创建后进入详情页：可以一次导入整组图，也可以逐张添加、删除、调顺序。")
                 1 -> DhForm.Note("打开图片导入向导：选择并检查资源后，再确认创建动作。")
-                2 -> DhForm.Note("选择自包含的 Lottie .json；校验和保存成功后才创建动作。")
-                else -> DhForm.Note(
-                    "会打开文件选择器，选一个按模型包规范 v1 打包的 .zip；" +
-                        "确认前会先做安全检查，不会直接写入。"
-                )
+                else -> DhForm.Note("选择自包含的 Lottie .json；校验和保存成功后才创建动作。")
             }
+            DhForm.Note("整套模型请到「模型 → 更换模型」导入。")
         }
     }
 

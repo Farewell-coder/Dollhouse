@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 描边图标，取自 Lucide 官方 SVG（ISC 协议）。
+     24dp 视口 / 线宽 2 / 圆角端点；strokeColor 为占位白，
+     运行期由 Icons.tint() / Icons.get() 按主题覆盖真色。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4 4 H16 Q18 4 18 6 V8 Q18 10 16 10 H4 Q2 10 2 8 V6 Q2 4 2 6 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M11 14 H16 Q18 14 18 16 V18 Q18 20 16 20 H11 Q9 20 9 18 V16 Q9 14 9 16 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M22 22V2"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

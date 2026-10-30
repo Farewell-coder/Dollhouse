@@ -162,7 +162,10 @@ object ProviderEditPage {
 
         var name by remember(src?.id) { mutableStateOf(src?.name ?: "") }
         var key by remember(src?.id) { mutableStateOf(if (src == null) "" else ProviderStore.keyOf(act, src)) }
-        var base by remember(src?.id) { mutableStateOf(src?.baseUrl ?: "") }
+        var base by remember(src?.id) {
+            // 只在首次进入新建页时给默认值；用户之后删空或修改都不得被重组覆盖。
+            mutableStateOf(src?.baseUrl ?: if (src == null) ModelRules.defaultBaseUrl(Provider.PROTO_OPENAI) else "")
+        }
         var path by remember(src?.id) {
             // 新建页自动带上通用默认值；编辑页不动用户已存的值。
             mutableStateOf(if (src == null) ModelRules.defaultChatPath(Provider.PROTO_OPENAI) else src.chatPath)

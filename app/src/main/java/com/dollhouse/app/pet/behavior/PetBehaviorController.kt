@@ -286,6 +286,69 @@ class PetBehaviorController {
         restoreBase()
     }
 
+    /* ==================== 【v0.1.5·R-013 贴入瞬间】 ==================== */
+
+    /**
+     * **【v0.1.5·R-013】刚吸附到边缘：先播一次「贴入瞬间」，播完再进「贴边常驻」。**
+     *
+     * ## 为什么必须有独立入口
+     * 改造前的入边路径是「`enterEdgePeek` → `notifyEdgeChanged` → `restoreBase`」，
+     * 而 [restoreBase] 只会播**基础态**（常驻 / 贴边）。于是「吸附那一刻播一次过渡动画」
+     * 这件事根本无处安放 —— 贴边动作要么被无限循环、要么完全没有入边过渡。
+     *
+     * ## 降级矩阵（需求书 v2.1·19.3，唯一权威）
+     * | 贴入瞬间 | 贴边常驻 | 本方法行为 |
+     * |---|---|---|
+     * | 有 | 有 | 播贴入一次 → `onActionFinished` 里转贴边常驻 |
+     * | 无 | 有 | 直接 `restoreBase()` → 贴边常驻 |
+     * | 有 | 无 | 播贴入一次 → `onActionFinished` 里停在其最后一帧 |
+     * | 无 | 无 | 直接 `restoreBase()` → 常驻（由 19.3 第 5 行：吸边后继续待机循环） |
+     *
+     * ## 为什么不复用 [play]
+     * [play] 走优先级裁决，而「入边」是从**拖拽(40)刚结束**发生的：
+     * 此刻 `currentSemantic` 可能还是 DRAG，贴入(38) 会被判为「优先级不够」而拒绝。
+     * 入边是**模式切换**（与 [restoreBase] 同一个性质），必须绕过优先级门。
+     *
+     * @return 是否真的播上了贴入瞬间（false = 没有该动作，已直接进贴边常驻）
+     */
+    fun onEdgeEnter(): Boolean {
+        if (released) {
+            return false
+        }
+        val id = resolver?.resolve(ActionSemantic.EDGE_IN)?.takeIf { gateOk(it, ActionSemantic.EDGE_IN) }
+        if (id == null) {
+            // 降级：没有贴入瞬间（或被触发条件关掉）→ 直接进贴边常驻。
+            restoreBase()
+            return false
+        }
+        interactionSemantic = null
+        idleSuspended = false
+        currentSemantic = ActionSemantic.EDGE_IN
+        currentActionId = id
+        state = PlaybackState.PLAYING
+        player?.play(id, ActionSemantic.EDGE_IN)
+        return true
+    }
+
+    /**
+     * **【v0.1.5·R-016】**启动 / 重建时角色**已经**在边缘 —— 直接进贴边常驻，
+     * **绝不**播贴入瞬间。
+     *
+     * 【为什么单独一个方法】需求书 19.3 补充规则 4 明确：「EDGE_IN 只能由一次真实的
+     *   『拖拽松手并成功吸边』触发。启动恢复、进程重建、屏幕旋转均不得重复播放 EDGE_IN」。
+     *   把这些场景收口到一个方法里，调用点就不可能误用 [onEdgeEnter]。
+     */
+    fun onEdgeRestored() {
+        if (released) {
+            return
+        }
+        // 已经在播贴入瞬间（说明是真入边刚发生）→ 让它播完，不要打断。
+        if (currentSemantic == ActionSemantic.EDGE_IN) {
+            return
+        }
+        restoreBase()
+    }
+
     /**
      * **【v0.1.0·新增】播一个「手动动作」**（手势绑定的动作走这条路）。
      *
@@ -476,12 +539,27 @@ class PetBehaviorController {
         //   改造前这里写的是「若当前是 idle 就停下，否则 onInteractionEnd」，
         //   而 onInteractionEnd 又硬写 play(IDLE) —— 贴边动作播完会跳回常驻，
         //   人在屏幕边上却播「站立」的动作，非常突兀。
+        //
+        // **【v0.1.5·R-013】贴入瞬间播完 → 必须转「贴边常驻」，不能走通用回落。**
+        //   【为什么单独一支】通用回落会把画面还给基础态，而基础态此刻确实是「贴边」——
+        //   看起来没错，但会漏掉一个关键情况：贴入瞬间播完时，如果用户恰好已经把
+        //   人偶拖离边缘（`edgeProbe.atEdge()` 为 false），通用回落会切回常驻，
+        //   而需求书 19.3 的矩阵第 4 行要求「贴边常驻缺失时停在贴入的最后一帧」。
+        //   语义上「贴入瞬间」的继承者只能是「贴边常驻」，与其后位置在哪无关。
+        val wasEdgeIn = currentSemantic == ActionSemantic.EDGE_IN
         val wasBase = currentSemantic == ActionSemantic.IDLE ||
             currentSemantic == ActionSemantic.EDGE
         idleSuspended = false
         currentSemantic = null
         currentActionId = null
         state = PlaybackState.IDLE
+        if (wasEdgeIn) {
+            // 【贴入瞬间的字面语义 = 已贴边】直接按贴边常驻收口，不看探测值。
+            //   只有一种情况例外：用户已经把人偶拖走了 —— 那条路归 DRAG 链路管，
+            //   interactionSemantic 在上面已经处理过，走不到这里。
+            settleEdgeHold()
+            return
+        }
         player?.stop()
         if (wasBase) {
             // 基础态动作（常驻/贴边）自己播完 → 不必立刻重播同一个；
@@ -489,6 +567,38 @@ class PetBehaviorController {
             return
         }
         restoreBase()
+    }
+
+    /**
+     * **【v0.1.5·R-013】贴入瞬间结束后的收口：进「贴边常驻」，没有则停在当前帧。**
+     *
+     * 需求书 19.3 矩阵：
+     * · 贴边常驻**有** → 播它（循环），基础态 = EDGE_HOLD(EDGE)；
+     * · 贴边常驻**无** → **什么都不做**，画面停在贴入瞬间的最后一帧
+     *   （需求 5.4「贴入瞬间不能循环播放」+ 矩阵第 4 行）。
+     *
+     * 【为什么不复用 [restoreBase]】[restoreBase] 在贴边常驻缺失时会走
+     *   「把画面还给基础形变」分支（`player.stop()`），那会**清掉贴入的末帧**，
+     *   用户看到的是「入边动画播完人就变回网格形变」，与「停在最后一帧」不符。
+     *   所以这里显式区分「没有贴常驻」这一种情况。
+     */
+    private fun settleEdgeHold() {
+        val p = player
+        val id = resolver?.resolve(ActionSemantic.EDGE)?.takeIf { gateOk(it, ActionSemantic.EDGE) }
+        if (id == null) {
+            // 贴边常驻没有内容：停在贴入瞬间的最后一帧 —— 只把账面相位改成基础态，
+            //   不调用 player.stop()，播放层会自然停在末帧。
+            //   【为什么 state 要改成 IDLE】此刻已经不"在播"任何循环动作了，
+            //   保持 PLAYING 会让 onActionFinished 的各种守卫误判。
+            state = PlaybackState.IDLE
+            currentSemantic = null
+            currentActionId = null
+            return
+        }
+        currentSemantic = ActionSemantic.EDGE
+        currentActionId = id
+        state = PlaybackState.PLAYING
+        p?.play(id, ActionSemantic.EDGE)
     }
 
     /**

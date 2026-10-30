@@ -49,7 +49,13 @@ object ChatListData {
         val avatar: Bitmap?,
         val isPet: Boolean,
         val isSelf: Boolean,
-        val dollName: String = ""
+        val dollName: String = "",
+        val personaId: String = "",
+        val conversationCount: Int = 1,
+        val pinned: Boolean = false,
+        val archived: Boolean = false,
+        val muted: Boolean = false,
+        val draft: Boolean = false
     )
 
     /** 预览文案的字数上限（超出截断加省略号）。 */
@@ -65,32 +71,47 @@ object ChatListData {
      *             传 null 表示「两个池都要」（合并成一个列表）。
      */
     fun load(ctx: Context, pool: String?): List<Row> {
+        ChatSessions.syncWithDolls(ctx)
         val all = ChatSessions.listAll(ctx)
-        val out = ArrayList<Row>(all.length())
+        val groups = LinkedHashMap<String, MutableList<JSONObject>>()
         for (i in 0 until all.length()) {
             val o = all.optJSONObject(i) ?: continue
-            if (pool != null && pool != ChatSessions.poolOf(o)) {
-                continue
-            }
-            // 【r13·列表删除=隐藏】被用户从列表删掉的会话不显示。
-            //   【为什么不真删】需求原文：「这种删除不会清聊天记录」——
-            //   删的是列表入口，不是会话数据（见 PetPrefs.convHidden 的说明）。
+            if (pool != null && pool != ChatSessions.poolOf(o)) continue
             val id = o.optString("id")
-            if (PetPrefs.convHidden(ctx, id)) {
-                continue
-            }
-            out.add(rowOf(ctx, o))
+            val persona = ChatSessions.dollOfConv(ctx, id)
+            groups.getOrPut(if (persona.isEmpty()) "legacy:$id" else "persona:$persona") { ArrayList() }.add(o)
         }
-        // 【排序】最近活跃的排前面；时间相同（同一毫秒建的）按 id 兜底，保证顺序稳定，
-        //   否则列表在重组之间会自己换位，用户点下去可能点到隔壁那条。
-        out.sortWith { a, b ->
-            val dt = b.time - a.time
-            if (dt != 0L) {
-                if (dt > 0) 1 else -1
-            } else {
-                a.id.compareTo(b.id)
+        val out = ArrayList<Row>()
+        for ((key, conversations) in groups) {
+            conversations.sortByDescending { it.optLong("updated", 0L) }
+            val latest = conversations[0]
+            val latestId = latest.optString("id")
+            if (PetPrefs.convHidden(ctx, latestId)) continue
+            val personaId = ChatSessions.dollOfConv(ctx, latestId)
+            val state = com.dollhouse.app.data.PersonaChatStateStore.get(ctx, personaId)
+            val base = rowOf(ctx, latest)
+            var unread = 0
+            var draft = false
+            for (conv in conversations) {
+                val id = conv.optString("id")
+                unread += replyCountOf(historyOf(ctx, id)) - PetPrefs.convRead(ctx, id)
+                draft = draft || com.dollhouse.app.data.ChatDraftStore.load(ctx, personaId, id).text.isNotEmpty()
             }
+            out.add(base.copy(
+                id = latestId,
+                title = if (personaId.isEmpty()) base.title else base.dollName.ifEmpty { base.title },
+                preview = if (draft) "草稿：" + com.dollhouse.app.data.ChatDraftStore.load(ctx, personaId, latestId).text.ifEmpty { "有待发送内容" } else base.preview,
+                time = conversations.maxOf { it.optLong("updated", 0L) },
+                unread = unread.coerceAtLeast(0),
+                personaId = personaId,
+                conversationCount = conversations.size,
+                pinned = state.pinned,
+                archived = state.archived,
+                muted = state.muted,
+                draft = draft
+            ))
         }
+        out.sortWith(compareByDescending<Row> { it.pinned }.thenByDescending { it.time }.thenBy { it.id })
         return out
     }
 

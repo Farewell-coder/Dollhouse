@@ -131,17 +131,19 @@ object DollAnimPage {
     }
 
     @Composable
-    private fun Content(act: MainActivity, dollId: String, actionId: String) {
+    private fun Content(act: MainActivity, dollId: String, initialActionId: String) {
+        // 贴边页在同一个工作台切换循环与贴入，预览和全部编辑参数随当前动作一起切换。
+        var actionId by remember(initialActionId) { mutableStateOf(initialActionId) }
         val c = DhTokens.colors
 
         // 动作元数据：改一处就 reload 一次。
-        var action by remember { mutableStateOf(DollAnim.byId(act, dollId, actionId)) }
+        var action by remember(actionId) { mutableStateOf(DollAnim.byId(act, dollId, actionId)) }
         // 帧图路径（内置固定壳第一次进来要现烘）。
         var frames by remember { mutableStateOf<List<String>>(emptyList()) }
         var baking by remember { mutableStateOf(false) }
         var frameIdx by remember { mutableStateOf(0) }
         // 解码缓存（LRU，见 decodeForPlay）。
-        var cache by remember { mutableStateOf<Map<String, ImageBitmap>>(emptyMap()) }
+        var cache by remember(actionId) { mutableStateOf<Map<String, ImageBitmap>>(emptyMap()) }
         var playing by remember { mutableStateOf(false) }
         // 播放进度用「累计已播毫秒」而不是 delay 叠加 —— 熄屏 / 卡顿之后不会漂移。
         var playClockMs by remember { mutableStateOf(0L) }
@@ -166,7 +168,7 @@ object DollAnimPage {
 
         val group = action?.group ?: DollAnim.GROUP_MANUAL
         val fixed = DollAnim.isFixedGroup(group)
-        val isEdge = group == DollAnim.GROUP_EDGE
+        val isEdge = group == DollAnim.GROUP_EDGE || group == DollAnim.GROUP_EDGE_IN
 
         // ---------- 非帧引擎预览：复用桌宠同一套渲染器 ----------
         val engineAction = action?.takeIf {
@@ -201,9 +203,14 @@ object DollAnimPage {
             }
         }
 
-        // ---------- 准备帧图 ----------
+        // ---------- 准备帧图：动作切换与加载只有这一条状态写入链 ----------
         LaunchedEffect(actionId) {
-            val a = action ?: return@LaunchedEffect
+            frames = emptyList()
+            frameIdx = 0
+            playing = false
+            baking = false
+            val a = DollAnim.byId(act, dollId, actionId) ?: return@LaunchedEffect
+            action = a
             // 【v0.1.0·修 P0】原来是 `frames.size >= 2` —— 只有 1 帧的动作会掉进
             //   「现烘」分支，而烘帧只会烘内置动作，于是永远显示「还没有帧」。
             //   改成 >= 1：有帧就用，不再管有几帧。
@@ -310,10 +317,15 @@ object DollAnimPage {
                             // 【v0.1.0·修 P0】原先只 remove + pop：动作页靠 `DollState.rev` 重算
                             //   分组，不 bump 就还显示着刚删掉的那条（点进去空白）；桌宠也
                             //   不知道随机组变了，紧接着还可能抽到一个已经删掉的动作。
-                            DollAnim.remove(act, dollId, actionId)
-                            HomeUi.notifyPetReload(act)
-                            DollState.bump()
-                            PageStack.pop(act)
+                            // 【R-112 九.4】删最后一个可播动作且没有形象图时会被拒绝，
+                            //   必须告诉用户为什么，不能「点了没反应」（R-096）。
+                            if (!DollAnim.remove(act, dollId, actionId)) {
+                                HomeUi.showNotice(act, "至少保留一个动作", "这是最后一个动作了。先给她一张形象图，再删除。")
+                            } else {
+                                HomeUi.notifyPetReload(act)
+                                DollState.bump()
+                                PageStack.pop(act)
+                            }
                         }
                     }
                 }
@@ -332,7 +344,7 @@ object DollAnimPage {
                 var previewH by remember { mutableStateOf(1f) }
                 val oxPx = off[0]
                 val oyPx = off[1]
-
+// 贴边裁截线状态
                 // 贴边裁截线状态（只有贴边壳用得上）。
                 var insetTick by remember(actionId) { mutableStateOf(0) }
                 val edgeInset = remember(actionId, insetTick) {
@@ -467,6 +479,29 @@ object DollAnimPage {
                     }
                 }
 
+                // ---------- 贴边：同一画板切换两种动作，不叠加预览与编辑控件 ----------
+                if (isEdge) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DhForm.SelectChip("贴边循环 · 必选", actionId != DollAnim.SLOT_EDGE_IN_ID, Modifier.weight(1f)) {
+                            actionId = DollAnim.SLOT_EDGE_ID
+                        }
+                        DhForm.SelectChip("贴入瞬间 · 可选", actionId == DollAnim.SLOT_EDGE_IN_ID, Modifier.weight(1f)) {
+                            actionId = DollAnim.SLOT_EDGE_IN_ID
+                        }
+                    }
+                    DhForm.Note(if (actionId == DollAnim.SLOT_EDGE_IN_ID)
+                        "播放一次后进入贴边循环；未设置时会直接进入循环。"
+                        else "贴着屏幕边缘时持续播放。")
+                    DhKit.MiniChip(if (frames.isEmpty()) "添加当前动画" else "更换当前动画", iconRes = Icons.IC_IMAGE_PLUS) {
+                        pickFrames(act, dollId, actionId) { changed ->
+                            action = DollAnim.byId(act, dollId, actionId)
+                            frames = changed
+                            frameIdx = 0
+                            HomeUi.notifyPetReload(act)
+                            DollState.bump()
+                        }
+                    }
+                }
                 // ---------- 贴边裁截线的数值说明 ----------
                 if (isEdge) {
                     Text(

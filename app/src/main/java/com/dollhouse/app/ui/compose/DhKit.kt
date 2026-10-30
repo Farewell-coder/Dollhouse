@@ -19,6 +19,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.horizontalScroll
@@ -109,8 +110,20 @@ object DhKit {
     const val PAD_ROW = 12
     /** 行间距（dp）← HomeCards.valueRow 的 topMargin 8f。 */
     const val GAP_ROW = 8
-    /** 图标命中区（dp）← UiKit.HIT_DP。 */
-    const val HIT = 40
+/** 图标命中区（dp）← UiKit.HIT_DP。 */
+    const val HIT = 48
+
+    /**
+     * **【v0.1.5·K-03】最小可点击边长（dp）** —— 需求书 R-091 / N-010 / 19.9.3。
+     *
+     * 【为什么不直接把 [HIT] 改成 48】[HIT] 同时被用作**视觉尺寸**（图标所在的正方形，
+     *   以及一排按钮的排布间距）。直接改大会让顶栏按钮、卡片底部三枚按钮挤在一起，
+     *   甚至在 360dp 宽度下溢出（N-011 不允许）。
+     *
+     * 【正确做法】视觉保持 [HIT]，**命中区**用 [minTouchTarget] 补足到 48dp：
+     *   加一层透明的最小尺寸约束，点在图标外的 4dp 边距上也算点中。
+     */
+    const val MIN_TOUCH = 48
 
     /**
      * 【v0.1.4·UI 统一】所有设置行的左侧图标尺寸（dp）。
@@ -981,8 +994,13 @@ object DhKit {
         val button: @Composable () -> Unit = {
         Row(
             modifier = modifier
-                // 【尺寸】有文字时不再固定 HIT 方形，改为内容宽 + 固定高，
-                //   否则「图标 + 文字」会被 HIT(40dp) 的正方形裁掉后半截文字。
+                // **【v0.1.5·K-03】命中区补到 48dp（视觉尺寸不变）。**
+                //   【顺序很关键】必须先 minTouchTarget 再 size：
+                //   `size` 是**强制**尺寸（会覆盖外层约束），如果先 size(40) 再 sizeIn(48)，
+                //   内层 40dp 会把外层 48dp 的可用空间占满而图标仍居中 —— 但点击区仍是 40。
+                //   反过来（sizeIn 在前、size 在后）size 定死 40，外层 minTouchTarget 的
+                //   48dp 下限依然生效，于是 40dp 的图标被包在 48dp 的透明可点区域里。
+                .minTouchTarget()
                 .then(
                     if (hasLabel) Modifier.height(HIT.dp)
                     else Modifier.size(HIT.dp)
@@ -1337,12 +1355,19 @@ object DhKit {
         modifier: Modifier = Modifier,
         // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
         iconRes: Int = 0,
+        /**
+         * 【R-112 六.4】是否可点击。
+         *   false = 整颗 chip 半透明 + 不响应点击 —— 用于「站着的她未选时主按钮置灰」。
+         *   默认 true = 与改造前逐像素一致（既有调用点零影响）。
+         */
+        enabled: Boolean = true,
         onClick: () -> Unit
     ) {
         val c = DhTokens.colors
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(R_ROW.dp))
+                .alpha(if (enabled) 1f else 0.4f)
                 // 【r13】卡片内嵌按钮 → cardUp（同色会看不见形状）。
                 .background(c.cardUp)
                 // 【本轮·修「非默认配置下看不清」】原来描边用 c.line —— 它在**非默认配色**
@@ -1351,7 +1376,7 @@ object DhKit {
                 //   保证「默认配色更清楚、非默认配色也不至于消失」。
                 //   不用 c.acc（强调色）：一排四个 chip 全染色会抢走正文的视觉重心。
                 .border(1.dp, c.sub.copy(alpha = 0.45f), RoundedCornerShape(R_ROW.dp))
-                .pressable(onClick)
+                .pressable { if (enabled) onClick() }
                 .padding(vertical = 9.dp)
                 // 【本轮·修「点了没反应」】改造前这里没有水平 padding，且下方文字
                 //   `weight(1f, fill = false)` 会把内容压到 0 宽 —— 视觉上按钮还在，
@@ -1615,32 +1640,64 @@ object DhKit {
         //   白球的绘制区间随位移一起走；行程与轨道两端内缩 [pad] 对齐，闭合/开启都严丝合缝。
         val slide = (pad + travel * progress).dp
 
+        // **【v0.1.5·K-04】命中区 48×48，视觉仍是 44×24。**
+        //
+        // 【改造前的毛病】`clickable` 直接挂在 44×24 的 Box 上 —— 用户点轨道上下 1dp
+        //   之外就没反应，手指略偏就"点了没反应"（需求书 K-04 / R-091 / N-010）。
+        //
+        // 【修法】外面包一层 48×48 的透明 Box，把 `clickable` 提到它上面：
+        //   · 视觉（轨道 + 白球）尺寸一点不变，只是居中放在更大的可点区域里；
+        //   · 点在轨道上下左右各 12dp / 2dp 以内的空白处也算点中；
+        //   · `contentAlignment = Center` 保证视觉位置与改造前完全一致。
+        //
+        // 【为什么不直接 `size(48.dp, 48.dp)` 给轨道】那会把轨道撑成 48 高，
+        //   与设计稿（24dp 轨道）不符，且开关行的行高会跟着变。
         Box(
             modifier = modifier
-                .size(w.dp, h.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(trackColor)
+                .size(MIN_TOUCH.dp, MIN_TOUCH.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onCheckedChange(!checked) },
-            contentAlignment = Alignment.CenterStart
+            contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    // 顺序关键：offset → size → clip → background。
-                    //   offset 必须在 background 外层，否则移动的只是「更内层的空内容」。
-                    .offset(x = slide)
-                    .size((h - pad * 2).dp)
+                    .size(w.dp, h.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White)
-            )
+                    .background(trackColor),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        // 顺序关键：offset → size → clip → background。
+                        //   offset 必须在 background 外层，否则移动的只是「更内层的空内容」。
+                        .offset(x = slide)
+                        .size((h - pad * 2).dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White)
+                )
+            }
         }
     }
 
 }
 
 /* ============================ 反馈 ============================ */
+
+/**
+ * **【v0.1.5·K-03】把命中区补到至少 48dp，视觉尺寸不变。**
+ *
+ * 【为什么用 sizeIn 而不是 size】`sizeIn(minWidth, minHeight)` 只保证**下限**：
+ *   内容更大的按钮（带文字的 IconButton）仍按内容宽度排布，不会被压成方形。
+ *   这正是需求书 19.9.3「优先扩大透明命中区」的落地方式。
+ *
+ * 【为什么不直接用 Compose 官方的 minimumInteractiveComponentSize】它作用于 Material
+ *   组件内部，对我们的自定义 `pressable` 不生效；且会把布局占位也撑到 48dp
+ *   （= 视觉尺寸被迫变大），与本需求「视觉不变」的要求相反。
+ */
+fun Modifier.minTouchTarget(): Modifier =
+    this.sizeIn(minWidth = DhKit.MIN_TOUCH.dp, minHeight = DhKit.MIN_TOUCH.dp)
 
 /**
  * 统一按压反馈：按下缩到 0.96，松手弹回（ζ=0.40）—— 与 `UiKit.press` + `Springs.bouncy()` 同口径。
@@ -1652,6 +1709,7 @@ object DhKit {
  */
 @Composable
 fun Modifier.pressable(onClick: () -> Unit): Modifier {
+    val callback = { com.dollhouse.app.core.OperationRecorder.event("Action", "Compose click"); onClick() }
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     // 【本次修复·按下别过冲】按下缩到 96% 用 tween（跟手、不过冲），
@@ -1666,7 +1724,7 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     )
     return this
         .scale(scale)
-        .clickable(interactionSource = source, indication = null, onClick = onClick)
+        .clickable(interactionSource = source, indication = null, onClick = callback)
 }
 
 /**

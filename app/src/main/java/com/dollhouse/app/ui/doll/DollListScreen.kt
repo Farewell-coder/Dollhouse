@@ -164,7 +164,15 @@ object DollListScreen {
             scrollable = false,
             actions = {
                 // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
-                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "新建") { sheet = true }
+                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "添加角色") {
+                    // 【v0.1.5·R-062】加号直接进「添加角色」导入助手（第 1 屏标题就是它）。
+                    //   【为什么不再弹中间那层面板】R-040 / R-056 要求导入最多三步，
+                    //   再叠一个「模板 / 导入」选择面板就成了四步，且用户得先猜哪个才是「加角色」。
+                    //   空白模板与「给已有角色加动作」都还有各自的入口，功能一个都没少：
+                    //   · 空白模板 → 助手选择页底部的文字按钮；
+                    //   · 导入动作 → 卡片「动作」页里的导入向导。
+                    ImportAssistantPage.open(act)
+                }
                 // 【r12】右上角三个点 → 弹出小卡片，第一项「列数」。
                 DhKit.IconButton(Icons.IC_MORE, 20f, DhTokens.colors.title, label = "更多") {
                     menu = if (menu == 0) -1 else 0
@@ -252,12 +260,26 @@ object DollListScreen {
                     renameDraft = more.name
                     moreId = null
                 },
-                onCover = {
-                    // 【r13·需求B】改封面：先弹「从哪来」的选择窗。
-                    coverId = more.id
-                    coverAsk = true
-                    moreId = null
-                },
+onCover = {
+                     // 【r13·需求B】改封面：先弹「从哪来」的选择窗。
+                     coverId = more.id
+                     coverAsk = true
+                     moreId = null
+                 },
+                 onSwapModel = {
+                     // 【v0.1.5·19.2.3】在当前角色内换模型。先关面板再进页面，
+                     //   避免回退后底部面板还盖在列表上。
+                     val id = more.id
+                     moreId = null
+                     ReplaceModelPage.open(act, id)
+                 },
+                 onModel = {
+                     // 【v0.1.5·8.9】模型管理页：一屏看全四态状态 + 名字 / 大小 / 位置，
+                     //   两个动作（更换模型 / 调整位置）都在那一页里，这里只负责导航。
+                     val id = more.id
+                     moreId = null
+                     ModelManagePage.open(act, id)
+                 },
                 onCopy = {
                     DollStore.duplicate(act, more.id)
                     moreId = null
@@ -735,6 +757,8 @@ object DollListScreen {
         onDismiss: () -> Unit,
         onRename: () -> Unit,
         onCover: () -> Unit,
+        onSwapModel: () -> Unit,
+        onModel: () -> Unit,
         onCopy: () -> Unit,
         onDelete: () -> Unit,
         onExport: () -> Unit,
@@ -760,6 +784,12 @@ object DollListScreen {
             // 【图标 + 文字】底部面板横向空间宽裕，按钮都补上文字，不用再靠图标猜功能。
             all.add(Pair(Icons.IC_SIGNATURE, Pair("命名", onRename)))
             all.add(Pair(Icons.IC_IMAGE_PLUS, Pair("改封面", onCover)))
+            // 【v0.1.5·19.2.3】更换模型：**在当前角色内**替换，不是新建角色。
+            //   与「添加角色」严格区分（19.2）：这里的身份 / 人格 / 记忆都不动。
+            all.add(Pair(Icons.IC_REFRESH, Pair("换模型", onSwapModel)))
+            // 【v0.1.5·8.9】模型管理：查看当前模型的四态状态与大小 / 位置，
+            //   与「换模型」并列但职责不同 —— 一个看与调，一个只做替换。
+            all.add(Pair(Icons.IC_IMAGE, Pair("模型", onModel)))
             all.add(Pair(Icons.IC_COPY, Pair("复制", onCopy)))
             // 内置默认配置不可删除：不渲染删除键。
             // 【r21·判据加固】从 `builtin` 标记改为**认固定身份** `id == DEFAULT_ID`。
