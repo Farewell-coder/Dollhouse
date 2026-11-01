@@ -53,12 +53,14 @@ class AexReceiveActivity : Activity() {
     /** 读文件 → 塞进内存信箱 → 唤起主界面。任何异常都收敛成一条日志。 */
     private fun handle(from: Intent?) {
         try {
-            val payload = extract(from)
-            if (payload == null) {
+            val all = extractAll(from)
+            if (all.isEmpty()) {
                 AexInbox.clear()
                 Logs.w(TAG, "分享意图里没有可读的文件")
             } else {
-                AexInbox.put(payload.first, payload.second)
+                // 【批量】一次分享多个文件时全部留下，不再只取第一个。
+                //   上游 AexImportSheet.dispatchMulti 会把它们合并成一次预览。
+                AexInbox.putAll(all.map { it.first }, all.map { it.second })
             }
         } catch (t: Throwable) {
             Logs.w(TAG, "接收 AEX 文件失败", t)
@@ -86,48 +88,71 @@ class AexReceiveActivity : Activity() {
     }
 
     /**
-     * 从 Intent 里取出「(字节, 文件名)」。
+     * 从 Intent 里取出**全部**可读文件（每项 = 字节 + 文件名）。
      *
-     * 【优先级】ClipData > EXTRA_STREAM > ACTION_VIEW 的 data > EXTRA_TEXT（仅辅助）。
-     *   EXTRA_TEXT 按规范只作辅助：有些发送方只把文件名塞进去，把它当文件内容解析
-     *   必然得到「结构不完整」，所以这里只用于日志，不用于取数据。
+     * 【为什么改成「全部」】原来只返回第一个读成功的 URI，ACTION_SEND_MULTIPLE
+     *   带多个文件时其余全被丢掉。虽然靠 ClipData 逐项调 [readUri] 也能读到，
+     *   但函数一 `return` 就只剩一个 —— 用户分享 3 个文件，实际只导入 1 个。
+     *
+     * 【优先级】ClipData 优先（SEND_MULTIPLE 的主通道），其次 EXTRA_STREAM（多值），
+     *   再次 ACTION_VIEW 的 data，最后 EXTRA_TEXT（仅辅助，不取数据）。
+     *
+     * 【去重】部分发送方会把同一个 URI 既放进 ClipData 又放进 EXTRA_STREAM，
+     *   按 uri 字符串去重，避免同一份文件被导入两遍。
      */
-    private fun extract(from: Intent?): Pair<ByteArray, String>? {
+    private fun extractAll(from: Intent?): List<Pair<ByteArray, String>> {
         if (from == null) {
-            return null
+            return emptyList()
         }
+        val out = ArrayList<Pair<ByteArray, String>>()
+        val seen = HashSet<String>()
+
+        fun pull(uri: Uri?) {
+            if (uri == null) {
+                return
+            }
+            val key = uri.toString()
+            if (!seen.add(key)) {
+                return
+            }
+            val one = readUri(uri)
+            if (one != null) {
+                out.add(one)
+            }
+        }
+
         // ---------- ① ClipData（SEND_MULTIPLE 的主通道） ----------
         val clip = from.clipData
         if (clip != null && clip.itemCount > 0) {
             for (i in 0 until clip.itemCount) {
-                val one = readUri(clip.getItemAt(i).uri)
-                if (one != null) {
-                    return one
-                }
+                pull(clip.getItemAt(i).uri)
             }
         }
-        // ---------- ② EXTRA_STREAM ----------
+        // ---------- ② EXTRA_STREAM（单值 / 多值两种写法都要认） ----------
         @Suppress("DEPRECATION")
         val stream: Uri? = from.getParcelableExtra(Intent.EXTRA_STREAM)
-        if (stream != null) {
-            val one = readUri(stream)
-            if (one != null) {
-                return one
+        pull(stream)
+        try {
+            @Suppress("DEPRECATION")
+            val many = from.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            if (many != null) {
+                for (u in many) {
+                    pull(u)
+                }
             }
+        } catch (ignored: Throwable) {
+            // 某些发送方把 EXTRA_STREAM 塞成字符串，取 ArrayList 会抛，忽略即可。
         }
         // ---------- ③ ACTION_VIEW 的 data ----------
         if (Intent.ACTION_VIEW == from.action) {
-            val one = readUri(from.data)
-            if (one != null) {
-                return one
-            }
+            pull(from.data)
         }
         // ---------- ④ EXTRA_TEXT（仅辅助，不取数据） ----------
         val text = from.getStringExtra(Intent.EXTRA_TEXT)
-        if (!text.isNullOrBlank() && text.trim().endsWith(AexImport.EXTENSION)) {
+        if (out.isEmpty() && !text.isNullOrBlank() && text.trim().endsWith(AexImport.EXTENSION)) {
             Logs.i(TAG, "分享方只给了文件名（" + text.trim() + "），没有可读的 URI")
         }
-        return null
+        return out
     }
 
     /**

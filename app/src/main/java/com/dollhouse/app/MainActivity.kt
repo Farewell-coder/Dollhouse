@@ -33,6 +33,18 @@ import rikka.shizuku.Shizuku
  */
 class MainActivity : Activity() {
 
+    companion object {
+        /**
+         * 「启动后打开供应商页」的启动参数。
+         *
+         * 【谁发】[com.dollhouse.app.ui.chat.ChatPanel.openMain] —— 聊天页是独立 Activity，
+         *   它没法在中途把自己销毁后再去操作一个已不存在的页面栈，只能把意图交给本页。
+         * 【谁收】[consumeOpenProviders]，在 onCreate / onNewIntent 各消费一次。
+         */
+        const val EXTRA_OPEN_PROVIDERS = "com.dollhouse.app.extra.OPEN_PROVIDERS"
+    }
+
+
     /** 每秒刷新一次权限与状态（Compose 页靠它实时反映系统设置里的授权变化）。 */
     private val ticker = Handler(Looper.getMainLooper())
 
@@ -151,6 +163,31 @@ class MainActivity : Activity() {
         if (silkRestored) {
             UiKit.themeFade(this)
         }
+        // 【提示条跳转·必须在这里消费】聊天页是独立 Activity，它带着本参数启动本页后，
+        //   CLEAR_TOP 会先把它自己销毁 —— 所以「打开供应商页」只能由本页在**装配完成之后**做。
+        //   与旁边的 AEX 分享同理：post 到 decorView，确保压在已测量的窗口之上。
+        consumeOpenProviders(intent)
+    }
+
+    /**
+     * 处理「打开供应商页」的启动参数。
+     *
+     * 【为什么不能不看标志位就跳】本页是主界面，正常启动时也要能停在首页；
+     *   只有显式带 [EXTRA_OPEN_PROVIDERS] 才跳，否则会把每次冷启动都送进供应商页。
+     * 【为什么跳完要清 extra】singleTask 下实例会被复用，`setIntent` 之后 intent 仍挂着旧参数，
+     *   若不清掉，用户从供应商页返回、再被唤回时会莫名其妙又跳一次。
+     *
+     * @return 是否消费了该参数
+     */
+    private fun consumeOpenProviders(from: Intent?): Boolean {
+        if (from == null || !from.getBooleanExtra(EXTRA_OPEN_PROVIDERS, false)) {
+            return false
+        }
+        from.removeExtra(EXTRA_OPEN_PROVIDERS)
+        window?.decorView?.post {
+            runCatching { com.dollhouse.app.ui.provider.ProviderNav.open(this) }
+        }
+        return true
     }
 
     /**
@@ -170,21 +207,31 @@ class MainActivity : Activity() {
         if (com.dollhouse.app.data.AexInbox.has()) {
             window?.decorView?.post { runCatching { consumeAexShare() } }
         }
+        // 【提示条跳转·复用实例时】本页已在运行（singleTask），带参数再进来只会走这里。
+        consumeOpenProviders(intent)
     }
 
     /**
      * 取出内存信箱里的分享文件，交给 AEX 导入流程。
      *
      * 【为什么要单独一个方法】分享入口与「供应商页导入按钮」走的是同一条链路
-     *   （[com.dollhouse.app.ui.widget.AexImportSheet.startWithBytes]），
+     *   （[com.dollhouse.app.ui.widget.AexImportSheet.startWithBytes] / `show`），
      *   区别只在于字节从哪来：一个来自 ContentResolver 读出的分享 URI，一个来自文件选择器。
      *
-     * 【取完即清】[AexInbox.take] 会立刻置空，Activity 重建 / 转屏不会二次弹窗。
+     * 【取完即清】[AexInbox.takeAll] 会立刻置空，Activity 重建 / 转屏不会二次弹窗。
+     *
+     * 【批量】一次分享多个文件时全部取出、一次性交给导入面板合并预览，
+     *   而不是「取第一个、丢其余的」（v0.1.6 及以前的行为）。
      */
     private fun consumeAexShare() {
-        val bytes = com.dollhouse.app.data.AexInbox.take() ?: return
-        val name = com.dollhouse.app.data.AexInbox.takeName()
-        com.dollhouse.app.ui.widget.AexImportSheet.startWithBytes(this, bytes, name)
+        val bytes = com.dollhouse.app.data.AexInbox.takeAll()
+        val names = com.dollhouse.app.data.AexInbox.takeAllNames()
+        // 兜底清理：两个 take 已各自置空，这里再 clear 一次防止极端时序下残留。
+        com.dollhouse.app.data.AexInbox.clear()
+        if (bytes.isEmpty()) {
+            return
+        }
+        com.dollhouse.app.ui.widget.AexImportSheet.startWithBatch(this, bytes, names)
     }
 
     /**

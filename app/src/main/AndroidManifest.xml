@@ -125,6 +125,23 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/vnd.aivora.akcp" />
             </intent-filter>
+            <!-- ②b 通用二进制兜底（AEX-ADAPTER-GUIDE §3.1 明文要求）。
+                 【为什么必须有】指南写明「MIME 建议同时接受 application/vnd.aivora.akcp
+                 与 application/octet-stream（部分文件管理器不传 MIME）」。
+                 微信 / QQ / 系统文件管理器转发 .akcp 时，多数会退化成 octet-stream；
+                 只声明精确 MIME 的话，这些最常见的发送方在分享面板里根本看不到本应用。
+                 【为什么安全】能匹配到这里只说明「某个二进制文件被分享了」，
+                 真正的准入判定在解析层：Magic 不对直接拒绝，不会误吞无关文件。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
             <!-- ③ 用其它应用打开 / 文件管理器点开。
                  【为什么带 BROWSABLE】部分文件管理器走的是「浏览器式」打开通道，
                  不带这个 category 它们不会把本应用列进候选。 -->

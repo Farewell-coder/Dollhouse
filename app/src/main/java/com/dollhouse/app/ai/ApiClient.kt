@@ -20,6 +20,15 @@ import java.nio.charset.StandardCharsets
  */
 object ApiClient {
 
+    /**
+     * 单次响应最多往内存里读多少字节（8 MiB）。
+     *
+     * 【为什么需要】见 [readAll] 里的说明：请求地址填错、指向某个网站首页时，
+     *   对方返回的 HTML 可能是几百 MB，无上限读取会直接把进程 OOM。
+     *   正常的对话响应远小于这个值；真到 8 MiB 说明本来也不该整段塞进内存。
+     */
+    private const val MAX_READ_BYTES = 8 * 1024 * 1024
+
     /** 建连超时。 */
     const val CONNECT_TIMEOUT_MS = 15000
     /** 读超时：推理型模型首字慢，给足两分钟。 */
@@ -187,14 +196,32 @@ object ApiClient {
         inputStream.use { input ->
             val out = ByteArrayOutputStream()
             val buf = ByteArray(4096)
+            var total = 0
+            var truncated = false
             while (true) {
                 val n = input.read(buf)
                 if (n <= 0) {
                     break
                 }
-                out.write(buf, 0, n)
+                // 【附录B-5·修无上限】原来这里整段往内存里堆：一个被劫持 / 配错的地址
+                //   返回几百 MB 的 HTML 错误页，或服务端迟迟不结束响应，就会直接把
+                //   进程 OOM 掉。DAU 最常见的现场是「填错 baseUrl 指到一个网站首页」。
+                //   现在设硬上限：超过就停止**累积**，但继续读到底把流排空 ——
+                //   中途直接 break 会让连接卡在半开状态，HttpURLConnection 复用时会出错。
+                if (total < MAX_READ_BYTES) {
+                    val room = MAX_READ_BYTES - total
+                    out.write(buf, 0, if (n <= room) n else room)
+                    total += if (n <= room) n else room
+                    if (n > room) {
+                        truncated = true
+                    }
+                } else {
+                    truncated = true
+                }
             }
-            return String(out.toByteArray(), StandardCharsets.UTF_8)
+            val text = String(out.toByteArray(), StandardCharsets.UTF_8)
+            // 截断了要让人看得出来，否则表现为「JSON 解析失败」这种无从下手的报错。
+            return if (truncated) text + "\n[响应过大，已截断至 " + (MAX_READ_BYTES / 1024) + " KB]" else text
         }
     }
 

@@ -118,7 +118,14 @@ object DollRangeOverlay {
             lp.format = PixelFormat.TRANSLUCENT
             lp.gravity = Gravity.TOP or Gravity.START
             val o = ComposeHost.attachOverlayOwner(view)
-            manager.addView(view, lp)
+            try {
+                manager.addView(view, lp)
+            } catch (t: Throwable) {
+                // 【附录C-3·修泄漏】同 DollHomeOverlay：addView 失败时 owner 必须就地销毁，
+                //   否则 Recomposer 与观察者会一直挂着。
+                runCatching { o?.onDestroy() }
+                throw t
+            }
             wm = manager
             root = view
             owner = o

@@ -605,6 +605,15 @@ object AexImport {
                 }
             }
             p.extra = o.optJSONObject("extra")
+            // 【AEX-SCHEMA 硬要求】extra 的键必须是反域名命名空间
+            //   （正则 `^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$`），禁止裸键。
+            //   Schema 把这条写在 propertyNames 里，属于**结构约束**而非建议；
+            //   不合规说明导出方有 bug 或文件被拼装过，按 INVALID_PAYLOAD 拒绝这一条，
+            //   但不连坐其它条目（下面 skipped 会记一笔）。
+            if (p.extra != null && !extraKeysValid(p.extra!!)) {
+                skipped++
+                continue
+            }
             p.unknown = pickUnknown(
                 o,
                 arrayOf("id", "name", "provider", "baseUrl", "apiKey", "models", "defaultModel", "description", "extra")
@@ -624,6 +633,52 @@ object AexImport {
             warnings.add("文件带有本应用不认识的顶层字段：" + rootUnknown.keys().asSequence().joinToString("、") + "。")
         }
         return Result(out, null, warnings)
+    }
+    /**
+     * 校验 `extra` 的全部键是否满足反域名命名空间要求。
+     *
+     * 【规范依据】AEX-SCHEMA.json 的 `extra.propertyNames.pattern` =
+     *   `^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$`，即「至少两段、以点分隔」，
+     *   形如 `com.example.notes.pinned`。裸键（如 `retry`）不合规。
+     *
+     * 【为什么不用 Kotlin Regex】这条判定在每次导入都要跑，且键数量可能不少；
+     *   手写一遍比反复调用正则引擎便宜得多，也避免把 Pattern 缓存这件小事带进数据层。
+     *   （工程里 DiagnosticsFormat 提正则字段是为了复用同一份 Pattern，这里是另一回事。）
+     *
+     * 【空 extra 视为合法】没有键就没有违规键，Schema 也不要求 extra 非空。
+     */
+    private fun extraKeysValid(extra: JSONObject): Boolean {
+        val it = extra.keys()
+        while (it.hasNext()) {
+            if (!isNamespacedKey(it.next())) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /** 单个键是否为「至少两段、每段只含字母数字与 `_` `-`」的形式。 */
+    private fun isNamespacedKey(key: String): Boolean {
+        var segLen = 0
+        var segs = 0
+        for (c in key) {
+            if (c == '.') {
+                // 段之间必须都有内容，连续点或首尾点都不合法。
+                if (segLen == 0) {
+                    return false
+                }
+                segs++
+                segLen = 0
+                continue
+            }
+            val ok = (c in 'A'..'Z') || (c in 'a'..'z') || (c in '0'..'9') || c == '_' || c == '-'
+            if (!ok) {
+                return false
+            }
+            segLen++
+        }
+        // 末尾段必须有内容，且总段数 ≥ 2（即至少出现一次点）。
+        return segLen > 0 && segs >= 1
     }
 
     /** 收集未识别的成员（规范：不得静默丢弃未知数据）。 */

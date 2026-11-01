@@ -54,7 +54,10 @@ class SearchTool : ChatTool {
             query = if (arguments == null) "" else arguments.trim()
         }
         if (query.isEmpty()) {
-            return "没有名为 " + name() + " 的工具。"
+            // 【附录B-12·修错误文案】原来这里返回「没有名为 web_search 的工具。」——
+            //   那是「工具不存在」的措辞，模型会以为自己记错了工具名，于是换个写法重试，
+            //   白白多烧几轮上下文。真正的原因是**参数没给对**，必须直接说清楚。
+            return "搜索关键词为空，请提供 query 参数后再试。"
         }
         try {
             val search = WebSearch.search(query, TOP_N)

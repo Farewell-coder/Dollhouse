@@ -506,4 +506,103 @@ class AexImportTest {
         assertTrue("实际：" + r.code(), r.ok())
         assertTrue(r.warnings.any { it.contains("1.1") })
     }
+
+    // ==================== 官方测试向量互通（V01 / V03） ====================
+
+    /**
+     * 读官方 `protocol/test-vectors/` 下的 `.akcp` 文件（由 Aivora 的独立 Python 实现生成）。
+     *
+     * 【为什么这条最重要】自造向量只能证明「实现自洽」。官方向量是唯一能证明
+     *   「我们的字节布局、AAD 拼接、KDF 参数与对方逐字节一致」的证据。
+     *   这两个文件同时带有官方公布的派生密钥与期望明文，可交叉核对。
+     */
+    private fun officialVector(name: String): ByteArray? {
+        return try {
+            val f = java.io.File("src/test/resources/aex/" + name)
+            if (!f.isFile) null else f.readBytes()
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /** V01：官方单配置向量，字段齐全。 */
+    @Test
+    fun `官方向量 single 可解密且字段正确`() {
+        val bytes = officialVector("single.akcp")
+        if (bytes == null) {
+            // 资源缺失不当作失败（CI 上可能没有同步大文件），但要让日志看得见。
+            println("跳过：src/test/resources/aex/single.akcp 不存在")
+            return
+        }
+        val r = AexImport.parse(bytes, credential, "single.akcp")
+        assertTrue("实际：" + r.code() + " / " + r.message(), r.ok())
+        assertEquals(1, r.profiles.size)
+        val p = r.profiles[0]
+        assertEquals("vector-single", p.id)
+        assertEquals("Synthetic Vector", p.name)
+        assertEquals("custom", p.provider)
+        assertEquals("https://example.invalid/v1", p.baseUrl)
+        assertEquals("sk-EXAMPLE-NOT-REAL", p.apiKey)
+        // models 顺序必须与文件一致
+        assertEquals(listOf("model-a", "model-b"), p.models)
+        assertEquals("model-a", p.defaultModel)
+        assertEquals("synthetic test vector", p.description)
+    }
+
+    /** V03：官方三配置向量，验证顺序与「缺省字段」语义。 */
+    @Test
+    fun `官方向量 multiple 可解密且顺序与缺省语义正确`() {
+        val bytes = officialVector("multiple.akcp")
+        if (bytes == null) {
+            println("跳过：src/test/resources/aex/multiple.akcp 不存在")
+            return
+        }
+        val r = AexImport.parse(bytes, credential, "multiple.akcp")
+        assertTrue("实际：" + r.code() + " / " + r.message(), r.ok())
+        assertEquals(3, r.profiles.size)
+        // 顺序：Alpha → Beta → Gamma
+        assertEquals(listOf("Alpha", "Beta", "Gamma"), r.profiles.map { it.name })
+        // Beta 的 models 顺序必须保留
+        assertEquals(listOf("m2", "m3"), r.profiles[1].models)
+        // Gamma 只有 id/name/provider：baseUrl / apiKey 必须被识别为「不存在」而非「空串」
+        val gamma = r.profiles[2]
+        assertFalse("Gamma 不该有 baseUrl", gamma.hasBaseUrl)
+        assertFalse("Gamma 不该有 apiKey", gamma.hasApiKey)
+        // Alpha 则有 baseUrl
+        assertTrue("Alpha 应有 baseUrl", r.profiles[0].hasBaseUrl)
+    }
+
+    // ==================== extra 命名空间约束 ====================
+
+    /** extra 使用合规的反域名键 → 可读。 */
+    @Test
+    fun `extra 合规命名空间键通过`() {
+        val p = profile()
+        p.put("extra", JSONObject().put("com.example.notes.pinned", true))
+        val r = AexImport.parse(build(payload(p)), credential, "x.akcp")
+        assertTrue("实际：" + r.code(), r.ok())
+        assertEquals(1, r.profiles.size)
+        assertTrue(r.profiles[0].hasExtra())
+    }
+
+    /** extra 使用裸键（无命名空间）→ 违反 Schema 的 propertyNames，必须拒绝该条。 */
+    @Test
+    fun `extra 裸键被拒绝`() {
+        val p = profile()
+        p.put("extra", JSONObject().put("retry", 3))
+        val r = AexImport.parse(build(payload(p)), credential, "x.akcp")
+        // 该条不合法被跳过 → profiles 为空 → INVALID_PAYLOAD
+        assertEquals(AexImport.Reason.INVALID_PAYLOAD, r.reason)
+    }
+
+    /** 单段键 / 首尾点 / 连续点都属于不合规。 */
+    @Test
+    fun `extra 非法键形态被拒绝`() {
+        for (bad in listOf("single", ".a.b", "a.b.", "a..b", "a b.c", "a/b.c")) {
+            val p = profile()
+            p.put("extra", JSONObject().put(bad, 1))
+            val r = AexImport.parse(build(payload(p)), credential, "x.akcp")
+            assertEquals("键「" + bad + "」应被拒绝", AexImport.Reason.INVALID_PAYLOAD, r.reason)
+        }
+    }
 }

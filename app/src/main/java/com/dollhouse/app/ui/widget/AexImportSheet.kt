@@ -65,25 +65,60 @@ object AexImportSheet {
 
     /* ============================ ① 入口 ============================ */
 
-    /** 从供应商页按钮进入：先选文件。 */
+    /**
+     * 从供应商页按钮进入：先选文件。
+     *
+     * 【支持一次选多个】AEX 允许一个 `.akcp` 里装多条配置，也允许一次分享多个文件；
+     *   用户手上有一堆单条文件时不该逼他逐个国家地导入。
+     *   这里开多选，选完把每个文件都解密一遍，**最后合并成一次预览** ——
+     *   用户只面对一张清单、一次确认，不用连着点 N 次弹窗。
+     *
+     * 【为什么在入口就把「读不出字节」的文件报掉】等进了解密流程才发现某个文件读不了，
+     *   用户已经填过凭证了，白输一次。这里读完就分流：全部失败才提示，部分失败记 warning。
+     */
     @JvmStatic
     fun show(act: Activity?) {
         val activity = act ?: return
         PickFileActivity.setFileListener { paths, _ ->
             PickFileActivity.setFileListener(null)
-            val first = if (paths.isEmpty()) null else paths[0]
-            if (first == null) {
+            if (paths.isEmpty()) {
                 return@setFileListener
             }
-            val f = File(first)
-            val bytes = readBytes(f)
-            if (bytes == null) {
-                tip(activity, "无法导入", "读取文件失败，请确认文件还能打开后重试。")
+            // 逐个读字节；读不出来的先记下名字，稍后一并告知，不打断其余文件的导入。
+            val loaded = ArrayList<ByteArray>()
+            val names = ArrayList<String>()
+            val failed = ArrayList<String>()
+            for (p in paths) {
+                val f = File(p)
+                val bytes = readBytes(f)
+                if (bytes == null) {
+                    failed.add(f.name)
+                    continue
+                }
+                if (bytes.size > AexImport.MAX_FILE_SIZE) {
+                    failed.add(f.name + "（超过 16 MiB）")
+                    continue
+                }
+                loaded.add(bytes)
+                names.add(f.name)
+            }
+            if (loaded.isEmpty()) {
+                tip(activity, "无法导入", "选中的文件都没能读取。\n\n" + failed.joinToString("\n"))
                 return@setFileListener
             }
-            dispatch(activity, bytes, f.name)
+            if (failed.isNotEmpty()) {
+                // 部分失败：仍继续导入读成功的那些，但必须先说清楚哪些没进来。
+                tip(
+                    activity, "部分文件已跳过",
+                    "以下文件无法读取或超过大小上限，已跳过：\n\n" + failed.joinToString("\n") +
+                        "\n\n其余 " + loaded.size + " 个文件继续导入。"
+                ) { dispatchMulti(activity, loaded, names) }
+                return@setFileListener
+            }
+            dispatchMulti(activity, loaded, names)
         }
-        PickFileActivity.startFiles(activity, false)
+        // 多选：AEX 的批量导入靠这里打开。
+        PickFileActivity.startFiles(activity, true)
     }
 
     /**
@@ -105,6 +140,48 @@ object AexImportSheet {
         }
         val name = if (fileName.isNullOrEmpty()) "shared.akcp" else fileName
         dispatch(activity, bytes, name)
+    }
+
+    /**
+     * 批量入口（系统分享多个文件 / 一次选了多个文件）：合并成一次凭据 + 一次预览。
+     *
+     * 【与 startWithBytes 的关系】单文件仍走上面那条（行为不变），
+     *   多文件才走这里。两者最终都汇到 [dispatchMulti]。
+     */
+    @JvmStatic
+    fun startWithBatch(act: Activity?, bytes: List<ByteArray>, names: List<String>) {
+        val activity = act ?: return
+        if (bytes.isEmpty()) {
+            tip(activity, "无法导入", "没有可读的文件，请重试。")
+            return
+        }
+        // 逐个过一遍大小上限，超限的剔除并记账（不阻断其余文件）。
+        val okBytes = ArrayList<ByteArray>()
+        val okNames = ArrayList<String>()
+        val tooBig = ArrayList<String>()
+        for (i in bytes.indices) {
+            val n = names.getOrElse(i) { "shared.akcp" }
+            if (bytes[i].size > AexImport.MAX_FILE_SIZE) {
+                tooBig.add(n)
+            } else {
+                okBytes.add(bytes[i])
+                okNames.add(n)
+            }
+        }
+        if (okBytes.isEmpty()) {
+            tip(activity, "无法导入", "选中的文件都超过 16 MiB：\n\n" + tooBig.joinToString("\n"))
+            return
+        }
+        val go = { dispatchMulti(activity, okBytes, okNames) }
+        if (tooBig.isNotEmpty()) {
+            tip(
+                activity, "部分文件已跳过",
+                "以下文件超过 16 MiB，已跳过：\n\n" + tooBig.joinToString("\n") +
+                    "\n\n其余 " + okBytes.size + " 个文件继续导入。"
+            ) { go() }
+        } else {
+            go()
+        }
     }
 
     /**
@@ -141,11 +218,17 @@ object AexImportSheet {
         }
     }
 
-    /** 一条简单的「说明 + 知道了」弹窗。 */
-    private fun tip(act: Activity, title: String, message: String) {
+    /**
+     * 一条简单的「说明 + 知道了」弹窗。
+     *
+     * @param onClose 用户点掉之后要接着做的事（可空）。用于「部分文件跳过 → 继续导入其余」
+     *                这种必须**先让用户读完提示、再往下走**的场景。
+     *                走 Dialog.setOnDismissListener，返回键 / 点外部 / 点按钮都能覆盖。
+     */
+    private fun tip(act: Activity, title: String, message: String, onClose: (() -> Unit)? = null) {
         val ref = AtomicReference<Dialog?>()
         ref.set(
-            DhForm.show(act, title) {
+            DhForm.show(act, title, if (onClose == null) null else { { onClose.invoke() } }) {
                 Text(
                     text = message,
                     color = DhTokens.colors.sub,
@@ -162,6 +245,75 @@ object AexImportSheet {
                 }
             }
         )
+    }
+
+    /**
+     * 多文件合并分发：把每个文件认一遍容器类型，再合并成**一次**凭据 + 一次预览。
+     *
+     * 【为什么必须合并】若对每个文件各跑一遍「凭据 → 解密 → 预览」，用户选了 5 个文件
+     *   就要输 5 次凭证、关 5 次弹窗。而这些文件通常是同一批导出的，凭证本来就一样。
+     *
+     * 【容错】允许混着来：
+     *   · 旧版 AKCP（`.aivora`）单独收集，稍后交回旧流程处理（它有自己的解码链路）；
+     *   · 认不出的文件不阻断其余文件，记进 skippedNames 最后统一告知；
+     *   · AEX 文件合成一个待解密批次。
+     */
+    private fun dispatchMulti(act: Activity, list: List<ByteArray>, names: List<String>) {
+        val aexBytes = ArrayList<ByteArray>()
+        val aexNames = ArrayList<String>()
+        val akcpBytes = ArrayList<ByteArray>()
+        val akcpNames = ArrayList<String>()
+        val unknown = ArrayList<String>()
+        for (i in list.indices) {
+            val b = list[i]
+            val n = names.getOrElse(i) { "shared.akcp" }
+            when (AexImport.detect(b)) {
+                AexImport.Kind.AEX -> {
+                    aexBytes.add(b)
+                    aexNames.add(n)
+                }
+                AexImport.Kind.AKCP -> {
+                    akcpBytes.add(b)
+                    akcpNames.add(n)
+                }
+                else -> {
+                    // 后缀像 .akcp 但 Magic 不认识：交给解析器报「结构不完整」比在这里猜更准。
+                    if (AexImport.acceptsName(n)) {
+                        aexBytes.add(b)
+                        aexNames.add(n)
+                    } else {
+                        unknown.add(n)
+                    }
+                }
+            }
+        }
+        if (aexBytes.isEmpty() && akcpBytes.isEmpty()) {
+            tip(
+                act, "无法导入",
+                "选中的文件都不是 AEX（.akcp）或旧版 AKCP（.aivora）容器：\n\n" + unknown.joinToString("\n")
+            )
+            return
+        }
+        // 认不出的先告知，用户读完再继续导入能认的那些。
+        val proceed = {
+            if (akcpBytes.isNotEmpty()) {
+                // 旧格式逐个走原链路（它自带后缀校验与解码，不在这里重写）。
+                for (i in akcpBytes.indices) {
+                    AkcpImportSheet.startWithBytes(act, akcpBytes[i], akcpNames[i])
+                }
+            }
+            if (aexBytes.isNotEmpty()) {
+                credentialDialogMulti(act, aexBytes, aexNames)
+            }
+        }
+        if (unknown.isNotEmpty()) {
+            tip(
+                act, "部分文件已跳过",
+                "以下文件既不是 .akcp 也不是 .aivora，已跳过：\n\n" + unknown.joinToString("\n")
+            ) { proceed() }
+        } else {
+            proceed()
+        }
     }
 
     /* ============================ ② 凭据输入 ============================ */
@@ -238,6 +390,173 @@ object AexImportSheet {
                 }
             }
         }
+    }
+
+    /* ============================ ②b 批量凭据 ============================ */
+
+    /**
+     * 批量凭据输入：多个文件共用一次凭证输入。
+     *
+     * 【为什么不复用单文件版】单文件版的 body 里写死了「一个 bytes / 一个 fileName」，
+     *   批量要展示「共 N 个文件」并一次性解密全部。逻辑差异大，单独一份比塞条件分支清楚。
+     *
+     * 【串行解密】AEX-SECURITY §3 明确要求「禁止并发触发（重复点击导致多次派生的，
+     *   必须在 UI 层串行化）」。这里用 decrypted 计数 + 单线程顺序解析保证：
+     *   用户点一次只跑一轮，且同一时刻只有一个 PBKDF2 在算。
+     */
+    private fun credentialDialogMulti(act: Activity, list: List<ByteArray>, names: List<String>) {
+        val ref = AtomicReference<Dialog?>()
+        ref.set(
+            DhForm.show(act, "导入 AEX 配置（" + list.size + " 个文件）") {
+                CredentialBodyMulti(act, list, names, ref)
+            }
+        )
+    }
+
+    @Composable
+    private fun CredentialBodyMulti(
+        act: Activity,
+        list: List<ByteArray>,
+        names: List<String>,
+        ref: AtomicReference<Dialog?>
+    ) {
+        val c = DhTokens.colors
+        var cred by remember { mutableStateOf("") }
+        var error by remember { mutableStateOf<String?>(null) }
+        Text(
+            text = "共 " + list.size + " 个文件",
+            color = c.title,
+            fontSize = UiKit.FS_BTN.sp,
+            fontFamily = DhTokens.fontsBold
+        )
+        // 只列文件名前几个，多了给个省略，避免弹窗被文件名撑爆。
+        Text(
+            text = names.take(3).joinToString("、") +
+                if (names.size > 3) " 等 " + names.size + " 个" else "",
+            modifier = Modifier.padding(top = 6.dp),
+            color = c.sub,
+            fontSize = UiKit.FS_TINY.sp,
+            fontFamily = DhTokens.fonts
+        )
+        Text(
+            text = "请输入 Aivora 生成这些文件时给出的凭据。\\n" +
+                "凭据只在本机用于解密：不保存、不上传、不写日志。",
+            modifier = Modifier.padding(top = 8.dp),
+            color = c.sub,
+            fontSize = UiKit.FS_TINY.sp,
+            fontFamily = DhTokens.fonts,
+            lineHeight = (UiKit.FS_TINY + 5f).sp
+        )
+        Column(modifier = Modifier.padding(top = 12.dp)) {
+            DhForm.Input(
+                value = cred,
+                onValueChange = {
+                    cred = it
+                    error = null
+                },
+                label = "文件凭据",
+                hint = "XXXX-XXXX-…",
+                singleLine = true
+            )
+        }
+        val err = error
+        if (err != null) {
+            Text(
+                text = err,
+                modifier = Modifier.padding(top = 8.dp),
+                color = c.err,
+                fontSize = UiKit.FS_TINY.sp,
+                fontFamily = DhTokens.fonts
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(Modifier.weight(1f))
+            DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
+            Spacer(Modifier.width(10.dp))
+            DhForm.PrimaryChip(text = "解密并预览") {
+                if (!AexImport.credentialLooksValid(cred)) {
+                    error = "凭据不能为空（Aivora 生成的通常形如 XXXX-XXXX-…）"
+                } else {
+                    ref.get()?.dismiss()
+                    decryptingDialogMulti(act, list, names, cred)
+                }
+            }
+        }
+    }
+
+    /**
+     * 批量解密：逐个文件串行解析，把成功的条目合并成一次预览。
+     *
+     * 【错误处理口径】
+     *   · 全部失败 → 直接报第一个失败原因（用户最需要知道「为什么一个都没成」）；
+     *   · 部分失败 → 继续用成功的那些出预览，并在预览顶部列出失败文件名与原因；
+     *   · 全部成功 → 正常出预览。
+     *   绝不做的事：失败时把已解出的部分明文丢掉 —— 那是「部分成功」场景下用户最想要的产物。
+     */
+    private fun decryptingDialogMulti(
+        act: Activity,
+        list: List<ByteArray>,
+        names: List<String>,
+        cred: String
+    ) {
+        val ref = AtomicReference<Dialog?>()
+        ref.set(
+            DhForm.show(act, "正在校验") {
+                Text(
+                    text = "正在解密 " + list.size + " 个文件，每个约需一秒…",
+                    color = DhTokens.colors.sub,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
+        )
+        Thread({
+            // 单线程内顺序解析：天然串行，不会同时跑多个 PBKDF2。
+            val merged = ArrayList<AexImport.AexProfile>()
+            val warnings = ArrayList<String>()
+            val failures = ArrayList<String>()
+            var firstReason: AexImport.Reason? = null
+            for (i in list.indices) {
+                val n = names.getOrElse(i) { "shared.akcp" }
+                val r = AexImport.parse(list[i], cred, n)
+                if (r.ok()) {
+                    merged.addAll(r.profiles)
+                    warnings.addAll(r.warnings)
+                } else {
+                    if (firstReason == null) {
+                        firstReason = r.reason
+                    }
+                    failures.add(n + "：" + r.message())
+                }
+            }
+            act.runOnUiThread {
+                if (act.isFinishing) {
+                    return@runOnUiThread
+                }
+                ref.get()?.dismiss()
+                if (merged.isEmpty()) {
+                    tip(act, "导入失败", firstReason?.let { messageOf(it) } ?: "所有文件都无法解密。")
+                    return@runOnUiThread
+                }
+                // 把失败项也当成 warning 塞进去，用户能在预览页看到「哪几个没进来」。
+                val allWarn = ArrayList<String>()
+                if (failures.isNotEmpty()) {
+                    allWarn.add("以下文件未能导入：")
+                    allWarn.addAll(failures)
+                }
+                allWarn.addAll(warnings)
+                val name0 = if (list.size == 1) names.firstOrNull() ?: "shared.akcp" else list.size.toString() + " 个文件"
+                previewDialog(act, AexImport.Result(merged, null, allWarn), name0)
+            }
+        }, "dh-aex-decrypt-multi").start()
+    }
+
+    /** 把 Reason 翻成用户文案（多文件场景里直接要一个字符串）。 */
+    private fun messageOf(reason: AexImport.Reason): String {
+        return AexImport.Result(emptyList(), reason).message()
     }
 
     /* ============================ ③ 解密 ============================ */
@@ -416,7 +735,18 @@ object AexImportSheet {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
-                DhForm.PrimaryChip(text = "好") { ref.get()?.dismiss() }
+                // 【需求】导入完成后进入供应商页，而不是把人晾在原地。
+                //   此时供应商列表已经写好，跳过去正好能立刻看到刚导入的条目。
+                //   与聊天页那条提示条的修法一致：不在弹窗里直接操作页面栈，
+                //   而是把意图交给宿主 Activity（见 ProviderNav.open 的注释）。
+                DhForm.PrimaryChip(text = "去查看") {
+                    ref.get()?.dismiss()
+                    act.runOnUiThread {
+                        runCatching { com.dollhouse.app.ui.provider.ProviderNav.open(act) }
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                DhForm.OutlineChip(text = "留在此页") { ref.get()?.dismiss() }
             }
         }
     }

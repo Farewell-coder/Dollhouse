@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import com.dollhouse.app.core.Logs
 import com.dollhouse.app.pet.PetToggle
 
 /**
@@ -40,7 +41,21 @@ class PetLinkActivity : Activity() {
      * 【为什么只烘内置动作】用户导入的动作本来就已经是图片文件，不需要生成。
      * 【产出】放 app 私有目录，日志打「帧数」，便于终端侧核对。
      */
+    /**
+     * 【附录A-2·修线程上限】烘焙是重活（10 个动作、152 帧、纯 CPU 渲染），
+     *   原来每收到一次 BAKE_ANIM 就新起一条裸线程，且不设任何上限。
+     *   连续快速的 am 广播 / 页面反复进出就会等比堆线程，最坏直接把进程拖到 ANR 甚至 OOM。
+     *
+     * 这里用信号量把**同时在跑的**烘焙限制为 1 条（典型场景本来也不需要并行：
+     *   同一只人偶的动作烘焙是顺序的，并行反而抢 CPU）。超出的请求直接丢弃并记日志 ——
+     *   「丢弃」而不是「排队」是刻意的：烘焙是幂等自愈操作（下次进入页面还会再触发），
+     *   排一串队等它慢慢跑没有意义，只会让线程数继续增长。
+     */
     private fun bakeAsync(dollId: String) {
+        if (!bakeGate.tryAcquire()) {
+            Logs.i("DollhouseBake", "已有烘焙在进行，本次请求丢弃")
+            return
+        }
         val app = applicationContext
         Thread({
             var ok = 0
@@ -64,6 +79,9 @@ class PetLinkActivity : Activity() {
                 }
             } catch (t: Throwable) {
                 com.dollhouse.app.core.Logs.w("DollhouseBake", "bakeAsync failed", t)
+            } finally {
+                // 【必须 finally 释放】中途抛异常若不释放，信号量永久占用 → 之后所有烘焙都被丢弃。
+                bakeGate.release()
             }
             com.dollhouse.app.core.Logs.i(
                 "DollhouseBake",
@@ -223,6 +241,19 @@ class PetLinkActivity : Activity() {
     }
 
     companion object {
+        /**
+         * 烘焙并发闸门：同一时刻最多 1 条烘焙线程。
+         *
+         * 【附录A-2·修线程上限】烘焙是重活（10 个动作、152 帧、纯 CPU 渲染），
+         *   原来每收到一次烘焙动作就新起一条裸线程且不设上限，连续广播会等比堆线程。
+         *   这里限制为 1 条；超出的请求直接丢弃（烘焙是幂等自愈操作，下次进页面还会再触发，
+         *   排队等待没有意义，只会让线程数继续增长）。
+         *
+         * 【为什么放在 companion】它必须跨 Activity 实例存活 —— 本页是 noHistory + 独立
+         *   taskAffinity，每次 `am start` 都可能新建实例，实例级字段拦不住连续广播造成的堆叠。
+         */
+        private val bakeGate = java.util.concurrent.Semaphore(1)
+
         /** 自定义 scheme：dollhouse://pet/on | off | toggle */
         internal const val SCHEME = "dollhouse"
         /** 显式动作形式：am start -a com.dollhouse.app.action.PET_TOGGLE */

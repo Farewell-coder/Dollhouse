@@ -106,7 +106,17 @@ object DollHomeOverlay {
             lp.format = PixelFormat.TRANSLUCENT
             lp.gravity = Gravity.TOP or Gravity.START
             val o = ComposeHost.attachOverlayOwner(view)
-            manager.addView(view, lp)
+            try {
+                manager.addView(view, lp)
+            } catch (t: Throwable) {
+                // 【附录C-3·修泄漏】attachOverlayOwner 已经建好了一个 Compose owner，
+                //   若 addView 抛异常（窗口已存在 / 权限被撤 / token 失效），
+                //   外层 catch 只会把三个字段置空 —— owner 本身不会销毁，
+                //   它的 Recomposer 与观察者会一直挂着，反复失败就是持续泄漏。
+                //   这里就地回收，再让外层 catch 走统一的字段清理。
+                runCatching { o?.onDestroy() }
+                throw t
+            }
             wm = manager
             root = view
             owner = o

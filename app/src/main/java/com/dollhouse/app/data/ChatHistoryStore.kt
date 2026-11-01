@@ -651,11 +651,31 @@ object ChatHistoryStore {
     fun saveHistory(ctx: Context, history: JSONArray) {
         saveHistory(ctx, history, ChatSessions.currentId(ctx))
     }
-    // 【v0.0.1】显式 id 版：给人偶专属会话（PetTalk）用，不再借当前会话的槽。
+    // 显式 id 版：给人偶专属会话（PetTalk）用，不再借当前会话的槽。
+    //
+    // 【附录D-1·修并发丢失】这条链路是「读全量 → 裁剪 → 写全量」的读-改-写，
+    //   而它会被两条线程同时调用：用户发消息（主线程 ChatPanel）与
+    //   宠物主动说话（PetTalk 的 feiyu-mini-tools 后台线程）。
+    //   SharedPreferences 只保证单个 key 的写入原子，不保证这段 RMW 原子 ——
+    //   交错时会用各自读到的旧快照互相覆盖，**表现就是「回复明明发出去了，杀进程重开却没了」**。
+    //
+    // 【为什么锁在 object 上】本类是 Kotlin object，全局唯一；粒度按 id 会更细，
+    //   但这里的热路径只有「发消息」与「宠物说话」，冲突概率低、持锁时间短（一次 prefs 写），
+    //   用一把全局锁换取实现简单、零死锁风险（内部不再调其它加锁方法）。
     @JvmStatic
     fun saveHistory(ctx: Context, history: JSONArray, id: String) {
-        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, trimForSave(ctx, id, history)).toString())
+        synchronized(SAVE_LOCK) {
+            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, trimForSave(ctx, id, history)).toString())
+        }
     }
+
+    /**
+     * 落盘互斥锁。
+     *
+     * 【为什么单独一个对象而不是 this】本类是 object，`synchronized(this)` 会与
+     *   外部任何 `synchronized(ChatHistoryStore)` 争用；独立一个锁对象边界更清楚。
+     */
+    private val SAVE_LOCK = Any()
     // 向历史数组追加一条消息。
     @JvmStatic
     fun push(host: ChatPanel, str: String, str2: String) {

@@ -202,22 +202,39 @@ class ChatPanel(
 
     /* ------------------------- 顶栏 / 工具条回调 ------------------------- */
 
-    /** 点提示条：跳主界面。 */
+    /**
+     * 顶部提示条「点这里去设置」→ 打开供应商页。
+     *
+     * 【原实现的 bug（v0.1.6 及以前）】聊天页是一个**独立的 ChatActivity**，
+     *   `context as? MainActivity` 恒为 null，于是永远走另一条分支：
+     *   先 `CLEAR_TOP` 启动 MainActivity（这一步会把 ChatActivity 自己彻底销毁），
+     *   再用 postDelayed(300ms) 回头去 `(context as? Activity)` 上打开供应商页 ——
+     *   此时 context 指向的那个 Activity 已经没了，`ApiPageKit.findActivity` 拿不到宿主，
+     *   `ProviderNav.open` 直接 return。**表现就是：点一下，页面回到主界面，供应商页始终不出现。**
+     *
+     * 【修法】不要在「即将被销毁的 Activity」上做延迟跳转。
+     *   把「打开供应商页」这件事做成启动参数，交给 MainActivity 在 **onCreate 之后**去做 ——
+     *   那时它已经是一个真实可见、装配完成的宿主，跳转必然成功。
+     *   已在主界面内的场景（Chat Tab）保持原样：直接开，不用绕。
+     *
+     * 【为什么用 extra 而不是 PageStack 直接压】MainActivity 若被 CLEAR_TOP 复用，
+     *   旧实例的页面栈可能还留着别的覆盖页；由它自己在 onCreate/onNewIntent 里按参数
+     *   统一处理，语义比外部隔空操作它的栈更可靠。
+     */
     internal fun openMain() {
         val act = context as? MainActivity
         if (act != null) {
-            // 已在主界面内的聊天 Tab：直接打开供应商，不重复启动主界面。
+            // 已经在主界面里（聊天 Tab）：直接开供应商页，不重复启动。
             com.dollhouse.app.ui.provider.ProviderNav.open(act)
             return
         }
+        // 独立聊天页：启动主界面，并用 extra 请它在装配完成后打开供应商页。
         val intent = Intent(context, MainActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        intent.putExtra(MainActivity.EXTRA_OPEN_PROVIDERS, true)
         (context as? android.app.Activity)?.let {
             com.dollhouse.app.PageTransitions.start(it, intent)
         } ?: context.startActivity(intent)
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            (context as? android.app.Activity)?.let { com.dollhouse.app.ui.provider.ProviderNav.open(it) }
-        }, 300L)
     }
 
     /** 点「加载更早的历史记录」。 */
