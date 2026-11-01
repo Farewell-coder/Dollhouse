@@ -43,6 +43,13 @@ object OcrEngine {
     /** 缓存落在独立 prefs，不挤进 feiyu_pet 的键空间。 */
     private const val PREFS = "feiyu_ocr"
     private const val KEY_PREFIX = "t_"
+    /**
+     * OCR 缓存条数上限（附录B-9）。
+     *
+     * 到达 [MAX_ENTRIES] 后一次性清理到 [KEEP_ENTRIES]，留出余量避免每次写入都触发扫描。
+     */
+    private const val MAX_ENTRIES = 64
+    private const val KEEP_ENTRIES = 48
 
     /** 单张图的识别上限：超时按「没读出文字」收尾，不能让人偶永远停在思考中。 */
     private const val TIMEOUT_SEC = 30L
@@ -161,9 +168,42 @@ object OcrEngine {
 
     private fun put(ctx: Context, path: String?, text: String?) {
         try {
-            prefs(ctx).edit().putString(KEY_PREFIX + path, text ?: "").apply()
+            val p = prefs(ctx)
+            // 【附录B-9·修无限增长】OCR 全文原先只写不删：每识别一张图就多一条键，
+            //   内容还是整页屏幕文字（几百到几千字）。用久了这个 prefs 文件会持续膨胀，
+            //   SharedPreferences 又是首次访问时整份读进内存，等于白占常驻内存。
+            //   这里在写入时按条数收口：超过 [MAX_ENTRIES] 就丢掉最旧的一批。
+            trimIfNeeded(p)
+            p.edit().putString(KEY_PREFIX + path, text ?: "").apply()
         } catch (unused: Throwable) {
         }
+    }
+
+    /**
+     * 条数上限收口。
+     *
+     * 【为什么用「条数」而不是「最后访问时间」】prefs 里没有存时间戳，
+     *   为清理而给每条加一个时间戳会让写入翻倍。OCR 缓存本身就是短期复用
+     *   （同一张图短时间内被看多次），按条数保留最近的一批已经够用，
+     *   实现也最省。真实语义上「先写入的更旧」，所以丢前 N 条即可。
+     *
+     * 【为什么一次砍掉四分之一而不是逐条删】避免每写一条都触发一次全量扫描，
+     *   摊薄成本。删掉的那些下次真需要时重新识别即可（幂等）。
+     */
+    private fun trimIfNeeded(p: SharedPreferences) {
+        val all = p.all
+        val keys = all.keys.filter { it.startsWith(KEY_PREFIX) }
+        if (keys.size < MAX_ENTRIES) {
+            return
+        }
+        val ed = p.edit()
+        // 丢掉最早的 (size - KEEP_ENTRIES) 条；all 的顺序不保证，因此改按下标取一批。
+        val drop = keys.size - KEEP_ENTRIES
+        for (i in 0 until drop) {
+            ed.remove(keys[i])
+        }
+        ed.apply()
+        Logs.i(TAG, "OCR 缓存超过上限，清理 " + drop + " 条")
     }
 
     private fun prefs(ctx: Context): SharedPreferences {
