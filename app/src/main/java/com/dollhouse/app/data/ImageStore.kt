@@ -136,10 +136,61 @@ object ImageStore {
         return file
     }
 
+    /**
+     * 把「相对路径」解析成 filesDir 下的文件。
+     *
+     * 【附录D-8·修路径越界】原实现是裸的 `File(filesDir, str)` —— 它对 `../`
+     *   不做任何拦截，于是 `"../databases/x"` / `"../../shared_prefs/y"` 这类
+     *   相对路径会解析到私有目录之外；而 `exists/delete` 全部走这里，
+     *   「删一张图」就足以删掉数据库文件。
+     *
+     * 【口径】只接受落在 filesDir 之内的路径：
+     *   · 先规范化（消掉 `.` / `..` / 重复斜杠），再比较前缀；
+     *   · 绝对路径与外逃的相对路径一律回落到 filesDir 下的一个不可用子路径，
+     *     调用方的 `isFile` / `delete` 自然返回 false —— 不抛异常，保持原幂等语义。
+     *
+     * 【为什么不用 canWrite 之类的判断】那要碰磁盘；这里只做纯字符串层面的
+     *   包含性校验，零 IO，可以放心在任意线程调用。
+     */
     @JvmStatic
     fun fileFor(context: Context, str: String): File {
-        return File(context.filesDir, str)
+        val base = context.filesDir
+        return if (isInsideBase(base, str)) File(base, str) else File(base, INVALID_NAME)
     }
+
+    /**
+     * 判断相对路径 [rel] 是否落在 [base] 之内（纯字符串运算，不碰磁盘）。
+     *
+     * 【为什么抽成独立方法】`fileFor` 需要 `Context`，在纯 JVM 单测里造不出来；
+     *   把这条判定拆成纯函数后可以直接被 `ImageStorePathTest` 覆盖，
+     *   路径穿越这类安全收口才有回归保护。
+     *
+     * 【判定口径】
+     *   · 空串 / 绝对路径 → false；
+     *   · 规范化后等于 base 自身 → false（那不是一张图）；
+     *   · 规范化后以 `base + 分隔符` 开头 → true。
+     * `File.absolutePath` 不规范化 `..`，所以这里显式走 `canonicalPath`；
+     * 万一 `canonicalPath` 抛异常（理论上只在路径非法时），保守判为 false。
+     */
+    @JvmStatic
+    fun isInsideBase(base: File, rel: String): Boolean {
+        if (rel.isEmpty()) {
+            return false
+        }
+        if (rel.startsWith(File.separatorChar)) {
+            return false
+        }
+        return try {
+            val basePath = base.canonicalPath.trimEnd(File.separatorChar)
+            val target = File(base, rel).canonicalPath
+            target != basePath && target.startsWith(basePath + File.separatorChar)
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    /** 越界路径的替身文件名：filesDir 下必然不存在，且不可能被真实图片占用。 */
+    private const val INVALID_NAME = ".invalid_path"
 
     @JvmStatic
     fun exists(context: Context, str: String?): Boolean {

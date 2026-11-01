@@ -94,6 +94,26 @@ interface PetRenderer {
     /** 是否还有动画在跑（供帧率策略判断要不要全速）。 */
     fun isActive(): Boolean
 
+    /**
+     * 非循环播放是否已经走到结尾。
+     *
+     * 【附录C-2·为什么要这个】精灵帧路径有 `clock.isAtEnd(n)` 兜底，而渲染器路径
+     *   原来只有 `advance()` —— 谁也没判结束，于是「一次性动作用 Lottie/GIF 导出 +
+     *   关掉循环」这种组合永远不产生 `onFinish`，仲裁层卡在 PLAYING。
+     *
+     * 【默认实现】返回 false = 「不会结束」。只有真正实现了一次性播放语义的引擎才覆盖它；
+     *   保持默认的引擎在非循环语义下仍按老行为持续跑（不引入新的失败模式）。
+     */
+    fun isFinished(): Boolean = false
+
+    /**
+     * 告诉渲染器本次是循环还是一次性播放。
+     *
+     * 【默认实现】空实现：不支持一次性语义的引擎照旧循环，行为与改造前一致。
+     * 支持的引擎（Lottie / 动图）覆盖它，把语义落到各自的 `repeatCount` 上。
+     */
+    fun setLooping(loop: Boolean) {}
+
     /** 开始播放。 */
     fun play()
 

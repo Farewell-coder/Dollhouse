@@ -45,6 +45,18 @@ class LottieRenderer : PetRenderer {
     private var released = false
     private var w = 0
     private var h = 0
+
+    /**
+     * 【附录C-2】本次播放是否为「一次性」（非循环）。
+     *
+     * 【为什么由渲染器自己记】循环与否是上层的语义（`DollAnim.Action.loop`），
+     *   而要落实它必须改 Lottie 的 `repeatCount` —— 那是渲染器内部的事。
+     *   所以上层通过 [setLooping] 传进来，渲染器负责把它翻译成引擎参数。
+     */
+    private var looping = true
+
+    /** 一次性播放是否已经播完（`tick` 判定后置 true，供 [isFinished] 上报）。 */
+    private var finished = false
     /** 未应用任何变换时的目标绘制区（按人偶窗口尺寸等比缩放居中）。 */
     private val dst = Rect()
     private val fullCanvasDst = Rect()
@@ -113,7 +125,10 @@ class LottieRenderer : PetRenderer {
             }
             val d = LottieDrawable()
             d.composition = comp
-            d.repeatCount = LottieDrawable.INFINITE
+            // 【附录C-2】这里只是初始值；真正的循环/一次性由 [setLooping] 决定
+            //   （它在 prepare 之后、play 之前被调用）。保持与 [play] 同一口径，
+            //   避免「prepare 设了无限、play 之前一帧就已跑起来」的窗口。
+            d.repeatCount = if (looping) LottieDrawable.INFINITE else 0
             // 【必须清背景】Lottie 默认可能带背景色；人偶是悬浮窗，带底色会露出一块方块。
             d.isApplyingOpacityToLayersEnabled = false
             // 【形态 ② 的关键】json 里图片只写文件名时，Lottie 找不到图会渲染成空白。
@@ -150,18 +165,64 @@ class LottieRenderer : PetRenderer {
         if (released || !playing) {
             return
         }
+        // 【附录C-2】一次性播放的结束只能在这里判：本引擎没有推进时钟，
+        //   真正的动画由 LottieDrawable 内部驱动，帧循环能观测到的唯一信号
+        //   就是「它还在不在动」。
+        markFinishedIfNeeded()
         host?.requestDraw()
     }
 
     override fun isActive(): Boolean = playing && !released && (drawable?.isAnimating == true)
+
+    /** 【附录C-2】非循环播完就上报；循环动作永远返 false。 */
+    override fun isFinished(): Boolean = finished
+
+    /**
+     * 【附录C-2·落实非循环语义】原来 `play()` 里硬写 `repeatCount = INFINITE`，
+     *   用户在动作设置里关掉循环对 Lottie 完全无效 —— 它永远播下去，
+     *   于是上层等不到 `onFinish`，状态机卡在 PLAYING。
+     *
+     * `LottieDrawable.INFINITE` 是 -1（无限），`0` 表示「总共播 1 次」。
+     * 用 0 而不是 1：Lottie 的语义是「额外重复次数」，1 会播两遍。
+     */
+    override fun setLooping(loop: Boolean) {
+        looping = loop
+        val d = drawable ?: return
+        d.repeatCount = if (loop) LottieDrawable.INFINITE else 0
+    }
+
+    /**
+     * 【附录C-2】判定一次性播放是否结束。
+     *
+     * 【为什么不用 addAnimatorListener】Lottie 的结束回调来自内部的 ValueAnimator，
+     *   而本渲染器的 `advance()` 是被宿主帧循环驱动的 —— 两套时钟耦合会引入
+     *   「回调在非主线程」这类新问题。这里沿用与精灵帧一致的思路：
+     *   由帧循环轮询 `isAnimating`，从「在动」翻成「不动」即视为播完。
+     *
+     * 【不会误判的情形】循环动作不进入这个判定（`looping == true` 直接返回）；
+     *   暂停（pause）会把 `playing` 置 false 并停掉 drawable，本判定要求 `playing` 为真，
+     *   所以暂停不会被当成「播完」。
+     */
+    private fun markFinishedIfNeeded() {
+        if (finished || looping || released || !playing) {
+            return
+        }
+        val d = drawable ?: return
+        if (!d.isAnimating) {
+            finished = true
+        }
+    }
 
     override fun play() {
         if (released) {
             return
         }
         playing = true
+        // 【附录C-2】每次 play 都是新一轮，结束标记必须清零，
+        //   否则第二轮一开始就处于「已播完」状态。
+        finished = false
         val d = drawable ?: return
-        d.repeatCount = LottieDrawable.INFINITE
+        d.repeatCount = if (looping) LottieDrawable.INFINITE else 0
         d.playAnimation()
         host?.requestDraw()
     }

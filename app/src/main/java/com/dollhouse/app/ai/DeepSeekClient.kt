@@ -20,6 +20,15 @@ import org.json.JSONObject
 object DeepSeekClient {
     private val MAIN = Handler(Looper.getMainLooper())
 
+    /**
+     * 流式文本增量的最小投递间隔（毫秒）。
+     *
+     * 【附录B-6】见 `emit()` 的说明：把逐 delta 投递合并成最多每 40 毫秒一次。
+     * 40ms 约等于 25fps 的上限，用户视觉上察觉不到延迟，主线程压力却能降一个量级。
+     */
+    private const val EMIT_MIN_INTERVAL_MS = 40L
+
+
     /** 用户主动停止生成时返回的固定错误标记（上层据此静默收尾，不当故障提示）。 */
     const val STOPPED = "__STOPPED__"
 
@@ -357,12 +366,74 @@ object DeepSeekClient {
             var firstTextAt = 0L
             var toolCallsSeen = false
 
-            fun emit(kind: StreamKind, text: String, ti: Int, tid: String?, tname: String?, targs: String?) {
+            // 【节流状态】只被解析线程读写（见 emit 的说明），不需要同步。
+            // 【为什么声明在最前】Kotlin 的局部函数按声明顺序解析，emit/flushPending
+            //   引用的名字必须先于它们出现，否则报 Unresolved reference。
+            val pendingBuf = StringBuilder()
+            var pendingKind: StreamKind = StreamKind.TEXT
+            var pendingTi = 0
+            var lastEmitAt = 0L
+
+            /** 把攒下的文本一次性投递出去。 */
+            fun flushPending() {
+                if (pendingBuf.length == 0) {
+                    return
+                }
+                val payload = pendingBuf.toString()
+                val k = pendingKind
+                val ti = pendingTi
+                pendingBuf.setLength(0)
+                lastEmitAt = System.currentTimeMillis()
                 MAIN.post {
                     try {
-                        onDelta.onDelta(kind, text, ti, tid, tname, targs)
+                        onDelta.onDelta(k, payload, ti, null, null, null)
                     } catch (ignored: Throwable) {
                     }
+                }
+            }
+
+            /**
+             * 把一条增量投递到主线程。
+             *
+             * 【附录B-6·修投递风暴】原来每解析出一个 delta 就 `MAIN.post` 一次。
+             *   模型吐字快时一秒能来几十上百个 chunk，等于往主线程队列里灌同样数量的
+             *   Runnable —— 每条都要走一遍 Handler 调度 + 重组，UI 卡顿的根源在这，
+             *   而不是渲染本身。更糟的是这些 Runnable 只做「拼字符串」，合并投递零损失。
+             *
+             * 现在的口径：
+             *   · 结构性事件（换思考/正文、工具调用开始/结束）**立即投递**，保证顺序语义；
+             *   · 纯文本增量**攒起来**，最多每 [EMIT_MIN_INTERVAL_MS] 合并投递一次；
+             *   · 结束/错误路径会先 flush 一次，保证不丢尾巴。
+             *
+             * 【线程安全】本方法只在解析线程里调用（单线程），pending 不需要额外加锁；
+             *   投递出去的 Runnable 里只读快照后再清空，避免与下一批竞争。
+             */
+            fun emit(kind: StreamKind, text: String, ti: Int, tid: String?, tname: String?, targs: String?) {
+                // 工具调用与类型切换属于「结构性」事件：立即发出，不参与合并。
+                val structural = tname != null || targs != null || tid != null
+                if (structural) {
+                    flushPending()
+                    MAIN.post {
+                        try {
+                            onDelta.onDelta(kind, text, ti, tid, tname, targs)
+                        } catch (ignored: Throwable) {
+                        }
+                    }
+                    return
+                }
+                // 纯文本：攒进缓冲，节流投递。
+                // 【类型切换也是边界】THINK → TEXT（思考结束、正文开始）若正巧落在
+                //   同一个 40ms 窗口里，合并投递会把思考的内容当成正文渲染出去，
+                //   表现为「思考文字混进回答」。所以切换前先把上一类 flush 掉。
+                if (pendingBuf.length > 0 && kind != pendingKind) {
+                    flushPending()
+                }
+                pendingBuf.append(text)
+                pendingKind = kind
+                pendingTi = ti
+                val now = System.currentTimeMillis()
+                if (now - lastEmitAt >= EMIT_MIN_INTERVAL_MS) {
+                    flushPending()
                 }
             }
 
@@ -534,6 +605,9 @@ object DeepSeekClient {
                 } else {
                     0L
                 }
+                // 【不丢尾巴】节流缓冲里可能还压着最后一段正文，收尾前必须先投递，
+                //   否则「回复已结束」与「正文最后几字」的顺序会反，末字可能被丢掉。
+                flushPending()
                 val fMsg = msg
                 val fThink = thinkMs
                 MAIN.post {
@@ -545,6 +619,8 @@ object DeepSeekClient {
             } catch (t: Throwable) {
                 val err = if (task != null && task.cancelled) STOPPED else ApiEndpoint.friendlyError(t, baseUrl)
                 Logs.i("DollhouseMemo", "[stream] err=" + err)
+                // 【错误也要收尾】已经吐出来的正文不能因为随后抛错就丢掉。
+                flushPending()
                 MAIN.post {
                     if (!doneSent) {
                         doneSent = true

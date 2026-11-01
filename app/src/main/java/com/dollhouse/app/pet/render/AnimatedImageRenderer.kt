@@ -43,6 +43,17 @@ class AnimatedImageRenderer : PetRenderer {
     private var movieStartMs = 0L
     /** 动图播放一次的时长（用于循环取模）。 */
     private var movieDurationMs = 0
+
+    /**
+     * 【附录C-2】本次播放是否为循环。
+     *
+     * 【为什么默认 true】改造前两条路径都写死无限循环，默认值保持它是为了
+     *   「没接 setLooping 的调用路径行为完全不变」。
+     */
+    private var looping = true
+
+    /** 一次性播放是否已经走到结尾（供 [isFinished] 上报）。 */
+    private var finished = false
     private val dst = Rect()
     private val fullCanvasDst = Rect()
     private val sizeBuffer = IntArray(2)
@@ -136,10 +147,62 @@ class AnimatedImageRenderer : PetRenderer {
             if (movieStartMs == 0L) {
                 movieStartMs = nowMs
             }
-            val elapsed = ((nowMs - movieStartMs) % movieDurationMs).toInt()
-            movie?.setTime(elapsed)
+            val elapsed = nowMs - movieStartMs
+            // 【附录C-2】非循环：走到总时长就停在末帧并标记结束，不再取模重播。
+            //   原来的 `% movieDurationMs` 让一次性播放永远循环 —— 上层等不到
+            //   `onFinish`，状态机卡在 PLAYING。
+            if (!looping) {
+                val dur = movieDurationMs.toLong()
+                if (elapsed >= dur) {
+                    movie?.setTime((dur - 1).toInt().coerceAtLeast(0))
+                    finished = true
+                    playing = false
+                    host?.requestDraw()
+                    return
+                }
+                movie?.setTime(elapsed.toInt())
+            } else {
+                movie?.setTime((elapsed % movieDurationMs).toInt())
+            }
+        } else if (!looping && !finished && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // 【附录C-2】AnimatedImageDrawable（API 28+）路径：它自带时钟，
+            //   非循环时会在最后一帧自行停住，`isRunning` 就此变 false。
+            //   这里轮询这个信号，与 Lottie 侧同一口径。
+            // 【注意】`isRunning` 属于 AnimatedImageDrawable，`Animatable` 上没有，
+            //   所以必须先降型再读，不能写成 `d is Animatable && !d.isRunning`。
+            val d = animDrawable as? AnimatedImageDrawable
+            if (d != null && !d.isRunning) {
+                finished = true
+                playing = false
+            }
         }
         host?.requestDraw()
+    }
+
+    /** 【附录C-2】非循环播完就上报。 */
+    override fun isFinished(): Boolean = finished
+
+    /**
+     * 【附录C-2·落实非循环语义】原来两个路径都写死无限循环
+     *   （`REPEAT_INFINITE` / 时间取模），用户在动作设置里关掉循环完全无效。
+     *
+     * 【GIF 的「只播一次」怎么写】AnimatedImageDrawable 的 `repeatCount` 是
+     *   「额外重复次数」，0 表示总共播 1 次；Movie 没有这个参数，
+     *   由 [advance] 里按时长判定（见上）。
+     *
+     * 【为什么在 prepare 之后才能调】此时 drawable 已就绪，改 repeatCount 立刻生效。
+     */
+    override fun setLooping(loop: Boolean) {
+        looping = loop
+        // 【为什么带版本判断】`animDrawable` 字段的类型是 `Drawable?`，
+        //   `repeatCount` 是 API 28 才有的属性；直接点出来编译期就过不去。
+        //   而本类要兜住 API 24–27（那段走 Movie 路径，没有 repeatCount），
+        //   所以这里必须做类型判断 + 版本判断双重收口。
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return
+        }
+        val d = animDrawable as? AnimatedImageDrawable ?: return
+        d.repeatCount = if (loop) AnimatedImageDrawable.REPEAT_INFINITE else 0
     }
 
     override fun isActive(): Boolean = playing && !released
@@ -149,6 +212,8 @@ class AnimatedImageRenderer : PetRenderer {
             return
         }
         playing = true
+        // 【附录C-2】新一轮播放，结束标记清零 + 时间基准归零。
+        finished = false
         movieStartMs = 0L
         val d = animDrawable
         if (d is android.graphics.drawable.Animatable) {

@@ -325,13 +325,49 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             updateTouchable()
             // 【r19·随机走位】挂载后启动（若用户在设置里开了开关）。
             startWander()
-        } catch (unused: Throwable) {
+        } catch (t: Throwable) {
             added = false
+            // 【附录C-3·修 P0 泄漏】attach 的 try 覆盖了 addView **之后**的全部初始化
+            //   （startSemanticWithIdleFallback / PetBus.register / updateTouchable /
+            //   startWander）。其中任一处抛异常都会走到这里，而原来的写法只把
+            //   `added = false`，窗口本身还挂在 WindowManager 上 ——
+            //   从此再也无人持有它的引用去 removeView，表现为
+            //   「人偶关不掉、悬浮窗残留、服务重启后叠出两个」。
+            //
+            // 【口径】先尽力把已经挂上去的窗口摘掉（按实际情况而不是按 added 判断），
+            //   再走原有的停服逻辑。摘窗失败也不能把异常抛出去，否则整个 Service 崩。
+            if (added) {
+                try {
+                    wm.removeView(petView)
+                } catch (ignored: Throwable) {
+                }
+                added = false
+            } else {
+                // addView 本身没成功时也试一次：某些 ROM 会先挂上再抛异常。
+                try {
+                    wm.removeViewImmediate(petView)
+                } catch (ignored: Throwable) {
+                }
+            }
+            // 已经注册到总线上的监听必须撤回，否则总线继续向一个已废弃的窗口派发。
+            try {
+                PetBus.unregister(busListener)
+            } catch (ignored: Throwable) {
+            }
+            // 帧循环与走位都是从 attach 起就在跑的常驻回调，异常路径同样要停。
+            try {
+                petView.screenTick = null
+                petView.stopAnim()
+            } catch (ignored: Throwable) {
+            }
+            try {
+                stopWander()
+            } catch (ignored: Throwable) {
+            }
+            Logs.w("Dollhouse", "pet window attach failed: " + t.javaClass.simpleName)
             // 主窗挂载失败才停服务（与旧行为一致）；副窗失败只记日志，不影响其它人偶。
             if (host.primary === this) {
                 PetNotifier.stopSafely(host)
-            } else {
-                Logs.w("Dollhouse", "secondary pet window attach failed")
             }
         }
     }
@@ -393,11 +429,32 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         stopWander()
         petView.screenTick = null
         petView.stopAnim()
+        // 【附录C-4·修 P0 停服】原来这里 `catch {}` 把 removeView 的异常整个吞掉，
+        //   随后无条件 `added = false`。于是出现了最坏的一种组合：
+        //   removeView 实际失败（窗口还挂着），但状态已经记成「不在屏上」——
+        //   到点 exitAway 走 `if (pv == null || lpv == null || added) return` 直接返回，
+        //   接着 awayShow 里 addView 因为「窗口已存在」抛异常 → 返回 false →
+        //   PetNotifier.stopSafely(host) 把整个桌宠服务停掉。
+        //   用户看到的就是「暂离到点，人偶没回来，服务也没了」。
+        //
+        // 【口径】以 removeView 的**实际结果**决定 added：
+        //   · 成功 → added = false，后续 exitAway 正常重挂；
+        //   · 失败（窗口本就不在）→ 也置 false，因为「不在屏上」这个事实成立；
+        //   · 其它异常 → 保守地置 false 并记日志，保证 exitAway 一定会尝试重挂，
+        //     而不是因为 added=true 直接跳过恢复。
+        var removed = false
         try {
             wm.removeView(petView)
-        } catch (unused: Throwable) {
+            removed = true
+        } catch (t: Throwable) {
+            // IllegalArgumentException 表示这个 View 本就不在 WindowManager 里 ——
+            // 对「暂离」而言目标状态已经达成，不算失败。
+            Logs.w("Dollhouse", "awayHide removeView: " + t.javaClass.simpleName)
         }
         added = false
+        if (!removed) {
+            Logs.i("Dollhouse", "awayHide: 窗口未挂载，按已摘除处理")
+        }
     }
 
     /** 【暂离恢复】把同一 PetView 重新挂回原 lp 并启动动画；成功返回 true。 */

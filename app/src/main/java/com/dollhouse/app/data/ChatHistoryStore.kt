@@ -172,7 +172,7 @@ object ChatHistoryStore {
         }
         try {
             PetPrefs.setConvPrev(ctx, id, batch.toString())
-            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, history).toString())
+            writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, history))
         } catch (_: Throwable) {
         }
     }
@@ -213,7 +213,7 @@ object ChatHistoryStore {
         }
         stripPrevTags(history)
         try {
-            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, history).toString())
+            writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, history))
         } catch (_: Throwable) {
         }
     }
@@ -356,14 +356,14 @@ object ChatHistoryStore {
         val before = host.history.length()
         if (host.prevCount > 0) {
             Logs.i("DollhouseMemo", "[save] 展开态全量落盘 len=" + before)
-            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, host.history).toString())
+            writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, host.history))
             return
         }
         host.history = trimForSave(ctx, id, host.history)
         if (before != host.history.length()) {
             Logs.i("DollhouseMemo", "[save] 裁剪 before=" + before + " after=" + host.history.length())
         }
-        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, host.history).toString())
+        writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, host.history))
     }
     /**
      * 【v2.9】把 src[0, end) 里的非摘要消息**追加**进「更早历史」暂存位（不覆盖已有内容）。
@@ -506,7 +506,7 @@ object ChatHistoryStore {
         // 【v2.8·N1】这里的 _prev 标记要跟着落盘：迷你框（PetTalk）那条旁路读的就是这份数组，
         //   它需要靠标记知道「现在处于展开态、别把补回批重新回填进暂存位」。
         //   残留风险已由 loadHistory → collapsePrevOnLoad 在载入时就地收回并消费掉标记来闭合。
-        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, trimForDisplay(host.history)).toString())
+        writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, trimForDisplay(host.history)))
         return prev.length()
     }
 
@@ -576,7 +576,7 @@ object ChatHistoryStore {
         val id = ChatSessions.currentId(ctx)
         PetPrefs.setConvPrev(ctx, id, prev.toString())
         // 【坑】同样不能走 saveHistory：那会把刚写回的暂存批又当成溢出批捞出来重填一遍。
-        PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, host.history).toString())
+        writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, host.history))
         return true
     }
 
@@ -664,9 +664,8 @@ object ChatHistoryStore {
     //   用一把全局锁换取实现简单、零死锁风险（内部不再调其它加锁方法）。
     @JvmStatic
     fun saveHistory(ctx: Context, history: JSONArray, id: String) {
-        synchronized(SAVE_LOCK) {
-            PetPrefs.setConvHistory(ctx, id, byPoolSafe(ctx, id, trimForSave(ctx, id, history)).toString())
-        }
+        // 【附录D-1】改成走统一入口：锁只在一处，避免「两把写法各守一半」。
+        writeHistoryLocked(ctx, id, byPoolSafe(ctx, id, trimForSave(ctx, id, history)))
     }
 
     /**
@@ -676,6 +675,25 @@ object ChatHistoryStore {
      *   外部任何 `synchronized(ChatHistoryStore)` 争用；独立一个锁对象边界更清楚。
      */
     private val SAVE_LOCK = Any()
+
+    /**
+     * 【附录D-1·全路径收口】所有「整份写回 conv_<id>」的地方都走这里。
+     *
+     * 【为什么不能只锁 saveHistory】全工程还有 6 处直接 `PetPrefs.setConvHistory(...)`：
+     *   裁剪暂存（`trimForSave` 的两条分支）、展开态全量落盘、`expandPrev`、
+     *   `collapsePrev`… 它们同样是「读全量 → 改 → 写全量」。只给 `saveHistory`
+     *   加锁等于只守住了大门，侧门照旧互相覆盖 —— 现象与没修一样。
+     *
+     * 【为什么这里只管写、不负责读】读侧（`loadHistory`）拿到的是某个时刻的快照；
+     *   只要每一次写都是「在一个互斥区内完成整份写回」，读侧就不会读到半份数据。
+     *   真正的原子性界限是「读-改-写」由调用方在同一线程里完成，本方法保证的是
+     *   「写」这一半不与其它「写」交错。
+     */
+    private fun writeHistoryLocked(ctx: Context, id: String, json: JSONArray) {
+        synchronized(SAVE_LOCK) {
+            PetPrefs.setConvHistory(ctx, id, json.toString())
+        }
+    }
     // 向历史数组追加一条消息。
     @JvmStatic
     fun push(host: ChatPanel, str: String, str2: String) {

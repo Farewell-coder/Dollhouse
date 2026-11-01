@@ -939,6 +939,9 @@ object PetPrefs {
             .remove("conv_avatar_" + id)
             .remove("conv_doll_" + id)
             .remove("conv_hidden_" + id)
+            // 【附录D-9】这两个也是按 id 存的会话属性，删会话时同样要清掉，
+            //   否则旧 id 的键会成为永不被引用的垃圾（且改名前漏迁移时会被这里删掉）。
+            .remove("conv_cleared_" + id)
             .apply()
     }
 

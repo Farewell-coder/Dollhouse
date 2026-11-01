@@ -546,6 +546,18 @@ class ActionPlayerCore(
         clock.reset()
         playing = true
 
+        // 【附录C-1·修 P0 卡死】以下每一条失败路径都必须让上层知道「这次播不了」。
+        //
+        // 【原来的坑】失败时只把 `playing` 置 false 就 return。仲裁层
+        //   （PetBehaviorController）在调用 play 之前就已经把
+        //   `state = PLAYING` / `currentSemantic` / `currentActionId` 记好了，
+        //   它只等 `onFinish` 来清账 —— 一条都不回调，账就永远挂着，
+        //   之后所有同/低优先级语义都被优先級守卫挡掉，人偶除了重启服务再也动不了。
+        //
+        // 【口径】失败与「播完」在上层是同一个出口（都要回落待机），
+        //   所以直接复用 `onFinish`，不新增回调面（新增 onError 还要改所有调用方）。
+        //   注意 `playing` 仍要置 false：`isPlaying()` 是给帧率策略用的。
+
         if (engine == DollAnim.ENGINE_SPRITE) {
             val paths = action.frames
             if (paths.isEmpty()) {
@@ -554,6 +566,8 @@ class ActionPlayerCore(
                 //   （见 DollAnim.add 的注释），空动作被设为默认动作是完全可能的。
                 Logs.i(TAG, "动作没有帧，跳过播放：" + actionId)
                 playing = false
+                // 空壳动作不回调 onFinish：它是「合法的无内容」，不是失败。
+                // 上层据此不进入 PLAYING —— 见 PetBehaviorController.play 的返回值校验。
                 return
             }
             decodeFramesAsync(paths, generation)
@@ -562,6 +576,7 @@ class ActionPlayerCore(
             if (path.isBlank()) {
                 Logs.w(TAG, "动作没有入口资源：" + actionId)
                 playing = false
+                onFinish?.invoke()
                 return
             }
             val r = RendererRegistry.create(engine)
@@ -570,6 +585,7 @@ class ActionPlayerCore(
                 //   回落成 sprite 会让「选了 Lottie 却画出位图」这种更隐蔽的问题。
                 Logs.w(TAG, "未知引擎：" + engine + "（动作 " + actionId + "）")
                 playing = false
+                onFinish?.invoke()
                 return
             }
             val ok = r.prepare(PetSource.Lottie(path).let { s ->
@@ -582,12 +598,20 @@ class ActionPlayerCore(
             if (!ok) {
                 Logs.w(TAG, "资源准备失败：" + (r.lastError() ?: "未知"))
                 playing = false
+                try {
+                    r.release()
+                } catch (ignored: Throwable) {
+                }
+                onFinish?.invoke()
                 return
             }
             val h = hostProvider()
             if (h != null) {
                 r.attach(h)
             }
+            // 【附录C-2】必须在 play() 之前把循环语义告诉渲染器：
+            //   Lottie/动图内部靠 repeatCount 决定播几次，默认是无限。
+            r.setLooping(loop)
             renderer = r
             val size = r.size()
             if (size.size >= 2) {
@@ -635,6 +659,9 @@ class ActionPlayerCore(
             if (out.isEmpty()) {
                 Logs.w(TAG, "全部帧解码失败，动作无法播放：" + actionId)
                 playing = false
+                // 【附录C-1】解码全失败同属「播不了」，必须清上层挂账，
+                //   否则状态机卡在 PLAYING（见 play() 上方那段说明）。
+                onFinish?.invoke()
             } else {
                 clock.reset()
             }
@@ -655,6 +682,14 @@ class ActionPlayerCore(
         val r = renderer
         if (r != null) {
             r.advance(nowMs)
+            // 【附录C-2·修 P0 卡死】渲染器路径原来只 advance、从不判结束。
+            //   精灵帧有 `clock.isAtEnd(n)` 兜底，渲染器没有 —— 于是
+            //   「一次性动作用 Lottie/GIF 导出 + 关掉循环」永远拿不到 onFinish，
+            //   仲裁层就永久停在 PLAYING（后续所有语义被优先级守卫挡掉）。
+            if (r.isFinished()) {
+                playing = false
+                onFinish?.invoke()
+            }
             return
         }
         val n = frames.size

@@ -38,6 +38,24 @@ object ChatSessions {
     private const val TAG = "DollhouseSessions"
 
     /**
+     * 【附录D-5·修并发覆盖】会话清单的事务串行化。
+     *
+     * 【问题】清单的维护方式是「读 conv_index → 改数组 → 写回」，整个过程原来**无锁**。
+     *   前台 UI（新建 / 改名 / 删除）与后台（`PetTalk` 落盘、`syncWithDolls`、
+     *   AI 回复后 `touch`）都可能同时进来：两个线程各自读到同一份旧快照、
+     *   各自改一处、再各自写回 —— 后写的那份把前者刚加/刚删的条目整段盖掉，
+     *   表现为「新建的会话过一会儿自己没了」或「删掉的会话又复活」。
+     *
+     * 【实现口径】所有会写 conv_index 的入口统一标 `@Synchronized`。
+     *   本类是 `object`，所以这是「进程内一把锁 + 可重入」：
+     *   `createForDoll → ensureForDoll → addConv` 这样的嵌套调用不会自锁死。
+     *
+     * 【为什么不用细粒度锁】只锁写回没有意义 —— 竞争发生在「读」与「写」之间，
+     *   必须让「读-改-写」三步同处一个临界区。这些方法都是纯 prefs 操作，
+     *   临界区内没有 IO / 网络 / 回调，串行化的代价可以忽略。
+     */
+
+    /**
      * 【r13·一人偶一对话】人偶绑定会话的 id 前缀。
      *
      * 【为什么用前缀而不是纯时间戳】`d_<dollId>` 是**确定性**的：给定人偶就能算出主会话，
@@ -265,6 +283,7 @@ object ChatSessions {
      *   没有绑定人偶（旧 `pet` / 自聊池）时保持原行为。
      */
     @JvmStatic
+    @Synchronized
     fun createIn(ctx: Context, p: String, prefix: String, title: String): String {
         if (POOL_PET == p) {
             val bound = dollOfConv(ctx, getCurrent(ctx, POOL_PET))
@@ -504,6 +523,7 @@ object ChatSessions {
      *   老会话认领给某只人偶 —— 旧数据原样留在原处，新会话从空开始。
      */
     @JvmStatic
+    @Synchronized
     fun ensureForDoll(ctx: Context, dollId: String): String {
         if (dollId.isEmpty()) {
             return ensurePet(ctx)
@@ -548,6 +568,7 @@ object ChatSessions {
      * 【池】固定人偶池；切不切换当前会话由调用方决定。
      */
     @JvmStatic
+    @Synchronized
     fun createForDoll(ctx: Context, dollId: String, title: String? = null): String {
         if (dollId.isEmpty()) {
             return ""
@@ -579,6 +600,7 @@ object ChatSessions {
      *   只写绑定关系，不复制人格内容。
      */
     @JvmStatic
+    @Synchronized
     fun addConv(ctx: Context, p: String, id: String, title: String, dollId: String? = null): Boolean {
         if (id.isEmpty() || find(ctx, id) != null) {
             return false
@@ -641,6 +663,7 @@ object ChatSessions {
      *   统统跟着走，否则历史、暂存、已读水位、头像绑定会散落在旧 id 上成为孤儿数据。
      */
     @JvmStatic
+    @Synchronized
     fun renameConvId(ctx: Context, oldId: String, newId: String): Boolean {
         if (oldId.isEmpty() || newId.isEmpty() || oldId == newId) {
             return false
@@ -677,6 +700,13 @@ object ChatSessions {
             if (dl.isNotEmpty()) {
                 PetPrefs.setConvDoll(ctx, newId, dl)
             }
+            // 【附录D-9·修丢状态】隐藏与「已清空」也是按 id 存的会话属性，
+            //   改名前必须一起搬走 —— 原来漏了这两个，紧接着的
+            //   removeConvExtras(oldId) 又把旧 id 的 conv_hidden_ 删掉，于是：
+            //   · 原本「已隐藏」的会话改个名就重新出现在列表里；
+            //   · 原本「已清空」的会话改名后未读数 / 预览又按旧内容算回来。
+            PetPrefs.setConvHidden(ctx, newId, PetPrefs.convHidden(ctx, oldId))
+            PetPrefs.setConvCleared(ctx, newId, PetPrefs.isConvCleared(ctx, oldId))
             PetPrefs.removeConvExtras(ctx, oldId)
             // 当前会话指向（分池）
             val p = poolOf(findIn(all, newId))
@@ -705,6 +735,7 @@ object ChatSessions {
      * @return 本次是否改动了清单（改了就 bump 列表信号）。
      */
     @JvmStatic
+    @Synchronized
     fun syncWithDolls(ctx: Context): Boolean {
         return try {
             val dolls = com.dollhouse.app.data.DollStore.all(ctx)
@@ -810,6 +841,7 @@ object ChatSessions {
      * 【迁移】第一版的人偶会话 id 固定为 "pet" 且没有 pool 字段，这里就地把它改记为 pet 池。
      */
     @JvmStatic
+    @Synchronized
     fun ensurePet(ctx: Context): String {
         val all = listAll(ctx)
         for (i in 0 until all.length()) {
@@ -864,6 +896,7 @@ object ChatSessions {
      * 返回当前会话 id。
      */
     @JvmStatic
+    @Synchronized
     fun ensure(ctx: Context): String {
         // 人偶池的种子槽先确保存在（PetTalk 的兜底落点）。
         ensurePet(ctx)
@@ -924,6 +957,7 @@ object ChatSessions {
     // ==================== 会话操作 ====================
 
     @JvmStatic
+    @Synchronized
     fun rename(ctx: Context, id: String, title: String?) {
         val arr = listAll(ctx)
         val o = findIn(arr, id) ?: return
@@ -946,6 +980,7 @@ object ChatSessions {
 
     /** 删除会话；若删的是某个池的当前会话，只在同一个池里兜底，不串池。 */
     @JvmStatic
+    @Synchronized
     fun delete(ctx: Context, id: String) {
         val target = find(ctx, id)
         if (target == null) {
@@ -984,6 +1019,7 @@ object ChatSessions {
      *   对应「聊天页 → 清空当前对话」这个诉求。
      */
     @JvmStatic
+    @Synchronized
     fun clearMessages(ctx: Context, id: String?) {
         if (id == null || id.isEmpty()) {
             return
@@ -1001,6 +1037,7 @@ object ChatSessions {
 
     /** 有新消息时刷新会话的 updated 时间戳。 */
     @JvmStatic
+    @Synchronized
     fun touch(ctx: Context, id: String) {
         val arr = listAll(ctx)
         val o = findIn(arr, id) ?: return
