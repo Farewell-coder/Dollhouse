@@ -95,6 +95,65 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 【AEX 1.0 接收入口】Aivora 分享出来的 .akcp 配置文件：
+             支持系统分享（SEND / SEND_MULTIPLE）与「用其它应用打开」（VIEW）。
+             【为什么单独一个 Activity】规范第三节要求系统级入口，并强调必须用 ContentResolver
+             读 content:// URI、不得转成文件路径、读取完成前不得释放临时授权 ——
+             这一页只做「读完字节 → 放内存信箱 → 唤主界面」，读完立即 finish，
+             真正的多级导入弹窗由 MainActivity 承载（弹窗需要长期可见的宿主窗口）。
+             【关键属性】
+               · exported=true：必须让系统与其它 App 能把文件递进来（这是唯一开放的文件入口）；
+               · noHistory + excludeFromRecents：中转页，不留在最近任务里；
+               · taskAffinity=""：自成独立任务，分享时不会把用户原本的页面栈顶乱；
+               · Theme.NoDisplay：不显示任何界面（Android 14 起要求 onCreate 内 finish，已满足）。 -->
+        <activity
+            android:name=".AexReceiveActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <!-- ① 单文件分享（Aivora → 系统分享面板 → 选择 Dollhouse） -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.aivora.akcp" />
+            </intent-filter>
+            <!-- ② 多文件分享：协议允许一个文件含多条配置，也兼容一次分享多个文件 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.aivora.akcp" />
+            </intent-filter>
+            <!-- ③ 用其它应用打开 / 文件管理器点开。
+                 【为什么带 BROWSABLE】部分文件管理器走的是「浏览器式」打开通道，
+                 不带这个 category 它们不会把本应用列进候选。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/vnd.aivora.akcp" />
+            </intent-filter>
+            <!-- ④ 后缀兜底：不少文件管理器只按扩展名派发，MIME 报成 application/octet-stream。
+                 按 pathPattern 匹配 .akcp，能覆盖这一类。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.akcp" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.akcp" />
+            </intent-filter>
+        </activity>
+
         <!-- 外部链接落地页：浏览器 / 自动化软件 / 终端 am start 都能拉起。
              dollhouse://pet/on | off | toggle
              com.dollhouse.app.action.PET_ON | PET_OFF | PET_TOGGLE

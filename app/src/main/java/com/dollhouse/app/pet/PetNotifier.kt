@@ -27,9 +27,15 @@ import com.dollhouse.app.R
 object PetNotifier {
     private const val CHANNEL_ID = "feiyu_pet"
     private const val NOTIF_ID = 1001
-
-    /** 【r12】「没选人偶」提示通知的 id（与常驻通知分开，互不覆盖）。 */
-    private const val NOTIF_ID_NO_DOLL = 1002
+    /**
+     * 【r12】「没选人偶」提示通知的 id。
+     *
+     * 【附录A-3·修撞号】原来是 1002，与 [com.dollhouse.app.keepalive.KeepAliveService.NOTIF_ID]
+     *   完全相同 —— 同一个 namespace 下同 id 后发者直接覆盖前者：开了「后台保活」又没启用人偶时，
+     *   保活服务的常驻前台通知会被这条提示顶掉（反之亦然），文案与点击目标全部错乱。
+     *   统一挪到 1003，并在 KeepAliveService 里补了注释把两边钉在一起。
+     */
+    private const val NOTIF_ID_NO_DOLL = 1003
 
     /** 构建常驻通知（点通知回主界面，动作按钮停服务）。 */
     private fun buildNotification(service: Service): Notification {

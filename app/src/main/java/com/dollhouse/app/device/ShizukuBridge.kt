@@ -49,6 +49,15 @@ object ShizukuBridge {
     /** 回填给模型的输出上限：防止一条命令刷爆上下文。 */
     private const val MAX_OUTPUT_CHARS = 8000
 
+    /**
+     * 单条流（stdout / stderr 各自独立计数）的内存硬上限：64KB。
+     *
+     * 【附录B-2】[readAll] 必须在这里封顶，而不是等到 [format] 里按字符截断 ——
+     *   等到那时三份字节副本（ByteArrayOutputStream / toByteArray / String）已经同时在堆上了。
+     *   64KB 相对最终 8000 字符有 2 倍以上冗余，足够表达「输出太长，已丢弃」。
+     */
+    private const val READ_CAP_BYTES = 64 * 1024
+
     // ---------------- 状态缓存 ----------------
     // 【为什么缓存】pingBinder / checkSelfPermission 都是 binder IPC，而调用点全在主线程：
     //   首页每秒刷一次权限行、每次请求构建 tools 也会问一次。服务无响应时高频 IPC 会拖出 ANR。
@@ -380,6 +389,18 @@ object ShizukuBridge {
             // 进程结束后流会自然 EOF；给读线程一点收尾时间，避免输出被截掉。
             tOut.join(1200L)
             tErr.join(1200L)
+            // 【附录B-2·修竞态】join 到期不代表线程真的结束了：`waitFor` 超时后只做了
+            //   `p.destroy()`，而被 destroy 的进程若仍被子进程（`sh -c` 派生出的
+            //   `cat`/`logcat`/`find`）持有管道，读线程会继续卡在 read() 里。
+            //   旧实现在这种情况下照样 `outBuf.toString()` —— 一边读线程在 append，
+            //   一边主线程在 toString，`StringBuilder` 非线程安全，
+            //   有机会抛 ArrayIndexOutOfBoundsException 直接把进程带走。
+            //   ⇒ join 后仍活着就**丢弃**缓冲，只回「输出过长已中断」。
+            //     这条判断不依赖 synchronized，也没有 deadlock 风险（只读 isAlive）。
+            if (tOut.isAlive || tErr.isAlive) {
+                Logs.w(TAG, "read threads still alive after join, dropping buffers")
+                return "（输出过多或命令未退出，已中断并丢弃缓冲区）"
+            }
             return format(outBuf.toString(), errBuf.toString(), finished)
         } catch (t: Throwable) {
             Logs.w(TAG, "exec failed", t)
@@ -453,7 +474,18 @@ object ShizukuBridge {
         return text
     }
 
-    /** 读流到字符串；异常一律吞掉（读流失败不该让整条命令失败）。 */
+    /**
+     * 读到底，但**带硬上限**。
+     *
+     * 【附录B-2·修 OOM】旧实现是「4096 缓冲循环读到 EOF」再加 8000 字符截断 ——
+     *   截断发生在**全部字节都已经进过内存之后**：`ByteArrayOutputStream` + `toByteArray()`
+     *   + `new String(bytes)` 三份副本同时驻留。一条 `cat /dev/zero`、`logcat -d`、
+     *   `find / -type f`、`ls -R /` 或 `dd if=/dev/zero bs=1M count=2000` 就能吃到几百 MB，
+     *   崩在 `shizuku-out` 线程上直接把进程带走。
+     *   ⇒ 读到 [READ_CAP_BYTES] 就停下并标记截断；后续字节继续读但丢弃（不能让管道堵住）。
+     *   上限取 64KB：工具结果最终只保留 8000 字符（约 24KB UTF-8 中文），
+     *   64KB 已有 2 倍以上冗余，够诊断「输出太长」这件事本身。
+     */
     private fun readAll(input: InputStream?): String {
         if (input == null) {
             return ""
@@ -461,12 +493,28 @@ object ShizukuBridge {
         try {
             val bos = ByteArrayOutputStream()
             val buf = ByteArray(4096)
+            var total = 0
+            var dropped = false
             var n = input.read(buf)
             while (n > 0) {
-                bos.write(buf, 0, n)
+                if (total < READ_CAP_BYTES) {
+                    val room = READ_CAP_BYTES - total
+                    val take = if (n <= room) n else room
+                    bos.write(buf, 0, take)
+                    total += take
+                    if (take < n) {
+                        dropped = true
+                    }
+                } else {
+                    // 【为什么继续读而不 break】直接 break 会让写端的管道缓冲区填满，
+                    //   子进程卡在 write() 上永不退出 —— 后面 waitFor 必然超时，
+                    //   还会白占一个 shell 进程。继续读并丢弃是最省事、最稳的收口。
+                    dropped = true
+                }
                 n = input.read(buf)
             }
-            return String(bos.toByteArray(), Charsets.UTF_8)
+            val text = String(bos.toByteArray(), Charsets.UTF_8)
+            return if (dropped) text + "\n…（输出超过 " + (READ_CAP_BYTES / 1024) + "KB，已丢弃超出部分）" else text
         } catch (t: Throwable) {
             return ""
         } finally {

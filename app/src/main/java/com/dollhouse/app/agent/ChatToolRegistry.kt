@@ -1,6 +1,7 @@
 package com.dollhouse.app.agent
 
 import android.content.Context
+import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.device.LamdaManager
 import com.dollhouse.app.device.ShizukuBridge
 import org.json.JSONArray
@@ -64,18 +65,45 @@ object ChatToolRegistry {
     /**
      * 注册需要 Context 的工具（记忆工具要拿偏好库）。
      * 【坑】幂等：ChatPanel 每次构造都会调，重复 add 会让 schema 里出现两份同名工具。
+     *
+     * 【同时记下应用上下文】`isAllowed` / `buildSchema` 都没有 Context 参数（签名不能改：
+     *   调用点遍布 ChatPanel、PetTalk、ChatToolRunner），而 shell 工具的开关存在偏好库里。
+     *   这里顺带留一份 applicationContext，供 [isShellEnabled] 读取 —— applicationContext
+     *   与进程同寿命，不会泄漏 Activity。
      */
     @JvmStatic
     fun ensure(ctx: Context?) {
         if (ctx == null) {
             return
         }
+        appCtx = ctx.applicationContext
         for (i in TOOLS.indices) {
             if (NAME_REMEMBER == TOOLS[i].name()) {
                 return
             }
         }
         TOOLS.add(MemoryTool(ctx))
+    }
+
+    /** 进程级应用上下文：只用于读偏好开关，不参与任何 UI。 */
+    @Volatile
+    private var appCtx: Context? = null
+
+    /**
+     * shell 工具当前是否被主人在设置里打开。
+     *
+     * 【为什么公开】除了注册表的两处门控（下发 / 执行），[ShellTool] 自身也要再判一次 ——
+     *   工程里还存在 `execute(name, arguments)` 这个「不门控」的重载，内部调用点若误用，
+     *   就会绕过判据。三道门都问同一个函数，改口径只改这一处。
+     */
+    @JvmStatic
+    fun isShellEnabled(): Boolean {
+        val c = appCtx ?: return false
+        return try {
+            PetPrefs.shellToolEnabled(c)
+        } catch (t: Throwable) {
+            false
+        }
     }
 
     /**
@@ -99,7 +127,13 @@ object ChatToolRegistry {
     fun execute(name: String, arguments: String?, webSearch: Boolean, remember: Boolean): String {
         if (!isAllowed(name, webSearch, remember)) {
             // 不回「没有这个工具」：模型会当成自己记错名字，接着换个写法重试，烧上下文。
-            // 直接说明「被主人关掉了」，它就会改用已有信息作答。
+            // 直接说明「不可用」，它就会改用已有信息作答。
+            // 【shell 要单独说】它被拒的原因可能有三条（主人没开开关 / Shizuku 没就绪），
+            //   笼统说「被主人关闭」会误导用户去翻设置却找不到问题。
+            if (NAME_SHELL == name) {
+                return "shell 工具当前不可用（需主人在设备通道里开启，且 Shizuku 已授权并在运行）。" +
+                    "不要再次调用，请直接用已有信息回答。"
+            }
             return "工具 " + name + " 当前已被主人关闭，不要再次调用，请直接回答。"
         }
         return execute(name, arguments)
@@ -179,8 +213,14 @@ object ChatToolRegistry {
         if (!remember && NAME_REMEMBER == name) {
             return false
         }
-        if (NAME_SHELL == name && !ShizukuBridge.isReady()) {
-            return false
+        if (NAME_SHELL == name) {
+            // 【B1·P0】三重门：主人显式打开 + Shizuku 就绪。缺任一条都不下发、也不执行。
+            if (!isShellEnabled()) {
+                return false
+            }
+            if (!ShizukuBridge.isReady()) {
+                return false
+            }
         }
         if (NAME_DEVICE == name && !LamdaManager.aliveCached()) {
             return false

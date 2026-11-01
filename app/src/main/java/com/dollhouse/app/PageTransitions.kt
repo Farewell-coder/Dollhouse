@@ -27,6 +27,11 @@ internal object PageTransitions {
     }
 
     fun finish(activity: Activity) {
+        // 【为什么不直接写 activity.finish()】若调用方正是一个覆盖了 finish() 的 Activity，
+        //   这里会虚分派回它的覆盖实现，而覆盖实现通常又转调本方法 —— 无限递归 → StackOverflowError
+        //   （BackgroundCropActivity / CoverCropActivity 就是被这个写法炸掉的）。
+        //   覆盖 finish() 的页面必须自己调 super.finish()，不能转调本方法；
+        //   这里保留仅为普通页面提供统一转场。
         activity.finish()
         if (Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled()) {
             activity.overridePendingTransition(0, 0)

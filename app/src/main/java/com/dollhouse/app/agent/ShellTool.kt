@@ -47,6 +47,11 @@ class ShellTool : ChatTool {
     }
 
     override fun execute(arguments: String?): String {
+        // 【B1·P0 第三道门】开关没开就不执行。
+        //   即使注册表被绕过（内部直接调不门控的 execute 重载），这里也兜得住。
+        if (!ChatToolRegistry.isShellEnabled()) {
+            return "（主人尚未开启 shell 工具，本次调用已被拒绝）"
+        }
         val raw = if (arguments == null) "" else arguments.trim()
         if (raw.isEmpty()) {
             return "（没有给出要执行的命令）"

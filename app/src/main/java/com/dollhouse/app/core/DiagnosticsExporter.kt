@@ -100,15 +100,28 @@ object DiagnosticsExporter {
             add("manifest.json", JSONObject().put("schemaVersion", DiagnosticsStore.SCHEMA).put("appVersion", versionName(app))
                 .put("exportedAt", System.currentTimeMillis()).put("files", manifest).put("warnings", JSONArray(warnings)).toString(2))
         }
-        ZipFile(tmp).use { zip ->
-            val names = zip.entries().asSequence().map { it.name }.toSet()
-            require(names.contains("Dollhouse_Diagnostics/manifest.json")) { "ZIP 清单缺失" }
-            require(zip.size() >= 6) { "ZIP 内容不完整" }
-            zip.entries().asSequence().forEach { entry -> zip.getInputStream(entry).use { it.copyTo(java.io.OutputStream.nullOutputStream()) } }
+        // 【附录A-7】校验 + 提交 + 失败清理。旧实现在「ZIP 校验失败」或「renameTo 失败」
+//   时直接抛异常退出，`.tmp` 从不会被删 —— 缓存目录里会残留半成品 zip（可能几 MB），
+//   反复失败就是持续吃内部存储。这里用 try/finally 保证 tmp 在任何非成功路径上被清掉。
+        try {
+            ZipFile(tmp).use { zip ->
+                val names = zip.entries().asSequence().map { it.name }.toSet()
+                require(names.contains("Dollhouse_Diagnostics/manifest.json")) { "ZIP 清单缺失" }
+                require(zip.size() >= 6) { "ZIP 内容不完整" }
+                // 【性能·附录A-7 备注】这里会把整包再全量读一遍做完整性校验。
+                //   代价是导出耗时翻倍，但能挡住「写盘中途失败却 rename 成功」的半成品包；
+                //   诊断包通常几 MB，取舍上保留校验，不为了省这几十毫秒牺牲可靠性。
+                zip.entries().asSequence().forEach { entry ->
+                    zip.getInputStream(entry).use { it.copyTo(java.io.OutputStream.nullOutputStream()) }
+                }
+            }
+            if (out.exists() && !out.delete()) throw IllegalStateException("无法替换旧导出文件")
+            if (!tmp.renameTo(out)) throw IllegalStateException("无法提交诊断包")
+            return ExportResult(FileProvider.getUriForFile(app, app.packageName + ".fileprovider", out), ZipFile(out).use { it.size() }, warnings)
+        } finally {
+            // 提交成功后 tmp 已被 rename 掉（exists 为 false），这里只在失败路径真正删除。
+            runCatching { if (tmp.exists()) tmp.delete() }
         }
-        if (out.exists() && !out.delete()) throw IllegalStateException("无法替换旧导出文件")
-        if (!tmp.renameTo(out)) throw IllegalStateException("无法提交诊断包")
-        return ExportResult(FileProvider.getUriForFile(app, app.packageName + ".fileprovider", out), ZipFile(out).use { it.size() }, warnings)
     }
 
     fun shareIntent(context: Context, uri: Uri): Intent {

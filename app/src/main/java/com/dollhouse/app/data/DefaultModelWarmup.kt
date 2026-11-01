@@ -12,7 +12,7 @@ object DefaultModelWarmup {
 
     @JvmStatic
     fun schedule(host: Activity) {
-        val needed = arrayOf(DollAnim.SLOT_ALWAYS_ID, DollAnim.SLOT_DRAG_ID, DollAnim.SLOT_EDGE_ID).any {
+        val needed = arrayOf(DollAnim.SLOT_ALWAYS_ID, DollAnim.SLOT_DRAG_ID, DollAnim.SLOT_EDGE_IN_ID, DollAnim.SLOT_EDGE_ID).any {
             DollAnim.byId(host, DollStore.DEFAULT_ID, it)?.frames.isNullOrEmpty()
         }
         if (!needed) return
@@ -32,7 +32,7 @@ object DefaultModelWarmup {
             if (retries < 3) ui.postDelayed({ runNext(host, ticket, index, retries + 1) }, 800L)
             return
         }
-        val ids = arrayOf(DollAnim.SLOT_ALWAYS_ID, DollAnim.SLOT_DRAG_ID, DollAnim.SLOT_EDGE_ID)
+        val ids = arrayOf(DollAnim.SLOT_ALWAYS_ID, DollAnim.SLOT_DRAG_ID, DollAnim.SLOT_EDGE_IN_ID, DollAnim.SLOT_EDGE_ID)
         if (index >= ids.size) return
         Thread({
             val ctx = host.applicationContext

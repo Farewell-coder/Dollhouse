@@ -104,6 +104,13 @@ class MainActivity : Activity() {
         // 【r11 种子】默认配置的交谈 / 性格内容继承改造前的内置值；幂等，只写一次。
         //   放在首页装配之前：编辑页 / 聊天页首帧就要能读到这份种子。
         com.dollhouse.app.data.DollProfile.seedDefault(this)
+        // 【AEX 分享】系统分享 / 打开方式送进来的 .akcp 文件：
+        //   接收入口已经把字节读进内存信箱（AexInbox），这里负责把它变成一次导入。
+        //   【为什么 post 到最后】导入弹窗要挂在建好的界面之上；此刻 HomeUi 还没装配完，
+        //   立刻弹会盖在实际还没测量的窗口上，表现为「弹窗位置错乱 / 一闪就没」。
+        if (com.dollhouse.app.data.AexInbox.has()) {
+            window?.decorView?.post { runCatching { consumeAexShare() } }
+        }
 // 【装配】
         // 【装配】首页 + 设置页两棵 ComposeView 由 HomeUi 一次性建好并挂进 content。
         //   不再 setContentView：Compose 页是「页面」而不是「内容视图」，走同一条挂载通道。
@@ -158,6 +165,26 @@ class MainActivity : Activity() {
         // AOSP 不会自动更新 getIntent()，须手动 set，否则后续读到的还是首次启动的那个。
         setIntent(intent)
         PageStack.reconcile(this)
+        // 【AEX 分享·第二次及以后】主界面已在运行（singleTask）时再次分享，
+        //   不会走 onCreate，只走这里 —— 少了这一句就会「第一次能导、第二次没反应」。
+        if (com.dollhouse.app.data.AexInbox.has()) {
+            window?.decorView?.post { runCatching { consumeAexShare() } }
+        }
+    }
+
+    /**
+     * 取出内存信箱里的分享文件，交给 AEX 导入流程。
+     *
+     * 【为什么要单独一个方法】分享入口与「供应商页导入按钮」走的是同一条链路
+     *   （[com.dollhouse.app.ui.widget.AexImportSheet.startWithBytes]），
+     *   区别只在于字节从哪来：一个来自 ContentResolver 读出的分享 URI，一个来自文件选择器。
+     *
+     * 【取完即清】[AexInbox.take] 会立刻置空，Activity 重建 / 转屏不会二次弹窗。
+     */
+    private fun consumeAexShare() {
+        val bytes = com.dollhouse.app.data.AexInbox.take() ?: return
+        val name = com.dollhouse.app.data.AexInbox.takeName()
+        com.dollhouse.app.ui.widget.AexImportSheet.startWithBytes(this, bytes, name)
     }
 
     /**

@@ -1427,8 +1427,8 @@ class ChatPanel(
     }
 
     fun askModel(jSONArray: JSONArray, i: Int, z: Boolean) {
-        val personaId = boundDollId()
         val conversationId = ChatSessions.currentId(context)
+        val personaId = ChatSessions.dollOfConv(context, conversationId).ifEmpty { DollStore.DEFAULT_ID }
         if (activeGeneration == null) {
             activeGeneration = com.dollhouse.app.data.GenerationTask(
                 personaId = personaId,
@@ -1846,7 +1846,10 @@ class ChatPanel(
         }
         // 【r13·角色设定】输出替换里「影响历史」的那一批：在写库前就应用 ——
         //   于是模型下一轮看到的也是清洗后的文本（这正是勾掉「只影响显示」的语义）。
-        trim = ChatHistoryStore.stripRules(context, boundDollId(), trim, true, false)
+        val generation = activeGeneration ?: return
+        val ownerPersona = generation.personaId
+        val ownerConversation = generation.conversationId
+        trim = ChatHistoryStore.stripRules(context, ownerPersona, trim, true, false)
         // 【r13 修 bug·「返回再进来就中断 AI 发话」】落盘**必须无条件执行**。
         //
         // 【曾经的 bug】原实现在本方法开头写了 `if (!isAttachedToWindow) return` ——
@@ -1856,7 +1859,13 @@ class ChatPanel(
         //
         // 【修法】落盘与视图无关，先落；界面更新才判 `isAttachedToWindow`。
         //   离屏期间照常写历史，回来时 [reloadHistory] 重铺即可看到完整一轮。
-        ChatHistoryStore.push(this, "assistant", trim, null, if (think.isEmpty()) null else think, costMs)
+        val saved = ChatHistoryStore.appendAssistantToConversation(context, ownerConversation, trim,
+            if (think.isEmpty()) null else think, costMs)
+        if (ChatSessions.currentId(context) == ownerConversation && saved != null) history = saved
+        if (ChatSessions.currentId(context) != ownerConversation || saved == null) {
+            // 数据已写回原会话；不触碰正在显示其他会话的全局 ChatState。
+            return
+        }
         if (!isAttachedToWindow) {
             // 离屏：没有气泡可加，收掉等待态即可（回来由 reloadHistory 重铺）。
             setWaiting(false)
@@ -1868,7 +1877,7 @@ class ChatPanel(
         // 【r13·思考过程】不再往「内存思考框」写：推理已随消息落盘（见上面的 push），
         //   本条气泡经 appendBubble 落到 [ChatState.items] 后，思考框由 [ChatUi] 按 think 渲染。
         appendBubble(trim, false, null, history.length() - 1)
-        if (pet) {
+        if (ChatSessions.isPet(context) && ChatSessions.currentId(context) == ownerConversation) {
             PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L)
         }
     }

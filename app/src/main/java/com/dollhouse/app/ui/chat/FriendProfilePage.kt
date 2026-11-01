@@ -162,7 +162,7 @@ object FriendProfilePage {
                     label = "模型与生成参数",
                     iconRes = Icons.IC_BOT,
                     desc = "独立供应商、聊天模型、思考与采样参数"
-                ) { FriendModelConfigPage.open(act, personaId) }
+                ) { FriendModelConfigPage.open(act, personaId, ChatSessions.currentId(act)) }
                 DhKit.ActionRow(
                     label = "模型管理",
                     iconRes = Icons.IC_LAYERS,
@@ -200,8 +200,8 @@ object FriendProfilePage {
                 DhKit.ActionRow(
                     label = "外观设置",
                     iconRes = Icons.IC_PALETTE,
-                    desc = "主题 · 背景 · 聊天气泡 · 弹窗"
-                ) { AppearancePage.open(act) }
+                    desc = "当前好友的聊天背景与她发出的气泡"
+                ) { FriendAppearancePage.open(act, personaId) }
                 DhKit.ActionRow(
                     label = "我的资料",
                     iconRes = Icons.IC_CIRCLE_USER,
@@ -243,9 +243,9 @@ object FriendProfilePage {
             DhKit.Card(collapsibleTitle = "数据管理", titleIcon = Icons.IC_LAYERS) {
                 DhForm.Note("聊天与角色、记忆分开存放：清理聊天不会动她的人设和记忆。")
                 DhKit.ActionRow(
-                    label = "清空聊天记录",
+                    label = "清空全部会话",
                     iconRes = Icons.IC_ERASER,
-                    desc = "消息归零，角色与记忆保留"
+                    desc = "该好友全部会话的消息归零，角色与记忆保留"
                 ) { confirmClear = true }
                 DhKit.ActionRow(
                     label = "删除聊天",
@@ -270,17 +270,17 @@ object FriendProfilePage {
 
         if (confirmClear) {
             DhForm.Alert(
-                title = "清空聊天记录",
+                title = "清空全部会话",
                 onDismiss = { confirmClear = false },
                 posText = "清空",
                 onPos = {
                     clearChat(act, personaId)
-                    notice = "已清空聊天记录；角色人设与记忆未受影响。"
+                    notice = "已清空该好友全部会话；角色人设与记忆未受影响。"
                     tick++
                 },
                 negText = "取消"
             ) {
-                DhForm.Note("只清空这条对话的消息，角色设定、记忆库都不受影响。此操作不可撤销。")
+                DhForm.Note("会清空该好友所有会话的消息，角色设定、记忆库都不受影响。此操作不可撤销。")
             }
         }
 

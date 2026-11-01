@@ -888,6 +888,46 @@ object ChatHistoryStore {
         return t.substring(0, THINK_MAX) + "…（推理过长，已截断）"
     }
 
+    /** 异步回复只追加到任务所属会话；会话已删除时丢弃，不重建、不借用当前会话。 */
+    @JvmStatic
+    @Synchronized
+    fun appendAssistantToConversation(ctx: Context, conversationId: String, content: String, think: String?, thinkMs: Long): JSONArray? {
+        if (com.dollhouse.app.ui.chat.ChatSessions.find(ctx, conversationId) == null) return null
+        val history = try { JSONArray(PetPrefs.convHistory(ctx, conversationId)) } catch (_: Throwable) { JSONArray() }
+        val message = JSONObject()
+        message.put("role", "assistant")
+        message.put("content", content)
+        message.put("rating", 0)
+        val reasoning = think?.trim().orEmpty()
+        if (reasoning.isNotEmpty()) {
+            message.put("think", clipThink(reasoning))
+            if (thinkMs > 0) message.put("thinkMs", thinkMs)
+        }
+        history.put(message)
+        saveHistory(ctx, history, conversationId)
+        PersonaChatConfigStore.effective(ctx, com.dollhouse.app.ui.chat.ChatSessions.dollOfConv(ctx, conversationId), conversationId)
+        com.dollhouse.app.ui.chat.ChatSessions.touch(ctx, conversationId)
+        PetPrefs.setConvHidden(ctx, conversationId, false)
+        ChatListSignal.bump()
+        if (PetPrefs.mem2Auto(ctx)) autoExtract(ctx, conversationId, history)
+        return history
+    }
+
+    private fun autoExtract(ctx: Context, conversationId: String, history: JSONArray) {
+        val dollId = ChatSessions.dollOfConv(ctx, conversationId)
+        if (dollId.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (!MemExtractGate.allow(now, PetPrefs.mem2LastExtractAt(ctx, dollId), PetPrefs.mem2IntervalMinutes(ctx))) return
+        PetPrefs.setMem2LastExtractAt(ctx, dollId, now)
+        val turns = ArrayList<Pair<String, String>>()
+        for (i in maxOf(0, history.length() - 6) until history.length()) {
+            val o = history.optJSONObject(i) ?: continue
+            val role = o.optString("role")
+            if (role == "user" || role == "assistant") turns += role to o.optString("content")
+        }
+        if (turns.isNotEmpty()) MemExtractor.extract(ctx, dollId, turns, null)
+    }
+
     @JvmStatic
     fun put(history: JSONArray, role: String, content: String, image: String?) {
         try {
@@ -1015,6 +1055,8 @@ object ChatHistoryStore {
      */
     @JvmStatic
     fun buildRequest(ctx: Context, history: JSONArray, dollId: String?): JSONArray {
+        val conversationId = ChatSessions.currentId(ctx)
+        val cfg = PersonaChatConfigStore.effective(ctx, dollId, conversationId)
         val who = if (dollId.isNullOrEmpty()) DollStore.DEFAULT_ID else dollId
         val jSONArray = JSONArray()
         try {
@@ -1073,7 +1115,7 @@ object ChatHistoryStore {
             // 【r13·角色设定】「最新消息前」的注入：紧贴对话末尾，权重最高的一档。
             //   放在尾部消息**之前**，确保它比对话更靠近「当前这一问」。
             appendBottomInjections(ctx, jSONArray, who, history)
-            appendTailMessages(ctx, jSONArray, history)
+            appendTailMessages(ctx, jSONArray, history, cfg.modelId, cfg.visionModelId)
             // 【r13·角色设定】后置指令：整份请求的最后一条，模型最容易照做。
             //   【为什么放最末】它的用途就是「压过前面所有话」的硬约束（如「永远不要跳出角色」），
             //   放在中间等于自废武功。
@@ -1253,9 +1295,9 @@ object ChatHistoryStore {
      *   当轮新图 + 最近 2~3 轮历史图），防止多图长聊时 token 爆炸。
      */
     @Throws(Exception::class)
-    private fun appendTailMessages(ctx: Context, arr: JSONArray, history: JSONArray) {
+    private fun appendTailMessages(ctx: Context, arr: JSONArray, history: JSONArray, chatModelId: String = "", visionModelId: String = "") {
         // 【r15】先算本次请求的图片策略（用哪个模型看图、能不能直送）。
-        val plan = visionPlan(ctx)
+        val plan = visionPlan(ctx, chatModelId, visionModelId)
         var i = 0
         var max = Math.max(0, history.length() - (if (0 != 0) 6 else 12))
         while (max < history.length()) {
@@ -1281,7 +1323,7 @@ object ChatHistoryStore {
                     //   用那个模型把图分析成文字注入正文（保留 current 模型继续聊）。
                     val msg = JSONObject()
                     msg.put("role", optString)
-                    msg.put("content", withVisionCaption(ctx, optString2, optString3))
+                    msg.put("content", withVisionCaption(ctx, optString2, optString3, visionModelId))
                     arr.put(msg)
                     i++
                 } else if (hasImg) {
@@ -1362,20 +1404,20 @@ object ChatHistoryStore {
      *   所以那边由 [withVisionCaption] 自己处理。
      */
     @JvmStatic
-    fun usesDirectVision(ctx: Context?): Boolean {
+    fun usesDirectVision(ctx: Context?, visionModelId: String? = null): Boolean {
         if (ctx == null) {
             return false
         }
-        return MODE_DIRECT == visionPlan(ctx)
+        return MODE_DIRECT == visionPlan(ctx, visionModelId = visionModelId)
     }
 
-    private fun visionPlan(ctx: Context): String? {
-        val cur = ProviderStore.activeModelRecord(ctx)
+    private fun visionPlan(ctx: Context, chatModelId: String = "", visionModelId: String? = null): String? {
+        val cur = if (chatModelId.isNotEmpty()) com.dollhouse.app.data.ModelStore.findModel(ctx, chatModelId) else ProviderStore.activeModelRecord(ctx)
         if (cur != null && cur.capVision) {
             return MODE_DIRECT
         }
         // 【3C】当前模型不会看图 → 若配了可用的识图模型，走「识图模型分析」通道。
-        if (PetPrefs.visionModel(ctx).isNotEmpty()) {
+        if (visionModelId?.isNotEmpty() == true || PetPrefs.visionModel(ctx).isNotEmpty()) {
             return MODE_VISION_MODEL
         }
         return null
@@ -1390,14 +1432,14 @@ object ChatHistoryStore {
      *
      * 【失败怎么办】拿不到描述就退回本地 OCR —— 用户至少还能看到图上的文字。
      */
-    private fun withVisionCaption(ctx: Context, text: String?, imagePath: String?): String? {
+    private fun withVisionCaption(ctx: Context, text: String?, imagePath: String?, visionModelId: String? = null): String? {
         var desc = ""
         try {
             val latch = java.util.concurrent.CountDownLatch(1)
             VisionAnalyzer.analyze(ctx, imagePath, null, VisionAnalyzer.Callback { d ->
                 desc = d
                 latch.countDown()
-            })
+            }, visionModelId)
             latch.await(20, java.util.concurrent.TimeUnit.SECONDS)
         } catch (t: Throwable) {
             Logs.w("Dollhouse", "识图模型分析失败，退回 OCR", t)

@@ -34,8 +34,16 @@ object CrashGuard {
 
     private const val TAG = "DollhouseCrash"
 
-    /** 崩溃记录目录（应用私有 cache 下）。 */
-    private const val DIR = "crash"
+/**
+     * 崩溃记录目录名（在 `filesDir` 下）。
+     *
+     * 【附录A-6·修留存】原来写在 `cacheDir/crash`：系统在存储紧张 / 长期未用 / 用户点
+     *   「清除缓存」时会整目录回收 —— 而这条记录恰恰是「用户遇崩 → 重启 → 想导出诊断」
+     *   这条链路上唯一的第一手证据，等用户想起来导出时往往已经没了。
+     *   改到 `filesDir/diagnostics/crash` 后不随清缓存消失，体积由 [MAX_FILES] 与
+     *   [MAX_CHARS] 双重封顶（最坏 10 × 64KB = 640KB），成本可忽略。
+     */
+    private const val DIR = "diagnostics/crash"
 
     /** 最多保留几份现场。 */
     private const val MAX_FILES = 10
@@ -121,7 +129,7 @@ object CrashGuard {
     @JvmStatic
     fun listFiles(ctx: Context?): List<File> {
         val app = ctx?.applicationContext ?: return emptyList()
-        val dir = File(app.cacheDir, DIR)
+        val dir = File(app.filesDir, DIR)
         val arr = dir.listFiles() ?: return emptyList()
         return arr.filter { it.isFile }.sortedByDescending { it.lastModified() }
     }
@@ -129,7 +137,7 @@ object CrashGuard {
     // ============================ 内部 ============================
 
     private fun record(app: Context, thread: Thread, t: Throwable) {
-        val dir = File(app.cacheDir, DIR)
+        val dir = File(app.filesDir, DIR)
         if (!dir.exists()) {
             dir.mkdirs()
         }

@@ -30,8 +30,8 @@ android {
         applicationId "com.dollhouse.app"
         minSdk 24
         targetSdk 34
-        versionCode 15
-        versionName "0.1.5"
+        versionCode 16
+        versionName "0.1.6"
         // 资源裁剪：本应用文案为中文，en 仅作系统兜底。
         resConfigs "zh", "en"
     }
@@ -123,7 +123,15 @@ android {
                 "META-INF/ASL2.0",
                 "META-INF/*.kotlin_module",
                 "kotlin/**",
-                "**/*.kotlin_metadata"
+                "**/*.kotlin_metadata",
+                // 【BouncyCastle】只用到 Argon2 相关类，其余包的说明性文件与签名清单无需进包；
+                //   这几项与 Aivora 官方工程的 packaging 排除口径一致。
+                "org/bouncycastle/pqc/**",
+                "org/bouncycastle/x509/CertPathReviewerMessages*.properties",
+                // 【必须】bcprov 与 jspecify 都带了 META-INF/versions/9/OSGI-INF/MANIFEST.MF，
+                //   两个同名资源会让 mergeDebugJavaResource 直接失败；
+                //   这个清单只在 OSGi 环境有意义，Android 上纯属噪声，排除即可。
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             ]
         }
     }
@@ -231,5 +239,11 @@ dependencies {
     //     本工程的人偶是「自绘 View + drawBitmapMesh」，用 Drawable 才能画进同一个 Canvas。
     //   【传递依赖】appcompat / fragment / emoji2 / okio —— 工程原本没有，
     //     实测体积影响见交付报告（先原样引入，不做 exclude 裁剪）。
+    // 【AKCP 导入】BouncyCastle 提供 Argon2id —— 读取 Aivora 导出的 .aivora 文件必须用它派生密钥。
+    //   【为什么不用 JDK 自带的】Android 平台的 Conscrypt / BC 都没有暴露 Argon2，
+    //     javax.crypto 也没有对应算法名，只能显式引一个实现。
+    //   【体积】只用到 org.bouncycastle.crypto 下的 Argon2 与参数类；其余包由 proguard 裁剪，
+    //     debug 包不做压缩，故 debug APK 会增大数百 KB，release 影响可忽略。
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.79'
     implementation 'com.airbnb.android:lottie:6.7.1'
 }

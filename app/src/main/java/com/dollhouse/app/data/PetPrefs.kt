@@ -546,15 +546,63 @@ object PetPrefs {
         }
         e.apply()
     }
-
     @JvmStatic
     fun webSearchEnabled(context: Context): Boolean {
         return get(context).getBoolean("web_search", false)
     }
-
     @JvmStatic
     fun setWebSearchEnabled(context: Context, z: Boolean) {
         get(context).edit().putBoolean("web_search", z).apply()
+    }
+
+    /**
+     * 【附录B-1·P0 修复】是否允许模型调用 `shell` 工具（以 adb shell 身份执行系统命令）。
+     *
+     * 【为什么默认关】这是全应用权限最大的一条通道：模型拿到的任意文本
+     *   （网页正文、屏幕 OCR 结果、聊天里粘的内容、记忆库条目）都会进入它的上下文，
+     *   也就都可能变成一条 `sh -c` 命令的来源。旧实现唯一的"门"是 Shizuku 是否就绪 ——
+     *   而 Shizuku 就绪恰恰是 device 工具的**正常前置条件**，等于所有人都默认开着。
+     *   现在改成默认关、由用户在「设备通道」页显式打开，属于"主动授权"而不是"默认放行"。
+     */
+    @JvmStatic
+    fun shellToolEnabled(context: Context): Boolean {
+        return get(context).getBoolean("shell_tool", false)
+    }
+    @JvmStatic
+    fun setShellToolEnabled(context: Context, z: Boolean) {
+        get(context).edit().putBoolean("shell_tool", z).apply()
+    }
+
+    /**
+     * 【附录B-1】危险命令是否需要主人二次确认。
+     *
+     * 【判定口径】只要命令串里出现了会**改状态**或**不可逆**的操作就要求确认：
+     *   删除、卸载、清数据、改系统设置、关机重启、写块设备、管道写文件（`>` / `>>`）、
+     *   权限变更、包管理变更。纯读取（`getprop` / `dumpsys` / `ls` / `cat` / `pm list`）不拦。
+     * 【为什么用字符串匹配而不是真解析 argv】`sh -c` 的内容本来就是任意 shell 脚本，
+     *   真正的安全语义只能靠"人工确认"给，正则只是决定**什么时候该弹确认**，
+     *   判错的方向必须是"宁可多弹一次"，所以匹配做得宽。
+     */
+    private val SHELL_DANGER = listOf(
+        " rm ", "rm -", "rmdir", " mv ", "uninstall", "pm clear", "pm disable", "pm enable",
+        "pm install", "pm grant", "pm revoke", "settings put", "settings delete", "svc ",
+        " reboot", " shutdown", "am force-stop", "am kill", "kill ", "killall", "pkill",
+        "dd ", "mkfs", "wipe", "chmod", "chown", ">", "|tee", "run-as"
+    )
+
+    @JvmStatic
+    fun shellNeedsConfirm(command: String?): Boolean {
+        if (command.isNullOrEmpty()) {
+            return false
+        }
+        // 前后各补一个空格，让「rm 」这种模式也能命中最开头的命令。
+        val s = " " + command.replace('\n', ' ').lowercase() + " "
+        for (k in SHELL_DANGER) {
+            if (s.contains(k)) {
+                return true
+            }
+        }
+        return false
     }
 
     /** 【r19·随机走位】是否开启人偶随机游走。默认关闭（省电优先）。 */

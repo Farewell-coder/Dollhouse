@@ -189,7 +189,7 @@ object DeveloperOptionsPage {
             modules.forEach { FilterChip(it, module == it) { module = it } }
         }
         DhForm.Note("本地诊断占用 $usage · 每次加载 30 组")
-        if (failed) Empty("日志读取失败，请运行日志自检。") else records?.let { current ->
+        if (failed) Empty("日志读取失败，请导出诊断包保留现场后重试。") else records?.let { current ->
             if (current.isEmpty()) Empty("没有符合条件的记录") else current.forEach { e -> EventCard(e) { open(e) } }
             if (hasMore) DhKit.ActionRow(if (loadingMore) "正在加载…" else "加载更多", iconRes = Icons.IC_CLOCK_3, desc = "读取后续错误分组", enabled = !loadingMore) {
                 scope.launch {
@@ -297,14 +297,14 @@ object DeveloperOptionsPage {
             DhKit.SwitchRow("记录详细运行日志", detailed, iconRes = Icons.IC_TERMINAL) { detailed = it; Logs.setOn(act, it); changed() }
             DhForm.Note("关闭时停止可选普通日志的持久化；警告、错误和未捕获崩溃仍保留基础记录。")
             DhKit.ValueRow("严重错误基础记录", "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow("错误前后关键事件", "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
-            DhKit.ValueRow("日志保留策略", "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
+            DhKit.ValueRow("自动轮转保留", "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
             DhKit.ActionRow("清理 15 天前的诊断记录", iconRes = Icons.IC_TRASH, desc = "最近 15 天的日志与崩溃记录保持不变") { clear = true }
         }
         if (clear) DhForm.Alert("清理 15 天前的诊断记录？", { if (!clearing) clear = false }, "清理", {
             clearing = true
             scope.launch(Dispatchers.IO) {
                 val ok = DiagnosticsStore.clear(act)
-                withContext(Dispatchers.Main) { clearing = false; clear = false; changed(); AppToast.show(act, if (ok) "诊断记录已清空" else "部分记录未能删除", long = !ok) }
+                withContext(Dispatchers.Main) { clearing = false; clear = false; changed(); AppToast.show(act, if (ok) "已清理 15 天前的诊断记录" else "部分历史记录未能删除", long = !ok) }
             }
         }, "取消") { Text("此操作无法撤销。统计、列表、详情与后续导出会同时更新。", color = DhTokens.colors.sub) }
     }

@@ -56,8 +56,21 @@ class BackgroundCropActivity : Activity() {
         }
     }
 
+    /**
+     * 【修·点「添加背景图」闪退】原实现是 `PageTransitions.finish(this)`，
+     *   而 PageTransitions.finish 内部又调 `activity.finish()` —— 虚方法分派回到本覆盖实现，
+     *   形成无限递归，栈里叠了 7000+ 帧后抛 StackOverflowError，页面直接闪退。
+     *   【正确写法】必须调 `super.finish()` 走父类真正的收尾，动画自己套上。
+     */
     override fun finish() {
-        PageTransitions.finish(this)
+        super.finish()
+        if (android.os.Build.VERSION.SDK_INT >= 26 &&
+            !android.animation.ValueAnimator.areAnimatorsEnabled()
+        ) {
+            overridePendingTransition(0, 0)
+        } else {
+            overridePendingTransition(R.anim.page_fade_in, R.anim.page_fade_out)
+        }
     }
 
     override fun onCreate(bundle: Bundle?) {

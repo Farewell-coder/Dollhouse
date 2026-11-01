@@ -65,8 +65,18 @@ object ImageDecode {
     }
 
     /**
-     * 计算 inSampleSize：最大的 2 的幂，使采样后宽高仍 ≥ 目标宽高。
+     * 计算 inSampleSize：最大的 2 的幂，使采样后**任一维**仍 ≥ 目标（题目要求的"不放大"）。
      * 目标 <=0 时返回 1（不采样）。
+     *
+     * 【附录A-4·修边界】旧实现用 `&&` 连接两个条件 —— 只要有一边已经小于目标就立刻停止，
+     *   长宽比极端的图完全不降采样：4000×200 的封面按 192×192 上限，`200/2 = 100 < 192`
+     *   直接短路返回 1，白分配 4000×200×4B ≈ 3.2MB；预期应为 16 倍降采样后的 250×13。
+     *   调用方（封面、头像、气泡头像、动作页）在多图列表里会叠加成 OOM / 卡顿。
+     *   ⇒ 改成 `||`：**任一维超限就继续降**，这才是"按最长边压到目标量级"的正确语义。
+     *
+     * 【为什么不是"两维都 ≥ 目标"才算合格】那样窄边的图会被压得比目标还小（细节丢失）。
+     *   这里的取舍是：宁可窄边小于目标（视觉上只是不放大），也要把长边压下来控制内存 ——
+     *   与 [com.dollhouse.app.core.ImageEncoder] 的 `MAX_DIM * 2` 口径一致。
      */
     @JvmStatic
     fun calcSampleSize(srcW: Int, srcH: Int, reqW: Int, reqH: Int): Int {
@@ -74,8 +84,7 @@ object ImageDecode {
             return 1
         }
         var s = 1
-        // 采样后 = src / s；找最大 s（2 的幂）使 src/s >= req
-        while (srcW / (s * 2) >= reqW && srcH / (s * 2) >= reqH) {
+        while (srcW / (s * 2) >= reqW || srcH / (s * 2) >= reqH) {
             s *= 2
         }
         return s

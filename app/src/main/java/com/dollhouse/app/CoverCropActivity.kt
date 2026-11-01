@@ -96,8 +96,21 @@ class CoverCropActivity : Activity() {
         }
     }
 
+    /**
+     * 【修·点「换封面」同样会闪退】与 BackgroundCropActivity 完全同因：
+     *   原实现 `PageTransitions.finish(this)` 内部又调 `activity.finish()`，
+     *   虚分派回到本覆盖方法 → 无限递归 → StackOverflowError。
+     *   【正确写法】`super.finish()` 才是父类的真收尾，动画在后面自己套。
+     */
     override fun finish() {
-        PageTransitions.finish(this)
+        super.finish()
+        if (android.os.Build.VERSION.SDK_INT >= 26 &&
+            !android.animation.ValueAnimator.areAnimatorsEnabled()
+        ) {
+            overridePendingTransition(0, 0)
+        } else {
+            overridePendingTransition(R.anim.page_fade_in, R.anim.page_fade_out)
+        }
     }
 
     override fun onCreate(bundle: Bundle?) {

@@ -534,6 +534,22 @@ object DhForm {
      *   这样调用方不必改写成 state 驱动，迁移可以一页一页来。
      */
     fun show(act: android.app.Activity?, title: String?, content: @Composable ColumnScope.() -> Unit): Dialog? {
+        return show(act, title, null, content)
+    }
+
+    /**
+     * 带「关闭回调」的版本。
+     *
+     * 【为什么需要】有些调用方必须在弹窗被关掉（无论点按钮还是点外部/返回键）之后才继续下一步，
+     *   典型是「临时授权的内容 URI 何时可以释放」—— 提前释放会让紧接着的读取失败。
+     *   Dialog.setOnDismissListener 恰好覆盖全部关闭路径，比自己给每个按钮挂回调更可靠。
+     */
+    fun show(
+        act: android.app.Activity?,
+        title: String?,
+        onDismiss: (() -> Unit)?,
+        content: @Composable ColumnScope.() -> Unit
+    ): Dialog? {
         if (act == null) {
             return null
         }
@@ -543,7 +559,15 @@ object DhForm {
         //   LifecycleOwner（挂在 Activity decorView 上的那个沿树找不到）—— 不先装 owner
         //   的话 ComposeView attach 时直接崩（ViewTreeLifecycleOwner not found / Cannot locate windowRecomposer）。
         val owner = ComposeHost.installForDialog(dlg)
-        dlg.setOnDismissListener { owner?.onDestroy() }
+        dlg.setOnDismissListener {
+            owner?.onDestroy()
+            // 【授权时序】回调排在 owner 之后：调用方可能在这里释放临时 URI 授权，
+            //   与 Compose 销毁互不依赖，谁先谁后都安全。
+            try {
+                onDismiss?.invoke()
+            } catch (ignored: Throwable) {
+            }
+        }
         val view = ComposeHost.createView(act) {
             val c = DhTokens.colors
             Column(

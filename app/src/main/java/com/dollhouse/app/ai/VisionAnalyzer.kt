@@ -46,8 +46,8 @@ object VisionAnalyzer {
      * 【为什么要校验 capVision】用户可能把一个不会看图的模型设成识图模型 —— 那等于没设。
      */
     @JvmStatic
-    fun available(ctx: Context?): Boolean {
-        return modelOf(ctx) != null
+    fun available(ctx: Context?, visionModelId: String? = null): Boolean {
+        return modelOf(ctx, visionModelId) != null
     }
 
     /**
@@ -55,13 +55,13 @@ object VisionAnalyzer {
      * 【线程】网络请求在自动后台执行，回调**不保证在主线程**，调用方注意切线程。
      */
     @JvmStatic
-    fun analyze(ctx: Context?, imagePath: String?, prompt: String?, cb: Callback?) {
+    fun analyze(ctx: Context?, imagePath: String?, prompt: String?, cb: Callback?, visionModelId: String? = null) {
         val app = ctx?.applicationContext
         if (app == null || imagePath.isNullOrEmpty()) {
             cb?.onDone("")
             return
         }
-        val model = modelOf(app)
+        val model = modelOf(app, visionModelId)
         if (model == null) {
             Logs.i(TAG, "未配置可用的识图模型，跳过")
             cb?.onDone("")
@@ -102,11 +102,11 @@ object VisionAnalyzer {
      * 【判定】用户指定了 id → 找得到 + 已启用 + 确实开了视觉 → 用它；
      *   否则退回「任意一个开了视觉且启用的聊天模型」（用户在设置里没指定时的兜底）。
      */
-    private fun modelOf(ctx: Context?): AiModel? {
+    private fun modelOf(ctx: Context?, visionModelId: String? = null): AiModel? {
         if (ctx == null) {
             return null
         }
-        val id = PetPrefs.visionModel(ctx)
+        val id = visionModelId?.takeIf { it.isNotBlank() } ?: PetPrefs.visionModel(ctx)
         if (id.isNotEmpty()) {
             val m = ModelStore.findModel(ctx, id)
             return if (m != null && m.enabled && m.capVision

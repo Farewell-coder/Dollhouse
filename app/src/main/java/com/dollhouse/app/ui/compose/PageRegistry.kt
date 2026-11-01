@@ -62,6 +62,7 @@ object PageRegistry {
                 || key.startsWith(com.dollhouse.app.ui.doll.ModelManagePage.PREFIX)
                 || key.startsWith(com.dollhouse.app.ui.chat.FriendProfilePage.PREFIX)
                 || key.startsWith(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX)
+                || key.startsWith(com.dollhouse.app.ui.chat.FriendAppearancePage.PREFIX)
                 || key.startsWith(com.dollhouse.app.ui.chat.ConversationHistoryPage.PREFIX)
                 || key.startsWith(DollAnimPage.PREFIX)
                 || key.startsWith(DollGesturePage.PREFIX)
@@ -146,7 +147,11 @@ object PageRegistry {
             return com.dollhouse.app.ui.chat.FriendProfilePage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.FriendProfilePage.PREFIX.length))
         }
         if (key.startsWith(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX)) {
-            return com.dollhouse.app.ui.chat.FriendModelConfigPage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX.length))
+            val parts = key.substring(com.dollhouse.app.ui.chat.FriendModelConfigPage.PREFIX.length).split(':', limit = 2)
+            return com.dollhouse.app.ui.chat.FriendModelConfigPage.buildPage(act, parts[0], parts.getOrElse(1) { com.dollhouse.app.ui.chat.ChatSessions.latestForDoll(act, parts[0]) ?: com.dollhouse.app.ui.chat.ChatSessions.ensureForDoll(act, parts[0]) })
+        }
+        if (key.startsWith(com.dollhouse.app.ui.chat.FriendAppearancePage.PREFIX)) {
+            return com.dollhouse.app.ui.chat.FriendAppearancePage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.FriendAppearancePage.PREFIX.length))
         }
         if (key.startsWith(com.dollhouse.app.ui.chat.ConversationHistoryPage.PREFIX)) {
             return com.dollhouse.app.ui.chat.ConversationHistoryPage.buildPage(act, key.substring(com.dollhouse.app.ui.chat.ConversationHistoryPage.PREFIX.length))

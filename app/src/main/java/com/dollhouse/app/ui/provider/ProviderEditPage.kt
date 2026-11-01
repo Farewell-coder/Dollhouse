@@ -187,11 +187,8 @@ object ProviderEditPage {
         var pickedName by remember(src?.id) {
             mutableStateOf(presetNameOf(src?.baseUrl))
         }
+        // 默认地址只在 remember 初始化时填入；用户删空后不得因重组再次回填。
 
-        // 新建态补上通用默认 Base Url（编辑态不动用户已存值）。
-        if (!created && base.isEmpty()) {
-            base = ModelRules.defaultBaseUrl(Provider.PROTO_OPENAI)
-        }
 
         DhKit.Page(
             title = if (saved) "编辑供应商" else "添加供应商",

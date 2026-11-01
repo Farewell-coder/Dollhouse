@@ -91,7 +91,13 @@ object DiagnosticsStore {
 
     fun record(ctx: Context?, severity: Severity, module: String, message: String, throwable: Throwable? = null,
                category: String = "runtime", operationId: String = "") {
-        val app = ctx?.applicationContext ?: return
+        // 【性能·附录A-1】早退必须在做任何工作之前。
+        //   旧实现把 `if (severity == INFO && !Logs.isOn()) return` 放在 synchronized 块之后 ——
+        //   也就是说日志开关关着的时候，每条日志仍然要跑 3 次 sanitize（各含一次正则替换）、
+        //   一次 PackageManager IPC 取版本号、一次 diagnostic 对象构造，最后才被丢弃。
+        //   全工程 256 处调用点里绝大多数是 INFO 级，这条早退直接省掉 99% 的无用功。
+        if (ctx == null || (severity == Severity.INFO && !Logs.isOn())) return
+        val app = ctx.applicationContext ?: return
         val event = DiagnosticEvent(severity = severity, category = category, module = sanitize(module).take(80),
             message = sanitize(message).take(if (category == "operation_session") 160000 else 4000), exceptionType = throwable?.javaClass?.name ?: "",
             stackTrace = throwable?.let { stack(it) }?.let { sanitize(it).take(65536) } ?: "",
@@ -101,7 +107,6 @@ object DiagnosticsStore {
             contextEvents.addLast(event.copy(stackTrace = "", context = ""))
             while (contextEvents.size > CONTEXT_MAX) contextEvents.removeFirst()
         }
-        if (severity == Severity.INFO && !Logs.isOn()) return
         if (severity == Severity.CRASH) writeSync(app, event) else worker.execute { runCatching { write(app, event) }.onFailure { lastFailure.set(true) } }
     }
 
@@ -293,7 +298,19 @@ object DiagnosticsStore {
     private fun stableHash(s: String): String = (s.hashCode().toLong() and 0xffffffffL).toString(16).padStart(8, '0').uppercase()
     private fun dir(ctx: Context) = File(ctx.filesDir, DIR)
     internal fun logs(dir: File): List<File> = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".jsonl") } ?: emptyList()
-    private fun version(ctx: Context): String = runCatching { val p = ctx.packageManager.getPackageInfo(ctx.packageName, 0); "${p.versionName} (${p.longVersionCode})" }.getOrDefault("未知")
+    // 【性能·附录A-1】版本号缓存：旧实现每条日志都调一次 getPackageInfo（跨进程 IPC）。
+    //   进程内版本号不会变，按 Application 实例缓存一次即可。
+    //   【为什么用 WeakReference 而不是静态字符串】不持有 Context，避免测试 / 多进程场景泄漏。
+    private var versionCacheRef: java.lang.ref.WeakReference<Context>? = null
+    private var versionCacheText: String = ""
+    private fun version(ctx: Context): String {
+        val hit = versionCacheRef?.get()
+        if (hit === ctx && versionCacheText.isNotEmpty()) return versionCacheText
+        val text = runCatching { val p = ctx.packageManager.getPackageInfo(ctx.packageName, 0); "${p.versionName} (${p.longVersionCode})" }.getOrDefault("未知")
+        versionCacheRef = java.lang.ref.WeakReference(ctx)
+        versionCacheText = text
+        return text
+    }
     private fun exitReason(reason: Int): String = when (reason) {
         1 -> "应用主动退出"; 2 -> "被信号终止"; 3 -> "低内存回收"; 4 -> "应用未捕获异常"; 5 -> "原生代码崩溃"
         6 -> "ANR"; 7 -> "初始化失败"; 8 -> "权限变化"; 9 -> "资源耗尽"; 10 -> "用户主动结束"; 11 -> "用户停止应用"

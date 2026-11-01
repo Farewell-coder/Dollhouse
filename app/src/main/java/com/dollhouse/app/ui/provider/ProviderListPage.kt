@@ -97,6 +97,20 @@ object ProviderListPage {
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_EXTERNAL, sizeDp = UiKit.FS_ICON, color = c.sub)
                 }
+                // 【AKCP / AEX 导入】读 Aivora 导出的配置文件，直接建供应商与模型。
+                //   放在导出旁边：同属「配置进出本机」，用户不用去别处找。
+                //   【为什么只留一个按钮】AEX（.akcp）与 AKCP（.aivora）本来是两套协议，
+                //   但对用户来说就是「导入 Aivora 的配置文件」一件事。入口统一到
+                //   [AexImportSheet.show]，由它按**文件内容 Magic** 分流到对应链路 ——
+                //   选错后缀也能走对，比摆两个长得一样的按钮更好懂。
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .pressable { com.dollhouse.app.ui.widget.AexImportSheet.show(act) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    DhKit.Icon(iconRes = Icons.IC_DOWNLOAD, sizeDp = UiKit.FS_ICON, color = c.sub)
+                }
                 Box(
                     modifier = Modifier
                         .size(40.dp)
