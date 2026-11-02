@@ -69,6 +69,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
@@ -951,18 +953,27 @@ object DhKit {
      * 【为什么用 painterResource 而不是 material-icons】规格书要求沿用既有 Lucide 图标体系，
      *   引 material-icons 会混入风格不一致的图标（填充式 vs 描边式）。
      *
+     * 【v0.2.0·Material 3 无障碍】新增 [contentDescription]。
+     *   【问题】原实现写死 `contentDescription = null`，TalkBack 读不到任何图标。
+     *     对纯装饰图标（排版点缀、行首点缀）传 null 是**正确**的 —— 强行给非空值
+     *     只会让读屏用户听到一串无意义朗读。但承载信息语义的图标（「已启用」「出错」）
+     *     传 null 就等于这条信息对读屏用户直接消失。
+     *   【所以】保持默认 null，由调用点按「这个图标是不是信息载体」自行决定。
+     *
      * @param sizeDp 只允许 [com.dollhouse.app.ui.theme.Design.SZ_*] 五档
+     * @param contentDescription 读屏朗读文本；null = 纯装饰，不朗读
      */
     @Composable
     fun Icon(
         iconRes: Int,
         sizeDp: Float,
         color: Color,
-        modifier: Modifier = Modifier
+        modifier: Modifier = Modifier,
+        contentDescription: String? = null
     ) {
         Image(
             painter = painterResource(iconRes),
-            contentDescription = null,
+            contentDescription = contentDescription,
             modifier = modifier.size(sizeDp.dp),
             colorFilter = ColorFilter.tint(color)
         )
@@ -979,6 +990,17 @@ object DhKit {
      *   顶栏 / 工具条这类宽裕处显式传 label，卡片内三等分这类窄处保持纯图标。
      *
      * @param label 可选文字；null / 空 = 纯图标
+     *
+     * 【v0.2.0·Material 3 无障碍：给可点图标补语义】
+     *   【问题】纯图标按钮（无 [label]）此前对 TalkBack 是「无名称按钮」——
+     *     读屏只会念「按钮」，用户完全不知道点下去会发生什么。[tooltip] 是视觉提示，
+     *     不是无障碍名称（它只在长按/悬停时出现，读屏读不到）。
+     *   【修法】把 [tooltip] 与 [label] 一起作为无障碍名称的唯一来源：
+     *     · 有 label → 用 label（界面上已经写着，读屏念一样的字）
+     *     · 只有 tooltip → 用 tooltip（这正是「这个按钮干什么」的一句话说明）
+     *     · 都没有 → 空串，保持原状（这类调用点通常是装饰性间距，不该被朗读）
+     *   【为什么用 semantics 而不是再开一个参数】名称的语义位置是固定的，
+     *     再开参数会让 45 个既有调用点逐个判断该传哪个 —— 反而更容易漏。
      */
     @Composable
     fun IconButton(
@@ -991,6 +1013,8 @@ object DhKit {
         onClick: () -> Unit
     ) {
         val hasLabel = !label.isNullOrEmpty()
+        // 无障碍名称：label 优先，其次 tooltip，都没有则为空（不朗读）。
+        val a11yName = if (hasLabel) label!! else (tooltip ?: "")
         val button: @Composable () -> Unit = {
         Row(
             modifier = modifier
@@ -1006,6 +1030,14 @@ object DhKit {
                     else Modifier.size(HIT.dp)
                 )
                 .clip(RoundedCornerShape(999.dp))
+                // 【v0.2.0·Material 3 无障碍】把名称挂到节点上，读屏才会念出
+                // 「分享」「返回」这类动词，而不是干巴巴一句「按钮」。
+                // 放在 pressable 之前：语义描述的是「这个可点区域是什么」，
+                // 与它内部如何处理手势无关。
+                .then(
+                    if (a11yName.isEmpty()) Modifier
+                    else Modifier.semantics { contentDescription = a11yName }
+                )
                 .pressable(onClick)
                 .then(if (hasLabel) Modifier.padding(horizontal = 8.dp) else Modifier),
             verticalAlignment = Alignment.CenterVertically
@@ -1716,6 +1748,18 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     //   松手才用 ζ=0.4 弹簧弹回 —— 与 View 侧 `UiKit.press` + `Springs.bouncy()` 完全同口径。
     //   改造前按下/松手共用一个 ζ=0.4 弹簧：手指刚触屏元素会先缩过头再回弹到 0.96，
     //   短按时能看到「先弹一下」，与 View 侧手感也对不上。
+    //
+    // 【v0.2.0·Material 3 无障碍：把触摸目标下限收进 pressable 本身】
+    //   【问题】M3 的《Accessibility》要求所有可交互元素的命中区不小于 48×48dp。
+    //     本工程此前只有 2 处显式调了 `minTouchTarget()`，而 `pressable` 有 48 处调用——
+    //     也就是说「勾选框」「关闭叉」「小图标按钮」这类视觉上只有 12~20dp 的元素，
+    //     命中区同样只有那么点大，单手操作时经常点空。
+    //   【为什么收在这里而不是逐处补】48 个调用点逐个加，早晚会漏；而且新写的按钮
+    //     天然不会想起来加。收进 `pressable` 之后，「只要可点」就自动合规，
+    //     调用点零改动，后续新增的按钮也自动继承。
+    //   【为什么不会把界面撑变形】`minTouchTarget` 用的是 `sizeIn`（只约束下限），
+    //     且它作用在 `clickable` **之前** —— 扩大的是可点击区域，视觉尺寸由内容决定，
+    //     文字 / 图标不会被拉伸。这与 M3「优先扩大透明命中区」的要求一致。
     val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.96f else 1f,
@@ -1723,6 +1767,8 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
         label = "press"
     )
     return this
+        // 【v0.2.0·Material 3 无障碍：触摸目标】见下方注释。
+        .minTouchTarget()
         .scale(scale)
         .clickable(interactionSource = source, indication = null, onClick = callback)
 }
@@ -1761,6 +1807,8 @@ fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
         label = "press"
     )
     return this
+        // 【v0.2.0·与单参重载同口径】触摸目标下限一并收进来，见上方注释。
+        .minTouchTarget()
         .scale(scale)
         .combinedClickable(
             interactionSource = source,

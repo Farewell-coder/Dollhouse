@@ -395,33 +395,27 @@ object AkcpImportSheet {
         }
     }
 
+    /**
+     * 【v0.2.0·预览只显示名称】
+     * 与 AEX 链路（`AexImportSheet.PreviewRow`）保持一致：删掉端点行与密钥行。
+     * 【为什么两条链路必须一起改】它们渲染的是同一个「确认导入」弹窗，
+     *   只改一条会让 `.aivora` 旧文件仍然把密钥打到屏幕上，等于改动落空。
+     * 本函数现已不再调用 [AkcpImport.maskKey]。
+     */
     @Composable
     private fun PreviewRow(cfg: AkcpImport.AkcpConfig) {
         val c = DhTokens.colors
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 10.dp)
+                .padding(bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = cfg.configName,
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBold
-            )
-            Text(
-                text = cfg.endpoint,
-                color = c.sub,
-                fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
-            )
-            Text(
-                text = "密钥 " + AkcpImport.maskKey(cfg.apiKey) + " · " +
-                    (if (cfg.models.isEmpty()) "无模型列表" else cfg.models.size.toString() + " 个模型") +
-                    (if (cfg.enabled) "" else " · 已禁用"),
-                color = c.sub,
-                fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
             )
         }
     }

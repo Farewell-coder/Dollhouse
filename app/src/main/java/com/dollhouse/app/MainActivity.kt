@@ -222,6 +222,18 @@ class MainActivity : Activity() {
      *
      * 【批量】一次分享多个文件时全部取出、一次性交给导入面板合并预览，
      *   而不是「取第一个、丢其余的」（v0.1.6 及以前的行为）。
+     *
+     * 【v0.2.0·先落供应商页再弹窗】
+     *   【原来的问题】本方法只弹 Dialog、不切页。分享是从别的 App 进来的，主界面多半
+     *   还停在上次那个页面（聊天列表 / 首页），于是「确认导入」弹窗浮在一个与导入
+     *   毫无关系的背景上 —— 用户看到的是「聊天列表底上压着一个导入框」，不知道自己在哪。
+     *   【改法】照 [consumeOpenProviders] 的既有范式：先在 `decorView.post` 里
+     *   `ProviderNav.open(this)` 把供应商页压进页面栈，**等它挂载完成后**再弹窗。
+     *   必须等挂载：Dialog 是独立 window，若入栈动画还没跑完就弹，会看到弹窗悬空、
+     *   底下页面正在滑入，观感更差。
+     *   【为什么用 post 而不是 postDelayed】`PageStack.push` 之后视图的 attach 与首帧
+     *   都排在 `decorView` 的消息队列里，`post` 排在其后即可拿到真实尺寸；
+     *   写死延时（如 300ms）只会让慢机更卡、快机白等。
      */
     private fun consumeAexShare() {
         val bytes = com.dollhouse.app.data.AexInbox.takeAll()
@@ -231,7 +243,19 @@ class MainActivity : Activity() {
         if (bytes.isEmpty()) {
             return
         }
-        com.dollhouse.app.ui.widget.AexImportSheet.startWithBatch(this, bytes, names)
+        // 【先切页】把供应商页推到前台，让导入弹窗有正确的语义背景。
+        //   `runCatching` 兜底：页面栈异常（例如宿主未装配完成）时不能连导入一起丢掉 ——
+        //   弹窗本身不依赖供应商页，切页失败也要继续导入。
+        window?.decorView?.post {
+            runCatching { com.dollhouse.app.ui.provider.ProviderNav.open(this) }
+            // 【再弹窗】排在切页之后的第二条 post：保证页面已经挂载、尺寸已量完。
+            window?.decorView?.post {
+                if (isFinishing || isDestroyed) {
+                    return@post
+                }
+                com.dollhouse.app.ui.widget.AexImportSheet.startWithBatch(this, bytes, names)
+            }
+        }
     }
 
     /**

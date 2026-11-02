@@ -189,17 +189,27 @@ object AexImport {
         }
     }
 
-    /** 容器类型（入口分流用，只看 Magic）。 */
-    enum class Kind { AEX, AKCP, UNKNOWN }
+    /** 容器类型（入口分流用）。 */
+    enum class Kind { AEX, AKCP, DOLLHOUSE_JSON, UNKNOWN }
 
     /* ============================ 入口分流 ============================ */
 
     /**
-     * 按**内容 Magic**判定容器类型。
+     * 按**内容**判定容器类型。
      *
      * 【规范依据】AEX-SPECIFICATION 第 7 节与 legacy-format.md 都明确「只看 Magic，不看后缀」：
      *   用户把 `.aivora` 改名成 `.akcp` 时，必须按 Magic 判定为旧格式并走旧流程，
      *   而不是用 AEX 参数去解旧文件然后误报「凭证错误」。
+     *
+     * 【v0.2.0·新增 DOLLHOUSE_JSON，且必须排在最后】
+     *   【为什么加】导出侧（`ExportSheet`）产出的是本 App 私有 JSON，而这里原来只认两种二进制
+     *   Magic，于是「自己导出的文件自己导不回来」——闭环是断的。
+     *   【为什么必须排在 AEX / AKCP 之后】这两者都是二进制 Magic 前缀匹配，判定成本近乎为零
+     *   且绝无误判可能；JSON 判定要做字符串扫描。**先把确定的外部协议认掉，剩下的才轮到自家格式**，
+     *   这样任何外部 Aivora 文件都不可能在半路被自家 JSON 分支截胡 —— 这是「外部分享零退化」
+     *   这条硬要求在本函数里的落地方式。
+     *   【为什么不按后缀认】用户会改名、会经由别的 App 转存；判据只能是内容
+     *   （`{` 开头 + 信封 `kind`）。见 [DollhouseJsonImport.looksLike]。
      */
     @JvmStatic
     fun detect(bytes: ByteArray?): Kind {
@@ -211,7 +221,15 @@ object AexImport {
         }
         // 旧格式 AKCP 1.0 的 Magic：ASCII "AKCP" + CRLF + SUB + LF
         val akcp = byteArrayOf(0x41, 0x4b, 0x43, 0x50, 0x0d, 0x0a, 0x1a, 0x0a)
-        return if (matches(bytes, akcp)) Kind.AKCP else Kind.UNKNOWN
+        if (matches(bytes, akcp)) {
+            return Kind.AKCP
+        }
+        // 【最后才轮到自家 JSON】见方法注释里「为什么必须排在最后」。
+        return if (com.dollhouse.app.data.DollhouseJsonImport.looksLike(bytes)) {
+            Kind.DOLLHOUSE_JSON
+        } else {
+            Kind.UNKNOWN
+        }
     }
 
     private fun matches(bytes: ByteArray, magic: ByteArray): Boolean {

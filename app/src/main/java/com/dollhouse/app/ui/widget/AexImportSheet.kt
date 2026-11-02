@@ -28,6 +28,7 @@ import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.KeyVault
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.DollhouseJsonImport
 import com.dollhouse.app.data.AexImport
 import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.ProviderStore
@@ -194,6 +195,9 @@ object AexImportSheet {
         when (AexImport.detect(bytes)) {
             AexImport.Kind.AKCP -> AkcpImportSheet.startWithBytes(activity, bytes, fileName)
             AexImport.Kind.AEX -> credentialDialog(activity, bytes, fileName)
+            // 【v0.2.0·自家 JSON】不需要凭证（它没加密），直接进预览。
+            //   走的是同一套「预览 → 勾选 → 冲突 → 写入」链路，只是来源不同。
+            AexImport.Kind.DOLLHOUSE_JSON -> dollhouseJsonPreview(activity, bytes, fileName)
             AexImport.Kind.UNKNOWN -> {
                 if (AexImport.acceptsName(fileName)) {
                     // 后缀对、Magic 不对：交给解析器给出「结构不完整」的准确报错。
@@ -201,8 +205,8 @@ object AexImportSheet {
                 } else {
                     tip(
                         activity, "无法导入",
-                        "这个文件既不是 AEX（.akcp）也不是 AKCP（.aivora）容器。\n\n" +
-                            "请确认是从 Aivora 里「分享配置」导出的原始文件，而不是改名后的副本。"
+                        "这个文件既不是 AEX（.akcp）、AKCP（.aivora），也不是 Dollhouse 导出的 JSON。\n\n" +
+                            "请确认是从 Aivora 里「分享配置」导出的原始文件，或是本 App「导出配置」生成的文件。"
                     )
                 }
             }
@@ -263,6 +267,8 @@ object AexImportSheet {
         val aexNames = ArrayList<String>()
         val akcpBytes = ArrayList<ByteArray>()
         val akcpNames = ArrayList<String>()
+        val jsonBytes = ArrayList<ByteArray>()
+        val jsonNames = ArrayList<String>()
         val unknown = ArrayList<String>()
         for (i in list.indices) {
             val b = list[i]
@@ -276,6 +282,11 @@ object AexImportSheet {
                     akcpBytes.add(b)
                     akcpNames.add(n)
                 }
+                // 【v0.2.0·自家 JSON】与外部格式并列收集，最后一起进预览。
+                AexImport.Kind.DOLLHOUSE_JSON -> {
+                    jsonBytes.add(b)
+                    jsonNames.add(n)
+                }
                 else -> {
                     // 后缀像 .akcp 但 Magic 不认识：交给解析器报「结构不完整」比在这里猜更准。
                     if (AexImport.acceptsName(n)) {
@@ -287,10 +298,10 @@ object AexImportSheet {
                 }
             }
         }
-        if (aexBytes.isEmpty() && akcpBytes.isEmpty()) {
+        if (aexBytes.isEmpty() && akcpBytes.isEmpty() && jsonBytes.isEmpty()) {
             tip(
                 act, "无法导入",
-                "选中的文件都不是 AEX（.akcp）或旧版 AKCP（.aivora）容器：\n\n" + unknown.joinToString("\n")
+                "选中的文件都不是 AEX（.akcp）、旧版 AKCP（.aivora）或 Dollhouse 导出文件：\n\n" + unknown.joinToString("\n")
             )
             return
         }
@@ -305,11 +316,15 @@ object AexImportSheet {
             if (aexBytes.isNotEmpty()) {
                 credentialDialogMulti(act, aexBytes, aexNames)
             }
+            // 【自家 JSON】无凭证、无加密，直接进预览（与单文件入口同一条路）。
+            for (i in jsonBytes.indices) {
+                dollhouseJsonPreview(act, jsonBytes[i], jsonNames[i])
+            }
         }
         if (unknown.isNotEmpty()) {
             tip(
                 act, "部分文件已跳过",
-                "以下文件既不是 .akcp 也不是 .aivora，已跳过：\n\n" + unknown.joinToString("\n")
+                "以下文件既不是 .akcp、.aivora，也不是 Dollhouse 导出文件，已跳过：\n\n" + unknown.joinToString("\n")
             ) { proceed() }
         } else {
             proceed()
@@ -590,6 +605,79 @@ object AexImportSheet {
         }, "dh-aex-decrypt").start()
     }
 
+    /* ============================ ③' 自家 JSON 预览 ============================ */
+
+    /**
+     * 【v0.2.0·自家导出文件导回】把 `ExportSheet` 产出的 JSON 接进同一条预览链路。
+     *
+     * 【为什么复用它而不是另写一套界面】用户对「导入配置」的心理模型只有一个：
+     *   先看到清单、勾选要哪些、决定同名怎么办、确认写入。文件是 AEX 还是自家 JSON
+     *   对用户是同一个动作的两种来源，界面理应一致。写入侧也因此不需要第二套逻辑。
+     *
+     * 【与 AEX 链路的唯一差别】无需凭证（本格式不加密），所以跳过凭据弹窗直接解析。
+     *
+     * 【私有字段的保留】[AexImport.AexProfile] 只装得下名称/地址/密钥/模型，
+     *   而自家导出里还有 `chatPath` / `useResponseApi` / `allowCleartext` 等字段。
+     *   这些由 [applyDollhouseJson] 在写入时从原始字节里补回 —— 见那里的说明。
+     */
+    private fun dollhouseJsonPreview(act: Activity, bytes: ByteArray, fileName: String) {
+        val r = DollhouseJsonImport.parse(bytes)
+        if (r.error.isNotEmpty()) {
+            tip(act, "无法导入", r.error)
+            return
+        }
+        val warnings = ArrayList<String>()
+        if (r.notice.isNotEmpty()) {
+            warnings.add(r.notice)
+        }
+        if (r.droppedModels > 0) {
+            warnings.add("有 " + r.droppedModels + " 个模型因为找不到所属供应商被跳过。")
+        }
+        val result = AexImport.Result(r.profiles, null, warnings)
+        // 【记住原始字节】写入时还要靠它把私有字段补回去；用字段而不是闭包参数，
+        //   是为了不改动 previewDialog / PreviewBody / apply 这一串既有签名
+        //   （那串签名同时被 AEX 与 AKCP 两条链路使用，动它等于扩大风险面）。
+        pendingDollhouseJson.set(bytes)
+        previewDialog(act, result, fileName)
+    }
+
+    /**
+     * 当前正在预览的「自家 JSON」原始字节。
+     *
+     * 【为什么是 ThreadLocal】写入链路（`apply`）是从 Compose 点击回调里同步调用的，
+     *   始终在主线程；但 `apply` 也可能被别处的批量逻辑复用。用 ThreadLocal 可以保证
+     *   「这个字节属于正在提交的这次预览」，又不用改 `apply` 的签名。
+     *
+     * 【清理时机】`apply` 末尾无条件 `remove()`，避免下一次 AEX 导入读到上一份残留。
+     */
+    private val pendingDollhouseJson = ThreadLocal<ByteArray?>()
+
+    /**
+     * 把自家 JSON 里那些 [AexImport.AexProfile] 装不下的字段补回 [Provider]。
+     *
+     * 【为什么必须补】导出是「完整备份」的语义。若 `chatPath` / `useResponseApi` /
+     *   `allowCleartext` 丢了，用户重建出来的供应商行为会和备份前不一样 ——
+     *   最典型的是自建站：`allowCleartext = false` 时明文 HTTP 会被代码层拒绝，
+     *   表现为「导入成功，但一发请求就失败」，用户根本查不出原因。
+     *
+     * 【为什么按名称回查】`AexProfile` 里保留了原始 `id`，但用户可能在预览里改名——
+     *   本版预览不支持改名，名称就是稳定锚点。写入侧 `apply` 拿到的正是改好名（或原名）
+     *   的 profile，用它回原始数组里取同一条即可。
+     *
+     * @return 是否把字段补上了（false = 不是自家 JSON，或没找到对应条目）
+     */
+    private fun applyDollhouseJson(ctx: Context, p: AexImport.AexProfile, target: Provider): Boolean {
+        val raw = pendingDollhouseJson.get() ?: return false
+        val src = DollhouseJsonImport.buildProvider(raw, p.name) ?: return false
+        if (src.chatPath.isNotEmpty()) {
+            target.chatPath = src.chatPath
+        }
+        target.useResponseApi = src.useResponseApi
+        target.resendHistoryReasoning = src.resendHistoryReasoning
+        target.allowCleartext = src.allowCleartext
+        return true
+    }
+
     /* ============================ ④ 预览 ============================ */
 
     private fun previewDialog(act: Activity, result: AexImport.Result, fileName: String) {
@@ -789,6 +877,9 @@ object AexImportSheet {
                             same.apiKey = KeyVault.encrypt(p.apiKey)
                         }
                         same.enabled = true
+                        // 【v0.2.0·自家 JSON 的私有字段】覆盖模式下也补回去。
+                        //   放在 saveProvider 之前，保证一次写入就带上全部字段。
+                        applyDollhouseJson(ctx, p, same)
                         ProviderStore.saveProvider(ctx, same)
                         modelsAdded += addModels(ctx, same.id, p)
                         updated++
@@ -802,6 +893,9 @@ object AexImportSheet {
                         np.baseUrl = if (p.hasBaseUrl) ModelRules.normalizeBaseUrl(p.baseUrl) else ""
                         np.apiKey = if (p.hasApiKey) KeyVault.encrypt(p.apiKey) else ""
                         np.enabled = true
+                        // 【v0.2.0·自家 JSON 的私有字段】新建时同样要带上，
+                        //   否则「备份 → 恢复」出来的供应商会和备份前行为不一致。
+                        applyDollhouseJson(ctx, p, np)
                         ProviderStore.saveProvider(ctx, np)
                         modelsAdded += addModels(ctx, np.id, p)
                         created++
@@ -831,6 +925,10 @@ object AexImportSheet {
             sb.append("\n未能导入 ").append(failed.size).append(" 条：").append(failed.joinToString("、"))
         }
         sb.append("\n\n密钥已加密保存，可在供应商详情里核对。")
+        // 【v0.2.0】本次可能是 AEX / AKCP / 自家 JSON 三条来源之一；
+        //   收尾无条件清掉「自家 JSON 原始字节」，避免下一次纯 AEX 导入读到上一份残留
+        //   （那样会用上一次的 chatPath / allowCleartext 覆盖这一次的条目）。
+        pendingDollhouseJson.remove()
         return sb.toString()
     }
 
@@ -883,12 +981,27 @@ object AexImportSheet {
         return added
     }
 
+    /**
+     * 【v0.2.0·预览只显示名称】
+     *
+     * 【为什么删掉端点与密钥三行】用户明确要求「这个界面只用显示主名字，下面那两行小小字不用显示」，
+     *   并补充了动机：「断点和密钥在哪里展示 我怕 泄露」。
+     *   弹窗是**导入前的确认页**，用户此刻要判定的只是「这几条要不要导」，
+     *   名称足够；端点与密钥属于导入后到详情页/编辑页再看的细节。
+     *   删掉后本弹窗不再调用 [AexImport.maskKey]，等于把这个页面上的密钥展示面整体移除。
+     *
+     * 【对齐方式】只剩一行文字后不再需要 `Top`：勾选框与单行名称居中对齐更稳，
+     *   否则勾选字符会贴着行顶、视觉上下坠。
+     *
+     * 【名称去重】`provider` 与 `name` 相同时不再拼括号 —— 否则会渲染成
+     *   「DeepSeek（DeepSeek）」，既占位又难看。
+     */
     @Composable
     private fun PreviewRow(p: AexImport.AexProfile, checked: Boolean, onToggle: () -> Unit) {
         val c = DhTokens.colors
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).pressable(onClick = onToggle),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
             // 自绘勾选框：工程里没有现成 checkbox 组件，用字符保持视觉一致、零依赖。
             Text(
@@ -898,29 +1011,12 @@ object AexImportSheet {
                 fontFamily = DhTokens.fonts
             )
             Spacer(Modifier.width(8.dp))
-            Column {
-                Text(
-                    text = p.name + if (p.provider.isNotEmpty()) "（" + p.provider + "）" else "",
-                    color = c.title,
-                    fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fontsBold
-                )
-                // 【原样展示】baseUrl 不做任何美化改写，用户核对时看到的就是文件里的值。
-                Text(
-                    text = p.baseUrl,
-                    color = c.sub,
-                    fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
-                )
-                Text(
-                    text = "密钥 " + AexImport.maskKey(p.apiKey) + " · " +
-                        (if (p.models.isEmpty()) "无模型列表" else p.models.size.toString() + " 个模型") +
-                        (if (p.defaultModel.isEmpty()) "" else " · 默认 " + p.defaultModel),
-                    color = c.sub,
-                    fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
-                )
-            }
+            Text(
+                text = p.name + if (p.provider.isNotEmpty() && p.provider != p.name) "（" + p.provider + "）" else "",
+                color = c.title,
+                fontSize = UiKit.FS_TINY.sp,
+                fontFamily = DhTokens.fontsBold
+            )
         }
     }
 

@@ -1936,6 +1936,30 @@ class ChatPanel(
      *   两者都空 → 走既有错误气泡。
      */
     fun handleReply(str: String?, reasoning: String?, costMs: Long) {
+        // 【v0.2.0·修·「流式回复流完就整条消失」——数据丢失级缺陷】
+        //
+        // 【现象】用户发一句话 → AI 以流式逐字吐出 → 文字出完的瞬间，整屏消息全没了；
+        //   重启 App 也找不回来。
+        //
+        // 【根因】本方法下面的顺序自相矛盾：
+        //   ①（原第 1940-1941 行）先把 `activeGeneration` 置空；
+        //   ②（原第 1989 行）才执行 `val generation = activeGeneration ?: return`。
+        //   读到的是 null，`?: return` 立即返回 —— 后面的落库（[appendAssistantToConversation]
+        //   与界面铺气泡（[appendBubble]）**一步都没执行**。
+        //   而流式收尾在 `askModelStream.onDone` 里已经先把占位气泡删掉了
+        //   （`filterNot { it.index < 0 }`），于是屏幕上正好呈现为「字流完 → 全空」。
+        //
+        // 【为什么不是每句话都丢】非流式路径同样走本方法，同样命中这个 return；
+        //   区别只在于非流式没有「先删占位气泡」这一步，屏幕上会保留用户自己那条消息，
+        //   所以看起来像「AI 没回」，不像「全没了」——同因，两种表象。
+        //
+        // 【引入版本】`6c0d2e5`（v0.1.6）把第 1989 行加进来时，与已有的置空语句撞了顺序，
+        //   v0.1.7 / v0.1.8 / v0.1.9 一并带着，属于长期未暴露的必然缺陷。
+        //
+        // 【修法】先把任务引用快照到局部变量，再清字段。之后怎么清都不影响这份快照。
+        //   选这个改法而不是「删掉置空」：`activeGeneration` 在 `stopGenerating` 等处
+        //   需要及时变成 null（否则切会话后 `waiting` 判断会误判），置空不能去。
+        val gen = activeGeneration
         activeGeneration?.let { com.dollhouse.app.data.GenerationTasks.finish(it.generationId) }
         activeGeneration = null
         task = null
@@ -1985,7 +2009,7 @@ class ChatPanel(
         }
         // 【r13·角色设定】输出替换里「影响历史」的那一批：在写库前就应用 ——
         //   于是模型下一轮看到的也是清洗后的文本（这正是勾掉「只影响显示」的语义）。
-        val generation = activeGeneration ?: return
+        val generation = gen ?: return
         val ownerPersona = generation.personaId
         val ownerConversation = generation.conversationId
         trim = ChatHistoryStore.stripRules(context, ownerPersona, trim, true, false)
