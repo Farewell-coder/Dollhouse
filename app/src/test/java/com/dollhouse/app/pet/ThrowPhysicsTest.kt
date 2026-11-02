@@ -172,31 +172,62 @@ class ThrowPhysicsTest {
     }
 
     /** 撞左墙：x 被夹在边界上，vx 反向且衰减。 */
+    /**
+     * 撞左墙反弹。
+     *
+     * 【附录C-6·断言口径已更新】原来断言 `x == minX`（位置被夹死在边界上）。
+     *   那正是被修掉的旧行为：穿透掉的位移直接丢弃，于是 60Hz 与 120Hz 结果不同。
+     *   现在剩余位移会镜像走完，所以：
+     *     · x 必须仍在边界**内侧**（不能穿出去）；
+     *     · x 不能恰好等于 minX（那说明剩余位移又被丢了）；
+     *     · vx 反向且衰减。
+     */
     @Test
     fun `撞左墙反弹`() {
         // 已经贴左边、还在向左飞
         val s = ThrowPhysics.step(100f, 500f, -2000f, 0f, 16L, bounds)
-        assertEquals(100f, s.x, 0.01f)
+        assertTrue("不能穿出左边界，实际 " + s.x, s.x >= bounds.minX - 0.01f)
+        assertTrue("应反弹离开边界而不是夹死在边界上，实际 " + s.x, s.x > bounds.minX)
         assertTrue("vx 应变正（向右弹回），实际 " + s.vx, s.vx > 0f)
         assertTrue("反弹应衰减", s.vx < 2000f)
     }
 
-    /** 撞右墙同理。 */
+    /** 撞右墙同理（口径同 [撞左墙反弹]）。 */
     @Test
     fun `撞右墙反弹`() {
         val s = ThrowPhysics.step(500f, 500f, 2000f, 0f, 16L, bounds)
-        assertEquals(500f, s.x, 0.01f)
+        assertTrue("不能穿出右边界，实际 " + s.x, s.x <= bounds.maxX + 0.01f)
+        assertTrue("应反弹离开边界而不是夹死在边界上，实际 " + s.x, s.x < bounds.maxX)
         assertTrue("vx 应变负，实际 " + s.vx, s.vx < 0f)
     }
 
-    /** 落到地面：y 被夹住、竖直速度反弹或清零，且判为 landed。 */
+    /**
+     * 从高处带向下速度，撞地后反弹离开。
+     *
+     * 【附录C-6·断言口径已更新】原来断言 `y == groundY`（夹死在地面）。
+     *   现在反弹会把剩余位移镜像走完，所以断言「不穿地 + 判为落地 + vy 向上」。
+     */
     @Test
     fun `落到地面`() {
-        // 从地面略上方、带向下速度
         val s = ThrowPhysics.step(300f, 999f, 0f, 3000f, 16L, bounds)
-        assertEquals("应停在地面", 1000f, s.y, 0.01f)
+        assertTrue("不能穿到地面以下，实际 " + s.y, s.y <= bounds.groundY + 0.01f)
         assertTrue("应判定为落地", s.landed)
-        assertTrue("落地后 vy 应向上或归零，实际 " + s.vy, s.vy <= 0f)
+        assertTrue("落地后 vy 应向上，实际 " + s.vy, s.vy < 0f)
+    }
+
+    /**
+     * 已经贴在地面上、竖直速度很小时，必须稳稳吸住。
+     *
+     * 【这条钉的是「支撑状态」】不吸住的话，每个子步都会重新累加重力，
+     *   末态会带 `g × 子步数 × 1/240` 的残余速度（实测 52.4 px/s），
+     *   表现为人偶在地面上微微抖动。
+     */
+    @Test
+    fun `贴地时竖直速度被吸住`() {
+        // 起点就在地面上（y == groundY），竖直速度很小
+        val s = ThrowPhysics.step(300f, 1000f, 0f, 10f, 16L, bounds)
+        assertEquals("应贴住地面", bounds.groundY, s.y, 0.5f)
+        assertEquals("竖直速度应被吸住为 0", 0f, s.vy, 0.01f)
     }
 
     /**
@@ -301,5 +332,76 @@ class ThrowPhysicsTest {
     fun `全部在窗口内时不丢弃`() {
         val t = trail(n = 3, stepMs = 10, dx = 5f)
         assertEquals(3, ThrowPhysics.trim(t, now).size)
+    }
+
+    /* ============================ 帧率无关性（附录C-6） ============================ */
+
+    /**
+     * 同一个初速下，60Hz 与 120Hz 的落点必须基本一致。
+     *
+     * 【为什么需要这条】改造前是「一次显式欧拉 + 位置夹取」：撞边时把位置夹到边界，
+     *   穿透掉的位移直接丢弃。60Hz 每帧的穿透量是 120Hz 的两倍，于是同一个甩动手势
+     *   在不同刷新率的手机上抛出的距离不同。改成固定子步长 + 镜像反射后，
+     *   「一帧走几个子步」只影响精度、不影响结果 —— 这条断言就是那个性质的回归保护。
+     *
+     * 【容差为什么给 2px】子步长 1/240s 下，60Hz 每帧 4 个子步、120Hz 每帧 2 个，
+     *   残余差异只来自最后一步不满子步长。实测 x 差 0.43px、y 差 0.01px，
+     *   给 2px 是为浮点累加留余量，仍足以拦住「按帧率漂移」这类回归。
+     */
+    @Test
+    fun `甩抛落点与帧率无关`() {
+        fun simulate(frameMs: Long): ThrowPhysics.Step {
+            // 从中偏左向上右甩，保证生命周期内至少撞一次墙 + 落地。
+            var s = ThrowPhysics.Step(300f, 800f, 1800f, -900f, landed = false, resting = false)
+            var t = 0L
+            // 2 秒足够走完整个生命周期。
+            while (t < 2000L) {
+                s = ThrowPhysics.step(s.x, s.y, s.vx, s.vy, frameMs, bounds)
+                t += frameMs
+                if (s.resting) {
+                    break
+                }
+            }
+            return s
+        }
+        val at120 = simulate(8L)    // 约 120Hz
+        val at60 = simulate(16L)    // 约 60Hz
+        assertEquals("60Hz 与 120Hz 的落点 x 应一致", at120.x, at60.x, 2f)
+        assertEquals("60Hz 与 120Hz 的落点 y 应一致", at120.y, at60.y, 2f)
+    }
+
+    /**
+     * 撞墙后剩余位移必须继续走完，而不是把穿透量丢掉。
+     *
+     * 【口径】从贴着右墙的位置以极大水平速度往外抛一帧：
+     *   旧实现会把位置夹到 maxX 就结束（x 恰好等于 maxX）；
+     *   正确实现会把剩余位移镜像后继续走，x 应明显小于 maxX。
+     *
+     * 【为什么断言「小于」而不是具体值】具体值依赖子步长，
+     *   钉死数字会让这条用例变成「改子步长就红」的脆弱测试；性质才是稳定的。
+     */
+    @Test
+    fun `撞墙后剩余位移继续走完`() {
+        val s = ThrowPhysics.step(
+            x = 499f, y = 500f,
+            vx = 6000f, vy = 0f,
+            dtMs = 16L, b = bounds
+        )
+        assertTrue(
+            "撞右墙后应镜像走完剩余位移（x 应小于 maxX=500），实际 " + s.x,
+            s.x < 500f
+        )
+        assertTrue("水平速度应已反向（向左），实际 " + s.vx, s.vx < 0f)
+    }
+
+    /** 静止判定不能在「抛到最高点」误判（那一刻 vy≈0 但还在空中）。 */
+    @Test
+    fun `最高点不被误判为静止`() {
+        val s = ThrowPhysics.step(
+            x = 300f, y = 200f,
+            vx = 0f, vy = 1f,
+            dtMs = 16L, b = bounds
+        )
+        assertFalse("在空中不该判定静止", s.resting)
     }
 }

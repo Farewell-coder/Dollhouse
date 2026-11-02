@@ -1,5 +1,5 @@
 package com.dollhouse.app.agent
-
+import com.dollhouse.app.core.Logs
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,6 +18,8 @@ import org.json.JSONObject
  *        否则模型会因为「少了一条 tool 回复」而报错（tool_calls 与 tool 消息必须一一对应）。
  */
 object ChatToolRunner {
+
+    private const val TAG = "DollhouseToolRunner"
 
     /**
      * 同步执行一批工具调用。
@@ -45,6 +47,11 @@ object ChatToolRunner {
             val output: String = try {
                 if (name.isEmpty()) "（工具调用缺少函数名）" else ChatToolRegistry.execute(name, args, webSearch, remember)
             } catch (t: Throwable) {
+                // 【附录B-11】原来这里只把异常**类名**拼进返回值就结束了：
+                //   模型能看到「工具执行异常：NullPointerException」，但日志里什么都没有 ——
+                //   真机上出问题时无法定位是哪一步炸的（堆栈只存在于被吞掉的那一刻）。
+                //   返回值保持不变（它要喂给模型，不该塞堆栈），另外单独记一条日志。
+                Logs.w(TAG, "工具执行异常 name=" + name + " args=" + args, t)
                 "（工具执行异常：" + t.javaClass.simpleName + "）"
             }
             try {

@@ -83,6 +83,15 @@ object ModelValidator {
         }
 
         // ---------- ② 路径穿越 / 非法路径 ----------
+        // 【附录D-2·id 白名单】`manifest.id` 会作为目录名落盘（`modelDir`），
+        //   是「删掉整棵模型树」这条路径的入口。原来这里只校验了 zip 条目与资源路径，
+        //   **完全没管 id**。现在在导入阶段就拒绝非法 id，避免恶意包走到落盘那一步。
+        if (!isSafeModelId(manifest.id)) {
+            errors.add(
+                "模型包 id 非法：「" + manifest.id + "」" +
+                    "（只允许字母、数字、`-`、`_`、`.`，且不能以 `.` 开头，长度 1..64）"
+            )
+        }
         for (e in norm) {
             val bad = whyUnsafePath(e)
             if (bad != null) {
@@ -167,6 +176,32 @@ object ModelValidator {
         }
 
         return Result(errors, warnings)
+    }
+
+    /**
+     * 模型包 id 是否可作为目录名安全落盘。
+     *
+     * 【附录D-2】规则比 [ModelRepository.safeName] 更严 —— 后者是「尽量抢救成合法名」，
+     *   这里是「导入前的准入判定」：不符合就拒绝整个包，而不是悄悄改名后导入。
+     *   悄悄改名会让用户拿到一个 id 与 manifest 不一致的包，后续覆盖/删除都错位。
+     *
+     * 规则：长度 1..64；只允许字母、数字、`-`、`_`、`.`；不能以 `.` 开头。
+     *   末尾追加的「不能以 `.` 开头」直接掐掉了 `..`、`.`、`...` 这一族特殊目录名。
+     */
+    fun isSafeModelId(id: String?): Boolean {
+        if (id == null || id.isEmpty() || id.length > 64) {
+            return false
+        }
+        if (id.startsWith(".")) {
+            return false
+        }
+        for (c in id) {
+            val ok = c.isLetterOrDigit() || c == '-' || c == '_' || c == '.'
+            if (!ok) {
+                return false
+            }
+        }
+        return true
     }
 
     /**

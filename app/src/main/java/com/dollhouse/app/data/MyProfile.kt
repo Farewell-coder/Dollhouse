@@ -240,6 +240,13 @@ object MyProfile {
      * 【为什么要删旧图】头像文件是「复制入库」的独立副本（见 [ImageStore]），
      *   不删就会每换一次留一份垃圾在私有目录里，越积越多。
      *
+     * 【附录D-13·为什么这里必须用 commit 而不是 apply】原写法是
+     *   ① `edit().apply()`（异步落盘）→ ② 立刻删旧文件。两者之间有一个窗口：
+     *   进程在这个窗口里被杀（低内存回收 / 用户划掉后台），磁盘上的 `my_avatar`
+     *   仍是**旧路径**，而旧文件已经被删了 —— 下次启动 `hasAvatar()` / `loadScaled()`
+     *   全部落空，头像变空白，而且没有任何恢复入口。
+     *   换头像是一次低频操作，同步写完盘的代价（几毫秒）完全可以接受。
+     *
      * @return 成功返回 true
      */
     fun commitAvatar(ctx: Context?, pendingRel: String?): Boolean {
@@ -248,7 +255,14 @@ object MyProfile {
         }
         return try {
             val old = avatarPath(ctx)
-            PetPrefs.get(ctx).edit().putString("my_avatar", pendingRel).apply()
+            // ① 先同步写盘**并确认成功**：写不进去就立刻返回失败，
+            //    旧头像文件一个字节都不动（否则就成了「指针没换、图没了」）。
+            val ok = PetPrefs.get(ctx).edit().putString("my_avatar", pendingRel).commit()
+            if (!ok) {
+                Logs.w(TAG, "头像指针写入失败，保留旧图")
+                return false
+            }
+            // ② 新指针已落盘，这才可以删旧文件。
             if (old.isNotEmpty() && old != pendingRel) {
                 try {
                     ImageStore.delete(ctx, old)

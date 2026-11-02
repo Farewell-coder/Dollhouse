@@ -252,8 +252,26 @@ class AnimatedImageRenderer : PetRenderer {
                 Logs.w(TAG, "stop failed", ignored)
             }
         }
+        // 【附录C-15·必须显式断资源，不能只置空引用】
+        //   · `AnimatedImageDrawable` 内部持有 native 解码状态与位图，
+        //     `stop()` 只是停时钟，不释放像素；GC 看不到这部分 native 内存，
+        //     所以在系统眼里这个进程的内存占用不会下降 —— 反复切换大动图动作时
+        //     峰值一路上抬，低内存机上就是「人偶自己消失」（进程被回收）。
+        //   · API 24–27 的 `Movie` 同理，它在 native 侧持有整段 GIF 的像素。
+        //   本方法是在主线程被调的，但这里的操作只是解引用 + 交给系统回收，
+        //   耗时可忽略；真正的 `recycle()` 不该在这些 API 上乱调（会打断正在显示的帧），
+        //   所以做法是：先停、再断引用、并让 `PetSource` 那份文件级缓存失效。
+        if (d is AnimatedImageDrawable) {
+            try {
+                d.callback = null
+            } catch (ignored: Throwable) {
+                // 个别 ROM 上实现有差异，断回调失败不影响后续引用被回收。
+            }
+        }
         animDrawable = null
         movie = null
+        movieDurationMs = 0
+        movieStartMs = 0L
         host = null
     }
 

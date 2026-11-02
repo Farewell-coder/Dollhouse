@@ -90,6 +90,16 @@ class ChatPanel(
     private var askStartMs = 0L
 
     /**
+     * 【附录D-3】请求组装的「票号」。
+     *
+     * 【为什么需要】组装搬到后台线程之后，「点了发送」和「请求真的发出去」之间隔了一段
+     *   不确定的时间。这段时间里用户完全可能点停止、切会话、或者连点两次。
+     *   每次组装前领一张票，回主线程时比对：票号变了 / 已经不在等待态 / 当前会话换了，
+     *   就整段作废 —— 否则会出现「在 A 会话点的停止、几秒后请求却发到了 B 会话」。
+     */
+    private var requestTicket = 0
+
+    /**
      * 【r13·流式】本次请求是否走 SSE。
      * 【为什么按次判定而不是一个全局开关】降级是「这一次请求」的事：某家中转偶尔不支持流式，
      *   不能因此把用户的选择永久改成非流式。本次失败 → 只降级这一次。
@@ -499,6 +509,51 @@ class ChatPanel(
         ChatHistoryStore.loadHistory(this)
         renderHistory()
         refreshCtxRing()
+        // 【附录D-5】换会话时重新载入草稿与附件。
+        //
+        // 【原来的 bug】草稿只在构造函数里灌过一次，而 `reloadHistory()` 换掉了消息列表
+        //   却没人动输入框。于是「在 A 打了半句 → 去列表切到 B → 回聊天页」时，
+        //   输入框里还是 A 的句子，直接点发送就写进了 B。
+        //   附件条同理（`pendingImage` / `pendingText` 是 ChatPanel 的字段，
+        //   但 `ChatState.attach*` 是全局的，不重灌就会显示上一个会话的附件）。
+        //
+        // 【为什么不在这里 save 旧草稿】保存时机已经由 [onInputChange] 逐字符接管
+        //   （每次输入都写盘），这里再存一次只会用「新会话的键」写「旧会话的内容」，
+        //   反而污染数据。这里只负责「读新的」。
+        reloadDraft()
+    }
+
+    /**
+     * 【附录D-5】把当前会话的草稿与附件载回界面。
+     *
+     * 【为什么不连附件一起从 ChatDraftStore 恢复】草稿里确实存了图片工具状态，
+     *   但那个状态属于「附件工具」而不是「本轮附件」；本轮真正要发的东西
+     *   （`pendingImage` / `pendingText`）是**一次性**的，跟着会话走会变成
+     *   「在 A 选的图，切到 B 还挂着」——那正是本条要修的 bug 的另一种形态。
+     *   所以这里清空本轮附件、只恢复文字草稿。
+     */
+    private fun reloadDraft() {
+        val text = try {
+            com.dollhouse.app.data.ChatDraftStore
+                .load(context, boundDollId(), ChatSessions.currentId(context)).text
+        } catch (t: Throwable) {
+            Logs.w("DollhouseChat", "载入草稿失败", t)
+            ""
+        }
+        ChatState.input = text
+        pendingImage = null
+        pendingText = null
+        refreshAttachStrip()
+        // 【附录D-5·waiting 也要跟着会话走】
+        //   生成中的任务记在 [activeGeneration] 上，而 `waiting` 是个纯 UI 状态。
+        //   原来切会话后 `waiting` 仍是 true —— 新会话的输入行会显示「停止」按钮，
+        //   让用户以为这个会话也在生成，点一下还会把上一个会话的请求停掉。
+        //   判据用「有没有正在跑的生成任务」而不是「当前是不是 waiting」：
+        //   `activeGeneration` 才是请求的真源。
+        if (activeGeneration == null) {
+            setWaiting(false)
+            ChatState.thinking = null
+        }
     }
 
     /**
@@ -757,7 +812,7 @@ class ChatPanel(
         }
         setWaiting(true)
         addThinking("正在思考…")
-        askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
+        askModelBuildingRequest()
     }
 
     /**
@@ -1369,7 +1424,7 @@ class ChatPanel(
             PetBus.say("让我再想想…", 4000L)
         }
         // 【r13·一人偶一对话】重生成同样按当前会话绑定的人偶组装请求。
-        askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
+        askModelBuildingRequest()
     }
 
     fun onSend() {
@@ -1427,7 +1482,7 @@ class ChatPanel(
         if (ChatHistoryStore.usesDirectVision(context)) {
             sendPending = false
             clearAttachment()
-            askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
+            askModelBuildingRequest()
             return
         }
         OcrEngine.recognizePending(context, history, Runnable {
@@ -1439,8 +1494,75 @@ class ChatPanel(
             clearAttachment()
             // 【OCR】扫完再组装请求：这时图片文字已在缓存里，正文才带得上。
             // 【r13·一人偶一对话】请求按**当前会话绑定的那只人偶**组装人设与记忆。
-            askModel(ChatHistoryStore.buildRequest(context, history, boundDollId()), 0, true)
+            askModelBuildingRequest()
         })
+    }
+
+    /**
+     * 【附录D-3】在后台线程组装请求，组装完再回主线程发出。
+     *
+     * ## 为什么必须这么做
+     * 原实现是在主线程直接调 `ChatHistoryStore.buildRequest(...)`。那条链路里不只有
+     * 「解码 + JPEG 压缩 + base64」（`ImageEncoder`），还有更慢的一段：
+     * `withVisionCaption` 内的 `CountDownLatch.await(20s)` —— 走「识图模型」通道时
+     * 每张图都要等一次网络识图。于是「点发送」到「请求真的发出去」之间，
+     * 主线程可能被**阻塞几十秒**：界面完全不动，系统判 ANR 只是时间问题。
+     *
+     * ## 为什么用 Thread 而不是协程
+     * 本类（[ChatPanel]）是 View 系的老架构，整条链路上的其它后台工作
+     * （`runTools`、`OcrEngine`）也都是裸 Thread。这里引入协程作用域会多一个
+     * 需要与 View 生命周期对齐的对象；一次性的组装任务用 Thread 成本最低、
+     * 语义最直白（fire-and-forget，结果靠票号校验来收口）。
+     *
+     * ## 票号校验要挡住的三件事
+     * ① 用户点了停止（`requestTicket` 变 / `waiting` 已复位）→ 不能再发；
+     * ② 用户切了会话（`currentId` 变了）→ 这轮的回复会落进错误的会话；
+     * ③ 连点两次发送（票号自增）→ 只认最后一次。
+     *
+     * ## 已知残余窗口
+     * `buildRequest` 内部会自己读一次 `ChatSessions.currentId`（用于取会话级配置）。
+     * 若用户在「后台已开始组装 → 回主线程校验」这段极短时间里切走再切回同一会话，
+     * 那次组装用的会是切走后那个会话的配置。代价仅限于「这一轮的注入配置可能不对」，
+     * 不会串消息、不会写错会话，故不加参数化重载去扩大改动面。
+     */
+    private fun askModelBuildingRequest() {
+        val ticket = ++requestTicket
+        val convAtStart = ChatSessions.currentId(context)
+        val dollId = boundDollId()
+        // 主线程先快照：history 是可变的 JSONArray，后台线程不能直接读它。
+        val snapshot = try {
+            JSONArray(history.toString())
+        } catch (t: Throwable) {
+            Logs.w("DollhouseChat", "history 快照失败", t)
+            JSONArray()
+        }
+        Thread({
+            val body = try {
+                ChatHistoryStore.buildRequest(context, snapshot, dollId)
+            } catch (t: Throwable) {
+                Logs.w("DollhouseChat", "请求组装失败", t)
+                null
+            }
+            post {
+                // ①② 停止 / 连点：票号或等待态已经变了，整段作废（静默，不打扰用户）。
+                if (ticket != requestTicket || !waiting) {
+                    return@post
+                }
+                // ③ 切了会话：请求不能发到别的会话去。
+                if (ChatSessions.currentId(context) != convAtStart) {
+                    setWaiting(false)
+                    removeThinking()
+                    return@post
+                }
+                if (body == null) {
+                    setWaiting(false)
+                    removeThinking()
+                    flashMemo("组装请求失败，请重试")
+                    return@post
+                }
+                askModel(body, 0, true)
+            }
+        }, "doll-build-request").start()
     }
 
     fun askModel(jSONArray: JSONArray, i: Int, z: Boolean) {
@@ -1905,6 +2027,9 @@ class ChatPanel(
         activeGeneration = null
         // 【OCR】若还在等 OCR 扫图，撕掉闸门，扫描回来直接作废（不再发请求）。
         sendPending = false
+        // 【附录D-3】作废正在后台组装的请求：否则组装完成后回主线程仍会把请求发出去，
+        //   用户看到的现象是「点了停止，几秒后她居然还是回了」。
+        requestTicket++
         val t = task
         t?.cancel()
         task = null

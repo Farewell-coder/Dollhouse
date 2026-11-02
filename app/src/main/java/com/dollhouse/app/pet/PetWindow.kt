@@ -561,6 +561,24 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
 
     // ============================ 几何 / 摆位 ============================
 
+    /**
+     * 把 [lp] 下发到 WindowManager。
+     *
+     * 【附录C-5·修坐标失真】原来这里 `catch {}` 全吞。
+     *
+     * 问题链：`placeByPivot` 的写法是「先把期望值写进 `lp` 的四个字段，再 safeUpdate，
+     * 下次进来先比 `lp` 与期望是否相等，相等就 return」。于是只要一次下发失败
+     * （`BadTokenException` / 权限刚被撤 / 视图未 attach / 系统拒绝），
+     * `lp` 里已经是新坐标而窗口还在旧位置 —— 下次要摆到同一坐标时判等成立、
+     * 直接 return，**永远不会再下发**。表现：
+     *   · snap 到边缘后宠物显示还在屏幕中间；
+     *   · 气泡收起后窗口高度不回缩（多出一块透明但仍可点的区域）；
+     *   · 旋转后坐标错位且自己恢复不了。
+     *
+     * 【修法】记一份「最后一次成功下发的快照」。失败时把 `lp` 回滚到那份快照，
+     * 于是下一次 `placeByPivot` 的判等必然不成立 → 会重发。这样既不需要每帧强推，
+     * 也不会让 `lp` 与窗口实际状态永久分叉。
+     */
     fun safeUpdate() {
         val petView = petView
         val lp = lp
@@ -569,8 +587,70 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
         }
         try {
             wm.updateViewLayout(petView, lp)
-        } catch (unused: Throwable) {
+            // 下发成功：记下这份「已生效」的值。
+            appliedLpValid = true
+            appliedX = lp.x
+            appliedY = lp.y
+            appliedW = lp.width
+            appliedH = lp.height
+            updateRetryPending = false
+        } catch (t: Throwable) {
+            // 回滚到上次成功的值，让后续的判等能识别出「其实没生效」。
+            if (appliedLpValid) {
+                lp.x = appliedX
+                lp.y = appliedY
+                lp.width = appliedW
+                lp.height = appliedH
+            }
+            // 【为什么要重试】回滚后若调用方不再改坐标（比如用户已经松手），
+            //   `lp` 就停在旧值上，而窗口也在旧位置 —— 看起来「一致」但其实
+            //   这次期望的摆位没达成（典型：气泡收起后高度该缩回去）。
+            //   所以补一次延时重试，只在失败后触发，不会变成每帧强推。
+            scheduleUpdateRetry()
+            Logs.w("Dollhouse", "updateViewLayout failed: " + t.javaClass.simpleName)
         }
+    }
+
+    /** 最近一次成功下发的 lp 快照；[appliedLpValid] 为 false 时表示还没成功过。 */
+    private var appliedLpValid = false
+    private var appliedX = 0
+    private var appliedY = 0
+    private var appliedW = 0
+    private var appliedH = 0
+
+    /** 失败后是否已经排了一次重试（避免连续失败时堆一串 Runnable）。 */
+    private var updateRetryPending = false
+
+    /**
+     * 下发失败后补一次重试。
+     *
+     * 【为什么只重试一次】窗口不可用通常是「暂时」的（token 还没就绪、系统正在处理旋转）；
+     *   无限重试会在真的无权限时变成永久空转。一次足够覆盖绝大多数偶发失败，
+     *   仍失败就等下一次 placeByPivot（用户交互会再触发）自然带出来。
+     */
+    private fun scheduleUpdateRetry() {
+        if (updateRetryPending) {
+            return
+        }
+        updateRetryPending = true
+        ui.postDelayed({
+            updateRetryPending = false
+            val v = petView
+            val p = lp
+            if (v == null || p == null || !added) {
+                return@postDelayed
+            }
+            try {
+                wm.updateViewLayout(v, p)
+                appliedLpValid = true
+                appliedX = p.x
+                appliedY = p.y
+                appliedW = p.width
+                appliedH = p.height
+            } catch (ignored: Throwable) {
+                // 仍失败：保持 updateRetryPending = false，等下一次摆位再试。
+            }
+        }, 100L)
     }
 
     fun placeByPivot(i: Int, i2: Int) {

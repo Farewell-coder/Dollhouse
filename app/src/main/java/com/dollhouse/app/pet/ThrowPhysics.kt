@@ -311,7 +311,40 @@ object ThrowPhysics {
     )
 
     /**
-     * 推进一步（固定步长外的可变 dt，已夹 [MAX_STEP_DT]）。
+     * 固定积分子步长（秒）。
+     *
+     * 【附录C-6·为什么必须固定】原实现把「这一帧的真实间隔」直接当 dt 做**一次**显式欧拉，
+     *   撞边时把位置夹到边界、反算一次速度，穿透掉的位移直接丢弃。
+     *   于是 60Hz（16.7ms/帧）与 120Hz（8.3ms/帧）的穿透量差一倍，
+     *   反弹后的水平速度与落点因此不同 —— 同一个甩动手势在不同刷新率的手机上
+     *   抛出的距离与弹跳高度不一致。
+     *
+     *   改为固定子步长后，「一帧走几个子步」只影响精度、不影响结果。
+     *   取 1/240s：比任何手机刷新率都细，单子步的位移远小于屏宽，反射只发生一次。
+     */
+    const val FIXED_DT = 1f / 240f
+
+    /**
+     * 单帧最多走多少个子步。
+     *
+     * 【为什么封顶】[MAX_STEP_DT] 是 50ms，50 / (1/240) = 12 步；留余量到 16，
+     *   既能覆盖夹取后的最大间隔，又不会让卡顿帧占用过多 CPU。
+     */
+    private const val MAX_SUBSTEPS = 16
+
+    /**
+     * 推进一步。
+     *
+     * 【附录C-6·改法】「固定子步长 + 几何镜像反射」：
+     *
+     *  · **子步长固定**：`dt` 被切成若干个 [FIXED_DT]，帧率只决定切几刀，
+     *    不改变每一刀的物理量 —— 这是「与刷新率无关」的来源；
+     *  · **反射走完剩余位移**：撞边后不用「夹到边界」，而是把这一子步里
+     *    剩余的位移按镜面反射继续走完（`new = 2·bound - old - delta`）。
+     *    穿透量因此不会被丢掉，60/120Hz 得到同一个落点；
+     *  · **支撑状态**：贴住地面 / 顶边（速度不指向外侧）时竖直速度保持 0，
+     *    不再累加重力 —— 否则每子步都会重新获得 `g·dt` 的向下速度，
+     *    落地后末态带着几十 px/s 抖动（实测 47.5 = 1400×4×1/240）。
      *
      * @param dtMs 距上一帧的毫秒数
      * @param params 物理参数
@@ -326,44 +359,146 @@ object ThrowPhysics {
         params: Params = Params()
     ): Step {
         // 夹 dt：卡顿 / 后台切回时防止一步飞出屏幕。
-        val dtSec = (dtMs.coerceAtLeast(0L).toFloat() / 1000f).coerceAtMost(MAX_STEP_DT)
-        if (dtSec <= 0f) {
+        var remain = (dtMs.coerceAtLeast(0L).toFloat() / 1000f).coerceAtMost(MAX_STEP_DT)
+        if (remain <= 0f) {
             return Step(x, y, vx, vy, landed = false, resting = false)
         }
+        var nx = x
+        var ny = y
         var nvx = vx
-        var nvy = vy + params.gravity * dtSec
-        var nx = x + nvx * dtSec
-        var ny = y + nvy * dtSec
+        var nvy = vy
         var landed = false
 
-        // ---- 左右墙 ----
-        if (nx < b.minX) {
-            nx = b.minX
-            nvx = -nvx * params.restitution
-        } else if (nx > b.maxX) {
-            nx = b.maxX
-            nvx = -nvx * params.restitution
+        // 【支撑初值】贴边 **且速度不指向外侧** 才算被支撑。
+        //   若刚被人向上甩（vy < 0）却因为「y 恰在地面」被判成贴地，人偶会被粘住不走。
+        var onFloor = ny >= b.groundY - 0.5f && nvy >= 0f
+        var onCeiling = !onFloor && ny <= b.minY + 0.5f && nvy <= 0f && !params.ceilingBounce
+
+        var steps = 0
+        while (remain > 0f && steps < MAX_SUBSTEPS) {
+            val dt = if (remain >= FIXED_DT) FIXED_DT else remain
+            remain -= dt
+            steps++
+
+            if (onFloor) {
+                // ---- 贴地：竖直不动，只走水平 + 摩擦 ----
+                nvy = 0f
+                nvx *= kotlin.math.exp(-params.groundFriction * dt)
+                val dx = nvx * dt
+                if (nx + dx < b.minX) {
+                    nx = 2f * b.minX - nx - dx
+                    nvx = -nvx * params.restitution
+                    if (nx > b.maxX) {
+                        nx = b.maxX
+                    }
+                } else if (nx + dx > b.maxX) {
+                    nx = 2f * b.maxX - nx - dx
+                    nvx = -nvx * params.restitution
+                    if (nx < b.minX) {
+                        nx = b.minX
+                    }
+                } else {
+                    nx += dx
+                }
+            } else if (onCeiling) {
+                // ---- 贴顶（仅在关闭顶边反弹时）：竖直不动 ----
+                //   `ceilingBounce = false` 的语义就是「顶到就贴住」，所以这里不下落。
+                nvy = 0f
+                val dx = nvx * dt
+                if (nx + dx < b.minX) {
+                    nx = 2f * b.minX - nx - dx
+                    nvx = -nvx * params.restitution
+                    if (nx > b.maxX) {
+                        nx = b.maxX
+                    }
+                } else if (nx + dx > b.maxX) {
+                    nx = 2f * b.maxX - nx - dx
+                    nvx = -nvx * params.restitution
+                    if (nx < b.minX) {
+                        nx = b.minX
+                    }
+                } else {
+                    nx += dx
+                }
+            } else {
+                // ---- 自由飞行：半隐式欧拉 + 镜像反射 ----
+                nvy += params.gravity * dt
+                val dx = nvx * dt
+                val dy = nvy * dt
+
+                // 左右墙
+                if (nx + dx < b.minX) {
+                    nx = 2f * b.minX - nx - dx
+                    nvx = -nvx * params.restitution
+                    if (nx > b.maxX) {
+                        nx = b.maxX
+                    }
+                } else if (nx + dx > b.maxX) {
+                    nx = 2f * b.maxX - nx - dx
+                    nvx = -nvx * params.restitution
+                    if (nx < b.minX) {
+                        nx = b.minX
+                    }
+                } else {
+                    nx += dx
+                }
+
+                // 地面
+                if (ny + dy >= b.groundY) {
+                    val hitSpeed = nvy
+                    if (hitSpeed > REST_VY) {
+                        // 反弹：剩余位移镜像后继续向上走完。
+                        ny = 2f * b.groundY - ny - dy
+                        nvy = -hitSpeed * params.restitution
+                        landed = true
+                        if (ny < b.minY) {
+                            // 一子步内撞到顶边：按顶边规则收口（罕见，但必须夹住）。
+                            ny = b.minY
+                            nvy = if (params.ceilingBounce) -nvy * params.restitution else 0f
+                        }
+                        // 本子步已离开地面，且水平速度受摩擦。
+                        nvx *= kotlin.math.exp(-params.groundFriction * dt)
+                    } else {
+                        // 低速触地：贴住。
+                        ny = b.groundY
+                        nvy = 0f
+                        onFloor = true
+                        nvx *= kotlin.math.exp(-params.groundFriction * dt)
+                    }
+                } else if (ny + dy < b.minY) {
+                    val hitSpeed = nvy
+                    if (params.ceilingBounce) {
+                        ny = 2f * b.minY - ny - dy
+                        nvy = -hitSpeed * params.restitution
+                        if (ny > b.groundY) {
+                            ny = b.groundY
+                            onFloor = true
+                            nvy = 0f
+                        }
+                    } else {
+                        ny = b.minY
+                        nvy = 0f
+                        onCeiling = true
+                    }
+                } else {
+                    ny += dy
+                }
+            }
+
+            // ---- 静止判定 ----
+            // 【必须同时满足「贴地」与「速度够小」】只看速度会把「抛到最高点的瞬间」
+            //   误判成静止（那一刻 vy≈0 但人还在空中），人偶会定格在半空。
+            if (onFloor &&
+                kotlin.math.abs(nvx) < REST_VX &&
+                kotlin.math.abs(nvy) < REST_VY
+            ) {
+                nvx = 0f
+                nvy = 0f
+                break
+            }
         }
 
-        // ---- 地面 ----
-        if (ny >= b.groundY) {
-            ny = b.groundY
-            landed = nvy > REST_VY
-            nvy = if (nvy > REST_VY) -nvy * params.restitution else 0f
-            // 落地后水平摩擦（按 dt 指数衰减，与帧率无关）。
-            val decay = kotlin.math.exp(-params.groundFriction * dtSec)
-            nvx *= decay
-        } else if (ny < b.minY) {
-            // ---- 顶边 ----
-            ny = b.minY
-            nvy = if (params.ceilingBounce) -nvy * params.restitution else 0f
-        }
-
-        // ---- 静止判定 ----
-        // 【必须同时满足「贴地」与「速度够小」】只看速度会把「抛到最高点的瞬间」
-        //   误判成静止（那一刻 vy≈0 但人还在空中），人偶会定格在半空。
-        val onGround = ny >= b.groundY - 0.5f
-        val resting = onGround &&
+        val resting = onFloor &&
             kotlin.math.abs(nvx) < REST_VX &&
             kotlin.math.abs(nvy) < REST_VY
         if (resting) {

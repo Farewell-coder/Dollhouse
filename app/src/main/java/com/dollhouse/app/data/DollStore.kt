@@ -705,8 +705,23 @@ object DollStore {
     }
 
     /**
-     * 复制一项：新 id、名字加「副本」后缀、封面与形象图沿用同一文件（不重复占盘）。
-     * 内置项也能复制（复制出来的不是内置，可删）。
+     * 复制一项：新 id、名字加「副本」后缀，**动作帧 / 人格 / 尺寸 / 封面 / 立绘一并复制**。
+     *
+     * 【附录D-12·原实现只复制了一条记录】动作帧存在
+     *   `DollAnim.framesDir(ctx, dollId, slot)`、人格与尺寸存在按 dollId 拼键的 prefs 里，
+     *   全都按 dollId 分区；只往列表里加一条记录的话，副本启用后：
+     *   · 没有任何动作（只能走 idle fallback）；
+     *   · 人格 / 尺寸是空的（用户以为「复制」= 完整复制，结果要重新配一遍）；
+     *   · 封面与立绘**和原件共用同一批 PNG** —— 改其中一个的封面，另一个也跟着变。
+     *
+     * 【为什么现在敢做深拷贝】[remove] 之所以「不删图片」，是因为文件可能被别的记录共用。
+     *   本次改造把这个前提消掉了：副本拥有自己的一份图片，于是删除时可以放心回收
+     *   （见 [remove] 里的引用检查）。两者必须同时改，只改一边会变成「删一个影响另一个」。
+     *
+     * 【为什么失败要整体回退】复制到一半失败（磁盘满）会留下「有记录、没动作」的半成品，
+     *   比复制失败本身更糟。这里先复制素材，全部成功才写列表；任一步失败就清掉新目录。
+     *
+     * 【内置项也能复制】复制出来的不是内置、默认不启用（同时只启用一个角色的设计）。
      */
     @JvmStatic
     @Synchronized
@@ -715,20 +730,206 @@ object DollStore {
             return null
         }
         val list = load(ctx)
-        for (d in list) {
-            if (d.id == id) {
-                val copy = d.copy(
-                    id = newId(),
-                    name = uniqueName(list, d.name + " 副本"),
-                    enabled = false,
-                    builtin = false
-                )
-                list.add(copy)
-                save(ctx, list)
-                return copy
+        val src = list.firstOrNull { it.id == id } ?: return null
+        val newId = newId()
+        val name = uniqueName(list, src.name + " 副本")
+        // ① 封面 / 立绘：复制成新文件（失败就退回共用，至少副本能显示）。
+        val cover = cloneImage(dir(ctx), src.cover) ?: src.cover
+        val sprite = cloneImage(dir(ctx), src.sprite) ?: src.sprite
+        val copy = src.copy(
+            id = newId,
+            name = name,
+            cover = cover,
+            sprite = sprite,
+            enabled = false,
+            builtin = false
+        )
+        // ② 动作帧：逐动作把帧目录复制到副本名下。
+        //    用 try 包住整段：中途失败时把已经建出来的目录全清掉，不留孤儿。
+        try {
+            copyActions(ctx, src.id, newId)
+        } catch (t: Throwable) {
+            Logs.w(TAG, "duplicate actions failed, rolling back", t)
+            runCatching { DollAnim.clearAll(ctx, newId) }
+            if (cover != src.cover) runCatching { File(cover).delete() }
+            if (sprite != src.sprite) runCatching { File(sprite).delete() }
+            return null
+        }
+        // ③ 人格 / 尺寸等按 dollId 分区的配置：整条复制过去。
+        try {
+            copyProfile(ctx, src.id, newId)
+        } catch (t: Throwable) {
+            // 配置复制失败不算致命：副本仍可用，只是要重新配一部分。
+            Logs.w(TAG, "duplicate profile failed", t)
+        }
+        list.add(copy)
+        save(ctx, list)
+        return copy
+    }
+
+    /**
+     * 把 [from] 的文件复制一份到同目录，返回新路径；失败返回 null。
+     *
+     * 【为什么放同目录】`dir(ctx)` 是人偶素材目录，同目录复制不跨挂载点，
+     *   且 `File(name)` 解析出来的路径与原有素材同级 —— 导出 / 备份逻辑不用改。
+     */
+    private fun cloneImage(dir: File, srcPath: String?): String? {
+        if (srcPath.isNullOrEmpty()) {
+            return null
+        }
+        val src = File(srcPath)
+        if (!src.isFile) {
+            return null
+        }
+        return try {
+            val ext = src.name.substringAfterLast('.', "png")
+            val dst = File(dir, "copy_" + System.currentTimeMillis() + "_"
+                    + UUID.randomUUID().toString().substring(0, 6) + "." + ext)
+            src.copyTo(dst, overwrite = false)
+            dst.absolutePath
+        } catch (t: Throwable) {
+            Logs.w(TAG, "cloneImage failed: " + srcPath, t)
+            null
+        }
+    }
+
+    /**
+     * 复制全部动作：把每个动作的帧目录深拷到 [toId] 名下，档案指向新路径。
+     *
+     * 【为什么必须深拷】直接沿用 `frames` 里的绝对路径会让两个角色共用同一批帧文件，
+     *   于是「给副本换动作」时若走替换目录的路径，原件的帧会被一起搬走（或删除）。
+     *
+     * 【帧目录命名】沿用 `DollAnim.framesDir(ctx, dollId, actionId)` 的约定，
+     *   所以这里不自己拼路径，交给它算 —— 哈希/分组规则将来变了也不用同步改。
+     */
+    private fun copyActions(ctx: Context, fromId: String, toId: String) {
+        val actions = DollAnim.all(ctx, fromId)
+        for (a in actions) {
+            if (a.frames.isEmpty()) {
+                // 没有帧的动作（外部引擎 / 纯占位）直接按原样写一条档案即可。
+                DollAnim.addEngineAction(ctx, toId, a.copy())
+                continue
+            }
+            val dstDir = DollAnim.framesDir(ctx, toId, a.id)
+            if (!dstDir.exists() && !dstDir.mkdirs()) {
+                throw java.io.IOException("mkdirs failed: " + dstDir.absolutePath)
+            }
+            val newFrames = ArrayList<String>(a.frames.size)
+            for (p in a.frames) {
+                val src = File(p)
+                if (!src.isFile) {
+                    continue
+                }
+                val dst = File(dstDir, src.name)
+                src.copyTo(dst, overwrite = true)
+                newFrames.add(dst.absolutePath)
+            }
+            DollAnim.addEngineAction(ctx, toId, a.copy(
+                frames = newFrames,
+                // 内置动作在副本里也不再是内置：用户应该能删改副本自己的动作。
+                builtin = false
+            ))
+        }
+    }
+
+    /**
+     * 【附录D-7】回收一个被删角色独占的封面 / 立绘文件。
+     *
+     * 【为什么要引用检查】历史数据里存在「复制出来的角色与原件共用同一批 PNG」的情况
+     *   （旧版 [duplicate] 只加记录、原样带走路径）。直接删文件会把还活着的角色弄成空白封面。
+     *   所以只有当某个路径在全量列表里**再也找不到第二个引用**时才删。
+     *
+     * 【只看 doll 目录下的文件】封面 / 立绘由 [encode] 写在 `dir(ctx)` 里。
+     *   若某个历史记录指向目录之外（用户手工改过 prefs），这里不碰它 ——
+     *   那种路径的归属无法判断，交给用户自己处理，比误删安全。
+     *
+     * 【失败只记日志】删不掉（被占用）不影响删除角色本身，下次会再次尝试。
+     */
+    private fun recycleImages(ctx: Context, remaining: List<Doll>, removed: Doll) {
+        val root = try {
+            dir(ctx).canonicalPath.trimEnd(File.separatorChar)
+        } catch (t: Throwable) {
+            return
+        }
+        // 收集「仍被引用」的路径集合（含被删角色自己的两个字段之间的互相引用）。
+        val alive = HashSet<String>()
+        for (d in remaining) {
+            if (d.cover.isNotEmpty()) {
+                alive.add(d.cover)
+            }
+            if (d.sprite.isNotEmpty()) {
+                alive.add(d.sprite)
             }
         }
-        return null
+        val candidates = ArrayList<String>(2)
+        if (removed.cover.isNotEmpty()) {
+            candidates.add(removed.cover)
+        }
+        if (removed.sprite.isNotEmpty() && removed.sprite != removed.cover) {
+            candidates.add(removed.sprite)
+        }
+        for (p in candidates) {
+            if (alive.contains(p)) {
+                // 还被别人引用 → 留着。
+                continue
+            }
+            try {
+                val f = File(p).canonicalFile
+                if (!f.isFile) {
+                    continue
+                }
+                // 只回收人偶素材目录内的文件，防止历史脏数据把外部文件删掉。
+                if (!f.parentFile?.canonicalPath.orEmpty().startsWith(root)) {
+                    continue
+                }
+                if (!f.delete()) {
+                    Logs.w(TAG, "封面回收失败（可能被占用）: " + f.name)
+                }
+            } catch (t: Throwable) {
+                Logs.w(TAG, "封面回收异常: " + p, t)
+            }
+        }
+    }
+
+    /**
+     * 复制按 dollId 前缀分隔的整条配置（人格 / 手势 / 尺寸 / 位置 / 对话 / 记忆…）。
+     *
+     * 【实现口径】[DollProfile.key] 是唯一拼键入口：非默认人偶的键一律是
+     *   `<base>_<dollId>`。于是「复制配置」= 扫一遍所有以 `_<fromId>` 结尾的键，
+     *   换后缀写到 `_<toId>`。这样将来新增配置键**不需要在这里登记**，
+     *   否则每加一个配置就要回来补一行、漏一行就少复制一项。
+     *
+     * 【跳过什么】不复制 `_prev` 之类的瞬时键（它们属于「当前这一轮」的临时态），
+     *   也不复制本类自己的素材路径键（`doll_cover_*` / `doll_sprite_*`），
+     *   那两个已经由 [duplicate] 单独处理成新文件了。
+     */
+    private fun copyProfile(ctx: Context, fromId: String, toId: String) {
+        if (fromId.isEmpty() || toId.isEmpty() || fromId == toId) {
+            return
+        }
+        val p = PetPrefs.get(ctx)
+        val fromSuffix = "_" + fromId
+        val toSuffix = "_" + toId
+        val edit = p.edit()
+        var n = 0
+        for ((k, v) in p.all) {
+            if (!k.endsWith(fromSuffix)) {
+                continue
+            }
+            if (v !is String) {
+                // 非字符串值（布尔 / 整型）也按 toString 搬过去会破坏类型，
+                // 这里只搬字符串 —— 工程里所有结构化配置都是 JSON 字符串。
+                continue
+            }
+            val base = k.substring(0, k.length - fromSuffix.length)
+            if (base.isEmpty() || base.endsWith("_prev")) {
+                continue
+            }
+            edit.putString(base + toSuffix, v)
+            n++
+        }
+        edit.commit()
+        Logs.i(TAG, "copyProfile " + fromId + " -> " + toId + " keys=" + n)
     }
 
     /**
@@ -745,7 +946,11 @@ object DollStore {
      *   但那样用户就没有任何办法把默认配置玩坏后恢复 —— 只能清数据 / 重装。
      *   现在给它一条正当的「重置」路径，同时自定义人偶仍然可以删光。
      *
-     * 【图片】不删文件：可能被复制项 / 历史项共用，孤儿文件由「清理未被引用图片」另行处理。
+     * 【附录D-7·图片改成会回收】改造前这里写的是「不删文件：可能被复制项 / 历史项共用」。
+     *   那句话在「复制只加一条记录」的年代是必要的；现在 [duplicate] 会复制出独立文件，
+     *   于是「共用」只剩历史数据这一种情况。处理方式是**删除前做引用检查**：
+     *   路径还被任何其它角色 / 其它字段引用就留着，没人引用就删掉。
+     *   这样既不误删别人的图，也不再把无主 PNG 永久留在内部存储里。
      */
     @JvmStatic
     @Synchronized
@@ -777,6 +982,13 @@ object DollStore {
         //   新人偶会继承「上一只的回退动作 id」，而那个动作早就随 clearAll 没了 ——
         //   结果就是 resolve 每次都判失效、每次都重算，白跑一遍。
         IdleFallback.clear(ctx, id)
+        // 【附录D-7】回收封面 / 立绘，避免「删了角色、图还在」的无主文件越堆越多。
+        //   这里必须做引用检查：同一路径仍被别的角色（或本角色的其它字段）引用时不能删 ——
+        //   [duplicate] 现在会复制出独立文件，但历史数据里仍有「共用同一批 PNG」的副本。
+        val removed = list.firstOrNull { it.id == id }
+        if (removed != null) {
+            recycleImages(ctx, list, removed)
+        }
         if (id == DEFAULT_ID) {
             // 默认配置删掉 → 立刻重建一个出厂的（排在首位）。
             rebuildDefault(ctx)
@@ -985,20 +1197,40 @@ object DollStore {
     /* ============================ 导出 ============================ */
 
     /**
-     * 导出全部人偶：配置 JSON + 图片文件，落到外部私有目录 `export/doll-<时间戳>/`。
-     * 返回导出目录绝对路径；失败返回空串。
+     * 导出人偶：配置 JSON + 封面 / 立绘 + **动作帧**，落到外部私有目录
+     * `export/doll-<时间戳>/`。返回导出目录绝对路径；失败返回空串。
+     *
+     * 【附录D-14·三处问题一起改】
+     * ① **主线程**：整段是同步复制，角色一多（每个 2 张 PNG + 几十个动作的帧目录）
+     *    就会把界面卡住。现在本方法是纯后台操作，调用方（`DollListScreen`）已改成
+     *    起线程执行，这里**不再**加 `@Synchronized`（见下一条）。
+     * ② **持锁**：原来是 `@Synchronized` 的静态方法，而 `all()` / `byId()` 都在同一把锁上 ——
+     *    导出期间首页列表与桌宠渲染全部被阻塞。现在锁只覆盖「读列表快照」那一瞬，
+     *    文件复制在锁外进行。
+     * ③ **内容不全**：原来只带 `dolls.json` + 封面立绘，动作帧一个都没带，
+     *    而 `importLocal` 走的是单文件通道 —— 这份「备份」App 自己恢复不了。
+     *    现在把每个动作的帧目录按 `frames/<dollId>/<actionId>/` 一起带出去，
+     *    并在 `dolls.json` 里写 `actions` 描述（名字 / 分组 / fps / 循环 / 基准）。
+     *
+     * @param onlyId 非空时只导出这一只；null 导出全部
      */
     @JvmStatic
-    @Synchronized
-    fun export(ctx: Context): String {
+    fun export(ctx: Context, onlyId: String? = null): String {
         return try {
             val stamp = System.currentTimeMillis()
-            val base = File(ctx.getExternalFilesDir(null), "export/doll-" + stamp)
+            val ext = ctx.getExternalFilesDir(null) ?: ctx.filesDir
+            val base = File(ext, "export/doll-" + stamp)
             if (!base.exists() && !base.mkdirs()) {
                 return ""
             }
+            // 【锁只在这里】拿一份列表快照就走，后面全是文件操作。
+            val snapshot = synchronized(this) { load(ctx).toList() }
+            val targets = if (onlyId.isNullOrEmpty()) snapshot else snapshot.filter { it.id == onlyId }
+            if (targets.isEmpty()) {
+                return ""
+            }
             val arr = JSONArray()
-            for (d in load(ctx)) {
+            for (d in targets) {
                 val o = toJson(d)
                 // 图片以文件名形式随包带走，路径不写进导出文件（换设备后路径必然失效）。
                 if (d.cover.isNotEmpty()) {
@@ -1007,11 +1239,49 @@ object DollStore {
                 if (d.sprite.isNotEmpty()) {
                     copyInto(File(d.sprite), base)
                 }
+                // 【动作帧】按 `frames/<dollId>/<actionId>/` 组织，避免不同角色的同名动作互撞。
+                val actions = JSONArray()
+                for (a in DollAnim.all(ctx, d.id)) {
+                    val ao = JSONObject()
+                    ao.put("id", a.id)
+                    ao.put("name", a.name)
+                    ao.put("desc", a.desc)
+                    ao.put("group", a.group)
+                    ao.put("fps", a.fps)
+                    ao.put("loop", a.loop)
+                    ao.put("engine", a.engine)
+                    ao.put("baseline", a.baseline)
+                    ao.put("edgeInset", a.edgeInset.toDouble())
+                    val rel = "frames/" + d.id + "/" + a.id
+                    ao.put("dir", rel)
+                    var copied = 0
+                    if (a.frames.isNotEmpty()) {
+                        val dstDir = File(base, rel)
+                        if (!dstDir.exists() && !dstDir.mkdirs()) {
+                            Logs.w(TAG, "导出动作帧目录创建失败: " + rel)
+                        } else {
+                            for (p in a.frames) {
+                                val src = File(p)
+                                if (!src.isFile) {
+                                    continue
+                                }
+                                copyInto(src, dstDir)
+                                copied++
+                            }
+                        }
+                    }
+                    ao.put("frameCount", copied)
+                    actions.put(ao)
+                }
+                o.put("actions", actions)
                 arr.put(o)
             }
             val meta = JSONObject()
-            meta.put("version", 1)
+            meta.put("version", 2)
             meta.put("exportedAt", stamp)
+            meta.put("count", arr.length())
+            // 【口径写清楚】导出的内容与它自己能否被恢复 —— 用户看文件时不用猜。
+            meta.put("note", "含封面、立绘与全部动作帧；动作帧在 frames/<角色id>/<动作id>/ 下。")
             meta.put("dolls", arr)
             val f = File(base, "dolls.json")
             // 【r20·修流泄漏】write 抛异常时原 close 被跳过。
@@ -1021,6 +1291,7 @@ object DollStore {
             }
             base.absolutePath
         } catch (t: Throwable) {
+            Logs.w(TAG, "export failed", t)
             ""
         }
     }

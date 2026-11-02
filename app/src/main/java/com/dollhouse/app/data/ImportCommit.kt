@@ -33,6 +33,30 @@ object ImportCommit {
 
     private const val TAG = "DollhouseImportCommit"
 
+    /**
+     * 【附录D-4】单个槽提交成功后留下的「凭据」。
+     *
+     * 【为什么不再在 [writeSlot] 里自己删备份】原来的写法是「每个槽各自备份 → 写 → 校验 → 删备份」，
+     *   单槽内部是原子的，但**多个槽之间不是**：第 1 个槽成功（旧帧已被覆盖、备份已删），
+     *   第 2 个槽失败时只对「新建角色」做了 `DollStore.remove` ——
+     *   已有角色没有任何回滚，而界面还提示「原有角色没有变化」。
+     *   用户看到「失败」后去重试或换图，角色的常驻动作其实已被半成品替换。
+     *
+     * 【现在的口径】[writeSlot] 只负责「备份 + 写入 + 校验」，**不删备份**，
+     *   并把这条凭据返回给 [commit]：
+     *   · 全部槽都成功后 → [commit] 统一删掉所有备份（正常收尾）；
+     *   · 任一槽失败   → [commit] 按逆序用凭据把每个已提交的槽换回旧帧。
+     *
+     * @param slotId 固定壳 id
+     * @param backup 旧帧目录的备份位置；null 表示这个槽原本是空的（回滚 = 清空新帧）
+     * @param previous 提交前的档案快照（回滚时写回，保证索引与磁盘一致）
+     */
+    private class SlotCommit(
+        val slotId: String,
+        val backup: File?,
+        val previous: DollAnim.Action?
+    )
+
     /** 提交结果。 */
     data class Result(
         val ok: Boolean,
@@ -132,15 +156,18 @@ object ImportCommit {
         // 它自带四个空壳（DollAnim.all 自愈），不影响任何已有角色。
         var committedAny = false
         var replaced = false
+        // 【附录D-4】已提交槽的凭据：任一槽失败就按逆序全部还原；全部成功才清理备份。
+        val commits = ArrayList<SlotCommit>()
         try {
             // ---------- ④⑤⑥ 逐槽提交 ----------
             for ((slot, frames) in staged) {
                 val slotId = DollAnim.slotIdOf(groupOf(slot) ?: continue) ?: continue
                 val wasFilled = hasContent(ctx, dollId, slotId)
-                val ok = writeSlot(ctx, dollId, slotId, frames)
-                if (!ok) {
+                val c = writeSlot(ctx, dollId, slotId, frames)
+                if (c == null) {
                     throw IOException("slot commit failed: " + slot)
                 }
+                commits.add(c)
                 committedAny = true
                 if (wasFilled) {
                     replaced = true
@@ -179,28 +206,65 @@ object ImportCommit {
         } catch (t: Throwable) {
             Logs.w(TAG, "commit failed, rolling back doll=" + dollId, t)
             // ---------- 回滚 ----------
+            // 【附录D-4】先把已提交的槽按逆序还原（后写的先退），再处理角色记录。
+            //   逆序不是必须的（槽之间互不依赖），但保持「与写入相反」的直觉顺序，
+            //   排查日志时能一眼对上。
+            var rollbackClean = true
+            for (i in commits.indices.reversed()) {
+                val c = commits[i]
+                try {
+                    rollbackSlot(ctx, dollId, c.slotId,
+                        c.backup != null && c.backup.exists(), c.backup, c.previous)
+                } catch (e: Throwable) {
+                    rollbackClean = false
+                    Logs.w(TAG, "rollback failed for slot=" + c.slotId, e)
+                }
+            }
             if (createdNew) {
                 // 新建的角色整体删掉：用户没确认成功，列表里不该留半成品。
+                // 【附录D-11】remove 内部已经会清掉动作帧目录（DollAnim.clearAll），
+                //   这里不再重复扫目录；但本批次自己的备份要清（否则留下 __bak_ 残骸）。
                 try {
                     DollStore.remove(ctx, dollId)
                 } catch (ignored: Throwable) {
                 }
+                cleanBackups(commits)
+            } else if (rollbackClean) {
+                // 已有角色：槽已经全部还原成旧帧，这时的备份就是「旧帧的副本」，
+                //   留着只会白占空间 —— 但只有回滚完全成功才敢删。
+                cleanBackups(commits)
+            } else {
+                Logs.w(TAG, "回滚未完全成功，保留备份目录供人工恢复 doll=" + dollId)
             }
-            return Result(
-                false,
-                "导入没有完成，原有角色没有变化。可以再试一次，或换一组文件。"
-            )
+            // 【附录D-4】文案必须区分「新建失败（真的没变化）」与「替换失败（已回滚）」，
+            //   否则用户会以为角色还好好的，实际上动作可能已是旧版本。
+            val msg = if (createdNew) {
+                "导入没有完成，没有新建任何角色。可以再试一次，或换一组文件。"
+            } else if (rollbackClean) {
+                "导入没有完成，这个角色已经还原成导入前的样子。可以再试一次，或换一组文件。"
+            } else {
+                "导入没有完成，且部分动作没能自动还原。请到角色动作页检查，必要时重新导入。"
+            }
+            return Result(false, msg)
         }
 
         if (!committedAny) {
+            // 【附录D-4】一个槽都没提交成功：没有任何槽的备份需要还原（commits 为空），
+            //   但新建的角色要删掉，否则列表里留一个没有动作的空壳。
             if (createdNew) {
                 try {
                     DollStore.remove(ctx, dollId)
                 } catch (ignored: Throwable) {
                 }
             }
+            cleanBackups(commits)
             return Result(false, "这些图没能变成可用的动作，导入没有完成。")
         }
+
+        // ---------- 【附录D-4】全部槽都成功：这时才敢删备份 ----------
+        //   放在「角色级收尾」之前：收尾（封面 / 尺寸 / 基准）失败不回滚，
+        //   备份在这里已经没有用处 —— 它只为「槽写入失败要换回旧帧」而存在。
+        cleanBackups(commits)
 
         // ---------- 角色级收尾：形象图 / 封面 / 大小 / 名称 ----------
         try {
@@ -283,32 +347,44 @@ object ImportCommit {
     }
 
     /**
-     * 把一批暂存帧写进某个固定壳（**带备份、可回滚**）。
+     * 把一批暂存帧写进某个固定壳（**带备份，备份的清理交给调用方**）。
      *
      * ## 为什么备份是「改名」而不是「复制」
      * 复制会临时占用双倍空间（一整套 120 帧 PNG 可能几十 MB），而改名的成本是常数级，
      * 且两者在同一个 `filesDir` 里，`renameTo` 必然成功（21.2.2 要求的「同一文件系统」）。
+     *
+     * ## 【附录D-4】为什么成功时也不删备份
+     * 多槽导入的事务边界在 [commit]，不在单槽。这里把备份路径返回给调用方，
+     * 由它在「全部槽成功」时统一删、在「有槽失败」时按凭据回滚 ——
+     * 否则第 1 个槽的备份一删，第 2 个槽失败时就再也换不回旧帧了。
+     *
+     * @return 成功时返回凭据，失败时返回 null（失败路径内部已把自己改过的部分还原）
      */
     private fun writeSlot(
         ctx: Context,
         dollId: String,
         slotId: String,
         frames: List<String>
-    ): Boolean {
+    ): SlotCommit? {
         val official = DollAnim.framesDir(ctx, dollId, slotId)
         val stamp = System.currentTimeMillis()
         val backup = File(official.parentFile, slotId + "__bak_" + stamp)
+        // 提交前的档案快照：回滚时连同索引一起还原（否则索引会指向已被搬走的新帧）。
+        val previous = DollAnim.byId(ctx, dollId, slotId)
+        // 这个槽原本有没有内容 —— 决定回滚时是「换回备份」还是「清空」。
+        var hadContent = official.exists() && (official.listFiles()?.isNotEmpty() == true)
         // ① 旧目录整体改名（不删）。
         if (official.exists()) {
             if (!official.renameTo(backup)) {
                 // 改名失败（极少见：被占用 / 权限）：退回「逐文件备份」的保守路径。
                 if (!backupByCopy(official, backup)) {
-                    return false
+                    return null
                 }
                 deleteFilesIn(official)
             }
         } else {
             official.mkdirs()
+            hadContent = false
         }
         // ② 新帧搬进正式目录。
         val written = ArrayList<String>(frames.size)
@@ -329,44 +405,28 @@ object ImportCommit {
                 }
             }
             if (!ok) {
-                // ③ 校验失败 → 回滚：删掉刚写的一半，把备份改回来。
-                deleteFilesIn(official)
-                if (backup.exists()) {
-                    official.delete()
-                    backup.renameTo(official)
-                }
-                return false
+                // ③ 校验失败 → 回滚到提交前状态（见 rollbackSlot）。
+                rollbackSlot(ctx, dollId, slotId, hadContent, backup, previous)
+                return null
             }
             written.add(dst.absolutePath)
         }
         if (written.isEmpty()) {
-            deleteFilesIn(official)
-            if (backup.exists()) {
-                official.delete()
-                backup.renameTo(official)
-            }
-            return false
+            rollbackSlot(ctx, dollId, slotId, hadContent, backup, previous)
+            return null
         }
         // ④ 校验：文件真的都在。
         for (p in written) {
             if (!File(p).isFile) {
-                deleteFilesIn(official)
-                if (backup.exists()) {
-                    official.delete()
-                    backup.renameTo(official)
-                }
-                return false
+                rollbackSlot(ctx, dollId, slotId, hadContent, backup, previous)
+                return null
             }
         }
         // ⑤ 最后写索引（唯一可见的一步）。
-        val cur = DollAnim.byId(ctx, dollId, slotId)
+        val cur = previous
         if (cur == null) {
-            deleteFilesIn(official)
-            if (backup.exists()) {
-                official.delete()
-                backup.renameTo(official)
-            }
-            return false
+            rollbackSlot(ctx, dollId, slotId, hadContent, backup, previous)
+            return null
         }
         // 本体基准：能算出来就写，算不出来留空（行为回到「整画布」口径，不会更糟）。
         var baseline = ""
@@ -389,21 +449,80 @@ object ImportCommit {
         val check = DollAnim.byId(ctx, dollId, slotId)
         if (check == null || check.frames.size != written.size) {
             // 索引没写进去 → 恢复旧帧目录，并尽力恢复旧索引。
-            deleteFilesIn(official)
-            if (backup.exists()) {
-                official.delete()
-                backup.renameTo(official)
+            rollbackSlot(ctx, dollId, slotId, hadContent, backup, previous)
+            return null
+        }
+        // ⑥ 【附录D-4】不在这里删备份：交给 commit 在所有槽都成功后统一清理。
+        //   backup 是否存在与 hadContent 无关（旧目录可能只是个空壳），
+        //   所以这里按「盘上真的有备份目录」返回，清理逻辑才不会漏。
+        return SlotCommit(slotId, if (backup.exists()) backup else null, previous)
+    }
+
+    /**
+     * 【附录D-4】把一个槽还原到提交前的状态。
+     *
+     * 【三种情况】
+     * · 原本有内容（[hadContent]）且备份在 → 删掉新帧、把备份改名回去；
+     * · 原本有内容但改名回滚失败 → 退化为「把备份内容拷回」再清备份
+     *   （这是附录 D-6 点出的「回滚路径静默失败」：原帧还在盘上，不能让它永久失联）；
+     * · 原本是空的 → 只清掉新帧，不动索引以外的东西。
+     *
+     * 【索引一起还原】只还原磁盘而不还原索引会让档案指向已被删掉的新帧 ——
+     *   表现为「动作列表里有这一项，但播放时是空白」。
+     */
+    private fun rollbackSlot(
+        ctx: Context,
+        dollId: String,
+        slotId: String,
+        hadContent: Boolean,
+        backup: File?,
+        previous: DollAnim.Action?
+    ) {
+        val official = DollAnim.framesDir(ctx, dollId, slotId)
+        deleteFilesIn(official)
+        if (hadContent && backup != null && backup.exists()) {
+            official.delete()
+            if (!backup.renameTo(official)) {
+                // 改名失败（跨挂载点 / 被占用）→ 逐文件拷贝回去，再清掉备份。
+                deleteFilesIn(official)
+                val all = backup.listFiles()
+                var lost = 0
+                if (all != null) {
+                    for (k in all) {
+                        if (k.isFile) {
+                            try {
+                                k.copyTo(File(official, k.name), overwrite = true)
+                            } catch (t: Throwable) {
+                                lost++
+                                Logs.w(TAG, "回滚拷贝失败: " + k.name, t)
+                            }
+                        }
+                    }
+                }
+                if (lost == 0) {
+                    ImportSession.deleteTree(backup)
+                } else {
+                    // 原帧没能全部回来 —— 留着备份目录，至少数据还在盘上。
+                    Logs.w(TAG, "回滚未能完全恢复 slot=" + slotId + "，备份保留在 " + backup.name)
+                }
             }
-            DollAnim.update(ctx, dollId, cur.copy(frames = ArrayList(cur.frames)))
-            return false
         }
-        // ⑥ 清理备份（失败也不影响可用性，只记日志）。
-        try {
-            ImportSession.deleteTree(backup)
-        } catch (t: Throwable) {
-            Logs.w(TAG, "backup cleanup failed: " + backup.name, t)
+        // 索引回到提交前：有旧档案就写回旧档案，没有就把帧列表清空。
+        if (previous != null) {
+            DollAnim.update(ctx, dollId, previous)
         }
-        return true
+    }
+
+    /** 全部槽成功后的统一清理：删掉本批次产生的备份目录。 */
+    private fun cleanBackups(commits: List<SlotCommit>) {
+        for (c in commits) {
+            val b = c.backup ?: continue
+            try {
+                ImportSession.deleteTree(b)
+            } catch (t: Throwable) {
+                Logs.w(TAG, "backup cleanup failed: " + b.name, t)
+            }
+        }
     }
 
     /** 改名失败时的退路：逐个文件拷到备份目录。 */

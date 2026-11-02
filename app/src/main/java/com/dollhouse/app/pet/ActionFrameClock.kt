@@ -38,7 +38,7 @@ class ActionFrameClock(
         private set
 
     /** 时间基准：已经「消费掉」的时间量，余数留在这里不清零。 */
-    private var baseMs: Long = 0L
+    private var baseMs: Double = 0.0
 
     /** 已推进的帧数（不取模，循环时也一直累加 —— 取模只在算 [frame] 时做）。 */
     private var cursor: Long = 0L
@@ -49,14 +49,14 @@ class ActionFrameClock(
     /** 重置到第一帧并重新起表（换动作 / 帧图就绪 / 暂停恢复时调用）。 */
     fun reset() {
         frame = 0
-        baseMs = 0L
+        baseMs = 0.0
         cursor = 0L
         started = false
     }
 
     /** 只清时间基准、保留当前帧号（暂停后再续时用）。 */
     fun rebase() {
-        baseMs = 0L
+        baseMs = 0.0
         started = false
     }
 
@@ -70,7 +70,7 @@ class ActionFrameClock(
         val i = Math.max(0, Math.min(count - 1, index))
         frame = i
         cursor = i.toLong()
-        baseMs = 0L
+        baseMs = 0.0
         started = false
     }
 
@@ -86,20 +86,24 @@ class ActionFrameClock(
             return false
         }
         if (!started) {
-            baseMs = nowMs
+            baseMs = nowMs.toDouble()
             started = true
             return false
         }
-        val step = DollAnim.frameMs(fpsProvider())
+        val step = DollAnim.stepMsExact(fpsProvider())
         val elapsed = nowMs - baseMs
         if (elapsed < step) {
             return false
         }
-        val advanced = elapsed / step
+        val advanced = (elapsed / step).toLong()
         if (advanced <= 0L) {
             return false
         }
         // 只消费掉「整数帧」的时间，余数留在基准里 —— 这是不累积误差的关键。
+        // 【附录C-11】这里用浮点加：`step` 是 1000.0/fps（如 60fps → 16.666…），
+        //   若按整毫秒累加，每帧都会顺手丢掉不足 1ms 的余数，而丢掉的方向永远是「变快」
+        //   （16ms < 16.667ms）—— 一条 120 帧的动作就会快 4%。浮点保留小数后，
+        //   误差只在最后取帧时丢弃一次，不会逐帧累积。
         baseMs += advanced * step
         cursor += advanced
         val loop = loopProvider()

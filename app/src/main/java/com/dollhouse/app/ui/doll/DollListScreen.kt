@@ -290,11 +290,27 @@ onCover = {
                     moreId = null
                     DollState.bump()
                     HomeUi.notifyPetReload(act)
-                },
-                onExport = {
-                    DollStore.export(act)
-                    moreId = null
-                },
+                 },
+                 onExport = {
+                     val target = more.id
+                     moreId = null
+                     // 【附录D-14】导出会递归复制封面 / 立绘 / 动作帧，原来是主线程同步跑，
+                     //   而且 export 本身是 `@Synchronized` —— 期间所有 DollStore 读取
+                     //   （首页列表、桌宠渲染）都在同一把锁上等。角色一多就是明显的卡顿。
+                     //   改成后台线程 + 完成后回主线程提示。
+                     HomeUi.showNotice(act, "正在导出", "封面、立绘和动作帧会一起打包，角色多时需要几秒。")
+                     Thread({
+                         val path = DollStore.export(act, target)
+                         act.runOnUiThread {
+                             DollState.bump()
+                             if (path.isEmpty()) {
+                                 HomeUi.showNotice(act, "导出失败", "没能写入导出目录，请检查存储空间后重试。")
+                             } else {
+                                 HomeUi.showNotice(act, "导出完成", path)
+                             }
+                         }
+                     }, "doll-export").start()
+                 },
                 onRestore = {
                     restoreId = more.id
                     moreId = null

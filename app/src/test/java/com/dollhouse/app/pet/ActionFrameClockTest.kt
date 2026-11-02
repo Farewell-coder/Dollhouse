@@ -179,4 +179,42 @@ class ActionFrameClockTest {
         c.advance(400L, 100)
         assertEquals("调速后应按新帧率推进", 5, c.frame)
     }
+
+    /**
+     * 【附录C-11】帧间隔必须是精确的 1000/fps，不能被整数除法量化。
+     *
+     * 【为什么用 fps=24 做断言】`1000L / 24` = 41ms，而精确值是 41.667ms。
+     *   跑满 60 帧：精确需要 2500ms，按 41ms 只要 2460ms。
+     *   取 2470ms 这个时刻，两种实现的帧号分别是 59 与 60 —— 刚好能区分开。
+     *   （不用 60fps 测：20ms 的地板会把 60fps 钳到 50fps，那是另一条既有设计，见 stepMsExact 注释。）
+     */
+    @Test
+    fun twentyFourFps_usesExactFrameInterval() {
+        val c = ActionFrameClock(fpsProvider = { 24 }, loopProvider = { false })
+        c.advance(0L, 10_000)
+        c.advance(2_470L, 10_000)
+        assertTrue(
+            "24fps 下 2470ms 不该走满 60 帧（实际 " + c.frame + "）—— 帧间隔被整数除法量化了",
+            c.frame < 60
+        )
+    }
+
+    /** 精确间隔下，2 秒 @24fps 恰好 48 帧（整数除法会多跑 1 帧）。 */
+    @Test
+    fun twentyFourFps_noCumulativeDrift() {
+        val c = ActionFrameClock(fpsProvider = { 24 }, loopProvider = { false })
+        c.advance(0L, 10_000)
+        c.advance(2_000L, 10_000)
+        assertEquals("2 秒 @24fps 应恰好 48 帧", 48, c.frame)
+    }
+
+    /** 地板仍然生效：fps 填得再高，帧间隔也不低于 20ms。 */
+    @Test
+    fun extremeFps_stillClampedByFloor() {
+        val c = ActionFrameClock(fpsProvider = { 1000 }, loopProvider = { false })
+        c.advance(0L, 10_000)
+        // 20ms 一帧 → 1000ms 恰好 50 帧；若没地板会走 1000 帧。
+        c.advance(1_000L, 10_000)
+        assertEquals("超高 fps 应被 20ms 地板钳住", 50, c.frame)
+    }
 }

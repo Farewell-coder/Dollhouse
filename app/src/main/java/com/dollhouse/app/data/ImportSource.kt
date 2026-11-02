@@ -69,7 +69,15 @@ object ImportSource {
         NO_SPACE
     }
 
-    /** 失败分类 → 面向用户的一句话（21.3.9 + 23.3：说现象、说能做什么）。 */
+    /**
+     * 失败枚举 → 面向用户的文案。
+     *
+     * 【附录D-15·为什么必须带 else】原实现是穷举 `when`（无 else），Kotlin 会把它编译成
+     *   「所有分支都不匹配就抛 NoWhenBranchMatchedException」。而 `Failure` 是稳定增长的枚举
+     *   （每加一种校验就多一个值），只要有人新增一个值却忘了回来补文案，
+     *   **任何走到 textOf 的路径都会直接崩溃** —— 用户看到的是闪退，不是提示。
+     *   加一个兜底文案之后，漏补文案只是「提示不够具体」，不会再崩。
+     */
     fun textOf(f: Failure): String = when (f) {
         Failure.OVER_LIMIT -> "这个压缩包里的内容太多了，超出了单次导入的限制。请分批导入。"
         Failure.CORRUPT -> "压缩包读不出来，可能没有下载完整。请重新导出后再试。"
@@ -77,6 +85,11 @@ object ImportSource {
         Failure.NESTED_ARCHIVE -> "压缩包里还有压缩包，暂时不支持这样导入。请先解开一层。"
         Failure.NO_MATERIAL -> "这个文件暂时不能直接导入。里面没有找到能用的角色图。"
         Failure.NO_SPACE -> "手机空间不够，导入没有完成。原有角色没有变化。"
+        // 【兜底】新增枚举值但还没补文案时走这里；要有日志，否则没人发现漏了。
+        else -> {
+            Logs.w("DollhouseImportSource", "未配置文案的导入失败类型: " + f.name)
+            "导入没有完成，请换一组文件再试一次。"
+        }
     }
 
     /**

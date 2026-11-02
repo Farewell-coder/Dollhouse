@@ -225,14 +225,35 @@ class ActionPlayerCore(
      */
     private class Outgoing(
         val frames: List<Bitmap>,
-        val clock: ActionFrameClock,
+        // 【附录C-9·修串扰】原来这里放的是**同一个** `ActionFrameClock` 实例
+        //   （`Outgoing(clock = clock)`）。而 play(新动作) 里会 `clock.reset()`、
+        //   tick() 里会 `clock.advance(now, nNew)` —— 两套帧序列共用一个游标，
+        //   淡出层的帧号被新动作的推进节奏改写，表现为「切换动作瞬间旧帧卡住 / 跳帧 / 倒退」。
+        //   改为只记「起始帧 + fps + loop」，帧号由时间纯算，不共享任何可变状态。
+        val startFrame: Int,
         val baseline: FloatArray?,
         val display: ActionWorkbench.ActionDisplay?,
         val fps: Int,
         val loop: Boolean,
         val totalMs: Long,
         var startMs: Long
-    )
+    ) {
+        /** 按经过时间纯算出当前该显示的帧号（从 [startFrame] 起续播）。 */
+        fun frameAt(nowMs: Long): Int {
+            val n = frames.size
+            if (n <= 0) {
+                return 0
+            }
+            if (n == 1) {
+                return 0
+            }
+            val step = if (fps > 0) 1000L / fps else 1000L / DollAnim.FPS_DEFAULT
+            val steps = (nowMs - startMs).coerceAtLeast(0L) / step
+            val raw = startFrame.toLong() + steps
+            val idx = if (loop) (raw % n).toInt() else Math.min(raw, (n - 1).toLong()).toInt()
+            return if (idx in 0 until n) idx else 0
+        }
+    }
 
     private var outgoing: Outgoing? = null
 
@@ -266,6 +287,24 @@ class ActionPlayerCore(
     private var viewport: ActionViewport.Spec? = null
     private var measuredWidth = 0
     private var measuredHeight = 0
+
+    /**
+     * 【附录C-10】渲染器资源准备的专属线程。
+     *
+     * 【为什么与 [decodeQueue] 分开】那个队列是「最新优先、可中断」的帧组解码器 ——
+     *   它的语义是「旧任务直接丢弃」，而 `LottieComposition` 的解析一旦开始就必须
+     *   完整结束（中途放弃会留下半解析状态，释放路径也不干净）。
+     *   这里用单线程串行执行：同一时刻最多一份资源在解析，用户快速连点时排队而不是并发，
+     *   配合调用侧的代次校验，过期的结果在回主线程时被直接释放。
+     *
+     * 【为什么是 daemon】桌宠服务随时可能被系统杀掉，daemon 线程不拖住进程退出。
+     */
+    private val prepareExecutor: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            val t = Thread(r, "doll-render-prepare")
+            t.isDaemon = true
+            t
+        }
 
     /** 当前实际视口；null 表示宿主尚未注入，绘制使用旧兼容路径。 */
     fun viewport(): ActionViewport.Spec? = viewport
@@ -588,39 +627,71 @@ class ActionPlayerCore(
                 onFinish?.invoke()
                 return
             }
-            val ok = r.prepare(PetSource.Lottie(path).let { s ->
+            // 【附录C-10·修主线程卡顿】`prepare()` 要读整份 Lottie JSON 并同步解析
+            //   （`fromJsonStringSync` 是**同步**接口），动图还要解首帧 —— 这是几十到
+            //   几百毫秒的纯 CPU 工作。原来它直接跑在 `play()` 里，而 `play()` 的
+            //   调用链全部在主线程（`PetView.playActionId` / 行为仲裁 / 触摸回调），
+            //   于是「点一下动作，人偶和应用一起卡一下」。
+            //
+            // 【口径】把 prepare 丢到后台，成功后再回主线程「接线」（attach / setLooping /
+            //   赋值 renderer / 重算窗口尺寸）。代次用本方法开头 `generation++` 的快照：
+            //   期间用户又切了动作，这份结果直接丢弃并释放，绝不接上去。
+            val gen = generation
+            val src = PetSource.Lottie(path).let { s ->
                 // 按引擎给对应句柄；用 when 而不是强转，加引擎时编译器会提醒。
                 when (engine) {
                     Engine.ANIMIMAGE -> PetSource.AnimatedImage(path)
                     else -> s
                 }
-            })
-            if (!ok) {
-                Logs.w(TAG, "资源准备失败：" + (r.lastError() ?: "未知"))
-                playing = false
-                try {
-                    r.release()
-                } catch (ignored: Throwable) {
+            }
+            prepareExecutor.execute {
+                val prepared = try {
+                    r.prepare(src)
+                } catch (t: Throwable) {
+                    Logs.w(TAG, "prepare 抛异常", t)
+                    false
                 }
-                onFinish?.invoke()
-                return
+                ui.post {
+                    if (disposed || gen != generation) {
+                        // 已被新一轮播放取代（或播放层已销毁）：释放掉这份资源。
+                        try {
+                            r.release()
+                        } catch (ignored: Throwable) {
+                        }
+                        return@post
+                    }
+                    if (!prepared) {
+                        Logs.w(TAG, "资源准备失败：" + (r.lastError() ?: "未知"))
+                        playing = false
+                        try {
+                            r.release()
+                        } catch (ignored: Throwable) {
+                        }
+                        // 【附录C-1】失败必须回调，否则状态机卡在 PLAYING。
+                        onFinish?.invoke()
+                        return@post
+                    }
+                    val h = hostProvider()
+                    if (h != null) {
+                        r.attach(h)
+                    }
+                    // 【附录C-2】必须在 play() 之前把循环语义告诉渲染器：
+                    //   Lottie/动图内部靠 repeatCount 决定播几次，默认是无限。
+                    r.setLooping(loop)
+                    renderer = r
+                    val size = r.size()
+                    if (size.size >= 2) {
+                        measuredWidth = size[0]
+                        measuredHeight = size[1]
+                    }
+                    remeasureViewport()
+                    // 【附录C-2】一次性动作要能被 tick 判结束，这里保持 playing 为真。
+                    playing = true
+                    r.play()
+                    requestDraw()
+                }
             }
-            val h = hostProvider()
-            if (h != null) {
-                r.attach(h)
-            }
-            // 【附录C-2】必须在 play() 之前把循环语义告诉渲染器：
-            //   Lottie/动图内部靠 repeatCount 决定播几次，默认是无限。
-            r.setLooping(loop)
-            renderer = r
-            val size = r.size()
-            if (size.size >= 2) {
-                measuredWidth = size[0]
-                measuredHeight = size[1]
-            }
-            remeasureViewport()
-            r.play()
-            requestDraw()
+            return
         }
     }
 
@@ -823,6 +894,12 @@ class ActionPlayerCore(
         actionId = ""
         clearContent()
         decodeQueue.close()
+        // 【附录C-10】准备线程也要收：先中断排队中的任务，再允许已开始的那一份跑完
+        //   （`LottieComposition` 解析不可中断），回主线程时会因 `disposed` 自行释放。
+        try {
+            prepareExecutor.shutdownNow()
+        } catch (ignored: Throwable) {
+        }
         onFinish = null
         // 不移除已投递的完成回调：它携带待回收位图，执行时会按 disposed 自行释放。
     }
@@ -1002,7 +1079,8 @@ drawRenderer(canvas, r)
         val stepMs = if (fps > 0) 1000L / fps else 1000L / DollAnim.FPS_DEFAULT
         outgoing = Outgoing(
             frames = frames,
-            clock = clock,
+            // 【附录C-9】只记交接瞬间的帧号，不共享时钟对象。
+            startFrame = clock.frame,
             baseline = baseline,
             display = display,
             fps = fps,
@@ -1048,10 +1126,9 @@ drawRenderer(canvas, r)
             return
         }
         // 让淡出层继续按自己的 fps 推进：冻结帧淡出看起来像「静止图淡掉」。
-        if (n > 1) {
-            o.clock.advance(now, n)
-        }
-        val idx = if (o.clock.frame in 0 until n) o.clock.frame else 0
+        // 【附录C-9】帧号改为按时间纯算，不再借用本对象的 clock —— 那个时钟
+        //   此刻已经被新动作 reset/advance 过，读它就是读新动作的游标。
+        val idx = o.frameAt(now)
         val bmp = o.frames[idx]
         if (bmp.isRecycled) {
             return

@@ -928,9 +928,27 @@ object LamdaManager {
                         fos.flush()
                     }
                 }
-                if (tmp.length() < PKG_SIZE) {
+                /**
+                 * 【附录B-10】完整性校验只看体积，为什么保持这样。
+                 *
+                 * 【报告的主张是对的】只知道「字节数够大」确实挡不住「内容被换掉但体积相同」
+                 *   或「文件被截断后又被补齐」。真正稳的做法是比对官方 `.sha256sum`。
+                 *
+                 * 【为什么仍然不做自动校验】下载的是 200MB+ 的包，官方校验文件在 GitHub
+                 *   Releases 上 —— 对国内网络环境来说，多一次 GitHub 请求经常会先超时，
+                 *   结果变成「包下好了却因为拿不到校验文件而整体失败」，比不校验更糟。
+                 *   这是 [checksumUrl] 的注释里写明的取舍，UI 上也把校验地址给了用户。
+                 *
+                 * 【本轮加固了什么】把「≥ PKG_SIZE」改成「== PKG_SIZE」：
+                 *   · 少一个字节 → 一律判失败（原来 `>=` 之下，缺一点点也可能过）；
+                 *   · 多出字节 → 同样判失败（通常是服务端返回了别的页 / 追加了内容）。
+                 *   这两个方向都能在不增加网络依赖的前提下挡住常见的不完整下载。
+                 */
+                if (tmp.length() != PKG_SIZE) {
+                    val got = tmp.length()
                     tmp.delete()
-                    cb.onDone(false, "下载不完整（" + tmp.length() + " 字节）")
+                    val why = if (got < PKG_SIZE) "下载不完整" else "下载内容异常"
+                    cb.onDone(false, why + "（" + got + " / " + PKG_SIZE + " 字节）")
                     return@Runnable
                 }
                 if (out.exists()) {

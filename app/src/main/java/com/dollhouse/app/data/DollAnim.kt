@@ -1405,7 +1405,33 @@ object DollAnim {
         }
     }
 
-    /** 帧时长（毫秒）→ 由 fps 推。 */
+    /**
+     * 帧时长的**整数**毫秒近似值（仅用于展示 / 粗粒度 delay）。
+     *
+     * 【附录C-11·为什么另有一个精确版】`1000L / fps` 是整数除法，会把帧间隔量化到毫秒：
+     *   fps=60 → 16ms（实际 62.5fps，**快 4.2%**）、fps=24 → 41ms（实际 24.39fps，慢 1.6%）、
+     *   fps=48/50 也都被压到 16ms。播放层若用这个值做时间基准，误差永远不会自愈，
+     *   长动作会肉眼可见地「赶拍」。真正的时间基准请用 [stepMsExact]。
+     *
+     * 【它还有用在哪】UI 上「单帧时长约 N 毫秒」这种文案、以及只需要「大约多久」的 delay。
+     */
     @JvmStatic
-    fun frameMs(fps: Int): Long = (1000L / Math.max(1, fps)).coerceAtLeast(20L)
+    fun frameMs(fps: Int): Long = stepMsExact(fps).toLong().coerceAtLeast(20L)
+
+    /**
+     * 帧时长的**精确**毫秒（浮点，不量化）。
+     *
+     * 【附录C-11】`1000.0 / fps` 保留小数，播放层按浮点累加基准、取帧时再向下取整，
+     *   于是 `fps=60` 就是真正的 16.667ms 一帧，不再是 16ms。
+     *
+     * 【为什么下限是 20ms 仍然保留】原实现对帧间隔有个 20ms 的地板（= 50fps 上限），
+     *   这是为了防止「fps 填成 1000」把动作变成逐毫秒重绘。地板的语义没变，
+     *   只是从「整数除法顺手截断」变成显式钳制。
+     */
+    @JvmStatic
+    fun stepMsExact(fps: Int): Double {
+        val f = Math.max(1, fps)
+        val v = 1000.0 / f.toDouble()
+        return Math.max(20.0, v)
+    }
 }

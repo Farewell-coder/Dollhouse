@@ -203,7 +203,9 @@ object ModelRepository {
      *   用户看不出是什么，我们也解释不了。要建目录的调用方自己 mkdirs。
      */
     fun modelDir(ctx: Context, dollId: String, modelId: String): File {
-        return File(rootDir(ctx, dollId), safeName(modelId))
+        // 【附录D-2】走 [safeModelDir]：多一道 canonicalPath 越界校验。
+        //   万一将来 safeName 被改动，这里仍然能兜住「删到整棵模型树」这种后果。
+        return safeModelDir(ctx, dollId, modelId)
     }
 
     /**
@@ -214,6 +216,13 @@ object ModelRepository {
      *   这里只允许字母数字与 `-_.`，其余一律换成 `_`。
      */
     fun safeName(id: String): String {
+        // 【附录D-2·纵深防御】这里再加一道显式白名单：
+        //   上面那套「非法字符换 `_` + 剥前导点」已经能挡住 `..`、`../..`、`a/../..`
+        //   等形态（实测全部落回 `model` 或安全名），但安全收口不能只靠一层。
+        //   明确拒绝「纯点」这种特殊目录名，语义上也更清楚。
+        if (id.isEmpty()) {
+            return "model"
+        }
         val sb = StringBuilder()
         for (c in id) {
             if (c.isLetterOrDigit() || c == '-' || c == '_' || c == '.') {
@@ -226,7 +235,35 @@ object ModelRepository {
         while (s.startsWith(".")) {
             s = s.substring(1)
         }
-        return if (s.isEmpty()) "model" else s
+        // 【为什么单独判一次】剥完前导点后可能得到空串（输入 `..` / `...`），
+        //   也可能恰好等于 `.` 或 `..`（理论上已不可能，但保留判定以防将来改动）。
+        if (s.isEmpty() || s == "." || s == "..") {
+            return "model"
+        }
+        return s
+    }
+
+    /**
+     * 把 [modelDir] 解析成**确定**落在模型根目录内的目录。
+     *
+     * 【附录D-2·纵深防御】`safeName` 已经过滤，但安全边界不该依赖「上游一定过滤干净」。
+     *   这里用 `canonicalPath` 做一次包含性校验，与 `ModelImporter` 对 zip 条目的检查同口径：
+     *   一旦算出根目录之外，就抛异常而不是「安静地返回一个错误路径」——
+     *   因为调用方（`install` / `remove`）拿到路径就会 `deleteTree`，
+     *   返回一个「看起来正常但其实越界」的路径比抛异常危险得多。
+     *
+     * @throws IllegalArgumentException 目录落点越界
+     */
+    @JvmStatic
+    fun safeModelDir(ctx: Context, dollId: String, modelId: String): File {
+        val root = rootDir(ctx, dollId)
+        val dir = File(root, safeName(modelId))
+        val rootPath = root.canonicalPath.trimEnd(File.separatorChar)
+        val dirPath = dir.canonicalPath
+        if (dirPath == rootPath || !dirPath.startsWith(rootPath + File.separatorChar)) {
+            throw IllegalArgumentException("model id 落点越界:" + modelId)
+        }
+        return dir
     }
 
     // ============================ 内部 ============================

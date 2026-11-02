@@ -143,14 +143,30 @@ object Springs {
     private fun driveInternal(spring: Spring, listener: Listener): Handle {
         val handle = Handle()
         var last = SystemClock.uptimeMillis()
-        // 自然收敛的收尾：只在这里写终态并回调 onEnd。
-        fun finish() {
+        /**
+         * 收尾。
+         *
+         * 【附录C-13·为什么带 [force] 参数】原实现只有一个无参 `finish()`，
+         *   「积分自然收敛」和「时钟到期被强制结束」两条路都调它，于是后者会把
+         *   `onUpdate(1.0f)` 硬写出来 —— 弹簧还没收敛（距离大 / 低帧率 / 阻尼软）时，
+         *   宠物会**瞬移**到终点。这个「最后一跳」在低端机掉帧时尤其明显。
+         *   现在：
+         *   · 自然收敛（`spring.step` 返回 settled）→ 弹簧自己已经落到终态，写 1.0 是对的；
+         *   · 时钟到期（`onAnimationEnd`）→ 只把**当前** x 报出去，不假装到了终点。
+         */
+        fun finish(force: Boolean) {
             if (handle.ended) {
                 return
             }
             handle.ended = true
-            spring.settle()
-            listener.onUpdate(1.0f)
+            if (force) {
+                // 只有当弹簧真的收敛了才 settle + 写 1.0。
+                spring.settle()
+                listener.onUpdate(1.0f)
+            } else {
+                // 没收敛就被打断：把真实位置交给调用方，让它自己决定要不要补一段。
+                listener.onUpdate(spring.x.toFloat())
+            }
             listener.onEnd()
         }
         // 被外部取消的收尾：绝不动 spring、绝不 onEnd —— 交给调用方。
@@ -178,7 +194,7 @@ object Springs {
             if (settled) {
                 // 【顺序】先置 ended 再 cancel：cancel 会同步进 onAnimationCancel，
                 //   那里看到 ended 已为 true 就会静默返回，不会把自然收敛误判成取消。
-                finish()
+                finish(true)
                 an.cancel()
             }
         }
@@ -188,8 +204,9 @@ object Springs {
             }
 
             override fun onAnimationEnd(an: Animator) {
-                // 跑到 MAX_MS 还没收敛（理论上不会发生）也要给出终态，否则视图会停在半路。
-                finish()
+                // 【附录C-13】跑到 MAX_MS 还没收敛：给终态，但**不伪造 1.0**。
+                //   调用方拿到的是当前真实位置，视图不会「最后一跳」。
+                finish(false)
             }
         })
         handle.animator = va
