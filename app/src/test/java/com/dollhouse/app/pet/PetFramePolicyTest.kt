@@ -164,7 +164,7 @@ class PetFramePolicyTest {
         assertEquals(PetFramePolicy.MS_EDGE_LOW_POWER, ms)
     }
 
-    /** 档位 ⑤：纯站立呼吸 → 32ms。 */
+    /** 档位 ⑤：纯站立呼吸 → [PetFramePolicy.MS_IDLE]（v0.1.9 起为 15fps）。 */
     @Test
     fun breathing_usesIdleConstant() {
         val ms = PetFramePolicy.delayMs(idle(), lowPower = false, shown = true, screenOn = true, lean = 0f)
@@ -221,9 +221,28 @@ class PetFramePolicyTest {
     @Test
     fun tierValues_areStable() {
         assertEquals(16L, PetFramePolicy.MS_TOUCH_BUSY)
-        assertEquals(32L, PetFramePolicy.MS_IDLE)
+        assertEquals(67L, PetFramePolicy.MS_IDLE)
         assertEquals(250L, PetFramePolicy.MS_EDGE_LOW_POWER)
         assertEquals(250L, PetFramePolicy.MS_SCREEN_OFF)
         assertEquals(1000L, PetFramePolicy.MS_HEARTBEAT)
+    }
+
+    /**
+     * **C-8 定案锁**：站立待机档必须明显低于忙档，且不高于 16.7fps（60ms 以上）。
+     *
+     * 【为什么写成区间而不是精确值】精确值已在上面锁住；这里锁的是「省电意图」本身 ——
+     *   将来有人把 MS_IDLE 改回 32ms，上面那条会红；若干脆把两条一起改，
+     *   这条仍能拦住「待机档跑得比 20fps 还快」这种与定案相反的回退。
+     */
+    @Test
+    fun idleTier_isMeaningfullyBelowBusy() {
+        assertTrue(
+            "待机档必须比全速档慢至少 3 倍",
+            PetFramePolicy.MS_IDLE >= PetFramePolicy.MS_TOUCH_BUSY * 3
+        )
+        assertTrue(
+            "待机档不得快于 20fps（50ms）",
+            PetFramePolicy.MS_IDLE >= 50L
+        )
     }
 }
