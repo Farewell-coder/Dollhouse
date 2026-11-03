@@ -634,23 +634,10 @@ object AexImportSheet {
             warnings.add("有 " + r.droppedModels + " 个模型因为找不到所属供应商被跳过。")
         }
         val result = AexImport.Result(r.profiles, null, warnings)
-        // 【记住原始字节】写入时还要靠它把私有字段补回去；用字段而不是闭包参数，
-        //   是为了不改动 previewDialog / PreviewBody / apply 这一串既有签名
-        //   （那串签名同时被 AEX 与 AKCP 两条链路使用，动它等于扩大风险面）。
-        pendingDollhouseJson.set(bytes)
+        // 【v0.2.0】私有字段的补回不再靠旁路传递：解析时已把原始条目挂在
+        //   `AexProfile.sourceProvider` 上，写入侧直接用（见 [applyDollhouseJson]）。
         previewDialog(act, result, fileName)
     }
-
-    /**
-     * 当前正在预览的「自家 JSON」原始字节。
-     *
-     * 【为什么是 ThreadLocal】写入链路（`apply`）是从 Compose 点击回调里同步调用的，
-     *   始终在主线程；但 `apply` 也可能被别处的批量逻辑复用。用 ThreadLocal 可以保证
-     *   「这个字节属于正在提交的这次预览」，又不用改 `apply` 的签名。
-     *
-     * 【清理时机】`apply` 末尾无条件 `remove()`，避免下一次 AEX 导入读到上一份残留。
-     */
-    private val pendingDollhouseJson = ThreadLocal<ByteArray?>()
 
     /**
      * 把自家 JSON 里那些 [AexImport.AexProfile] 装不下的字段补回 [Provider]。
@@ -660,21 +647,24 @@ object AexImportSheet {
      *   最典型的是自建站：`allowCleartext = false` 时明文 HTTP 会被代码层拒绝，
      *   表现为「导入成功，但一发请求就失败」，用户根本查不出原因。
      *
-     * 【为什么按名称回查】`AexProfile` 里保留了原始 `id`，但用户可能在预览里改名——
-     *   本版预览不支持改名，名称就是稳定锚点。写入侧 `apply` 拿到的正是改好名（或原名）
-     *   的 profile，用它回原始数组里取同一条即可。
+     * 【数据从哪来】`DollhouseJsonImport.toProfile` 解析时已把原始条目挂到
+     *   [AexImport.AexProfile.sourceProvider] 上；这里直接读它，不必再回文件里按名字查。
+     *   好处是「这份数据属于哪次导入」天然随对象生命周期走 —— 预览被取消、对象被丢弃，
+     *   不会留下任何可能被下次导入误读的残留。
      *
-     * @return 是否把字段补上了（false = 不是自家 JSON，或没找到对应条目）
+     * @return 是否把字段补上了（false = 这条配置不是自家 JSON 来的）
      */
     private fun applyDollhouseJson(ctx: Context, p: AexImport.AexProfile, target: Provider): Boolean {
-        val raw = pendingDollhouseJson.get() ?: return false
-        val src = DollhouseJsonImport.buildProvider(raw, p.name) ?: return false
-        if (src.chatPath.isNotEmpty()) {
-            target.chatPath = src.chatPath
+        // 【v0.2.0·按对象取，不靠旁路】原始条目挂在 profile 上，见 `AexProfile.sourceProvider`。
+        //   null 即「不是自家 JSON 来的」（AEX / AKCP 路径），直接不处理。
+        val src = p.sourceProvider ?: return false
+        val restored = Provider.fromJson(src)
+        if (restored.chatPath.isNotEmpty()) {
+            target.chatPath = restored.chatPath
         }
-        target.useResponseApi = src.useResponseApi
-        target.resendHistoryReasoning = src.resendHistoryReasoning
-        target.allowCleartext = src.allowCleartext
+        target.useResponseApi = restored.useResponseApi
+        target.resendHistoryReasoning = restored.resendHistoryReasoning
+        target.allowCleartext = restored.allowCleartext
         return true
     }
 
@@ -925,10 +915,6 @@ object AexImportSheet {
             sb.append("\n未能导入 ").append(failed.size).append(" 条：").append(failed.joinToString("、"))
         }
         sb.append("\n\n密钥已加密保存，可在供应商详情里核对。")
-        // 【v0.2.0】本次可能是 AEX / AKCP / 自家 JSON 三条来源之一；
-        //   收尾无条件清掉「自家 JSON 原始字节」，避免下一次纯 AEX 导入读到上一份残留
-        //   （那样会用上一次的 chatPath / allowCleartext 覆盖这一次的条目）。
-        pendingDollhouseJson.remove()
         return sb.toString()
     }
 

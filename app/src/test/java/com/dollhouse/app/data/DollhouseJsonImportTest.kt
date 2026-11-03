@@ -343,4 +343,64 @@ class DollhouseJsonImportTest {
         assertEquals("p2", DollhouseJsonImport.providerIdOf(bytes, "B"))
         assertEquals("", DollhouseJsonImport.providerIdOf(bytes, "C"))
     }
+
+    /* ==================== 来源隔离（v0.2.0 追加） ==================== */
+
+    /**
+     * 【私有字段的载体必须随对象走，不能是全局旁路】
+     *
+     * 早期实现把「原始字节」存在 `AexImportSheet` 的线程局部变量里，靠 `apply()` 末尾清空。
+     * 问题在于：预览被**取消**（点「取消」/ 返回键 / 点窗口外）时 `apply()` 根本不会跑，
+     * 那份字节就一直挂着；下一次**纯 AEX 导入**写库时会读到它，把上一份 JSON 的
+     * `chatPath` / `allowCleartext` 套到这次完全无关的条目上 —— 静默写错配置，比报错难查。
+     *
+     * 现在改成「解析时把原始条目挂到 `AexProfile.sourceProvider`」：对象被丢弃，
+     * 载体就跟着消失，不存在需要手动清理的窗口。
+     */
+    @Test
+    fun parse_attachesSourceProviderForPrivateFields() {
+        val arr = JSONArray().put(
+            provider("p1", "自建站", chatPath = "/v1/chat", allowCleartext = true)
+        )
+        val r = DollhouseJsonImport.parse(envelope(providers = arr))
+        assertEquals(1, r.profiles.size)
+        val src = r.profiles[0].sourceProvider
+        assertNotNull(src)
+        assertEquals("/v1/chat", src!!.optString("chatPath", ""))
+        assertTrue(src.optBoolean("allowCleartext", false))
+    }
+
+    /**
+     * 【反向断言】不是自家 JSON 来的配置，`sourceProvider` 必须是 null。
+     *
+     * 这一条对应「AEX / AKCP 导入绝不能套用自家 JSON 的私有字段」：
+     * 那两条链路构造的 `AexProfile` 不经过 `DollhouseJsonImport.toProfile`，
+     * 所以该字段天然为 null，写入侧的 `applyDollhouseJson` 会直接返回 false。
+     */
+    @Test
+    fun profileFromOtherSourcesHasNoSourceProvider() {
+        // 模拟 AEX 链路的构造方式：直接 new 一个 AexProfile。
+        val p = AexImport.AexProfile()
+        p.name = "DeepSeek"
+        assertNull(p.sourceProvider)
+    }
+
+    /** 两份不同文件解析出的 profile 各自持有自己的原始条目，互不串用。 */
+    @Test
+    fun parse_keepsEachFileIsolated() {
+        val a = DollhouseJsonImport.parse(
+            envelope(providers = JSONArray().put(
+                provider("p1", "A", chatPath = "/a", allowCleartext = true)
+            ))
+        )
+        val b = DollhouseJsonImport.parse(
+            envelope(providers = JSONArray().put(
+                provider("p1", "B", chatPath = "/b", allowCleartext = false)
+            ))
+        )
+        assertEquals("/a", a.profiles[0].sourceProvider!!.optString("chatPath", ""))
+        assertEquals("/b", b.profiles[0].sourceProvider!!.optString("chatPath", ""))
+        assertTrue(a.profiles[0].sourceProvider!!.optBoolean("allowCleartext", false))
+        assertFalse(b.profiles[0].sourceProvider!!.optBoolean("allowCleartext", true))
+    }
 }

@@ -126,6 +126,24 @@ object AexImport {
         var extra: JSONObject? = null
         /** 未识别的成员（规范要求不得静默丢弃）。 */
         var unknown: JSONObject = JSONObject()
+
+        /**
+         * 【v0.2.0·自家 JSON 专用】这条配置在原始文件里对应的那个供应商对象。
+         *
+         * 【为什么挂在这里而不是另存一份旁路】导入的三条来源（AEX / AKCP / 自家 JSON）
+         *   最终都汇成 `List<AexProfile>` 交给同一个预览与写入链路。而自家 JSON 里有
+         *   `chatPath` / `useResponseApi` / `resendHistoryReasoning` / `allowCleartext`
+         *   这些 AexProfile 装不下、但对「备份恢复」必须保留的字段。
+         *
+         * 【为什么不用线程局部变量传递】那样要额外维护「什么时候清、被取消时怎么办」，
+         *   一旦漏清就会把上一份文件的字段套到下一次纯 AEX 导入上 —— 静默写错配置。
+         *   挂在本对象上则是**天然随对象生命周期走**：预览被取消 → 对象被丢弃 → 字段随之消失，
+         *   不存在残留。而且写入侧拿得到 profile，就必然拿得到它。
+         *
+         * 【null 的语义】这条配置不是自家 JSON 来的（AEX / AKCP 路径永远是 null）。
+         */
+        var sourceProvider: JSONObject? = null
+
         /** 是否带了本 App 存不下的信息 —— 预览里必须提示。 */
         fun hasExtra(): Boolean {
             return (extra != null && extra!!.length() > 0) || unknown.length() > 0 || hasDescription

@@ -257,6 +257,9 @@ object DollhouseJsonImport {
      */
     private fun toProfile(o: JSONObject): AexImport.AexProfile {
         val p = AexImport.AexProfile()
+        // 【v0.2.0】把原始条目挂到 profile 上：写入时靠它补回 AexProfile 装不下的字段。
+        //   挂在这里而不是另存旁路，是为了让“这份数据属于哪次导入”天然随对象生命周期走。
+        p.sourceProvider = o
         p.id = o.optString("id", "")
         p.name = o.optString("name", "").trim()
         p.provider = p.name
