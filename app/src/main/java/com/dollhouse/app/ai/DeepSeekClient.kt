@@ -216,6 +216,10 @@ object DeepSeekClient {
             var msgObject: JSONObject? = null
             var errText: String? = null
             var conn: HttpURLConnection? = null
+            // 【v0.2.1】提到 try 之外：catch 块里的诊断记录要用它，而它可能在
+            //   `urlText.isEmpty()` / `ApiClient.open()` 抛异常时还没赋值，写在
+            //   try 内会被 Kotlin 判「可能未初始化」而编译失败。
+            var urlText = ""
             try {
                 if (task != null && task.cancelled) {
                     errText = STOPPED
@@ -232,7 +236,7 @@ object DeepSeekClient {
                 }
                 // 地址与协议头全部收口到 ApiClient：老口径传裸 baseUrl（str2），
                 // 新口径传 Provider（协议决定路径与鉴权方式）。
-                val urlText = if (pv == null) ApiEndpoint.chatUrl(str2) else ApiClient.chatUrl(pv, str3)
+                urlText = if (pv == null) ApiEndpoint.chatUrl(str2) else ApiClient.chatUrl(pv, str3)
                 if (urlText.isEmpty()) {
                     throw IllegalStateException("还没填接口地址")
                 }
@@ -253,11 +257,36 @@ object DeepSeekClient {
                 } else {
                     // 【v0.1.4·诊断】同上：回显真实端点而不是 baseUrl。
                     errText = buildHttpError(code, text, urlText, jSONArray2)
+                    // 【v0.2.1·修·「诊断中心不记录接口报错」】
+                    //   【现象】聊天页弹出「HTTP 400: Invalid max_tokens value…」，
+                    //     但「设置 → 诊断中心 → 日志」里一条都没有，用户拿这串报错来问
+                    //     也没法自证是什么请求、打到哪、原始响应是什么。
+                    //   【根因】非 2xx 分支只把错误拼成字符串交给上层弹气泡，
+                    //     全程没有一次 [Logs.e] / [DiagnosticsStore.record] 落盘。
+                    //     诊断库的 ERROR 级只被动接收「崩溃」与 KeepAliveRunner 的
+                    //     keep-alive 失败，HTTP 4xx/5xx 根本不在其中。
+                    //   【为什么不是 Logs.i】INFO 级在「开发者日志」关闭时会被
+                    //     DiagnosticsStore.record 的第一行早退直接丢弃 —— 那正是默认状态，
+                    //     所以以前即使打了 INFO 也留不下来。这里必须用 ERROR 级，
+                    //     它不受日志开关影响，永远落盘。
+                    //   【脱敏】message 会经 DiagnosticsFormat.redact 处理，
+                    //     Bearer token / sk- 密钥 / 用户目录一律替换为占位符。
+                    Logs.e("DollhouseHttp", "HTTP " + code + " " + urlText
+                            + " | max_tokens=" + body.opt("max_tokens")
+                            + " | " + shorten(text, 500), null)
                 }
             } catch (t: Throwable) {
                 msgObject = null
                 // 用户主动停止：不要报成网络错误，回一个固定标记让上层静默处理。
                 errText = if (task != null && task.cancelled) STOPPED else ApiEndpoint.friendlyError(t, str2)
+                // 【v0.2.1·修·「诊断中心不记录接口报错」】连不上 / 超时 / 解析崩这类
+                //   异常以前也只弹气泡、不落盘，用户完全无从回溯。这里补一条 ERROR 级记录：
+                //   异常类型 + 真实端点 + 消息，便于据此判断是网络问题还是地址写错。
+                //   用户主动停止（STOPPED）不算故障，不记录，避免噪音。
+                if (errText != STOPPED) {
+                    Logs.e("DollhouseHttp", "请求异常 " + urlText + " | " + t.javaClass.name
+                            + ": " + (t.message ?: ""), t)
+                }
             } finally {
                 conn?.disconnect()
                 if (task != null) {
@@ -619,6 +648,12 @@ object DeepSeekClient {
             } catch (t: Throwable) {
                 val err = if (task != null && task.cancelled) STOPPED else ApiEndpoint.friendlyError(t, baseUrl)
                 Logs.i("DollhouseMemo", "[stream] err=" + err)
+                // 【v0.2.1·修·「诊断中心不记录接口报错」】流式路径的异常同样只弹气泡不落盘。
+                //   补 ERROR 级记录（用户主动停止不算故障，跳过以免刷屏）。
+                if (err != STOPPED) {
+                    Logs.e("DollhouseHttp", "流式请求异常 " + baseUrl + " | " + t.javaClass.name
+                            + ": " + (t.message ?: ""), t)
+                }
                 // 【错误也要收尾】已经吐出来的正文不能因为随后抛错就丢掉。
                 flushPending()
                 MAIN.post {
@@ -665,10 +700,15 @@ object DeepSeekClient {
                 val v = extraBody.get(k)
                 // 【v2.9.4】-1 = 不限制输出长度：从请求体里摘掉该字段，
                 //  交给服务端默认上限，避免小预算把中文摘要截成空 content。
-                if ("max_tokens" == k && v is Number && v.toInt() < 0) {
-                    body.remove("max_tokens")
-                    continue
-                }
+                    // 【v0.2.1·修】原判据只摘负数（< 0），漏掉了 0 —— 而 0 正是
+                    //   「用户没配 max_tokens」时下游可能带出来的值。服务端要求 ≥ 1，
+                    //   发 0 会被判「Invalid max_tokens value, valid range [1, 393216]」。
+                    //   改成 <= 0 一律摘掉，交给服务端默认上限：这是最后一道闸，
+                    //   即使上游再出纰漏，也不会把非法值发出去。
+                    if ("max_tokens" == k && v is Number && v.toInt() <= 0) {
+                        body.remove("max_tokens")
+                        continue
+                    }
                 body.put(k, v)
             }
         }

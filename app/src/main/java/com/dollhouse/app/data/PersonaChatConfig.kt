@@ -125,7 +125,10 @@ class PersonaChatConfig {
             temperature = (temperature ?: g.temperature ?: DEFAULT_TEMPERATURE)
                 .coerceIn(TEMP_MIN, TEMP_MAX),
             topP = (topP ?: g.topP ?: DEFAULT_TOP_P).coerceIn(0.0, 1.0),
-            maxTokens = (positive(maxTokens) ?: positive(g.maxTokens) ?: 0)
+            // 【v0.2.1·修】原来是 `?: 0`，而 0 在工程里的语义是「不发这个字段」，
+            //   但下游 samplingParams 会无条件 put 出去，结果 `max_tokens: 0` 被服务端判越界。
+            //   改成兜底 [DEFAULT_MAX_TOKENS]：用户没配时下发的就是一个合法值。
+            maxTokens = (positive(maxTokens) ?: positive(g.maxTokens) ?: DEFAULT_MAX_TOKENS)
                 .coerceAtMost(MAX_TOKENS_LIMIT),
             streamOutput = streamOutput ?: g.streamOutput ?: DEFAULT_STREAM
         )
@@ -152,8 +155,41 @@ class PersonaChatConfig {
         const val DEFAULT_ENABLED = true
         const val DEFAULT_STREAM = true
 
-        /** max_tokens 的硬上限：挡住手改文件里的荒唐值，避免请求被服务端直接 400。 */
-        const val MAX_TOKENS_LIMIT = 1_000_000
+        /**
+         * max_tokens 的硬上限：挡住手改文件里的荒唐值，避免请求被服务端直接 400。
+         *
+         * 【v0.2.1·修·「HTTP 400: Invalid max_tokens value, the valid range of max_tokens
+         *   is [1, 393216]」】原值 1_000_000 是拍脑袋定的，比 DeepSeek 的真实上限
+         *   （393216）大了 2.5 倍 —— 也就是说这道「保护阀」本身就放行了会 400 的值，
+         *   保护等于没做。
+         *
+         * 【为什么取 393216 而不是更小】这是当前已知**最严**的服务端上限（DeepSeek 当前模型），
+         *   取它做全局闸门可以保证「无论配哪家都不会因为超限被拒」。其他家上限普遍更大
+         *   （OpenAI 16384 是旧模型的输出上限、GPT-4o 为 16384，都比这个小或相当；
+         *   个别自建站限制更松）。
+         *   注意这是**输出**上限，不是上下文窗口大小：393216 是 DeepSeek 的
+         *   max_tokens 字段可接受最大值，不是模型能吐 39 万 token 的意思。
+         *
+         * 【为什么不干脆去掉这个字段】多数服务端会给默认值，但行为不一致
+         *   （有的按模型上限、有的按 4096、有的直接报缺参数）。保留可控值更稳。
+         */
+        const val MAX_TOKENS_LIMIT = 393_216
+
+        /**
+         * 【v0.2.1·修】真正会下发给服务端的默认输出上限。
+         *
+         * 【背景】[EffectiveChatConfig.maxTokens] 在用户没配时是 0，而 0 在工程里的
+         *   既有语义就是「不发这个字段」（见 [positive] 的注释）。但 ChatPanel 侧的
+         *   `samplingParams` 会无条件 `put("max_tokens", cfg.maxTokens)`，
+         *   DeepSeekClient.buildBody 又只摘掉**负数**（`v.toInt() < 0`）——
+         *   于是 `max_tokens: 0` 被原样发了出去，服务端判定越界，
+         *   报「the valid range of max_tokens is [1, 393216]」。
+         *
+         * 【这个值干什么的】不是给「没配」用的占位符，而是**用户确实没配时**
+         *   实际下发的兜底上限。取 8192：足够长的中文回复（约 5000～6000 汉字），
+         *   同时远低于任何一家的硬上限，不会踩线。
+         */
+        const val DEFAULT_MAX_TOKENS = 8_192
 
         private const val TEMP_MIN = 0.0
         private const val TEMP_MAX = 2.0
