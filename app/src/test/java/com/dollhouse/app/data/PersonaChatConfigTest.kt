@@ -94,7 +94,11 @@ class PersonaChatConfigTest {
         assertEquals(PersonaChatConfig.DEFAULT_THINK_LEVEL, eff.thinkLevel)
         assertEquals(PersonaChatConfig.DEFAULT_TEMPERATURE, eff.temperature, 0.0001)
         assertEquals(PersonaChatConfig.DEFAULT_TOP_P, eff.topP, 0.0001)
-        assertEquals(0, eff.maxTokens)
+        // 【v0.2.1】原断言是 assertEquals(0, eff.maxTokens)，锁定的是「没配 = 0」的旧语义。
+        //   但 0 会被 samplingParams 无条件下发到请求体，服务端要求 >= 1，
+        //   触发 HTTP 400: Invalid max_tokens value, valid range [1, 393216]。
+        //   现在「没配」的语义改为「用兜底默认值」，断言随之改为 DEFAULT_MAX_TOKENS。
+        assertEquals(PersonaChatConfig.DEFAULT_MAX_TOKENS, eff.maxTokens)
         assertTrue(eff.streamOutput)
     }
 
