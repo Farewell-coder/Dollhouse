@@ -131,19 +131,26 @@ jobs:
           if-no-files-found: ignore
 
       # 只有打 tag（v*）才发 Release
+      # 发布前先确认更新公告存在且非空：否则宁可失败，也不要发出一个空正文的 Release。
+      - name: 校验更新公告
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "::error::RELEASE_NOTES.md 缺失或为空。发版前必须先写好更新公告并提交。"
+            exit 1
+          fi
+          echo "更新公告 $(wc -c < RELEASE_NOTES.md) 字节"
+
       - name: 发布到 GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Dollhouse ${{ github.ref_name }}
-          body: |
-            Dollhouse ${{ github.ref_name }}
-
-            由 GitHub Actions 自动构建，使用正式签名证书，可直接覆盖安装升级。
-
-            - 绝大多数手机下载 `app-arm64-v8a-release.apk`
-            - 不确定机型时下载 `app-universal-release.apk`（体积大但通用）
+          # v0.2.1 起：更新公告纳入仓库管理，不再由 CI 写固定模板。
+          # 每次发版前改根目录 RELEASE_NOTES.md 一并提交，CI 直接引用。
+          # 优点：公告随代码一起版本化，不依赖人工事后补，也不会被模板覆盖。
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
