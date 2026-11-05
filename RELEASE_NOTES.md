@@ -1,46 +1,27 @@
-## 修复：HTTP 400 Invalid max_tokens value
+## 新增：Aivora 深链一键导入
 
-发消息直接失败的元凶。DeepSeek 下每句话都回：
+Aivora 0.0.8 新增了 `dollhouse://aivora-import` 深链：在 Aivora 里选中一条配置 → 点「深链」→ 选 Dollhouse，配置直接送过来。
 
-```
-HTTP 400: Invalid max_tokens value, the valid range of max_tokens is [1, 393216]
-```
+本版接收并解析这条明文链接：
 
-**根因是三段代码各说各话：**
+- 弹确认页，标明「来源：Aivora 外部链接（明文）」，显示地址与密钥尾 4 位
+- 用户点「导入」后才写入；不会静默保存
+- 缺参数、乱码、JSON 损坏、kind 不匹配、版本过新、内容不全、超长都有明确提示
+- 不把链接、`d` 参数或 API Key 写进日志
 
-1. `EffectiveChatConfig.maxTokens` 在「用户没配」时兜底成 `0`，而 `0` 在这个工程里的既有语义是「不发这个字段」；
-2. 但 `samplingParams()` 会**无条件**把 `cfg.maxTokens` 写进请求体，把 `0` 也写进去了；
-3. `buildBody()` 只摘掉**负数**，漏掉了 `0`。
+## 变更：AEX 1.1 文件导入
 
-于是 `max_tokens: 0` 原样发出，服务端要求 ≥ 1，直接判越界。
+Aivora 0.0.8 同时把 `.akcp` 升到 AEX 1.1：
 
-**附带发现：** `MAX_TOKENS_LIMIT = 1_000_000` 是拍脑袋定的，比 DeepSeek 的真实上限 `393216` 大了 2.5 倍 —— 这道本该拦住荒唐值的保护阀，本身就放行了会 400 的值，等于没做。
-
-**修法：**
-
-- `MAX_TOKENS_LIMIT` 由 `1_000_000` 收到 `393_216`（当前已知最严的服务端上限）
-- 新增 `DEFAULT_MAX_TOKENS = 8_192`，用户没配时下发这个合法值，不再兜底成 `0`（约 5000～6000 汉字，够长，且远低于任何一家硬上限）
-- `buildBody()` 的摘除判据由 `< 0` 改为 `<= 0`，作为最后一道闸 —— 即使上游再出纰漏，非法值也不会被发出去
-
-## 修复：诊断中心不记录接口报错
-
-**现象：** 聊天页弹出 `HTTP 400: …`，但「设置 → 诊断中心 → 日志」里一条都没有。拿着报错去问，也说不清是什么请求、打到哪、原始响应长什么样。
-
-**根因：** 非 2xx 分支只把错误拼成字符串交给上层弹气泡，**全程没有一次落盘**。诊断库里 ERROR 级只会被动收到「崩溃」和 keep-alive 失败，HTTP 4xx/5xx 根本不在其中。
-
-而原有的 `Logs.i` 是 INFO 级 —— 日志开关默认关闭时，`DiagnosticsStore.record()` 第一行就早退丢弃了，所以以前即使打了 INFO 也留不下来。
-
-**修法：** 在三个出口补 ERROR 级记录（ERROR 级不受日志开关影响，永远落盘）：
-
-- **非流式非 2xx**：记 HTTP 码、真实请求地址、当次 `max_tokens` 值、响应体前 500 字
-- **非流式异常**（连不上 / 超时 / 解析崩）：记异常类型与端点
-- **流式异常**：同样记录。用户主动停止（`__STOPPED__`）不算故障，跳过以免刷屏
-
-记录内容经 `DiagnosticsFormat.redact` 脱敏，Bearer token、`sk-` 密钥、用户目录一律替换为占位符。
+- 接收 1.1 文件；仍兼容读取旧的 1.0 文件
+- 1.1 不再携带模型列表，导入成功后自动请求 `{baseUrl}/models` 补拉
+- 拉取失败只提示「可稍后手动添加」，不会撤销已经导入的供应商
+- 官方 1.1 测试向量已纳入单测
 
 ## 其他
 
-- 同步更新 `PersonaChatConfigTest` 的一条断言：原断言 `assertEquals(0, eff.maxTokens)` 锁定的是「没配 = 0」的旧语义，不改会红
+- Aivora 生态页 `protocol/ECOSYSTEM.md` 已登记 Dollhouse（文件+深链、AEX 1.1、自行声明）
+- 版本号 `0.2.2`（versionCode 22）
 
 ## 下载
 
@@ -54,4 +35,4 @@ HTTP 400: Invalid max_tokens value, the valid range of max_tokens is [1, 393216]
 
 ---
 
-版本：`0.2.1`（versionCode 21）· 上一版 `0.2.0`
+版本：`0.2.2`（versionCode 22）· 上一版 `0.2.1`

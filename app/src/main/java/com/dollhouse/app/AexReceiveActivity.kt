@@ -5,13 +5,16 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.AexDeepLink
 import com.dollhouse.app.data.AexImport
 import com.dollhouse.app.data.AexInbox
+import com.dollhouse.app.data.AexLinkInbox
 import java.io.ByteArrayOutputStream
 
 /**
- * 【职责】AEX 1.0 的系统级文件接收入口：接住 ACTION_SEND / SEND_MULTIPLE / ACTION_VIEW 三种
- *        分享与打开方式，把文件读成字节后交给主界面去弹导入流程。
+ * 【职责】AEX 1.1 的系统级接收入口：接住 ACTION_SEND / SEND_MULTIPLE / ACTION_VIEW 三种
+ *        文件分享与打开方式，以及 `dollhouse://aivora-import` 深链，把内容放进内存信箱后
+ *        交给主界面去弹导入确认。
  *
  * 【为什么需要独立 Activity】规范第三节要求提供系统级入口，并明确：
  *   · 必须用 ContentResolver 读，不得把 URI 直接转成文件系统路径；
@@ -50,8 +53,24 @@ class AexReceiveActivity : Activity() {
         finish()
     }
 
-    /** 读文件 → 塞进内存信箱 → 唤起主界面。任何异常都收敛成一条日志。 */
+    /** 读文件 / 深链 → 塞进内存信箱 → 唤起主界面。任何异常都收敛成一条日志。 */
     private fun handle(from: Intent?) {
+        // 【AEX 1.1 深链】dollhouse://aivora-import?d=...&v=1
+        //   深链不是文件，不能走 ContentResolver；解析完直接放内存信箱。
+        //   错误也放进去，让主界面统一提示（本页 NoDisplay，不能自己弹窗）。
+        val data = from?.data
+        if (data != null && AexDeepLink.SCHEME.equals(data.scheme, ignoreCase = true)) {
+            val result = if (AexDeepLink.HOST.equals(data.host, ignoreCase = true)) {
+                AexDeepLink.parseLink(data.toString())
+            } else {
+                AexDeepLink.Result(null, AexDeepLink.Reason.NOT_AIVORA)
+            }
+            AexInbox.clear()
+            AexLinkInbox.put(result)
+            openMain()
+            return
+        }
+        AexLinkInbox.clear()
         try {
             val all = extractAll(from)
             if (all.isEmpty()) {

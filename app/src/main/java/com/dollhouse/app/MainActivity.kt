@@ -123,6 +123,10 @@ class MainActivity : Activity() {
         if (com.dollhouse.app.data.AexInbox.has()) {
             window?.decorView?.post { runCatching { consumeAexShare() } }
         }
+        // 【AEX 1.1 深链】dollhouse://aivora-import —— 与文件通道同样 post 到界面装配后。
+        if (com.dollhouse.app.data.AexLinkInbox.has()) {
+            window?.decorView?.post { runCatching { consumeAexDeepLink() } }
+        }
 // 【装配】
         // 【装配】首页 + 设置页两棵 ComposeView 由 HomeUi 一次性建好并挂进 content。
         //   不再 setContentView：Compose 页是「页面」而不是「内容视图」，走同一条挂载通道。
@@ -207,6 +211,9 @@ class MainActivity : Activity() {
         if (com.dollhouse.app.data.AexInbox.has()) {
             window?.decorView?.post { runCatching { consumeAexShare() } }
         }
+        if (com.dollhouse.app.data.AexLinkInbox.has()) {
+            window?.decorView?.post { runCatching { consumeAexDeepLink() } }
+        }
         // 【提示条跳转·复用实例时】本页已在运行（singleTask），带参数再进来只会走这里。
         consumeOpenProviders(intent)
     }
@@ -254,6 +261,31 @@ class MainActivity : Activity() {
                     return@post
                 }
                 com.dollhouse.app.ui.widget.AexImportSheet.startWithBatch(this, bytes, names)
+            }
+        }
+    }
+
+    /**
+     * 取出深链接收结果，交给导入确认框。
+     *
+     * 【错误也走这里】链接缺 d、base64 坏了、kind 不匹配、版本过新等，都在中转页
+     *   解析成 [com.dollhouse.app.data.AexDeepLink.Result] 的 reason；本页只负责显示。
+     *   绝不在日志里打印链接或 payload。
+     */
+    private fun consumeAexDeepLink() {
+        val result = com.dollhouse.app.data.AexLinkInbox.take() ?: return
+        if (!result.ok()) {
+            com.dollhouse.app.ui.widget.AexImportSheet.showDeepLinkError(this, result.message())
+            return
+        }
+        // 与文件通道一致：先落到供应商页，再弹确认框，避免确认框浮在无关页面上。
+        window?.decorView?.post {
+            runCatching { com.dollhouse.app.ui.provider.ProviderNav.open(this) }
+            window?.decorView?.post {
+                if (isFinishing || isDestroyed) {
+                    return@post
+                }
+                com.dollhouse.app.ui.widget.AexImportSheet.startWithDeepLink(this, result)
             }
         }
     }

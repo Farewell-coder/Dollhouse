@@ -28,6 +28,7 @@ import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.KeyVault
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.data.AexDeepLink
 import com.dollhouse.app.data.DollhouseJsonImport
 import com.dollhouse.app.data.AexImport
 import com.dollhouse.app.data.ModelStore
@@ -35,15 +36,16 @@ import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.UiKit
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 【职责】把 Aivora 通过 AEX 1.0（Aivora Exchange Protocol）分享的 `.akcp` 文件
- *        导入成本 App 的供应商与模型。
+ * 【职责】把 Aivora 通过 AEX 1.1（Aivora Exchange Protocol）分享的 `.akcp` 文件
+ *        或 `dollhouse://aivora-import` 深链，导入成本 App 的供应商与模型。
  *
- * 【与 AkcpImportSheet 的关系】那是 AKCP 1.0（`.aivora`），这是 AEX 1.0（`.akcp`）。
+ * 【与 AkcpImportSheet 的关系】那是 AKCP 1.0（`.aivora`），这是 AEX 1.1（`.akcp` / 深链）。
  *   两者容器 Magic、KDF、载荷字段完全不同，所以是两套独立实现，
  *   只在入口处按内容 Magic 分流（[AexImport.detect]）：用户选错文件也能自动走对的那条。
  *
@@ -183,6 +185,47 @@ object AexImportSheet {
         } else {
             go()
         }
+    }
+
+    /* ============================ ② 深链入口（AEX 1.1） ============================ */
+
+    /**
+     * 深链解析失败：只显示用户能看懂的原因，不打印链接 / payload。
+     */
+    @JvmStatic
+    fun showDeepLinkError(act: Activity?, message: String?) {
+        val activity = act ?: return
+        tip(activity, "无法导入链接", if (message.isNullOrBlank()) "链接无效，请重新从 Aivora 导出。" else message)
+    }
+
+    /**
+     * 深链确认：Aivora 的 `dollhouse://aivora-import` 是**明文**通道，
+     * 没有凭证、没有加密。规范要求必须由用户点「导入」后才能入库，
+     * 因此这里沿用文件通道的预览弹窗，只是多一行「来源 / 地址 / 密钥尾号」供核对。
+     *
+     * 【模型】AEX 1.1 的深链不带 models，确认后会按 `{baseUrl}/models` 拉一次；
+     *   失败只提示，不阻断导入。
+     */
+    @JvmStatic
+    fun startWithDeepLink(act: Activity?, result: AexDeepLink.Result?) {
+        val activity = act ?: return
+        val payload = result?.payload
+        if (result == null || !result.ok() || payload == null) {
+            showDeepLinkError(activity, result?.message())
+            return
+        }
+        val profile = AexDeepLink.toProfile(payload)
+        val warnings = ArrayList<String>()
+        warnings.add("深链为明文通道，请确认来源后再导入；导入后会尝试从服务端获取模型列表。")
+        if (payload.apiKey.isEmpty()) {
+            warnings.add("这条配置没有带密钥，导入后需要自己补。")
+        }
+        val preview = AexImport.Result(listOf(profile), null, warnings)
+        previewDialog(
+            activity, preview, "Aivora 深链",
+            sourceLabel = "来源：Aivora 外部链接（明文）",
+            external = true
+        )
     }
 
     /**
@@ -670,11 +713,17 @@ object AexImportSheet {
 
     /* ============================ ④ 预览 ============================ */
 
-    private fun previewDialog(act: Activity, result: AexImport.Result, fileName: String) {
+    private fun previewDialog(
+        act: Activity,
+        result: AexImport.Result,
+        fileName: String,
+        sourceLabel: String = "文件：" + fileName,
+        external: Boolean = false
+    ) {
         val ref = AtomicReference<Dialog?>()
         ref.set(
             DhForm.show(act, "确认导入") {
-                PreviewBody(act, result, fileName, ref)
+                PreviewBody(act, result, fileName, ref, sourceLabel, external)
             }
         )
     }
@@ -684,7 +733,9 @@ object AexImportSheet {
         act: Activity,
         result: AexImport.Result,
         fileName: String,
-        ref: AtomicReference<Dialog?>
+        ref: AtomicReference<Dialog?>,
+        sourceLabel: String,
+        external: Boolean
     ) {
         val c = DhTokens.colors
         val profiles = result.profiles
@@ -701,12 +752,24 @@ object AexImportSheet {
 
         if (!done) {
             Text(
-                text = "文件：" + fileName + "\n共 " + profiles.size + " 条配置" +
+                text = sourceLabel + "\n共 " + profiles.size + " 条配置" +
                     (if (conflicts > 0) "，其中 " + conflicts + " 条与本机供应商同名" else ""),
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fonts
             )
+            if (external && profiles.isNotEmpty()) {
+                // 深链是明文通道，确认页必须让用户核对来源；密钥只露尾 4 位。
+                Text(
+                    text = "地址：" + profiles[0].baseUrl + "\n密钥：" +
+                        AexDeepLink.maskKeyTail(profiles[0].apiKey),
+                    modifier = Modifier.padding(top = 6.dp),
+                    color = c.sub,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts,
+                    lineHeight = (UiKit.FS_TINY + 5f).sp
+                )
+            }
             // 【非致命提示】次版本偏新、个别条目被跳过等全部摆出来，不藏。
             if (result.warnings.isNotEmpty()) {
                 Text(
@@ -796,8 +859,17 @@ object AexImportSheet {
                     }
                     val selected = ArrayList<AexImport.AexProfile>()
                     profiles.forEachIndexed { i, p -> if (picked[i]) selected.add(p) }
-                    summary = apply(act, selected, mode)
+                    val outcome = apply(act, selected, mode)
+                    summary = outcome.summary
                     done = true
+                    // 【AEX 1.1】文件/深链都不再携带 models；导入成功后按 baseUrl 拉一次。
+                    //   失败只追加提示，不撤销已经写入的供应商。
+                    if (outcome.targets.isNotEmpty()) {
+                        summary += "\n\n正在获取模型列表…"
+                        fetchModels(act, outcome.targets) { extra ->
+                            summary += "\n" + extra
+                        }
+                    }
                 }
             }
         } else {
@@ -842,13 +914,17 @@ object AexImportSheet {
      *
      * 【坑】apiKey 必须先 KeyVault 加密再存 —— ProviderStore 里存的一律是密文。
      */
-    private fun apply(act: Activity, profiles: List<AexImport.AexProfile>, mode: Int): String {
+    private class ApplyOutcome(val summary: String, val targets: List<Provider>)
+
+    private fun apply(act: Activity, profiles: List<AexImport.AexProfile>, mode: Int): ApplyOutcome {
         val ctx: Context = act.applicationContext
         var created = 0
         var updated = 0
         var skipped = 0
         var modelsAdded = 0
         val failed = ArrayList<String>()
+        // 【AEX 1.1】需要在导入成功后补拉 /models 的供应商。
+        val targets = ArrayList<Provider>()
 
         for (p in profiles) {
             try {
@@ -872,6 +948,9 @@ object AexImportSheet {
                         applyDollhouseJson(ctx, p, same)
                         ProviderStore.saveProvider(ctx, same)
                         modelsAdded += addModels(ctx, same.id, p)
+                        if (needsModelFetch(p)) {
+                            targets.add(same)
+                        }
                         updated++
                     }
                     else -> {
@@ -888,6 +967,9 @@ object AexImportSheet {
                         applyDollhouseJson(ctx, p, np)
                         ProviderStore.saveProvider(ctx, np)
                         modelsAdded += addModels(ctx, np.id, p)
+                        if (needsModelFetch(p)) {
+                            targets.add(np)
+                        }
                         created++
                     }
                 }
@@ -915,7 +997,19 @@ object AexImportSheet {
             sb.append("\n未能导入 ").append(failed.size).append(" 条：").append(failed.joinToString("、"))
         }
         sb.append("\n\n密钥已加密保存，可在供应商详情里核对。")
-        return sb.toString()
+        return ApplyOutcome(sb.toString(), targets)
+    }
+
+    /**
+     * 只有「没有模型列表」且不是自家 JSON 备份的条目才需要补拉。
+     * 自家 JSON 是用户自己的完整备份，不该在恢复时偷偷联网。
+     */
+    private fun needsModelFetch(p: AexImport.AexProfile): Boolean {
+        return p.sourceProvider == null &&
+            p.models.isEmpty() &&
+            p.defaultModel.isEmpty() &&
+            p.hasBaseUrl && p.baseUrl.isNotBlank() &&
+            p.hasApiKey && p.apiKey.isNotBlank()
     }
 
     private fun findByName(ctx: Context, name: String): Provider? {
@@ -965,6 +1059,61 @@ object AexImportSheet {
             added++
         }
         return added
+    }
+
+    /**
+     * AEX 1.1：导入后按 `{baseUrl}/models` 补拉模型。
+     *
+     * 【容错】任何一家失败都只记摘要，不影响已写入的供应商；网络失败、Key 无权限、
+     *   接口不规范都算「没取到」，用户可以稍后到供应商详情里手动添加。
+     * 【线程】[ProviderNav.fetchModels] 自己开线程并在主线程回调，这里不阻塞 UI。
+     */
+    private fun fetchModels(act: Activity, targets: List<Provider>, onDone: (String) -> Unit) {
+        val ctx: Context = act.applicationContext
+        var remaining = targets.size
+        var added = 0
+        val failed = ArrayList<String>()
+        for (pv in targets) {
+            ProviderNav.fetchModels(act, pv, object : ProviderNav.ModelsCallback {
+                override fun onDone(models: MutableList<String>?, error: String?) {
+                    if (models != null && models.isNotEmpty()) {
+                        for (name in models) {
+                            if (name.isBlank() || ModelStore.modelExists(ctx, pv.id, name, null)) {
+                                continue
+                            }
+                            val m = AiModel()
+                            m.id = ProviderStore.newId()
+                            m.displayName = name
+                            m.providerId = pv.id
+                            m.kind = AiModel.KIND_CHAT
+                            m.enabled = true
+                            ModelStore.saveModel(ctx, m)
+                            added++
+                        }
+                    } else {
+                        failed.add(pv.name + "：" + (error ?: "接口没返回模型列表"))
+                    }
+                    remaining--
+                    if (remaining == 0) {
+                        val sb = StringBuilder()
+                        if (added > 0) {
+                            sb.append("已从服务端获取模型 ").append(added).append(" 个。")
+                        }
+                        if (failed.isNotEmpty()) {
+                            if (sb.isNotEmpty()) {
+                                sb.append("\n")
+                            }
+                            sb.append("以下供应商没取到模型，可稍后手动添加：\n")
+                                .append(failed.joinToString("\n"))
+                        }
+                        if (sb.isEmpty()) {
+                            sb.append("没有获取到模型，可稍后手动添加。")
+                        }
+                        onDone(sb.toString())
+                    }
+                }
+            })
+        }
     }
 
     /**

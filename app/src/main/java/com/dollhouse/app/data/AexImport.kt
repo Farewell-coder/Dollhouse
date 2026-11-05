@@ -14,14 +14,15 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * 【职责】读取 Aivora 通过 AEX 1.0（Aivora Exchange Protocol）导出的 `.akcp` 文件，
+ * 【职责】读取 Aivora 通过 AEX 1.1（Aivora Exchange Protocol）导出的 `.akcp` 文件，
  *        校验 / 解密 / 解析，翻译成本 App 的供应商与模型。
  *
  * ## 规范来源
  * 实现严格对齐 `Farewell-coder/Aivora` 仓库 `protocol/` 目录下的正式文档：
  * `AEX-SPECIFICATION.md`、`AEX-SECURITY.md`、`AEX-SCHEMA.json`、`examples/encrypted-package.md`。
- * 该协议在仓库里标注为 **Draft（尚未冻结）**，因此本实现的所有协议常量都集中在
- * 本文顶部的「常量区」，对方冻结 / 调整时只需改这一处。
+ * AEX 1.1 已于 Aivora 0.0.8 定稿：`profiles[]` 不再包含 `models` / `defaultModel`，
+ * 接收方在导入后自行请求 `GET {baseUrl}/models`。本实现同时兼容读取 1.0 文件
+ * （规范允许第三方自行决定是否按次版本放行），但新导出一律按 1.1 处理。
  *
  * ## 容器结构（与 AKCP 完全不同）
  * ```
@@ -33,7 +34,7 @@ import javax.crypto.spec.SecretKeySpec
  * ```
  * 约束：整文件 ≤ 16 MiB；`12 + H + ciphertextLength` 必须**严丝合缝**等于文件长度（禁止尾部多余字节）。
  *
- * ## 加密参数（AEX 1.0 固定值）
+ * ## 加密参数（AEX 1.1 固定值）
  * - KDF：PBKDF2-HMAC-SHA256，迭代 600000（合法范围 100000–2000000），dkLen 32
  * - Cipher：AES-256-GCM，tag 128 bit，salt 16 字节，nonce 12 字节
  * - **AAD = Magic ‖ 头部长度(4B BE) ‖ 头部 JSON 原始字节**
@@ -95,6 +96,14 @@ object AexImport {
 
     /** 本实现支持的主版本。 */
     private const val PROTOCOL_MAJOR = 1
+
+    /**
+     * 本实现支持的次版本上限。
+     *
+     * 1.1 起不再有 models/defaultModel；本实现仍可读 1.0 文件，因此下限不设。
+     * 遇到更高的次版本（如 1.2）按 1.1 规则尽力读取并给出 warning，不静默当作同版。
+     */
+    private const val PROTOCOL_MINOR = 1
 
     /** 凭证连续失败次数上限与冷却（规范：不得无限制尝试验证）。 */
     private const val MAX_ATTEMPTS = 5
@@ -423,8 +432,8 @@ object AexImport {
         if (major < PROTOCOL_MAJOR) {
             return Result(emptyList(), Reason.UNSUPPORTED_VERSION)
         }
-        if (minorOf(pv) > 0) {
-            warnings.add("文件使用 AEX " + pv + "，本版按 1.0 规则读取。")
+        if (minorOf(pv) > PROTOCOL_MINOR) {
+            warnings.add("文件使用 AEX " + pv + "，本版按 1.1 规则读取。")
         }
         if (header.optString("kdf", "") != KDF_NAME) {
             return Result(emptyList(), Reason.UNSUPPORTED_PARAMETER)
@@ -486,7 +495,7 @@ object AexImport {
             cipher.updateAAD(aad)
             // 认证失败在这里抛 AEADBadTagException —— 直接整体拒绝，绝不返回部分明文。
             val plain = cipher.doFinal(bytes, 12 + headerLen, ciphertextLen)
-            val r = parsePayload(String(plain, Charsets.UTF_8))
+            val r = parsePayload(String(plain, Charsets.UTF_8), pv)
             if (r.ok()) {
                 noteSuccess()
                 Result(r.profiles, null, warnings + r.warnings)
@@ -570,7 +579,7 @@ object AexImport {
      *   `profiles` 长度 ≥ 1；每条必填 `id` / `name`（都是 minLength 1）。
      * 【不连坐】某条不合法只跳过该条并记 warning，不破坏其它合法配置。
      */
-    private fun parsePayload(text: String): Result {
+    private fun parsePayload(text: String, headerVersion: String): Result {
         val root = try {
             JSONObject(text)
         } catch (t: Throwable) {
@@ -587,6 +596,16 @@ object AexImport {
         val major = majorOf(pv) ?: return Result(emptyList(), Reason.INVALID_PAYLOAD)
         if (major > PROTOCOL_MAJOR) {
             return Result(emptyList(), Reason.UNSUPPORTED_VERSION)
+        }
+        if (major < PROTOCOL_MAJOR) {
+            return Result(emptyList(), Reason.INVALID_PAYLOAD)
+        }
+        // 【1.1 新增】头部与载荷的协议版本必须一致，避免拼装文件里两处版本各说各话。
+        if (pv != headerVersion) {
+            return Result(emptyList(), Reason.INVALID_PAYLOAD)
+        }
+        if (minorOf(pv) > PROTOCOL_MINOR) {
+            warnings.add("文件使用 AEX " + pv + "，本版按 1.1 规则读取。")
         }
         // exportedAt：Schema 要求 date-time 字符串。这里只做存在性 + 字符串类型检查，
         //   不做严格 RFC3339 解析 —— 时间戳只用于展示，严格化会让时钟异常的导出方整份文件作废。

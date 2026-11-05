@@ -95,7 +95,7 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- 【AEX 1.0 接收入口】Aivora 分享出来的 .akcp 配置文件：
+        <!-- 【AEX 1.1 接收入口】Aivora 分享出来的 .akcp 文件与 dollhouse://aivora-import 深链：
              支持系统分享（SEND / SEND_MULTIPLE）与「用其它应用打开」（VIEW）。
              【为什么单独一个 Activity】规范第三节要求系统级入口，并强调必须用 ContentResolver
              读 content:// URI、不得转成文件路径、读取完成前不得释放临时授权 ——
@@ -169,6 +169,18 @@
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.akcp" />
             </intent-filter>
+            <!-- ⑤ 【AEX 1.1 深链】Aivora 0.0.8 起的「一键传递单条配置」：
+                 dollhouse://aivora-import?d=<base64url>&v=1
+                 【为什么也用本页】深链不需要读文件，但同样要「解析 → 放内存 → 唤主界面」；
+                 复用同一个 NoDisplay 中转页，避免再开一个 exported Activity。
+                 【BROWSABLE】Android 11+ 的包可见性查询要求接收方声明它，否则
+                 Aivora 的 queryIntentActivities 可能看不到 Dollhouse。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dollhouse" android:host="aivora-import" />
+            </intent-filter>
         </activity>
 
         <!-- 外部链接落地页：浏览器 / 自动化软件 / 终端 am start 都能拉起。
@@ -188,7 +200,10 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="dollhouse" />
+                <!-- 【收窄到 host=pet】AEX 深链用的是 dollhouse://aivora-import；
+                     不收窄的话两个 Activity 都会匹配，系统可能把配置投给 PetLink，
+                     表现为「点了深链没反应」。这里只接桌面宠物指令。 -->
+                <data android:scheme="dollhouse" android:host="pet" />
             </intent-filter>
             <intent-filter>
                 <action android:name="com.dollhouse.app.action.PET_ON" />

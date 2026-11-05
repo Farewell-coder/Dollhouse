@@ -1,4 +1,35 @@
 # 更新记录
+## v0.2.2 · 接入 AEX 1.1：Aivora 文件与深链导入
+
+Aivora 0.0.8 把配置交换协议升到 AEX 1.1：`profiles[]` 不再携带模型列表，并新增
+`dollhouse://aivora-import` 深链通道。本版把这两条通道都接上，Dollhouse 也成为
+Aivora 生态页里登记的支持应用。
+
+### 新增：Aivora 深链一键导入
+- 接收 `dollhouse://aivora-import?d=<base64url>&v=1`，解析明文载荷并弹确认页
+- 确认页标明「来源：Aivora 外部链接（明文）」，显示地址与**密钥尾 4 位**，不显示完整 Key
+- 用户点「导入」后才写入；同一链接可重复使用（不做去重）
+- 缺 `d`、base64 损坏、JSON 损坏、kind/schema 不匹配、版本过新、名称/地址为空、超长等
+  都有明确提示，且不崩溃
+- 不把链接、`d` 参数或 Key 写进日志；失败也不留半条配置
+
+### 变更：AEX 1.1 文件导入
+- 头部与载荷都接受 `1.1`；仍兼容读取 `1.0`（1.0 的 models/defaultModel 保留）
+- 头部与载荷的 `protocolVersion` 必须一致，防止拼装文件
+- 1.1 不再有 models：导入成功后按 `{baseUrl}/models` 自动补拉；失败只提示、不撤销已导入的供应商
+- 官方 1.1 测试向量 `single.akcp` / `multiple.akcp` 纳入单测；补充深链必测用例
+
+### 生态登记
+- Aivora `protocol/ECOSYSTEM.md` 已加入 Dollhouse：文件+深链、AEX 1.1、兼容等级 2、状态「自行声明」
+- Aivora 的深链接收方注册表原本已登记 `dollhouse://aivora-import`
+
+### 安全
+- 深链是明文通道：不落日志、不写文件、不进剪贴板；确认后由 `KeyVault` 加密保存
+- 文件通道继续使用 AEX 的 AES-256-GCM + PBKDF2 600k，凭证不落盘
+
+### 版本
+- `versionCode 22` / `versionName 0.2.2`
+
 ## v0.2.1 · 修复 max_tokens 越界把请求打挂、诊断中心不记录接口报错
 
 本版修掉两个「平时不吭声、出问题就没线索」的毛病：一个是让 DeepSeek 直接 400 拒单的

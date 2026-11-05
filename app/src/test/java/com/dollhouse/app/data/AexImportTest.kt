@@ -19,7 +19,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * 【职责】AEX 1.0 的解析 / 拒绝路径回归测试，严格对齐官方 `protocol/AEX-TEST-VECTORS.md` 的
+ * 【职责】AEX 1.1 的解析 / 拒绝路径回归测试，严格对齐官方 `protocol/AEX-TEST-VECTORS.md` 的
  *         向量清单（V01–V14）与 Schema 约束。
  *
  * ## 为什么自己造样本
@@ -72,14 +72,15 @@ class AexImportTest {
         headerOverride: ((JSONObject) -> Unit)? = null,
         saltBytes: ByteArray = salt,
         nonceBytes: ByteArray = nonce,
-        iterations: Int = 600000
+        iterations: Int = 600000,
+        headerVersion: String = "1.1"
     ): ByteArray {
         val payloadBytes = payload.toString().toByteArray(Charsets.UTF_8)
 
         // ① 头部 JSON（字段顺序固定，与官方示例一致）
         val header = JSONObject()
         header.put("format", "aivora.exchange/1")
-        header.put("protocolVersion", "1.0")
+        header.put("protocolVersion", headerVersion)
         header.put("kdf", "PBKDF2-HMAC-SHA256")
         header.put("iterations", iterations)
         header.put("salt", b64(saltBytes))
@@ -134,10 +135,10 @@ class AexImportTest {
     private fun b64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
 
     /** 构造一份符合 AEX-SCHEMA 的根对象。 */
-    private fun payload(vararg profiles: JSONObject): JSONObject {
+    private fun payload(vararg profiles: JSONObject, version: String = "1.1"): JSONObject {
         val root = JSONObject()
         root.put("format", "aivora.exchange/1")
-        root.put("protocolVersion", "1.0")
+        root.put("protocolVersion", version)
         root.put("exportedAt", "2026-11-01T09:00:00Z")
         root.put(
             "exporter", JSONObject()
@@ -155,8 +156,8 @@ class AexImportTest {
         provider: String? = "deepseek",
         baseUrl: String? = "https://api.deepseek.com/v1",
         apiKey: String? = "sk-EXAMPLE-REPLACE-ME",
-        models: List<String>? = listOf("deepseek-chat", "deepseek-reasoner"),
-        defaultModel: String? = "deepseek-chat",
+        models: List<String>? = null,
+        defaultModel: String? = null,
         description: String? = null
     ): JSONObject {
         val o = JSONObject()
@@ -190,10 +191,25 @@ class AexImportTest {
         // 【关键】baseUrl 必须原样保留，不得裁剪或补斜杠（规范「不得擅自改变原始值」）。
         assertEquals("https://api.deepseek.com/v1", p.baseUrl)
         assertEquals("sk-EXAMPLE-REPLACE-ME", p.apiKey)
-        // models 顺序必须保留
-        assertEquals(listOf("deepseek-chat", "deepseek-reasoner"), p.models)
-        assertEquals("deepseek-chat", p.defaultModel)
+        // AEX 1.1 不再携带模型列表；这里必须为空，模型由导入后 /models 拉取。
+        assertTrue("1.1 不应带 models", p.models.isEmpty())
+        assertTrue("1.1 不应带 defaultModel", p.defaultModel.isEmpty())
+        assertFalse("1.1 不应触发 1.0 兼容提示", r.warnings.any { it.contains("按 1.0") })
         assertEquals("日常对话用", p.description)
+    }
+
+    /** 兼容：1.0 文件仍可读，并保留其中的 models / defaultModel。 */
+    @Test
+    fun `1_0 文件仍可读并保留模型字段`() {
+        val p = profile(
+            models = listOf("deepseek-chat", "deepseek-reasoner"),
+            defaultModel = "deepseek-chat"
+        )
+        val bytes = build(payload(p, version = "1.0"), headerVersion = "1.0")
+        val r = AexImport.parse(bytes, credential, "x.akcp")
+        assertTrue("1.0 兼容读取失败：" + r.code(), r.ok())
+        assertEquals(listOf("deepseek-chat", "deepseek-reasoner"), r.profiles[0].models)
+        assertEquals("deepseek-chat", r.profiles[0].defaultModel)
     }
 
     /** V02：仅 id + name，其余字段缺失 → 语义为「未设置」。 */
@@ -427,7 +443,7 @@ class AexImportTest {
     fun `profiles 为空被拒绝`() {
         val root = JSONObject()
         root.put("format", "aivora.exchange/1")
-        root.put("protocolVersion", "1.0")
+        root.put("protocolVersion", "1.1")
         root.put("exportedAt", "2026-11-01T09:00:00Z")
         root.put("exporter", JSONObject().put("name", "Aivora").put("version", "0.0.5"))
         root.put("profiles", JSONArray())
@@ -498,13 +514,13 @@ class AexImportTest {
         assertEquals("sk-E…E-ME", AexImport.maskKey("sk-EXAMPLE-REPLACE-ME"))
     }
 
-    /** 次版本偏新（1.1）仍可读，并给出提示。 */
+    /** 更高次版本（1.2）仍按 1.1 规则读取，并明确提示。 */
     @Test
-    fun `次版本偏新仍可读并提示`() {
-        val bytes = build(payload(profile()), headerOverride = { it.put("protocolVersion", "1.1") })
+    fun `更高次版本仍可读并提示`() {
+        val bytes = build(payload(profile(), version = "1.2"), headerVersion = "1.2")
         val r = AexImport.parse(bytes, credential, "x.akcp")
         assertTrue("实际：" + r.code(), r.ok())
-        assertTrue(r.warnings.any { it.contains("1.1") })
+        assertTrue(r.warnings.any { it.contains("1.2") })
     }
 
     // ==================== 官方测试向量互通（V01 / V03） ====================
@@ -543,9 +559,9 @@ class AexImportTest {
         assertEquals("custom", p.provider)
         assertEquals("https://example.invalid/v1", p.baseUrl)
         assertEquals("sk-EXAMPLE-NOT-REAL", p.apiKey)
-        // models 顺序必须与文件一致
-        assertEquals(listOf("model-a", "model-b"), p.models)
-        assertEquals("model-a", p.defaultModel)
+        // AEX 1.1 官方向量不带模型字段
+        assertTrue(p.models.isEmpty())
+        assertTrue(p.defaultModel.isEmpty())
         assertEquals("synthetic test vector", p.description)
     }
 
@@ -562,8 +578,8 @@ class AexImportTest {
         assertEquals(3, r.profiles.size)
         // 顺序：Alpha → Beta → Gamma
         assertEquals(listOf("Alpha", "Beta", "Gamma"), r.profiles.map { it.name })
-        // Beta 的 models 顺序必须保留
-        assertEquals(listOf("m2", "m3"), r.profiles[1].models)
+        // AEX 1.1 官方向量不再带 models
+        assertTrue(r.profiles[1].models.isEmpty())
         // Gamma 只有 id/name/provider：baseUrl / apiKey 必须被识别为「不存在」而非「空串」
         val gamma = r.profiles[2]
         assertFalse("Gamma 不该有 baseUrl", gamma.hasBaseUrl)
