@@ -417,7 +417,7 @@ object AboutPage {
             Text(
                 text = title,
                 color = c.title,
-                fontSize = 18.sp,
+                fontSize = 18.sp, lineHeight = 27.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )

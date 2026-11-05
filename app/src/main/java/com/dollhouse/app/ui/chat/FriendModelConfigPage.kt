@@ -60,7 +60,7 @@ object FriendModelConfigPage {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DhKit.IconButton(Icons.IC_ARROW_LEFT, 20f, c.title) { PageStack.pop(act) }
-                Text("模型与生成", color = c.title, fontSize = 20.sp)
+                Text("模型与生成", color = c.title, fontSize = 20.sp, lineHeight = 29.sp)
             }
             DhForm.Note("未开启独立模型时继承全局；Provider 凭据只按引用使用。")
             DhKit.SwitchRow(name = "独立模型", desc = "只修改当前好友，不改变其他好友", checked = overrideModel) { overrideModel = it }

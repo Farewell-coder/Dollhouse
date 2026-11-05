@@ -59,7 +59,7 @@ object ConversationHistoryPage {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 DhKit.IconButton(Icons.IC_ARROW_LEFT, 20f, c.title) { PageStack.pop(act) }
-                Text("历史会话", color = c.title, fontSize = 20.sp)
+                Text("历史会话", color = c.title, fontSize = 20.sp, lineHeight = 29.sp)
             }
             DhKit.OutlineChip(text = "新建会话", iconRes = Icons.IC_PLUS) {
                 ChatSessions.createForDoll(act, personaId)
@@ -86,6 +86,6 @@ object ConversationHistoryPage {
         }, "取消") { DhForm.Input(draftName, { draftName = it }, hint = "会话名称", keyboard = androidx.compose.ui.text.input.KeyboardType.Text) }
         if (deleting != null) DhForm.Alert("删除这段会话？", { deleting = null }, "删除", {
             ChatSessions.delete(act, deleting!!); ChatDraftStore.clear(act, personaId, deleting!!); deleting = null; rev++
-        }, "取消") { Text("只删除此会话的消息，不删除好友、人格、记忆或其他会话。", color = c.sub, fontSize = 14.sp) }
+        }, "取消") { Text("只删除此会话的消息，不删除好友、人格、记忆或其他会话。", color = c.sub, fontSize = 14.sp, lineHeight = 21.sp) }
     }
 }

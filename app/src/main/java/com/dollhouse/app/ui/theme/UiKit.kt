@@ -1531,6 +1531,9 @@ object UiKit {
         t.setTextSize(16.0f)
         t.setTextColor(TITLE)
         t.typeface = com.dollhouse.app.ui.theme.Fonts.uiBold(ctx)
+        // 【v0.2.3】标题可能换行（导入确认页的「确认导入」+ 文件名），
+        //   没有行距时两行会贴在一起。与正文同一口径 +3dp。
+        t.setLineSpacing(dp(ctx, 3).toFloat(), 1.0f)
         return t
     }
 
@@ -1797,6 +1800,9 @@ object UiKit {
             t2.text = sub
             t2.setTextSize(FS_SUB)
             t2.setTextColor(SUB)
+            // 【v0.2.3】副标题此前没有行距：多行时会挤成一块（「设置」页说明文字尤其明显）。
+            //   与 dialogMessage 统一到同一档（+3dp），全 App 说明文字行距一致。
+            t2.setLineSpacing(dp(ctx, 3).toFloat(), 1.0f)
             t2.setPadding(0, dp(ctx, 2), 0, 0)
             titles.addView(t2)
         }
@@ -1838,6 +1844,8 @@ object UiKit {
         t.text = text
         t.setTextSize(FS_TINY)
         t.setTextColor(fg)
+        // 【v0.2.3】12sp 在浅底上本就偏小，没有行距时上行字会贴住上一块卡片。
+        t.setLineSpacing(dp(ctx, 2).toFloat(), 1.0f)
         t.setPadding(dp(ctx, 8), dp(ctx, 3), dp(ctx, 8), dp(ctx, 3))
         t.background = round(bg, ctx, 999f)
         return t

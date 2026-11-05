@@ -108,6 +108,23 @@ object DhKit {
     const val GAP_CARD = 10
     /** 卡片内边距（dp）← HomeCards.buildCard 的 16f。 */
     const val PAD_CARD = 16
+
+    /* ============================ 文本样式（v0.2.3·统一行高） ============================
+     * 【为什么新增这一组】全工程 36 处内联 `fontSize = X.sp`，**没有一处带 lineHeight**
+     *   —— Compose 的 Text 在不给行高时会用「字体的 lineHeight」，而本工程用的是自带
+     *   单字重字体派生的粗体，行高比系统字体更紧。结果就是中文多行文案上下贴在一起，
+     *   用户反馈的「文字错位、阅读性低」里很大一部分来自这里。
+     * 【为什么行高取 1.45 倍】中文行距的经验区间是 1.4–1.5；取 1.45 在 1080p / 3x 上
+     *   既不会松到散架，也足够让 12sp 的小字在浅底上不粘连。
+     * 【为什么按 UiKit.FS_* 取值而不是另起一套】字号已经收口在 [UiKit] 的 FS_* 常量，
+     *   再造一份 13/14sp 只会让「同一个正文两种大小」的老问题复发。
+     */
+    /** 页面标题行的行高（20sp → 29）。 */
+    const val LH_TITLE = 29
+    /** 正文 / 按钮文案的行高（15sp → 22）。 */
+    const val LH_BTN = 22
+    /** 说明 / 副标题的行高（12sp → 18）。 */
+    const val LH_SUB = 18
     /** 行内边距（dp）← HomeCards.valueRow 的 12f。 */
     const val PAD_ROW = 12
     /** 行间距（dp）← HomeCards.valueRow 的 topMargin 8f。 */

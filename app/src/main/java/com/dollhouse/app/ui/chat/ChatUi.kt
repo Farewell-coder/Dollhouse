@@ -230,7 +230,7 @@ object ChatUi {
                     Text(
                         text = name,
                         color = c.title,
-                        fontSize = 16.sp,
+                        fontSize = 16.sp, lineHeight = 24.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -299,7 +299,7 @@ object ChatUi {
             Text(
                 text = "${(ratio * 100f).roundToInt()}",
                 color = c.title,
-                fontSize = 10.sp,
+                fontSize = 10.sp, lineHeight = 15.sp,
                 fontFamily = DhTokens.fontsBold
             )
         }

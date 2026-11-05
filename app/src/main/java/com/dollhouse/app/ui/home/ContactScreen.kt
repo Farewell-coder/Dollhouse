@@ -209,7 +209,7 @@ object ContactScreen {
             Text(
                 text = name,
                 color = c.sub,
-                fontSize = 13.sp,
+                fontSize = 13.sp, lineHeight = 19.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )
@@ -217,7 +217,7 @@ object ContactScreen {
             Text(
                 text = count.toString(),
                 color = c.line,
-                fontSize = 12.sp,
+                fontSize = 12.sp, lineHeight = 18.sp,
                 fontFamily = DhTokens.fonts
             )
             if (isNone) {
@@ -226,7 +226,7 @@ object ContactScreen {
                 Text(
                     text = "· 没归组的人偶",
                     color = c.line,
-                    fontSize = 11.sp,
+                    fontSize = 11.sp, lineHeight = 16.sp,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -287,7 +287,7 @@ object ContactScreen {
                         text = doll.name,
                         modifier = Modifier.weight(1f, fill = false),
                         color = c.title,
-                        fontSize = 16.sp,
+                        fontSize = 16.sp, lineHeight = 24.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -310,7 +310,7 @@ object ContactScreen {
                     Text(
                         text = brief,
                         color = c.sub,
-                        fontSize = 12.sp,
+                        fontSize = 12.sp, lineHeight = 18.sp,
                         fontFamily = DhTokens.fonts,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -334,14 +334,14 @@ object ContactScreen {
                 Text(
                     text = "还没有人偶",
                     color = c.sub,
-                    fontSize = 15.sp,
+                    fontSize = 15.sp, lineHeight = 22.sp,
                     fontFamily = DhTokens.fonts
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = "建一只，她就会在这里出现",
                     color = c.line,
-                    fontSize = 12.sp,
+                    fontSize = 12.sp, lineHeight = 18.sp,
                     fontFamily = DhTokens.fonts
                 )
                 Spacer(Modifier.height(14.dp))
@@ -397,6 +397,9 @@ object ContactScreen {
                         .pressable { onPick(l) },
                     contentAlignment = Alignment.Center
                 ) {
+                    // 【v0.2.3·不加行高】这里刻意**不**套统一行高：单个字母 10sp，
+                    //   而行高只有 14~20dp（按字母数动态分配）—— 加 15sp 行高后文字比格子还高，
+                    //   会被裁掉半截。侧栏是「每格一个字」的单行文本，不存在多行挤压问题。
                     Text(
                         text = l,
                         color = c.sub,

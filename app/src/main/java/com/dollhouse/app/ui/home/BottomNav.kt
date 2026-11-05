@@ -162,7 +162,7 @@ object BottomNav {
             Text(
                 text = text,
                 color = androidx.compose.ui.graphics.Color.White,
-                fontSize = 10.sp,
+                fontSize = 10.sp, lineHeight = 15.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )

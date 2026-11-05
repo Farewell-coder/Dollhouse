@@ -55,7 +55,7 @@ fun MiniChart(
                 text = "暂无消耗",
                 modifier = Modifier.align(Alignment.Center),
                 color = c.sub,
-                fontSize = 13.sp,
+                fontSize = 13.sp, lineHeight = 19.sp,
                 fontFamily = DhTokens.fonts
             )
             return@Box

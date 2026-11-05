@@ -120,14 +120,14 @@ object DollGroupPage {
                         Text(
                             text = if (allNames.isEmpty()) "还没有分组" else "分组还是空的",
                             color = c.sub,
-                            fontSize = 15.sp,
+                            fontSize = 15.sp, lineHeight = 22.sp,
                             fontFamily = DhTokens.fonts
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
                             text = "点右上角的文件夹图标新建一个",
                             color = c.line,
-                            fontSize = 12.sp,
+                            fontSize = 12.sp, lineHeight = 18.sp,
                             fontFamily = DhTokens.fonts
                         )
                     }

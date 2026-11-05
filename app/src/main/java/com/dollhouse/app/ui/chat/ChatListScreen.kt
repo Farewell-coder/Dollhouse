@@ -450,7 +450,7 @@ object ChatListScreen {
                         text = row.title,
                         modifier = Modifier.weight(1f, fill = false),
                         color = c.title,
-                        fontSize = 16.sp,
+                        fontSize = 16.sp, lineHeight = 24.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -465,7 +465,7 @@ object ChatListScreen {
                 Text(
                     text = row.preview,
                     color = c.sub,
-                    fontSize = 13.sp,
+                    fontSize = 13.sp, lineHeight = 19.sp,
                     fontFamily = DhTokens.fonts,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -476,7 +476,7 @@ object ChatListScreen {
                 Text(
                     text = timeText(row.time),
                     color = c.sub,
-                    fontSize = 11.sp,
+                    fontSize = 11.sp, lineHeight = 16.sp,
                     fontFamily = DhTokens.fonts
                 )
                 if (row.unread > 0) {
@@ -533,7 +533,7 @@ object ChatListScreen {
             Text(
                 text = if (n > 99) "99+" else n.toString(),
                 color = Color.White,
-                fontSize = 10.sp,
+                fontSize = 10.sp, lineHeight = 15.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )
@@ -553,7 +553,7 @@ object ChatListScreen {
             Text(
                 text = text,
                 color = c.acc,
-                fontSize = 10.sp,
+                fontSize = 10.sp, lineHeight = 15.sp,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -575,7 +575,7 @@ object ChatListScreen {
                 Text(
                     text = if (searching) "没有匹配的会话" else "还没有对话",
                     color = c.sub,
-                    fontSize = 15.sp,
+                    fontSize = 15.sp, lineHeight = 22.sp,
                     fontFamily = DhTokens.fonts
                 )
                 if (!searching) {
@@ -583,7 +583,7 @@ object ChatListScreen {
                     Text(
                         text = "每一只人偶自带一个对话",
                         color = c.line,
-                        fontSize = 12.sp,
+                        fontSize = 12.sp, lineHeight = 18.sp,
                         fontFamily = DhTokens.fonts
                     )
                     Spacer(Modifier.height(14.dp))

@@ -449,7 +449,7 @@ object DhForm {
                 Text(
                     text = title,
                     color = c.title,
-                    fontSize = 16.sp,
+                    fontSize = 16.sp, lineHeight = 24.sp,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = FontWeight.Bold
                 )
@@ -582,7 +582,7 @@ object DhForm {
                     Text(
                         text = title,
                         color = c.title,
-                        fontSize = 16.sp,
+                        fontSize = 16.sp, lineHeight = 24.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )

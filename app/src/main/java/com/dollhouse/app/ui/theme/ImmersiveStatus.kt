@@ -42,8 +42,9 @@ import androidx.core.view.WindowInsetsControllerCompat
  *   键盘收起（或窗口重新获焦）才重新隐藏状态栏，绝不在每次 insets 事件里抢系统临时状态栏。
  *
  * 【双扣修正】insets 监听挂在 android.R.id.content（不是 decor）。返回时只把自己消费的
- *   statusBars / navigationBars / displayCutout / ime 四类按 0 下传（copy builder setInsets），
+ *   statusBars / navigationBars / ime 三类按 0 下传（copy builder setInsets），
  *   既不返回 CONSUMED 吞掉其它类型，也不会让 DecorView 再默认扣一次 insets。
+ *   displayCutout **不从本类归零**：顶部挖孔由各页面自己避让（详见 [consumeHandled]）。
  *
  * 【边界】不自绘状态栏、不 show/hide 导航栏、不全局消费 IME。浮动 Service / PickFile / PetLink 不接本类。
  */
@@ -194,15 +195,26 @@ object ImmersiveStatus {
     }
 
     /**
-     * 把自己处理过的四类 insets 归零后下传，其余类型原样保留。
+     * 把自处理过的 insets 归零后下传，其余类型原样保留。
      * 【为何不返回 CONSUMED】CONSUMED 会吞掉全部类型；这里只对消费的类型归零，
      *   其它 insets（系统手势 / 未来新增类型）仍能到达下游，悬浮 Service 不受影响。
+     *
+     * 【v0.2.3·修「聊天页顶部被摄像头压住」】displayCutout 以前也被归零，理由是
+     *   「顶部安全区由 UiKit.cutoutSafeInsets 在构建时读物理 cutout」——那只对 **View 页面**
+     *   成立：UiKit.topBar 走 bindCutoutPadding，自己读 rootWindowInsets，不看这套 insets。
+     *   而 Compose 写的聊天顶栏（ChatUi.TopBarRow）和二级页外壳（DhKit.Page）用的是
+     *   `WindowInsets.displayCutout`，它们只会拿到这里下传的值 —— 归零之后恒为 0，
+     *   于是挖孔屏上头像与返回按钮会被前摄区域压住（用户反馈的「顶部错位」）。
+     *
+     * 【现在谁负责什么】
+     *   · 底部（导航栏 / IME）：仍由本类统一让位（根 content 加 padding）——Compose 侧不做。
+     *   · 顶部（cutout）：交回给各页面自己避让，本类只做**透传**，不再归零。
+     *   · 状态栏：本应用是沉浸式（隐藏），不参与布局，继续归零以免下游误留白。
      */
     private fun consumeHandled(insets: WindowInsetsCompat): WindowInsetsCompat {
         return WindowInsetsCompat.Builder(insets)
             .setInsets(WindowInsetsCompat.Type.statusBars(), Insets.NONE)
             .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.NONE)
-            .setInsets(WindowInsetsCompat.Type.displayCutout(), Insets.NONE)
             .setInsets(WindowInsetsCompat.Type.ime(), Insets.NONE)
             .build()
     }

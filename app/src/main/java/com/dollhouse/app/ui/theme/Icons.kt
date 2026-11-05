@@ -426,6 +426,36 @@ object Icons {
     @JvmField
     val IC_KEY_ROUND = R.drawable.ic_key_round
 
+    /* ================= v0.2.3 · AEX 导入链路补图（官方 Lucide 几何） =================
+     * 【来源】tools/gen_lucide.py 从 lucide-icons/lucide 官方 SVG 生成，
+     *   格式与既有图标完全一致：24dp 视口 / 线宽 2 / 圆角端点 / 白色占位描边。
+     * 【为什么补这几个】AEX 文件导入与 `dollhouse://aivora-import` 深链是 v0.2.2 新增能力，
+     *   但确认弹窗里只有文字没有图标，警告、来源、模型拉取结果全靠读字，
+     *   「看不出哪行是提醒、哪行是结果」。这里补的就是那几个缺语义的位。
+     * 【重跑方式】`python3 tools/gen_lucide.py`，清单在脚本的 ICON_MAP 里。
+     */
+    /** 文件输入（Lucide file-input）：AEX `.akcp` 文件导入。 */
+    @JvmField
+    val IC_FILE_INPUT = R.drawable.ic_file_input
+    /** 文件输出（Lucide file-output）：导出 / 分享文件。 */
+    @JvmField
+    val IC_FILE_OUTPUT = R.drawable.ic_file_output
+    /** 上传（Lucide upload）：导出到本地 / 分享。 */
+    @JvmField
+    val IC_UPLOAD = R.drawable.ic_upload
+    /** 分享（Lucide share-2）：系统分享面板。 */
+    @JvmField
+    val IC_SHARE_2 = R.drawable.ic_share_2
+    /** 圆形对勾（Lucide circle-check）：导入成功 / 模型可用。 */
+    @JvmField
+    val IC_CIRCLE_CHECK = R.drawable.ic_circle_check
+    /** 刷新（Lucide refresh-cw）：重试 / 重新拉取模型。 */
+    @JvmField
+    val IC_REFRESH_CW = R.drawable.ic_refresh_cw
+    /** 时钟箭头（Lucide clock-arrow-down）：导出记录 / 历史。 */
+    @JvmField
+    val IC_CLOCK_ARROW_DOWN = R.drawable.ic_clock_arrow_down
+
     /* ================= v0.1.4 · 设置页 UI 统一新增（官方 Lucide 几何） =================
      * 【来源】lucide-static 官方 SVG（ISC 协议），本工程既有转换规范：
      *   24dp 视口 / 线宽 2 / 圆角端点 / 描边色占位白，运行期由主题上色。

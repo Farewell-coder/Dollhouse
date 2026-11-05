@@ -26,7 +26,7 @@ import com.dollhouse.app.ui.theme.*
                 is Block.Card -> CardBlock(block)
                 is Block.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp), color = DhTokens.colors.line)
                 is Block.Heading -> Text(block.text, color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
-                is Block.CodeBlock -> Text(block.code, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(10.dp)).padding(10.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                is Block.CodeBlock -> Text(block.code, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(10.dp)).padding(10.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp)
                 is Block.Paragraph -> if (enhanced) Text(block.text, color = DhTokens.colors.title, fontFamily = DhTokens.fonts, lineHeight = 22.sp)
             }
         } }
@@ -41,6 +41,8 @@ import com.dollhouse.app.ui.theme.*
             if (block.title.isNotBlank()) Text(block.title, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             if (block.body.isNotBlank()) Text(block.body, color = DhTokens.colors.title, fontFamily = DhTokens.fonts, lineHeight = 26.sp)
             block.sources.forEach { s -> Text(s.name + if (s.count > 0) " +${s.count}" else "", Modifier.background(DhTokens.colors.soft, RoundedCornerShape(99.dp)).padding(horizontal = 9.dp, vertical = 4.dp), color = DhTokens.colors.sub, fontSize = 12.sp) }
+            // 【v0.2.3·不加行高】来源药丸是单行短标签，高度由 padding 决定；
+            //   12sp 配 18sp 行高会把 4dp 上下留白吃掉，反而更局促。
         }
     }
 }

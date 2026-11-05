@@ -26,6 +26,8 @@ import com.dollhouse.app.ui.compose.DhTokens
             OperationRecorder.toggle(ctx)
         }, contentAlignment = Alignment.Center) {
             Text(if (OperationRecorder.recording) "停止" else "记录", color = DhTokens.colors.onAcc, fontSize = 12.sp)
+            // 【v0.2.3·不加行高】56dp 圆形按钮里是单行两字，行高不影响可读性，
+            //   加了会让文字在圆里偏下。
         }
     }
 }

@@ -644,13 +644,13 @@ object MemPage {
             Text(
                 text = "连线 = 关系",
                 color = c.line,
-                fontSize = 10.sp,
+                fontSize = 10.sp, lineHeight = 15.sp,
                 fontFamily = DhTokens.fonts
             )
             Text(
                 text = "大圈 = 关联多",
                 color = c.line,
-                fontSize = 10.sp,
+                fontSize = 10.sp, lineHeight = 15.sp,
                 fontFamily = DhTokens.fonts
             )
         }
