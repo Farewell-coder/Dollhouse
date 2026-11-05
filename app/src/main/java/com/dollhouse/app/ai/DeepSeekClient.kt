@@ -272,7 +272,7 @@ object DeepSeekClient {
                     //   【脱敏】message 会经 DiagnosticsFormat.redact 处理，
                     //     Bearer token / sk- 密钥 / 用户目录一律替换为占位符。
                     Logs.e("DollhouseHttp", "HTTP " + code + " " + urlText
-                            + " | max_tokens=" + body.opt("max_tokens")
+                            + " | max_tokens=" + (body.opt("max_tokens") ?: "未下发")
                             + " | " + shorten(text, 500), null)
                 }
             } catch (t: Throwable) {
@@ -380,6 +380,9 @@ object DeepSeekClient {
         Thread({
             var doneSent = false
             var conn: HttpURLConnection? = null
+            // 【v0.2.2】提到 try 之外：catch 里的诊断记录要用真实端点，
+            //   而它可能在拼地址阶段就抛异常、还没赋值。
+            var urlText = ""
             // 增量累积器：正文 / 思考 / 工具分片。
             val contentBuf = StringBuilder()
             val thinkBuf = StringBuilder()
@@ -478,7 +481,7 @@ object DeepSeekClient {
                 if (pv != null && pv.useResponseApi) {
                     throw IllegalStateException("RESPONSES_NO_STREAM")
                 }
-                val urlText = if (pv == null) ApiEndpoint.chatUrl(baseUrl) else ApiClient.chatUrl(pv, model)
+                urlText = if (pv == null) ApiEndpoint.chatUrl(baseUrl) else ApiClient.chatUrl(pv, model)
                 if (urlText.isEmpty()) {
                     throw IllegalStateException("还没填接口地址")
                 }
@@ -647,11 +650,13 @@ object DeepSeekClient {
                 }
             } catch (t: Throwable) {
                 val err = if (task != null && task.cancelled) STOPPED else ApiEndpoint.friendlyError(t, baseUrl)
+                // 【v0.2.2】记录真实打出去的端点；拼地址前失败时回落到 baseUrl。
+                val endpoint = if (urlText.isNotEmpty()) urlText else (baseUrl ?: "")
                 Logs.i("DollhouseMemo", "[stream] err=" + err)
                 // 【v0.2.1·修·「诊断中心不记录接口报错」】流式路径的异常同样只弹气泡不落盘。
                 //   补 ERROR 级记录（用户主动停止不算故障，跳过以免刷屏）。
                 if (err != STOPPED) {
-                    Logs.e("DollhouseHttp", "流式请求异常 " + baseUrl + " | " + t.javaClass.name
+                    Logs.e("DollhouseHttp", "流式请求异常 " + endpoint + " | " + t.javaClass.name
                             + ": " + (t.message ?: ""), t)
                 }
                 // 【错误也要收尾】已经吐出来的正文不能因为随后抛错就丢掉。
@@ -698,17 +703,17 @@ object DeepSeekClient {
             while (keys.hasNext()) {
                 val k = keys.next()
                 val v = extraBody.get(k)
-                // 【v2.9.4】-1 = 不限制输出长度：从请求体里摘掉该字段，
+                // 【v2.9.4】<=0 = 不限制输出长度：从请求体里摘掉该字段，
                 //  交给服务端默认上限，避免小预算把中文摘要截成空 content。
-                    // 【v0.2.1·修】原判据只摘负数（< 0），漏掉了 0 —— 而 0 正是
-                    //   「用户没配 max_tokens」时下游可能带出来的值。服务端要求 ≥ 1，
-                    //   发 0 会被判「Invalid max_tokens value, valid range [1, 393216]」。
-                    //   改成 <= 0 一律摘掉，交给服务端默认上限：这是最后一道闸，
-                    //   即使上游再出纰漏，也不会把非法值发出去。
-                    if ("max_tokens" == k && v is Number && v.toInt() <= 0) {
-                        body.remove("max_tokens")
-                        continue
-                    }
+                // 【v0.2.1·修】原判据只摘负数（< 0），漏掉了 0 —— 而 0 正是
+                //   「用户没配 max_tokens」时下游可能带出来的值。服务端要求 ≥ 1，
+                //   发 0 会被判「Invalid max_tokens value, valid range [1, 393216]」。
+                //   改成 <= 0 一律摘掉，交给服务端默认上限：这是最后一道闸，
+                //   即使上游再出纰漏，也不会把非法值发出去。
+                if ("max_tokens" == k && v is Number && v.toInt() <= 0) {
+                    body.remove("max_tokens")
+                    continue
+                }
                 body.put(k, v)
             }
         }
