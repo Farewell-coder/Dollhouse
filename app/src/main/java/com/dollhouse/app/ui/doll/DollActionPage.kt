@@ -164,6 +164,9 @@ object DollActionPage {
         var dupId by remember { mutableStateOf<String?>(null) }
         var exportId by remember { mutableStateOf<String?>(null) }
         var exportMsg by remember { mutableStateOf<String?>(null) }
+        // 【v0.2.6·行为模板】一次性把一组动作设成合理的触发器与优先级。
+        var templateOpen by remember { mutableStateOf(false) }
+        var templateMsg by remember { mutableStateOf<String?>(null) }
 
         DhKit.Page(
             title = "动作",
@@ -178,6 +181,10 @@ object DollActionPage {
                 //   语义由图标 + 下方说明承载；图标本身已是 Lucide 语义对齐的。
                 // 【恢复内置已搬走】它做的是「把这套动作恢复成出厂自带的样子」，
                 //   属于人偶级操作，已挪到「人偶管理 → 更多」里（见 DollListScreen）。
+                // 【行为模板】逐条调绑定太费事，这里给一组预设。
+                DhKit.IconButton(Icons.IC_SPARKLES, Design.SZ_MD, DhTokens.colors.title) {
+                    templateOpen = true
+                }
                 DhKit.IconButton(Icons.IC_FOLDER_OPEN, Design.SZ_MD, DhTokens.colors.title) {
                     DollImportWizardPage.open(act, id)
                 }
@@ -421,6 +428,63 @@ object DollActionPage {
         // ---------- 模型包：失败提示 ----------
         val msg = pkgMsg
         if (msg != null) {
+            // ---- 【v0.2.6·行为模板】----
+            //   【为什么放在动作页】模板改的是「每个动作允许被什么触发、优先级多高」，
+            //     这些都在这一页逐个设置；给一个批量入口比让用户点十几次更合理。
+            if (templateOpen) {
+                DhForm.Alert(
+                    title = "行为模板",
+                    onDismiss = { templateOpen = false },
+                    negText = "取消",
+                    posText = null,
+                    onPos = null,
+                    content = {
+                        DhForm.Note("会覆盖这只人偶当前全部动作的触发与优先级设置。")
+                        for (t in com.dollhouse.app.data.ActionTemplates.Template.values()) {
+                            DhKit.ValueRow(
+                                label = com.dollhouse.app.data.ActionTemplates.label(t),
+                                desc = com.dollhouse.app.data.ActionTemplates.desc(t),
+                                onClick = {
+                                    // 收集当前动作，按分组映射出触发类型。
+                                    val all = ArrayList<com.dollhouse.app.data.DollAnim.Action>()
+                                    for (g in groups) {
+                                        all.addAll(g.second)
+                                    }
+                                    val ids = all.map { it.id }
+                                    val groupOf = HashMap<String, String>()
+                                    for (g in groups) {
+                                        for (a in g.second) {
+                                            groupOf[a.id] = g.first
+                                        }
+                                    }
+                                    val n = com.dollhouse.app.data.ActionTemplates.applyTo(
+                                        act, id, t, ids
+                                    ) { aid ->
+                                        com.dollhouse.app.data.ActionTemplates.triggerOfGroup(
+                                            groupOf[aid] ?: com.dollhouse.app.data.DollAnim.GROUP_MANUAL
+                                        )
+                                    }
+                                    templateOpen = false
+                                    templateMsg = "已应用「" +
+                                        com.dollhouse.app.data.ActionTemplates.label(t) +
+                                        "」，改动了 " + n + " 个动作"
+                                }
+                            )
+                        }
+                    }
+                )
+            }
+            if (templateMsg != null) {
+                DhForm.Alert(
+                    title = "行为模板",
+                    onDismiss = { templateMsg = null },
+                    posText = "知道了",
+                    content = {
+                        DhForm.Note(templateMsg!!)
+                    }
+                )
+            }
+
             DhForm.Alert(
                 title = "模型包",
                 onDismiss = { pkgMsg = null },

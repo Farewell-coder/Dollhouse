@@ -77,6 +77,27 @@ object ActionTemplates {
     }
 
     /**
+     * 按动作分组推断触发类型。
+     *
+     * 【为什么用分组而不是绑定记录】用户第一次用模板时，绑定记录多半是空的
+     *   （全是默认值），拿它分类等于什么都没分。而分组本身就是语义：
+     *   常驻=待机、贴边=边缘、拖拽=拖动、随机=随机、手动=手动。
+     *
+     * @param group [com.dollhouse.app.data.DollAnim] 的分组名
+     */
+    @JvmStatic
+    fun triggerOfGroup(group: String): String {
+        return when (group) {
+            com.dollhouse.app.data.DollAnim.GROUP_ALWAYS -> "idle"
+            com.dollhouse.app.data.DollAnim.GROUP_EDGE,
+            com.dollhouse.app.data.DollAnim.GROUP_EDGE_IN -> "edge"
+            com.dollhouse.app.data.DollAnim.GROUP_DRAG -> "drag"
+            com.dollhouse.app.data.DollAnim.GROUP_RANDOM -> "random"
+            else -> "manual"
+        }
+    }
+
+    /**
      * 应用模板。
      *
      * @return 实际改写的动作数量（RESET 时统计被清掉的记录数由调用方判断，
