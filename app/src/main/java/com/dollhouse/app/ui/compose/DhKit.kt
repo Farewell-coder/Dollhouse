@@ -318,7 +318,10 @@ object DhKit {
                         Modifier
                             .clip(RoundedCornerShape(R_CARD.dp))
                             .background(c.card)
-                            .border(1.dp, c.stroke, RoundedCornerShape(R_CARD.dp))
+                            // 【M3】描边改 `line`（1dp 发丝线）。改造前用 `stroke`（一种更实的
+                            //   半透明深色）画 1dp —— 5 张卡叠起来页面像被框线切碎。
+                            //   设计稿：层级由留白与发丝线承担，卡片只"微微浮起"。
+                            .border(1.dp, c.line, RoundedCornerShape(R_CARD.dp))
                     }
                 )
         ) {
@@ -338,20 +341,26 @@ object DhKit {
                     // 【r16·卡片标题图标】传了 titleIcon 才画：图标在左、标题紧随其后。
                     //   间距 10dp 与 ActionRow 的图标-文字间距同口径，视觉上连成一体。
                     if (titleIcon != 0) {
+                        // 【M3·强调色节制】卡片标题图标原用主色 `acc` —— 一页 5 张卡就是 5 个
+                        //   紫图标，主色被当成"装饰色"，真正的可操作元素（按钮/选中态）反而看不出来。
+                        //   设计稿要求「一个屏只有一个强调色，用在主操作上」，故标题图标改中性 `sub`。
                         Icon(
                             iconRes = titleIcon,
-                            sizeDp = Design.SZ_SM,
-                            color = c.acc
+                            sizeDp = Design.SZ_MD,
+                            color = c.sub
                         )
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(GAP_ICON.dp))
                     }
                     Text(
                         text = title,
                         modifier = Modifier.weight(1f),
                         color = c.title,
-                        fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold
+                        // 【M3·层级】卡片标题走 section 档（16sp/600），与行标题（15sp/500）形成
+                        //   明确的一级差异；改造前标题 15sp/Bold、行标题 15sp，几乎分不出谁是分组。
+                        fontSize = 16.sp,
+                        lineHeight = 22.sp,
+                        fontFamily = DhTokens.fonts,
+                        fontWeight = FontWeight.SemiBold
                     )
                     // 【箭头】收起指下、展开指上，与旧版 `UiKit.arrow` 的 0°/90° 同语义。
                     Icon(
@@ -565,11 +574,16 @@ object DhKit {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = GAP_ROW.dp)
-                .clip(RoundedCornerShape(R_ROW.dp))
-                .background(c.soft)
+                // 【M3·列表行不再逐行成卡片】
+                //   改造前每一行都是 soft 底 + 圆角 10 的独立小块：一页 10 行 = 10 个圆角矩形，
+                //   这正是用户说的「每个区域都使用独立卡片」「大量重复的圆角矩形」。
+                //   设计稿 §3：行直接铺在卡片面上，行与行之间用 1dp 发丝线（见 DhKit.RowDivider），
+                //   整张卡读起来是一组设置，而不是十个碎块。
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
-                .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp)
+                .padding(
+                    horizontal = PAD_ROW.dp,
+                    vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp
+                )
                 .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -623,6 +637,28 @@ object DhKit {
     private fun RowIcon(iconRes: Int, tint: Color = DhTokens.colors.sub) {
         Icon(iconRes = iconRes, sizeDp = ICON_ROW_DP, color = tint)
     }
+
+    /**
+     * 卡片内行与行之间的发丝线（1dp）。
+     *
+     * 【何时用】同一张卡里有多行时，行之间放一条。**不需要**每行自带：由调用方在
+     *   `Column { 行A(); RowDivider(); 行B() }` 里显式摆放，这样最后一行下面不会多一条。
+     *   【为什么不做成"每行自动带下边框"】Compose 的行是独立 Composable，无法知道
+     *   自己是不是最后一个，自动加会在列表末尾留下一条悬空的线。
+     *
+     * @param insetStart 左侧缩进（dp）：有行首图标时传「图标宽 + 间距」，让线从文字开始处起。
+     */
+    @Composable
+    fun RowDivider(insetStart: Int = 0, modifier: Modifier = Modifier) {
+        val c = DhTokens.colors
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(start = insetStart.dp)
+                .height(1.dp)
+                .background(c.line)
+        )
+    }
     /* ============================ 开关行 / 权限行 / 步进器 ============================ */
 
     /**
@@ -646,9 +682,7 @@ object DhKit {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = GAP_ROW.dp)
-                .clip(RoundedCornerShape(R_ROW.dp))
-                .background(c.soft)
+                // 【M3】同 ValueRow：去掉逐行 soft 底与圆角，改为卡片内发丝线行。
                 .then(if (enabled) Modifier.pressable { onCheckedChange(!checked) } else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f))
                 // 【v0.1.4·行高对齐】原来开关行用 10/9 dp 垂直内边距，而 ValueRow 用 12 dp，
@@ -717,9 +751,7 @@ object DhKit {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = GAP_ROW.dp)
-                .clip(RoundedCornerShape(R_ROW.dp))
-                .background(c.soft)
+                // 【M3】同 ValueRow：去掉逐行 soft 底与圆角，改为卡片内发丝线行。
                 .then(if (granted) Modifier else Modifier.pressable(onClick))
                 .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp)
                 .defaultMinSize(minHeight = MIN_ROW_H.dp),
