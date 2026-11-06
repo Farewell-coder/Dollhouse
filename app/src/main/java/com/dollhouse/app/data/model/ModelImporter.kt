@@ -202,6 +202,19 @@ object ModelImporter {
         )
 
         val vr = ModelValidator.validate(m, entries, ModelRepository.installedIds(ctx, dollId))
+
+        // 【v0.2.6·来源与最低框架】清单里早就有 author / license / minFramework，
+        //   但此前导入流程完全不看它们：要求更高框架的包能被装进来，
+        //   然后在播放时表现为「动作不出现」，用户以为是包坏了。
+        //   这里在导入前把「框架版本不够」拦下，并把来源如实展示。
+        val originCheck = ModelPackageCheck.check(
+            specVersion = m.specVersion,
+            minFramework = m.minFramework,
+            author = m.author,
+            modelVersion = m.modelVersion,
+            license = m.license,
+            framework = appVersionName(ctx)
+        )
         if (!vr.ok) {
             // 【错误分类】把「版本过高」单独摘出来，因为它的处置完全不同
             //   （不是包坏了，而是 App 太旧 —— 提示用户升级而不是「重新下载」）。
@@ -212,13 +225,38 @@ object ModelImporter {
                 vr.errors.any { it.contains("引擎不支持") } -> Code.UNSUPPORTED
                 else -> Code.UNSUPPORTED
             }
-            return Inspection(code, m, vr.errors, vr.warnings, entries)
+            // 把兼容检查发现的错误并入，但不改变上面已经判定的错误码原因。
+            val merged = ArrayList(vr.errors)
+            merged.addAll(originCheck.errors)
+            return Inspection(code, m, merged, vr.warnings + originCheck.warnings, entries)
+        }
+        if (!originCheck.ok()) {
+            // 框架版本不足：属于「App 太旧」，与规范过高同一处置。
+            return Inspection(
+                Code.VERSION_TOO_NEW, m,
+                originCheck.errors, vr.warnings + originCheck.warnings, entries
+            )
+        }
+        // 来源信息并进警告，让确认页能显示「作者 / 版本 / 许可」。
+        val warns = ArrayList(vr.warnings)
+        warns.addAll(originCheck.warnings)
+        if (originCheck.origin.isNotEmpty()) {
+            warns.add(0, "来自 " + originCheck.origin)
         }
         val dup = ModelRepository.installedIds(ctx, dollId).contains(m.id)
         return Inspection(
             if (dup) Code.DUPLICATE else Code.OK,
-            m, emptyList(), vr.warnings, entries
+            m, emptyList(), warns, entries
         )
+    }
+
+    /** 当前应用版本名（用于比较包要求的 minFramework）；取不到时返回空串。 */
+    private fun appVersionName(ctx: Context): String {
+        return try {
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+        } catch (t: Throwable) {
+            ""
+        }
     }
 
     // ============================ 第二步：安装（写盘） ============================
