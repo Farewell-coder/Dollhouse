@@ -1,4 +1,47 @@
 # 更新记录
+## v0.2.4 · 行高修正、列表动画与四态导入按钮
+
+v0.2.3 给文字补行高时有一处做反了：**单行文字也加了行高**。Compose 的 `lineHeight`
+大于字形自然高度时，多出来的空间分配在字下方，单行文字于是在容器里整体下移 ——
+表现为「字不在视觉中心」「按钮看着偏」。本版收回这批误改。
+
+### 修复：单行文字不再带行高
+- 来源标签、文件名等单行文本去掉 `lineHeight`，恢复自然垂直居中
+- 药丸、圆形按钮内的单行文字同样不加行高（高度由 padding 决定）
+
+### 新增：列表条目动画
+- 聊天列表、人偶列表加 `animateItem()`：新增 / 删除 / 重排时平滑让位，不再整屏跳一下
+
+### 改进：导入确认页
+- 来源行加图标：文件通道 `file-input`、深链 `link-2`，一眼分辨这次从哪来
+- 警告行加三角图标，与普通说明区隔开
+- 「导入 N 条」改成四态按钮：`处理中…` 转圈 → `完成` 打勾，期间不接受重复点击
+
+### 版本
+- `versionCode 24` / `versionName 0.2.4`
+
+## v0.2.3 · 统一行高、Lucide 图标、修复挖孔遮挡
+
+### 排版：全工程补行高
+- Compose 侧重 36 处内联 `fontSize` 补上 `lineHeight`（字号 × 1.45）
+- View 侧补：顶栏副标题、弹窗标题、状态徽标加上 `setLineSpacing`
+- 此前 View 侧多数 `TextView` 没有行距，中文说明文字上下贴在一起
+
+### 图标：补齐 AEX 导入链路
+- 新增 `tools/gen_lucide.py`：从 lucide-icons/lucide 官方 SVG 生成 VectorDrawable，
+  清单写在脚本里，可重跑复现
+- 生成并注册：file-input、file-output、upload、share-2、circle-check、refresh-cw、
+  clock-arrow-down
+- 保留既有的自定义图标（如 `ic_send`），不做无差别替换
+
+### 修复：聊天页顶部被摄像头压住
+- `ImmersiveStatus.consumeHandled()` 原本把 `displayCutout` 归零后下传，
+  导致 Compose 写的聊天顶栏 / 二级页外壳拿到的挖孔高度恒为 0
+- 改为**透传**挖孔 inset，由各页面自己避让；状态栏 / 导航栏 / IME 仍归零，不双扣
+
+### 版本
+- `versionCode 23` / `versionName 0.2.3`
+
 ## v0.2.2 · 接入 AEX 1.1：Aivora 文件与深链导入
 
 Aivora 0.0.8 把配置交换协议升到 AEX 1.1：`profiles[]` 不再携带模型列表，并新增

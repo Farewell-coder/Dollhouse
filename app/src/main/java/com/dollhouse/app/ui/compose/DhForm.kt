@@ -12,10 +12,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,6 +27,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -397,6 +401,96 @@ object DhForm {
             fontFamily = DhTokens.fontsBold,
             fontWeight = FontWeight.Bold
         )
+    }
+
+    /* ============================ 四态提交按钮（v0.2.4） ============================ */
+
+    /** 提交按钮的四种状态。 */
+    enum class SubmitState { IDLE, LOADING, SUCCESS, ERROR }
+
+    /**
+     * 带状态的提交按钮：`idle → loading → success → idle`，失败转 [SubmitState.ERROR]。
+     *
+     * 【为什么需要】此前所有提交按钮都只是「点一下、立刻变成另一段文字」：
+     *   用户在按下的那一刻拿不到任何「点到了没 / 在处理 / 成了没」的信号，
+     *   于是会连点好几下（导入、导出这类操作尤其明显）。
+     *   这里把三种反馈收进同一个按钮：转圈、对勾、警告，全部在**原位**变化，
+     *   不弹 toast、不跳页，用户视线不用离开手指的位置。
+     *
+     * 【为什么不改业务逻辑】状态由调用方通过 [state] 传入 —— 按钮只负责画，
+     *   什么时候算成功仍由各自的写入逻辑判定。这样不会出现「按钮说成功了但数据没写」。
+     *
+     * 【防重复触发】[SubmitState.LOADING] 时按钮不接受点击（不是禁用变灰，而是直接忽略），
+     *   避免「点了没反应所以再点一次」造成的重复提交。
+     */
+    @Composable
+    fun SubmitButton(
+        text: String,
+        state: SubmitState,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit,
+    ) {
+        val c = DhTokens.colors
+        val bg = when (state) {
+            SubmitState.ERROR -> c.err
+            SubmitState.SUCCESS -> c.acc
+            else -> c.acc
+        }
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(bg)
+                .then(
+                    if (state == SubmitState.LOADING) Modifier
+                    else Modifier.pressable(onClick)
+                )
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when (state) {
+                SubmitState.LOADING -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = c.onAcc,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                }
+                SubmitState.SUCCESS -> {
+                    Icon(
+                        painter = painterResource(com.dollhouse.app.R.drawable.ic_check),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = c.onAcc,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                }
+                SubmitState.ERROR -> {
+                    Icon(
+                        painter = painterResource(com.dollhouse.app.R.drawable.ic_warning),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = c.onAcc,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                }
+                SubmitState.IDLE -> Unit
+            }
+            Text(
+                text = when (state) {
+                    SubmitState.LOADING -> "处理中…"
+                    SubmitState.SUCCESS -> "完成"
+                    SubmitState.ERROR -> "重试"
+                    SubmitState.IDLE -> text
+                },
+                color = c.onAcc,
+                fontSize = UiKit.FS_CHIP.sp,
+                fontFamily = DhTokens.fontsBold,
+                fontWeight = FontWeight.Bold,
+                // 【不加行高】药丸高度由 padding 定，单行文字加行高会顶偏。
+                maxLines = 1,
+            )
+        }
     }
 
     /** 分组间距（卡片之间 / 区块之间）。 */

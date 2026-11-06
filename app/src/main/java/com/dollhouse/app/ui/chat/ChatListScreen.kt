@@ -292,6 +292,9 @@ object ChatListScreen {
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(shown, key = { it.id }) { row ->
+                            /* 【v0.2.4·条目动画】新会话进来、删除会话、清空未读导致列表重排时，
+                               条目平滑让位，而不是整列瞬间跳一下。动画由 LazyColumn 托管，零依赖。 */
+                            Box(Modifier.animateItem()) {
                             Card(
                                 row = row,
                                 onClick = {
@@ -304,6 +307,7 @@ object ChatListScreen {
                                 //   与列表的「点击进入」不冲突（见 pressable 的带长按重载）。
                                 onLong = { menuFor = row }
                             )
+                            }
                         }
                     }
                 }

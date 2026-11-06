@@ -187,6 +187,8 @@ object DollListScreen {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(dolls, key = { it.id }) { doll ->
+                    /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
+                    Box(Modifier.animateItem()) {
                     DollCard(
                         act = act,
                         doll = doll,
@@ -197,6 +199,7 @@ object DollListScreen {
                         },
                         onMore = { moreId = doll.id }
                     )
+                    }
                 }
             }
         }

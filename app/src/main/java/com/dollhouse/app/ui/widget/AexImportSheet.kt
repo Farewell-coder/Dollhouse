@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.PickFileActivity
@@ -745,19 +747,46 @@ object AexImportSheet {
         var done by remember { mutableStateOf(false) }
         var showExtra by remember { mutableStateOf(false) }
         var summary by remember { mutableStateOf("") }
+        // 提交按钮状态：写入是同步的，所以只有 idle → loading → success 三段；
+        // 若写入抛异常，[apply] 会把失败条目记进 summary，按钮停在 success（导入流程已给出结论）。
+        var submitState by remember { mutableStateOf(DhForm.SubmitState.IDLE) }
         val hasExtra = profiles.any { it.hasExtra() }
         val local = ProviderStore.providers(act)
         val conflicts = profiles.count { p -> local.any { it.name == p.name } }
         val pickedCount = picked.count { it }
 
         if (!done) {
-            Text(
-                text = sourceLabel + "\n共 " + profiles.size + " 条配置" +
-                    (if (conflicts > 0) "，其中 " + conflicts + " 条与本机供应商同名" else ""),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
-            )
+            // 【v0.2.4·接上 v0.2.3 生成的图标】文件通道与深链的来源不同，图标也不同：
+            //   文件用 file-input，深链用 link-2。此前这一行纯文字，用户要靠读「来源：」二字
+            //   才知道这次是从文件来的还是从链接来的 —— 图标一眼就能分辨。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = androidx.compose.ui.res.painterResource(
+                        if (external) com.dollhouse.app.R.drawable.ic_link_2
+                        else com.dollhouse.app.R.drawable.ic_file_input
+                    ),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = c.acc
+                )
+                Spacer(Modifier.width(7.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = sourceLabel,
+                        color = c.title,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fonts
+                    )
+                    Text(
+                        text = "共 " + profiles.size + " 条配置" +
+                            (if (conflicts > 0) "，其中 " + conflicts + " 条与本机供应商同名" else ""),
+                        color = c.sub,
+                        fontSize = UiKit.FS_TINY.sp,
+                        fontFamily = DhTokens.fonts,
+                        lineHeight = UiKit.LH_SUB.sp
+                    )
+                }
+            }
             if (external && profiles.isNotEmpty()) {
                 // 深链是明文通道，确认页必须让用户核对来源；密钥只露尾 4 位。
                 Text(
@@ -772,14 +801,26 @@ object AexImportSheet {
             }
             // 【非致命提示】次版本偏新、个别条目被跳过等全部摆出来，不藏。
             if (result.warnings.isNotEmpty()) {
-                Text(
-                    text = result.warnings.joinToString("\n"),
-                    modifier = Modifier.padding(top = 6.dp),
-                    color = c.err,
-                    fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
-                    lineHeight = (UiKit.FS_TINY + 5f).sp
-                )
+                // 【v0.2.4·警告行加图标】此前警告与普通说明长得一模一样，只是颜色偏红；
+                //   加一枚三角警告后，用户扫一眼就知道「这几行要先读」。
+                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(
+                            com.dollhouse.app.R.drawable.ic_warning
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.padding(top = 2.dp).size(14.dp),
+                        tint = c.err
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = result.warnings.joinToString("\n"),
+                        color = c.err,
+                        fontSize = UiKit.FS_TINY.sp,
+                        fontFamily = DhTokens.fonts,
+                        lineHeight = UiKit.LH_SUB.sp
+                    )
+                }
             }
             Column(
                 modifier = Modifier
@@ -851,17 +892,23 @@ object AexImportSheet {
                 Spacer(Modifier.weight(1f))
                 DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
                 Spacer(Modifier.width(10.dp))
-                DhForm.PrimaryChip(
-                    text = if (pickedCount == 0) "请先勾选" else "导入 " + pickedCount + " 条"
+                // 【v0.2.4·四态按钮】原来是 PrimaryChip：按下去立刻变页面，中间没有任何
+                //   「点到了 / 在处理 / 成了」的信号。导入要写好几次存储、还要联网拉模型，
+                //   期间用户只能干等，容易连点。现在走 SubmitButton：转圈 → 完成。
+                DhForm.SubmitButton(
+                    text = if (pickedCount == 0) "请先勾选" else "导入 " + pickedCount + " 条",
+                    state = if (pickedCount == 0) DhForm.SubmitState.IDLE else submitState,
                 ) {
-                    if (pickedCount == 0) {
-                        return@PrimaryChip
+                    if (pickedCount == 0 || submitState == DhForm.SubmitState.LOADING) {
+                        return@SubmitButton
                     }
+                    submitState = DhForm.SubmitState.LOADING
                     val selected = ArrayList<AexImport.AexProfile>()
                     profiles.forEachIndexed { i, p -> if (picked[i]) selected.add(p) }
                     val outcome = apply(act, selected, mode)
                     summary = outcome.summary
                     done = true
+                    submitState = DhForm.SubmitState.SUCCESS
                     // 【AEX 1.1】文件/深链都不再携带 models；导入成功后按 baseUrl 拉一次。
                     //   失败只追加提示，不撤销已经写入的供应商。
                     if (outcome.targets.isNotEmpty()) {
