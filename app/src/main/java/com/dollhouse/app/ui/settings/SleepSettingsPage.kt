@@ -1,6 +1,10 @@
 package com.dollhouse.app.ui.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.DhForm
@@ -60,12 +64,12 @@ object SleepSettingsPage {
      *   滑条在手机上很难精确到 10 分钟，而且看不出当前值。这里每点一次把小时 +1，
      *   长按分钟 +15 —— 简单、可预期，且不需要引入时间选择器依赖。
      */
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun QuietCard(act: MainActivity) {
         val ctx = act.applicationContext
-        var on by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(PetPrefs.quietEnabled(ctx)) }
-        var start by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(PetPrefs.quietStart(ctx)) }
-        var end by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(PetPrefs.quietEnd(ctx)) }
+        var on by remember { mutableStateOf(PetPrefs.quietEnabled(ctx)) }
+        var start by remember { mutableStateOf(PetPrefs.quietStart(ctx)) }
+        var end by remember { mutableStateOf(PetPrefs.quietEnd(ctx)) }
 
         DhKit.Card(collapsibleTitle = "安静时段", titleIcon = Icons.IC_CLOCK_3) {
             DhForm.Note("这段时间里人偶不主动开口（问候、随机台词、提醒），但不影响你主动找她。")
