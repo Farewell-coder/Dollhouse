@@ -63,7 +63,7 @@ import com.dollhouse.app.ui.theme.Icons
  *     · `DhKit`      —— 39 个 Composable，卡片/行/开关/顶栏/底栏…
  *     · `DhForm`     —— 17 个，输入框/芯片/提交按钮/弹窗
  *     · `ui/theme/UiKit`  —— View 侧工厂（card/chip/dialogTitle/dialogButton…）
- *     · `ui/widget/*`     —— SheetPanel / SwipeRow / GlassCapsule / ApiPageKit（纯 View）
+ *     · `ui/widget/`       —— SheetPanel / SwipeRow / GlassCapsule / ApiPageKit（纯 View）
  *   同一个"按钮"因此有五种写法、四种尺寸（44 / 40 / 34 / 由内容决定）、
  *   三种圆角（10 / 12 / 999）—— 这正是"相同功能的按钮大小不一致"的来源。
  *   本文件不是又加一层，而是把**规范钉在一处**：新增构件一律在这里，

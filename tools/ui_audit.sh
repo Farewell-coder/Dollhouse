@@ -66,6 +66,10 @@ chk A09 "总标题字号只有一档（TAB_TITLE_SP 与 FS_TITLE 同为 20）" \
   "grep -q 'TAB_TITLE_SP = 20f' $UI/compose/DhKit.kt && grep -q 'FS_TITLE = 20.0f' $UI/theme/UiKit.kt"
 chk A10 "行图标只有一档（ICON_ROW_DP = 20）" \
   "grep -q 'ICON_ROW_DP = 20f' $UI/compose/DhKit.kt"
+# 注释平衡：Kotlin 块注释可嵌套，注释里写 `xxx/*` 会吞掉后面整段代码。
+#   本轮 M2 真实踩过一次（编译报 Unclosed comment 却指在文件末尾），故纳入门禁。
+chk A11 "Kotlin 块注释全部闭合（防嵌套注释吞代码）" \
+  "python3 tools/comment_balance.py > /dev/null"
 
 echo "===== 组 B：组件统一（B01–B10）====="
 
