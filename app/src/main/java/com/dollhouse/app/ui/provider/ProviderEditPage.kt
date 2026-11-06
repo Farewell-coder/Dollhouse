@@ -27,6 +27,7 @@ import com.dollhouse.app.ai.ApiEndpoint
 import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.KeyVault
+import com.dollhouse.app.data.ModelRecommend
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
@@ -182,6 +183,11 @@ object ProviderEditPage {
         // 重复点击会造成重复请求或重复创建同名供应商。状态仅用于 UI，不进入业务数据。
         var testing by remember { mutableStateOf(false) }
         var saving by remember { mutableStateOf(false) }
+        // 【v0.2.6·适配向导】保存并连上后自动拉一次模型列表，给出「推荐用哪个」。
+        //   只做建议，不替用户写盘：用户点「用它」才落库并设为当前。
+        var suggestName by remember { mutableStateOf<String?>(null) }
+        var suggestList by remember { mutableStateOf<List<String>>(emptyList()) }
+        var suggestBusy by remember { mutableStateOf(false) }
         // 【保存后必须留住 id】新建态保存成功才拿到真实 id；开关的即时写盘要用它，
         //   不能继续读 providerId（那还是进页时的空串，写盘会造出一条孤儿记录）。
         var pid by remember(src?.id) { mutableStateOf(src?.id ?: providerId ?: "") }
@@ -285,6 +291,82 @@ object ProviderEditPage {
                 DhForm.Note(hintText!!, color = if (hintOk) c.ok else c.err)
             }
 
+            // ---- 【v0.2.6·适配向导】推荐模型 ----
+            //   连上之后直接把「这个供应商该怎么选」摆出来，省掉「先去模型页、
+            //   在几十个名字里挑一个、再回来设默认」这一圈。
+            if (suggestBusy) {
+                DhForm.Note("正在读取可用的模型列表…")
+            } else if (suggestList.isNotEmpty()) {
+                DhKit.Card {
+                    DhKit.SectionLabel("建议这样开始", iconRes = Icons.IC_CHECK)
+                    val pick = suggestName
+                    if (pick != null) {
+                        Text(
+                            text = "推荐默认模型：" + pick,
+                            color = c.title,
+                            fontSize = UiKit.FS_BTN.sp,
+                            fontFamily = DhTokens.fonts,
+                            lineHeight = 22.sp,
+                        )
+                        Text(
+                            text = "共 " + suggestList.size + " 个可用模型；也可以稍后到「模型」页逐个挑。",
+                            modifier = Modifier.padding(top = 4.dp),
+                            color = c.sub,
+                            fontSize = UiKit.FS_TINY.sp,
+                            fontFamily = DhTokens.fonts,
+                            lineHeight = 18.sp,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row {
+                            DhForm.PrimaryChip("用它") {
+                                val id = pid
+                                if (id.isEmpty()) {
+                                    hintOk = false
+                                    hintText = "请先保存供应商"
+                                    return@PrimaryChip
+                                }
+                                // 复用已有写入与选中接口：加模型 → 设为当前。
+                                val m = com.dollhouse.app.ai.AiModel()
+                                m.id = ProviderStore.newId()
+                                m.providerId = id
+                                m.displayName = pick
+                                m.kind = com.dollhouse.app.ai.AiModel.KIND_CHAT
+                                m.inputModalities = com.dollhouse.app.ai.AiModel.MOD_TEXT
+                                m.outputModalities = com.dollhouse.app.ai.AiModel.MOD_TEXT
+                                m.capStream = true
+                                m.enabled = true
+                                com.dollhouse.app.data.ModelStore.saveModel(act, m)
+                                ProviderStore.setCurrent(act, id, m.id)
+                                hintOk = true
+                                hintText = "已把「" + pick + "」设为默认模型，可以直接去聊天了"
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            DhForm.OutlineChip("看全部") {
+                                val id = pid
+                                if (id.isNotEmpty()) {
+                                    ProviderNav.openModels(act, id)
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "这家返回的模型里没有明显的对话模型（可能只有向量 / 语音 / 绘图）。",
+                            color = c.err,
+                            fontSize = UiKit.FS_TINY.sp,
+                            fontFamily = DhTokens.fonts,
+                            lineHeight = 18.sp,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        DhForm.OutlineChip("自己去看") {
+                            val id = pid
+                            if (id.isNotEmpty()) {
+                                ProviderNav.openModels(act, id)
+                            }
+                        }
+                    }
+                }
+            }
+
             // —— 底部：取消 / 测试连接 / 保存 ——
             Row(
                 modifier = Modifier
@@ -362,6 +444,24 @@ object ProviderEditPage {
                                     saving = false
                                     hintOk = ok
                                     hintText = if (ok) "已保存 · " + detail else "已保存，但连接没通过：" + detail
+                                    // 【适配向导】连上了才有意义继续拉模型；连不上时把原因留在上面即可。
+                                    if (ok) {
+                                        suggestBusy = true
+                                        ProviderNav.fetchModels(act, savedPv, object : ProviderNav.ModelsCallback {
+                                            private fun done(list: List<String>) {
+                                                suggestBusy = false
+                                                suggestList = list
+                                                suggestName = ModelRecommend.suggest(list)
+                                            }
+                                            override fun onDone(models: MutableList<String>?, error: String?) {
+                                                if (error != null) {
+                                                    done(emptyList())
+                                                    return
+                                                }
+                                                done(models ?: emptyList())
+                                            }
+                                        })
+                                    }
                                 }
                             })
                         }
