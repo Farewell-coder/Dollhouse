@@ -71,6 +71,58 @@ object PetPrefs {
     }
 
     @JvmStatic
+    /* ================= 安静时段（v0.2.6） =================
+     * 【为什么不用「睡觉模式」的键】那是低功耗休眠（降帧、点击唤醒），
+     *   解决省电；安静时段解决的是「半夜别主动开口」。两者语义不同，
+     *   共用一个开关会让用户开了睡眠就以为晚上不会吵，实际仍会被问候叫醒。
+     * 【存什么】起止各存一个 "HH:mm" 字符串 + 一个总开关；
+     *   判定在 [com.dollhouse.app.data.QuietHours] 里，纯逻辑、可单测。
+     */
+    private const val KEY_QUIET_ON = "quiet_on"
+    private const val KEY_QUIET_START = "quiet_start"
+    private const val KEY_QUIET_END = "quiet_end"
+
+    /** 安静时段是否启用（默认关：不擅自改变用户已有的被打扰习惯）。 */
+    @JvmStatic
+    fun quietEnabled(context: Context): Boolean {
+        return get(context).getBoolean(KEY_QUIET_ON, false)
+    }
+
+    @JvmStatic
+    fun setQuietEnabled(context: Context, on: Boolean) {
+        get(context).edit().putBoolean(KEY_QUIET_ON, on).apply()
+    }
+
+    /** 起始时刻（分钟数），默认 22:00。 */
+    @JvmStatic
+    fun quietStart(context: Context): Int {
+        return com.dollhouse.app.data.QuietHours.parse(
+            get(context).getString(KEY_QUIET_START, null)
+        ) ?: com.dollhouse.app.data.QuietHours.DEFAULT_START
+    }
+
+    @JvmStatic
+    fun setQuietStart(context: Context, minutes: Int) {
+        get(context).edit()
+            .putString(KEY_QUIET_START, com.dollhouse.app.data.QuietHours.format(minutes))
+            .apply()
+    }
+
+    /** 结束时刻（分钟数），默认 07:00。 */
+    @JvmStatic
+    fun quietEnd(context: Context): Int {
+        return com.dollhouse.app.data.QuietHours.parse(
+            get(context).getString(KEY_QUIET_END, null)
+        ) ?: com.dollhouse.app.data.QuietHours.DEFAULT_END
+    }
+
+    @JvmStatic
+    fun setQuietEnd(context: Context, minutes: Int) {
+        get(context).edit()
+            .putString(KEY_QUIET_END, com.dollhouse.app.data.QuietHours.format(minutes))
+            .apply()
+    }
+
     fun setApiKey(context: Context, str: String?) {
         get(context).edit().putString("api_key", if (str == null) "" else str.trim()).apply()
     }

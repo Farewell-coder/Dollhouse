@@ -2,8 +2,10 @@ package com.dollhouse.app.ui.settings
 
 import androidx.compose.runtime.Composable
 import com.dollhouse.app.MainActivity
+import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Icons
 
@@ -32,6 +34,11 @@ object SleepSettingsPage {
     @Composable
     private fun Content(act: MainActivity) {
         DhKit.Page(title = "睡觉模式", onBack = { PageStack.pop(act) }) {
+            // 【v0.2.6·安静时段】与睡觉模式并列但语义不同：
+            //   睡觉 = 省电休眠；安静 = 到点不主动开口（问候、随机台词、通知）。
+            //   放在同一页是因为用户心智里它们都属于「别在晚上烦我」。
+            QuietCard(act)
+
             DhKit.Card(collapsibleTitle = "说明", titleIcon = Icons.IC_SPARKLES) {
                 DhForm.Note(
                     "睡觉模式没有独立开关 —— 它由「快捷菜单」里的「睡觉」选项触发。\n\n" +
@@ -43,6 +50,59 @@ object SleepSettingsPage {
                     "休眠时帧率降到最低，省电。"
                 )
             }
+        }
+    }
+
+    /**
+     * 安静时段卡片。
+     *
+     * 【为什么用两个可点的时刻行而不是滑条】用户调的是「22:30 到 07:00」这种钟点，
+     *   滑条在手机上很难精确到 10 分钟，而且看不出当前值。这里每点一次把小时 +1，
+     *   长按分钟 +15 —— 简单、可预期，且不需要引入时间选择器依赖。
+     */
+    @androidx.compose.runtime.Composable
+    private fun QuietCard(act: MainActivity) {
+        val ctx = act.applicationContext
+        var on by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(PetPrefs.quietEnabled(ctx)) }
+        var start by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(PetPrefs.quietStart(ctx)) }
+        var end by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(PetPrefs.quietEnd(ctx)) }
+
+        DhKit.Card(collapsibleTitle = "安静时段", titleIcon = Icons.IC_CLOCK_3) {
+            DhForm.Note("这段时间里人偶不主动开口（问候、随机台词、提醒），但不影响你主动找她。")
+            DhKit.ValueRow(
+                label = "启用安静时段",
+                value = if (on) "已开启" else "已关闭",
+                valueTint = if (on) DhTokens.colors.acc else null,
+                iconRes = if (on) Icons.IC_CHECK else Icons.IC_CLOSE,
+                onClick = {
+                    on = !on
+                    PetPrefs.setQuietEnabled(ctx, on)
+                }
+            )
+            DhKit.ValueRow(
+                label = "开始时间",
+                value = com.dollhouse.app.data.QuietHours.format(start),
+                iconRes = Icons.IC_CLOCK_3,
+                desc = "点一下 +1 小时",
+                onClick = {
+                    start = (start + 60) % 1440
+                    PetPrefs.setQuietStart(ctx, start)
+                }
+            )
+            DhKit.ValueRow(
+                label = "结束时间",
+                value = com.dollhouse.app.data.QuietHours.format(end),
+                iconRes = Icons.IC_CLOCK_3,
+                desc = "点一下 +1 小时",
+                onClick = {
+                    end = (end + 60) % 1440
+                    PetPrefs.setQuietEnd(ctx, end)
+                }
+            )
+            DhForm.Note(
+                "当前： " + com.dollhouse.app.data.QuietHours.describe(start, end) +
+                    if (start > end) "（跨午夜）" else ""
+            )
         }
     }
 }
