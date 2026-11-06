@@ -1520,7 +1520,16 @@ object DhKit {
                 // 【r13】卡片内嵌按钮 → cardUp。
                 .background(c.cardUp)
                 .border(1.dp, c.line, RoundedCornerShape(999.dp))
-                .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
+                // 【v0.2.5·修「椭圆形背景框偏长」】
+                //   【根因】原来这里直接用 `pressable(onClick)`，而 `pressable` 从 v0.2.0 起
+                //     内置了 `minTouchTarget()`（48dp 下限，为满足 M3 无障碍要求）。
+                //     药丸本身只有「12sp 文字 + 上下 8dp 内边距 ≈ 35dp」高，
+                //     被这个下限**拉高到 48dp**，圆角 999 就把 48dp 的框画成细长的椭圆；
+                //     文字仍按 35dp 的高度贴着上方排，于是「下面偏了一大串白的」。
+                //   【修法】这个药丸外面**已经**是整条可点的容器（本身就是按钮，不是孤立图标），
+                //     不需要再靠透明区域补命中区：改用不带 48dp 下限的点击，
+                //     并保留同一套按压缩放（复用 pressable 的手感，但跳过尺寸下限）。
+                .then(if (onClick != null) Modifier.pressScaleClick(onClick) else Modifier)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1786,6 +1795,34 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     return this
         // 【v0.2.0·Material 3 无障碍：触摸目标】见下方注释。
         .minTouchTarget()
+        .scale(scale)
+        .clickable(interactionSource = source, indication = null, onClick = callback)
+}
+
+/**
+ * 与 [pressable] 同一套按压手感，但**不施加 48dp 触摸目标下限**（v0.2.5）。
+ *
+ * 【为什么需要它】[pressable] 从 v0.2.0 起内置 `minTouchTarget()`，为的是让孤立的
+ *   小图标（叉、勾、点）有足够命中区。但有些元素本身就是一个完整按钮
+ *   （例如 [OutlineChip] 这种「文字 + 药丸底」），它们的高度本来就由内容决定 ——
+ *   再套一个 48dp 下限，只会把 **布局高度** 撑大，视觉上圆角 999 就变成细长椭圆，
+ *   文字贴顶、下方空白。
+ *
+ * 【用在哪些地方】只用于「自带可见轮廓、尺寸足够」的按钮；孤立图标仍走 [pressable]，
+ *   保持无障碍命中区。
+ */
+@Composable
+fun Modifier.pressScaleClick(onClick: () -> Unit): Modifier {
+    val callback = { com.dollhouse.app.core.OperationRecorder.event("Action", "Compose click"); onClick() }
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spec,
+        label = "press"
+    )
+    return this
         .scale(scale)
         .clickable(interactionSource = source, indication = null, onClick = callback)
 }

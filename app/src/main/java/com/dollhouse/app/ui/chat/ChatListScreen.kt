@@ -243,6 +243,9 @@ object ChatListScreen {
                     imeAction = androidx.compose.ui.text.input.ImeAction.Search,
                     // 【一键清空】右侧常驻「✕」（仅在输入非空时出现）：
                     //   搜索框在列表顶部，清空要比长按全选删更快。
+                    // 【compactTrailing】清空叉不参与行高：否则它的 48dp 命中区会把搜索框
+                    //   从约 44dp 撑到 48dp 以上，圆角框被拉成偏长的椭圆、文字贴顶下方留白。
+                    compactTrailing = true,
                     trailing = if (query.isEmpty()) null else {
                         {
                             DhKit.IconButton(Icons.IC_CLOSE, Design.SZ_SM, c.sub) {

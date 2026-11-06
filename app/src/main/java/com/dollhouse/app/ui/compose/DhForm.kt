@@ -44,6 +44,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Design
 
+/** 紧凑尾部图标的视觉尺寸（dp）：与正文行高相当，不会撑高输入框。 */
+private const val TRAILING_VISUAL_DP = 22
+
 /**
  * 【职责】Compose 侧的表单 / 弹层构件：输入框、标签、徽标、主色药丸、分隔间距、确认弹窗。
  *
@@ -83,7 +86,21 @@ object DhForm {
         singleLine: Boolean = true,
         keyboard: KeyboardType = KeyboardType.Text,
         imeAction: ImeAction = ImeAction.Done,
-        trailing: (@Composable () -> Unit)? = null
+        trailing: (@Composable () -> Unit)? = null,
+        /**
+         * 尾部图标**不参与行高**（v0.2.5）。
+         *
+         * 【为什么需要这个开关】`trailing` 里如果放的是通用 [DhKit.IconButton]，它的
+         *   可点区域按 Material 无障碍要求被撑到 48dp。48dp 是**布局尺寸**，不是视觉尺寸：
+         *   放进这个输入框后，Row 的高度由它决定，输入框从约 44dp 被拉到 48dp 以上，
+         *   圆角框于是被拉成「偏长的椭圆」，而文字只有 20dp 高、默认贴顶，
+         *   下方就空出一大截白 —— 用户看到的就是搜索框形状不对、字偏上。
+         *   【本开关做什么】为 true 时，尾部内容用 `Modifier.size` 定死在视觉尺寸，
+         *   不再要求 48dp 下限。代价是这一点点的点击区域变小，但它是「框内的清空叉」，
+         *   周围全是输入框本身，误触风险低；这与 M3「优先扩大命中区」不冲突 ——
+         *   该要求针对的是孤立的图标按钮。
+         */
+        compactTrailing: Boolean = false
     ) {
         val c = DhTokens.colors
         Column(modifier = modifier.fillMaxWidth()) {
@@ -131,7 +148,19 @@ object DhForm {
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.weight(1f)) {
+                            // 【修「椭圆框偏长、文字在上面、下面空一大串白」】
+                            //   【根因】带 trailing 图标时走这条 Row 分支，而 Row 高度由
+                            //     图标决定 —— [DhKit.IconButton] 为了满足触摸目标，视觉尺寸虽小
+                            //     但布局尺寸是 48dp。输入框文字只有约 20dp 高，
+                            //     于是 Row 被撑到 48dp。
+                            //   【为什么文字会跑到上面】这个 Box 原来没有 `contentAlignment`，
+                            //     默认是 TopStart：文字贴着顶部，48dp 减 20dp 的差全部堆在下方，
+                            //     就是用户看到的「下面偏了一大串空白」。
+                            //   【修法】Box 内容改为垂直居中，文字与图标在同一条中线上。
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
                                 if (value.isEmpty() && hint.isNotEmpty()) {
                                     Text(
                                         text = hint,
@@ -143,7 +172,13 @@ object DhForm {
                                 inner()
                             }
                             Spacer(Modifier.width(8.dp))
-                            trailing()
+                            // 【见 compactTrailing 说明】为 true 时把尾部内容压回视觉尺寸，
+                            //   不让它的 48dp 命中区把输入框整体撑高成椭圆。
+                            if (compactTrailing) {
+                                Box(Modifier.size(TRAILING_VISUAL_DP.dp)) { trailing() }
+                            } else {
+                                trailing()
+                            }
                         }
                     }
                 }
