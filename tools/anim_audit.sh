@@ -60,7 +60,11 @@ chk B07 "UiKit.expand 箭头为空时安全" "grep -q 'if (arrow != null)' $THEM
 chk B08 "UiKit.Switch 位移动画可取消" "grep -q 'trackAnim?.cancel()' $THEME/UiKit.kt"
 chk B09 "UiKit.Slider 进度动画可取消" "grep -q 'anim?.cancel()' $THEME/UiKit.kt"
 chk B10 "SwipeRow 有统一 cancelAnim" "grep -q 'private fun cancelAnim' $UI/widget/SwipeRow.kt"
-chk B11 "ProviderDetailPage 切换前取消标记动画" "grep -q 'markerAnim\[0\]?.cancel()' $UI/provider/ProviderDetailPage.kt"
+# B11 原判据（markerAnim[0]?.cancel()）已失效：r21 把该页底栏换成 DhKit.NavBar 后，
+#   指示块滑动动画整体撤掉（选中态改为即时换底色），没有需要取消的动画句柄。
+#   新判据：确认它确实不再持有旧式动画句柄，且底栏确实走统一 NavBar。
+chk B11 "ProviderDetailPage 无遗留标记动画且底栏走统一 NavBar" \
+  "! grep -q 'markerAnim' $UI/provider/ProviderDetailPage.kt && grep -q 'DhKit.NavBar' $UI/provider/ProviderDetailPage.kt"
 chk B12 "PetWindow 吸附动画句柄存在" "grep -q 'snapAnim' $PET/PetWindow.kt"
 chk B13 "closePage 对未挂载视图幂等" "grep -n 'fun closePage' -A8 $THEME/UiKit.kt | grep -q 'page.parent !is ViewGroup'"
 chk B14 "swapPage 用结束回调移除旧页" "grep -n 'fun swapPage' -A22 $THEME/UiKit.kt | grep -q 'withEndAction'"
@@ -82,8 +86,15 @@ chk C07 "Card 展开时长对齐 UiKit.D_LAYER" "grep -q 'UiKit.D_LAYER' $COMPOS
 chk C08 "BottomNav 缩放动画有显式 spec" "grep -q 'DhAnim.TAP_SCALE' $UI/home/BottomNav.kt"
 chk C09 "DhSwipe 回弹参数与 snappy 同源" "grep -q 'DhAnim.SWIPE_SETTLE' $COMPOSE/DhSwipe.kt"
 chk C10 "NavHost 关闭 sizeTransform" "grep -q 'sizeTransform = null' $UI/nav/NavHost.kt"
-chk C11 "NavHost 入场两层同时长" "test \$(grep -n 'transitionSpec' -A22 $UI/nav/NavHost.kt | grep -c 'durationMillis = UiKit.D_PAGE') -ge 2"
-chk C12 "NavHost 出场两层同时长" "test \$(grep -n 'popTransitionSpec' -A22 $UI/nav/NavHost.kt | grep -c 'durationMillis = UiKit.D_LAYER') -ge 2"
+# C11/C12 原判据要求"入场/出场同时长"，那是改造前的口径，而同时长正是
+#   「返回时两层一起融化、中间一帧重影」的成因（用户报的"页面切换闪烁/旧页残留"）。
+#   现规范（设计稿 §5）：进入 220ms、退出 180ms，两者必须**不同**且各自有具名来源。
+chk C11 "NavHost 入场用统一 enter 规格（220ms，具名来源）" \
+  "grep -q 'fadeIn(animationSpec = tween(DhDesign.Motion.enter))' $UI/nav/NavHost.kt && grep -q 'const val enter = 220' $UI/design/DesignSystem.kt"
+chk C11b "NavHost 入场带轻微上浮（16dp，按密度换算）" \
+  "grep -q 'slideInVertically' $UI/nav/NavHost.kt && grep -q 'ENTER_SHIFT_DP.dp.roundToPx()' $UI/nav/NavHost.kt"
+chk C12 "NavHost 出场用统一 exit 规格（180ms，与进场不同）" \
+  "grep -q 'fadeOut(animationSpec = tween(DhDesign.Motion.exit))' $UI/nav/NavHost.kt && grep -q 'const val exit = 180' $UI/design/DesignSystem.kt"
 chk C13 "NavHost 提供预测性返回规格" "grep -q 'predictivePopTransitionSpec' $UI/nav/NavHost.kt"
 chk C14 "无缺省 spec 的 animateFloatAsState" "perl -0777 -ne 'my \$c=()=/animateFloatAsState\\(/g; my \$s=()=/animateFloatAsState\\([^)]*?animationSpec/sg; exit(\$c==\$s?0:1)' \$(find $SRC -name '*.kt')"
 chk C15 "animateColorAsState 全部带 spec" "perl -0777 -ne 'my \$c=()=/animateColorAsState\\(/g; my \$s=()=/animateColorAsState\\([^)]*?animationSpec/sg; exit(\$c==\$s?0:1)' \$(find $SRC -name '*.kt')"
@@ -121,8 +132,14 @@ chk E02 "无 System.gc() 调用" "test \$(grep -rn 'System.gc()' $SRC --include=
 chk E03 "主线程路径无 Thread.sleep（后台线程除外）" "perl -0777 -ne 'while (/Thread\\.sleep/g) { my \$p = pos(); my \$pre = substr(\$_, 0, \$p); my \$lastThread = rindex(\$pre, \"Thread(\"); if (\$lastThread < 0) { exit 1 } } exit 0' \$(find $SRC -name '*.kt' -not -path '*/device/*')"
 chk E04 "无 println 调试残留" "test \$(grep -rn 'println(' $SRC --include=*.kt | wc -l) -eq 0"
 chk E05 "动画代码无 TODO/FIXME 残留" "test \$(grep -rn 'TODO\|FIXME' $ANIM $THEME/UiKit.kt --include=*.kt | wc -l) -eq 0"
-chk E06 "versionCode 与 CHANGELOG 首条版本号一致（10 = v0.1.0）" "grep -q 'versionCode 10' app/build.gradle"
-chk E07 "versionName 与 versionCode 配对（0.1.0 / 10）" "grep -q 'versionName \"0.1.0\"' app/build.gradle"
+# E06/E07 原判据把版本号写死成 10 / 0.1.0（改造前的值），已与仓库实际（26 / 0.2.6）脱节，
+#   会让审计长期报假红。改为「与 app/build.gradle 现读一致 + CHANGELOG 有对应条目」。
+VC=$(grep -oE 'versionCode [0-9]+' app/build.gradle | awk '{print $2}')
+VN=$(grep -oE 'versionName "[^"]+"' app/build.gradle | sed 's/versionName "\(.*\)"/\1/')
+chk E06 "versionCode 与 versionName 配对（现读 $VC / $VN）" \
+  "grep -q 'versionCode $VC' app/build.gradle && grep -q 'versionName \"$VN\"' app/build.gradle"
+chk E07 "CHANGELOG 记录了当前版本（v$VN）" \
+  "grep -q 'v$VN' CHANGELOG.md"
 chk E08 "targetSdk 保持 34" "grep -q 'targetSdk 34' app/build.gradle"
 chk E09 "minSdk 保持 24" "grep -q 'minSdk 24' app/build.gradle"
 chk E10 "签名配置仍从 keystore.properties 读取" "grep -q 'keystoreProps' app/build.gradle"

@@ -9,6 +9,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -19,6 +20,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -27,6 +29,7 @@ import com.dollhouse.app.core.Logs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.PageRegistry
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.UiKit
 
@@ -85,6 +88,14 @@ import com.dollhouse.app.ui.theme.UiKit
  * 【栈底不变式】`HomeRoute` 恒在栈底、永不弹出。这样「弹到空」不会发生，
  *   NavDisplay 永远有内容可渲染（旧实现在栈空时要靠底座 View 兜住）。
  */
+/**
+ * 覆盖页进场时的垂直位移（dp）。
+ *
+ * 【为什么是 16】设计稿 §5：小于一行行高（56 / 64dp）的位移只会被读成"推上来一点"；
+ *   超过一行就会被读成"整页滑动"，与"这是同一层的子页"的事实矛盾。
+ */
+private const val ENTER_SHIFT_DP = 16
+
 object NavHost {
 
     private const val TAG = "DollhouseNavHost"
@@ -186,16 +197,40 @@ object NavHost {
                 //   故：**只有真正存在覆盖层时才渲染**。栈里只剩底座时这里什么都不画，
                 //   ComposeView 不参与命中测试，底座零干扰。
                 if (stack.size > 1) {
-                    // 系统关闭 Animator 时直接完成导航，不播放装饰性透明度动画。
+                    // 系统关闭 Animator 时直接完成导航，不播放装饰性动画。
                     // 不改变页面栈、状态恢复或返回路径。
-                    val pageEnter: EnterTransition
-                    val pageExit: ExitTransition
-                    if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
-                        pageEnter = fadeIn(animationSpec = tween(UiKit.D_PAGE))
-                        pageExit = fadeOut(animationSpec = tween(UiKit.D_PAGE))
+                    //
+                    // 【M3·统一转场规范】改造前进场与出场**同为 200ms 纯透明度**，症状是：
+                    //   · 按返回时新页淡入、旧页淡出同时完成，看起来像「原地溶解」而不是「退回上一页」，
+                    //     用户失去方向感（这是"页面切换不连贯"最直接的来源）；
+                    //   · 两层同时长 + 同时起跑，中间有一帧「两层都半透明」，
+                    //     叠在一起的字会短暂重影（旧页面短暂覆盖新页面）。
+                    // 现在按设计稿 §5 分两条时间轴：
+                    //   · 进入 220ms（[DhDesign.Motion.enter]）：淡入 + 自下 16dp 轻微上浮，
+                    //     给"内容推上来"的空间感，与"点进去"的直觉一致；
+                    //   · 退出 180ms（[DhDesign.Motion.exit]）：只淡出、**不下移**，
+                    //     旧页迅速让位，避免与进场重叠出重影。
+                    // 位移量取 16dp：小于一行的行高（56/64dp），不会误读成"整页滑动"。
+                    val animOn = android.animation.ValueAnimator.areAnimatorsEnabled()
+                    // 位移量按**密度**换算成像素，而不是拿屏高做除法：
+                    //   固定 16dp 在任何屏 / 任何缩放上都一样；
+                    //   用 `it / 42` 这类比例在大屏上会放大成"整页滑动"。
+                    val enterShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+                        ENTER_SHIFT_DP.dp.roundToPx()
+                    }
+                    val pageEnter: EnterTransition = if (animOn) {
+                        (fadeIn(animationSpec = tween(DhDesign.Motion.enter))
+                            + slideInVertically(
+                                animationSpec = tween(DhDesign.Motion.enter),
+                                initialOffsetY = { enterShiftPx }
+                            ))
                     } else {
-                        pageEnter = EnterTransition.None
-                        pageExit = ExitTransition.None
+                        EnterTransition.None
+                    }
+                    val pageExit: ExitTransition = if (animOn) {
+                        fadeOut(animationSpec = tween(DhDesign.Motion.exit))
+                    } else {
+                        ExitTransition.None
                     }
                     // 【必须提供 NavigationEventDispatcherOwner】`NavDisplay` 内部用
                     //   `NavigationBackHandler` 接管系统返回 / 预测性返回手势，而它读
