@@ -1,6 +1,7 @@
 package com.dollhouse.app.ui.compose
 
 import android.content.Context
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Fonts
 import com.dollhouse.app.ui.theme.UiKit
 
@@ -162,12 +164,37 @@ val LocalDhFontFamily = compositionLocalOf<FontFamily> { FontFamily.Default }
 /** Compose 侧加粗字族（单字重字体派生合成粗体）。 */
 val LocalDhFontFamilyBold = compositionLocalOf<FontFamily> { FontFamily.Default }
 
-/** 令牌读取入口：`DhTokens.colors.acc` / `DhTokens.fonts` / `DhTokens.fontsBold`。 */
+/**
+ * 【M1·统一设计系统】Compose 侧**唯一**的设计系统令牌集。
+ *
+ * 【与 [LocalDhColors] 的关系】两者都从 [UiKit] 现读，是同一次计算的两个视图：
+ *   · [DhDesign.Palette] 是**新的规范命名**（accent / surface / …），新代码只用它；
+ *   · [DhColors] 保留旧字段名（acc / acc2 / …），只为不一次性改掉数百处调用点。
+ *   M9 清理时会把 [DhColors] 的调用点全部迁到 [DhDesign.Palette] 并删除旧类型。
+ */
+val LocalDhPalette = compositionLocalOf<DhDesign.Palette> {
+    error("DhPalette 未提供：请在 DollhouseTheme 内使用")
+}
+
+/** 当前字体阶梯（随 [DhDesign.Type] 与系统字族快照一起提供）。 */
+val LocalDhType = compositionLocalOf<DhDesign.Type> { DhDesign.Type.fallback() }
+
+/** 令牌读取入口：`DhTokens.colors.acc` / `DhTokens.palette.accent` / `DhTokens.type.title`。 */
 object DhTokens {
-    /** 当前配色。 */
+    /** 当前配色（旧命名，兼容既有调用点）。 */
     val colors: DhColors
         @Composable @ReadOnlyComposable
         get() = LocalDhColors.current
+
+    /** 当前配色（规范命名，新代码用这个）。 */
+    val palette: DhDesign.Palette
+        @Composable @ReadOnlyComposable
+        get() = LocalDhPalette.current
+
+    /** 当前字体阶梯。 */
+    val type: DhDesign.Type
+        @Composable @ReadOnlyComposable
+        get() = LocalDhType.current
 
     /** 常规字族。 */
     val fonts: FontFamily
@@ -185,33 +212,56 @@ object DhTokens {
  *
  * 【一次订阅，整体重组】顶层读 [DhTheme.revision]，换主题时只重组这一层，向下 provide 新快照；
  *   子节点通过 [DhTokens] 读取，不在各自函数里散读 UiKit —— 避免几百个订阅点。
+ *
+ * 【M1·交付 MaterialTheme】改造前本函数**刻意不建 MaterialTheme**，于是 material3 的
+ *   `Text`（39 处）、`SnackbarHost`、`TooltipBox`、`rememberModalBottomSheetState`
+ *   全部落到 M3 默认值：默认主色是紫 6200EE、默认正文是 16sp/24、默认圆角 12/16 ——
+ *   与本工程的配色和字号阶梯毫无关系，是「页面间字体比例不一致」的另一半根源。
+ *   现在建立 **M3 投影**：ColorScheme / Typography / Shapes 全部由 [DhDesign] 从 [UiKit] 派生。
+ *   注意这仍然是**投影而非第二真源** —— M3 只是读者，写入者永远是 ThemeManager → UiKit。
  */
 @Composable
 fun DollhouseTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
     // 订阅主题版本号：bump 后这里重跑，下面 remember 的 key 变化 → 重新取色。
     val revision = DhTheme.revision
+    val palette = remember(revision) { DhDesign.Palette.fromUiKit() }
     val colors = remember(revision) { DhColors.fromUiKit() }
     val family = remember(ctx) { safeFamily(ctx, bold = false) }
     val familyBold = remember(ctx) { safeFamily(ctx, bold = true) }
+    // 【字体阶梯】品牌档用霞鹜文楷（情感载体），正文档回落系统无衬线（中文小字更清晰）。
+    //   设计稿 §1 明确「品牌字体是调味料，不是主食」：文楷只出现在 App 名、人偶名、头像首字。
+    val type = remember(family, familyBold) {
+        runCatching { DhDesign.Type.of(brandFamily = family, bodyFamily = FontFamily.Default) }
+            .getOrElse { DhDesign.Type.fallback() }
+    }
     // 【r12 修 bug·蓝色水滴】文本选择把手与选中底色的主题化。
-    // 【为什么必须显式提供】本工程刻意不建 MaterialTheme（见本文件头），而 Compose 的
-    //   LocalTextSelectionColors 默认值来自 Material 的 colorScheme —— 落到 M3 默认的
-    //   Color(0xFF4285F4)（那个蓝）上，于是**每一个**输入框的光标把手都是蓝的。
-    //   在这里 provide 一次，全工程所有输入框（含各页的 DhForm.Input）一并改走主题色。
-    val selection = remember(colors) {
+    //   改造前 M3 的 LocalTextSelectionColors 默认读到 0xFF4285F4（那个蓝），
+    //   于是每一个输入框的光标把手都是蓝的。现在色值与 M3 主题都由本层提供，双保险。
+    val selection = remember(palette) {
         TextSelectionColors(
-            handleColor = colors.acc,
-            backgroundColor = colors.acc.copy(alpha = 0.4f)
+            handleColor = palette.accent,
+            backgroundColor = palette.accent.copy(alpha = 0.4f)
         )
     }
-    CompositionLocalProvider(
-        LocalDhColors provides colors,
-        LocalDhFontFamily provides family,
-        LocalDhFontFamilyBold provides familyBold,
-        LocalTextSelectionColors provides selection,
-        content = content
-    )
+    val colorScheme = remember(palette) { DhDesign.colorScheme(palette) }
+    val typography = remember(type) { DhDesign.typography(type) }
+    val shapes = remember { DhDesign.shapes() }
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = typography,
+        shapes = shapes
+    ) {
+        CompositionLocalProvider(
+            LocalDhColors provides colors,
+            LocalDhPalette provides palette,
+            LocalDhType provides type,
+            LocalDhFontFamily provides family,
+            LocalDhFontFamilyBold provides familyBold,
+            LocalTextSelectionColors provides selection,
+            content = content
+        )
+    }
 }
 
 /**

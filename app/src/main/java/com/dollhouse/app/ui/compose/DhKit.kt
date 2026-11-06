@@ -98,42 +98,44 @@ import kotlinx.coroutines.flow.collect
  */
 object DhKit {
 
-    /* ============================ 尺寸令牌（与 View 版同源） ============================ */
+    /* ============================ 尺寸令牌（M1 起统一委托 DhDesign） ============================
+     * 【M1·统一】改造前本节与 `ui/theme/Design.kt`、`ui/theme/UiKit.kt` 各有一套刻度，
+     *   同一语义有两个值（例如卡片间距 10 与 12、图标间距 10 与 8），页面之间因此「不像同一套」。
+     *   现在**唯一真源**是 `ui/design/DesignSystem.kt` 的 [DhDesign]；本节只保留旧常量名做别名，
+     *   避免一次性改掉数百处调用点，M9 再逐步删别名、让页面直接引用 DhDesign。
+     */
 
-    /** 卡片圆角（dp）← UiKit.card 的 16f。 */
-    const val R_CARD = 16
-    /** 行 / 小方块圆角（dp）← HomeCards.valueRow 的 10f。 */
-    const val R_ROW = 10
-    /** 卡片间距（dp）← HomeCards.buildCard 的 topMargin 10f。 */
-    const val GAP_CARD = 10
-    /** 卡片内边距（dp）← HomeCards.buildCard 的 16f。 */
-    const val PAD_CARD = 16
+    /** 卡片圆角（dp）← [DhDesign.Radius.lg]。 */
+    const val R_CARD = com.dollhouse.app.ui.design.DhDesign.Radius.lg
+    /** 行 / 小方块圆角（dp）← [DhDesign.Radius.md]。改造前是 10（非 4 的倍数、无设计依据）。 */
+    const val R_ROW = com.dollhouse.app.ui.design.DhDesign.Radius.md
+    /** 卡片间距（dp）← [DhDesign.Space.cardGap]。改造前 10 与 12 并存，统一取 12。 */
+    const val GAP_CARD = com.dollhouse.app.ui.design.DhDesign.Space.cardGap
+    /** 卡片内边距（dp）← [DhDesign.Space.cardPad]。 */
+    const val PAD_CARD = com.dollhouse.app.ui.design.DhDesign.Space.cardPad
 
     /* ============================ 文本样式（v0.2.3·统一行高） ============================
      * 【为什么新增这一组】全工程 36 处内联 `fontSize = X.sp`，**没有一处带 lineHeight**
      *   —— Compose 的 Text 在不给行高时会用「字体的 lineHeight」，而本工程用的是自带
      *   单字重字体派生的粗体，行高比系统字体更紧。结果就是中文多行文案上下贴在一起，
      *   用户反馈的「文字错位、阅读性低」里很大一部分来自这里。
-     * 【为什么行高取 1.45 倍】中文行距的经验区间是 1.4–1.5；取 1.45 在 1080p / 3x 上
-     *   既不会松到散架，也足够让 12sp 的小字在浅底上不粘连。
-     * 【为什么按 UiKit.FS_* 取值而不是另起一套】字号已经收口在 [UiKit] 的 FS_* 常量，
-     *   再造一份 13/14sp 只会让「同一个正文两种大小」的老问题复发。
+     * 【M1·统一】行高改为跟随 [DhDesign.Type] 阶梯（title 20/28、body 15/24、sub 13/20）。
      */
-    /** 页面标题行的行高（20sp → 29）。 */
-    const val LH_TITLE = 29
-    /** 正文 / 按钮文案的行高（15sp → 22）。 */
-    const val LH_BTN = 22
-    /** 说明 / 副标题的行高（12sp → 18）。 */
-    const val LH_SUB = 18
-    /** 行内边距（dp）← HomeCards.valueRow 的 12f。 */
-    const val PAD_ROW = 12
-    /** 行间距（dp）← HomeCards.valueRow 的 topMargin 8f。 */
-    const val GAP_ROW = 8
-/** 图标命中区（dp）← UiKit.HIT_DP。 */
+    /** 页面标题行的行高（20sp → 28）。 */
+    const val LH_TITLE = 28
+    /** 正文 / 按钮文案的行高（15sp → 24）。 */
+    const val LH_BTN = 24
+    /** 说明 / 副标题的行高（13sp → 20）。 */
+    const val LH_SUB = 20
+    /** 行内边距（dp）← [DhDesign.Space.md]。 */
+    const val PAD_ROW = com.dollhouse.app.ui.design.DhDesign.Space.md
+    /** 行间距（dp）← [DhDesign.Space.sm]。 */
+    const val GAP_ROW = com.dollhouse.app.ui.design.DhDesign.Space.sm
+/** 图标命中区（dp）← [DhDesign.Size.minTouch]。 */
     const val HIT = 48
 
     /**
-     * **【v0.1.5·K-03】最小可点击边长（dp）** —— 需求书 R-091 / N-010 / 19.9.3。
+     * 【v0.1.5·K-03】最小可点击边长（dp）—— 需求书 R-091 / N-010 / 19.9.3。
      *
      * 【为什么不直接把 [HIT] 改成 48】[HIT] 同时被用作**视觉尺寸**（图标所在的正方形，
      *   以及一排按钮的排布间距）。直接改大会让顶栏按钮、卡片底部三枚按钮挤在一起，
@@ -145,29 +147,38 @@ object DhKit {
     const val MIN_TOUCH = 48
 
     /**
-     * 【v0.1.4·UI 统一】所有设置行的左侧图标尺寸（dp）。
+     * 【v0.1.4·UI 统一 · M1 修订】所有设置行的左侧图标尺寸（dp）。
      *
-     * 【为什么必须只有一个值】改造前同一页里有 14 / 16 / 18 三种：
-     *   SectionLabel 走 SZ_XS、ValueRow 走 SZ_SM、ActionRow 走 SZ_MD，
-     *   并排时视觉重量参差，看起来像三种层级的控件。
-     *   18dp 与 15sp 正文 / 24dp 开关三者比例最协调（图标略大于字高、明显小于开关）。
+     * 【为什么必须只有一个值】改造前同一页里有 14 / 16 / 18 / 20 四种：
+     *   SectionLabel 走 SZ_XS、ValueRow 走 SZ_SM、ActionRow 走 SZ_MD，并排时视觉重量参差。
+     * 【M1 为什么从 18 改成 20】设计稿 §2.2 把行图标定为 20dp：
+     *   与 15sp 正文（字面高度约 20px）等高、远小于 24dp 状态图标，
+     *   三者比例最协调；18 与 16 的差距（2dp）在 3x 屏上几乎看不出层级，
+     *   反而让「行图标」与「行内小图标」混在一起。
      */
-    const val ICON_ROW_DP = 18f
+    const val ICON_ROW_DP = 20f
 
-    /** 图标与文字的间距（dp）—— 全行统一，不用各组件自己定 6 / 8 / 10。 */
-    const val GAP_ICON = 10
+    /** 图标与文字的间距（dp）← [DhDesign.Space.iconGap]。改造前 8 与 10 并存，统一取 8。 */
+    const val GAP_ICON = com.dollhouse.app.ui.design.DhDesign.Space.iconGap
 
-    /** 行内说明文字字号（sp）。比标题小两档，与 SUB 色配套。 */
-    const val FS_ROW_DESC = 12f
+    /** 行内说明文字字号（sp）。M1 起跟随 [DhDesign.Type.sub]（13sp），不再用 12。 */
+    const val FS_ROW_DESC = 13f
 
     /** 行最小高度（dp）：保证无说明项与有说明项的可点区域都不低于 Android 建议的 48dp。 */
     const val MIN_ROW_H = 48
 
-    /** 页面水平内边距（dp）—— Tab 页与 [Page] 同一口径。 */
-    const val PAD_PAGE = 16
+    /** 页面水平内边距（dp）← [DhDesign.Space.pageX]。 */
+    const val PAD_PAGE = com.dollhouse.app.ui.design.DhDesign.Space.pageX
 
-    /** Tab 页大标题字号（sp）—— 聊天 / 人偶 / 说说 三格统一。 */
-    const val TAB_TITLE_SP = 26f
+    /**
+     * Tab 页大标题字号（sp）—— 聊天 / 人偶 / 说说 三格统一。
+     *
+     * 【M1 为什么从 26 降到 20】改造前 Tab 页标题 26sp、二级页标题 20sp（FS_TITLE），
+     *   同一个 App 里「页面标题」有两个尺寸，切换 Tab 与进入子页时标题会跳一下。
+     *   设计稿 §2.1 只给了一档 title（20/600/28）用于**每一个**屏的标题。
+     *   26sp 的层级需求由 TopBar 上方的 kicker（Dollhouse 品牌字）与更大的留白承担。
+     */
+    const val TAB_TITLE_SP = 20f
 
     /** Tab 页顶栏上内边距（dp）。 */
     const val TAB_BAR_TOP = 14

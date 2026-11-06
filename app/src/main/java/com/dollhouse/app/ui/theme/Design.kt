@@ -30,6 +30,11 @@ object Design {
      * 【图标尺寸只允许这几档】历史问题：页面里到处出现 13f / 14f / 17f / 18f / 19f 这类随手值，
      *   同一层级的图标视觉重量不一致，页面看着「毛」。收口成 5 档后，
      *   谁在什么位置用哪一档是明确的，不再靠感觉。
+     *
+     * 【M1·统一】本节全部委托 `ui/design/DesignSystem.kt` 的 [DhDesign]。
+     *   改造前同一语义在三个文件各有一个值（卡片间距 12 / 10、图标间距 8 / 10、
+     *   触控 48 / 40），页面因此「不像同一个团队做的」。现在只保留一套，
+     *   旧常量名留作别名以免一次性改掉 124 处调用点，M9 再清别名。
      */
     /** 行内极小图标（备注、次级标记）。 */
     const val SZ_XS = 14.0f
@@ -42,28 +47,29 @@ object Design {
     /** 强调图标（空状态、大状态块）。 */
     const val SZ_XL = 28.0f
 
-    /** 图标与紧邻文字的默认间距（dp）。 */
-    const val GAP_ICON = 8
+    /** 图标与紧邻文字的默认间距（dp）← [DhDesign.Space.iconGap]。 */
+    const val GAP_ICON = com.dollhouse.app.ui.design.DhDesign.Space.iconGap
 
     /**
      * 【r12】品牌大标题字号。
      *
-     * 【为什么单列一档】首页的「Dollhouse」是 40.sp，是全 App 唯一的大标题字号，
-     *   原来直接硬编码在 [com.dollhouse.app.ui.home.HomeScreen] 里。
-     *   与 [UiKit.FS_*] 那套正文字号刻度不同量级，硬塞进去会撑爆刻度语义，故在此单开一档。
+     * 【M1 为什么从 40 降到 22】40sp 的「Dollhouse」原本独占首页顶部，是全 App 唯一大标题；
+     *   改造后首页变成三 Tab 之一的「说说」，品牌字以 **kicker**（顶栏上方的 22sp 品牌行）
+     *   的身份出现在每个 Tab 页，情感载体角色不变、但不再与页面标题争夺层级。
+     *   设计稿 §2.1：brand = 22 / 600 / 30，且只允许出现在 App 名、人偶名、头像首字。
      */
-    const val FS_TITLE_BRAND = 40.0f
+    const val FS_TITLE_BRAND = 22.0f
 
     /* ------------ 间距刻度（dp）------------ */
 
-    /** 卡片内边距。 */
-    const val PAD_CARD = 16
-    /** 卡片之间的垂直间距。 */
-    const val GAP_CARD = 12
-    /** 操作行的高度（保证点击区域 ≥ 48dp）。 */
+    /** 卡片内边距 ← [DhDesign.Space.cardPad]。 */
+    const val PAD_CARD = com.dollhouse.app.ui.design.DhDesign.Space.cardPad
+    /** 卡片之间的垂直间距 ← [DhDesign.Space.cardGap]。 */
+    const val GAP_CARD = com.dollhouse.app.ui.design.DhDesign.Space.cardGap
+    /** 操作行的高度（保证点击区域 ≥ 48dp）← [DhDesign.Size.minTouch]。 */
     const val H_ROW = 48
-    /** 区块标题与内容的间距。 */
-    const val GAP_SECTION = 8
+    /** 区块标题与内容的间距 ← [DhDesign.Space.sectionGap]。 */
+    const val GAP_SECTION = com.dollhouse.app.ui.design.DhDesign.Space.sectionGap
 
     /* ============================ 语义色 ============================ */
 

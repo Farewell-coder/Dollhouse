@@ -80,31 +80,90 @@ object ThemeManager {
     private const val I_SCRIM = 28
     private const val PAL_SIZE = 29
 
-    /** 白色档内置调色板（与改造前 UiKit 的取值一致，保证默认观感不变）。 */
+    /**
+     * 白色档内置调色板 —— **方向 A「安静居所」**（设计稿 `dollhouse-refresh` §6）。
+     *
+     * 【M1 为什么换掉原值】原值是冷调紫灰（bg #F1F2F7、card 纯白、title #22315B 偏蓝）。
+     *   冷底 + 纯白卡片 + 蓝黑标题在夜间读起来像「企业后台」，与本 App「一间亮着灯的小房子」
+     *   的情感定位相反。新值把基底换成**暖纸色**（bg #F7F4EE、card #FCFAF6），
+     *   标题压到暖近黑 #2A2620，描边用暖灰 #E6E0D4 —— 颜色之间只差很小的色相与明度，
+     *   层级由留白与发丝线承担，而不是靠五颜六色。
+     *
+     * 【为什么不改数组长度】`cachedMonetPalette()` 校验 length == PAL_SIZE(29)，
+     *   长度一变就整体丢弃莫奈取色（历史故障：开关能开、配色不变）。29 格一位不动。
+     *
+     * 【顺序必须与 `UiKit.snapshotPalette()` 完全一致】就地换主题靠两张表按下标重映射，
+     *   错一位就会「换主题之后某块颜色对不上」。
+     */
     private val LIGHT = intArrayOf(
-        0xFF6B4EE6.toInt(), 0xFF8B6EF7.toInt(), 0xFFFFFFFF.toInt(), 0xFFF1F2F7.toInt(), 0xFF22315B.toInt(), 0xFF5A6B99.toInt(),
-        0xFFE6E7EF.toInt(), 0xFFF6F4FF.toInt(), 0xFFEAECF4.toInt(), 0xFFF4F2FD.toInt(), 0xFF1B8A3A.toInt(), 0xFFB3261E.toInt(),
-        0xFFFFFFFF.toInt(), 0xFF4C6FDE.toInt(), 0xFFC9D4EE.toInt(), 0xFFE4EAF8.toInt(), 0xFF3A5BC7.toInt(), 0xFFDCE6FF.toInt(),
-        0xFFEDF1FA.toInt(), 0xFF7A88B0.toInt(), 0xFFE6EBF8.toInt(), 0xFF8A5A00.toInt(), 0xFFFFF4D6.toInt(), 0xFFC9CEDD.toInt(),
-        0xFFF2603C.toInt(), 0xFFE8608F.toInt(), 0xFF5A7BD8.toInt(), 0x1422315B, 0x8A000000.toInt()
+        // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
+        0xFF6B4EE6.toInt(), 0xFF8B6EF7.toInt(), 0xFFFCFAF6.toInt(), 0xFFF7F4EE.toInt(), 0xFF2A2620.toInt(), 0xFF6F675C.toInt(),
+        // 6-9  LINE, OPTION, SOFT, FIELD
+        0xFFE6E0D4.toInt(), 0xFFF2EEE7.toInt(), 0xFFF4F0E9.toInt(), 0xFFF1EDE5.toInt(),
+        // 10-12 OK, ERR, ON_ACC
+        0xFF4B7A57.toInt(), 0xFFB0563F.toInt(), 0xFFFFFFFF.toInt(),
+        // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
+        0xFFEDE7DC.toInt(), 0xFFE2DACC.toInt(), 0xFFF1EDE4.toInt(), 0xFF6F675C.toInt(),
+        // 17-20 CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG
+        0xFFE9E3FF.toInt(), 0xFFF0ECE3.toInt(), 0xFFDCD5C7.toInt(), 0xFFF2EEE7.toInt(),
+        // 21-23 HINT_FG, HINT_BG, SWITCH_OFF
+        0xFF6F5B43.toInt(), 0xFFFAF0DF.toInt(), 0xFFD8D1C3.toInt(),
+        // 24-26 EMOTE_1..3（低饱和暖色，不做彩虹）
+        0xFFE9DAC4.toInt(), 0xFFDCE4DA.toInt(), 0xFFE5DCE6.toInt(),
+        // 27-28 STROKE, SCRIM
+        0x8CE6E0D4.toInt(), 0x6B262018
     )
 
-    /** 暗色档内置调色板。 */
+    /**
+     * 暗色档内置调色板 —— 方向 A「暖炭」。
+     *
+     * 【为什么不是蓝黑】原值 bg #121317 / card #1E1F26 是冷蓝黑，与浅色档的暖纸色
+     *   在色温上是两个产品。新值 bg #171510 / card #1E1B15 是**暖炭**：
+     *   夜间在 OLED 上不发蓝刺眼，且与浅色档共享同一色相家族，切主题时不会「换了个人」。
+     */
     private val DARK = intArrayOf(
-        0xFF9B85F0.toInt(), 0xFFB39DFF.toInt(), 0xFF1E1F26.toInt(), 0xFF121317.toInt(), 0xFFE8EAF2.toInt(), 0xFF9BA3BC.toInt(),
-        0xFF2E3038.toInt(), 0xFF23242C.toInt(), 0xFF282A36.toInt(), 0xFF25263A.toInt(), 0xFF5FD07E.toInt(), 0xFFFF6B60.toInt(),
-        0xFF1A1030.toInt(), 0xFF5C7BE8.toInt(), 0xFF3A3F52.toInt(), 0xFF2A2F42.toInt(), 0xFFA9BCF5.toInt(), 0xFF3A4472.toInt(),
-        0xFF24273A.toInt(), 0xFF8A93B0.toInt(), 0xFF2B3048.toInt(), 0xFFF0C674.toInt(), 0xFF3A3320.toInt(), 0xFF3E4250.toInt(),
-        0xFFFF8A5C.toInt(), 0xFFFF8FB8.toInt(), 0xFF8AA6FF.toInt(), 0x1AFFFFFF, 0xA6000000.toInt()
+        // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
+        0xFFA78EFF.toInt(), 0xFFBEA9FF.toInt(), 0xFF1E1B15.toInt(), 0xFF171510.toInt(), 0xFFEDE7DB.toInt(), 0xFFA79D8D.toInt(),
+        // 6-9  LINE, OPTION, SOFT, FIELD
+        0xFF2E2A22.toInt(), 0xFF211E17.toInt(), 0xFF1B1914.toInt(), 0xFF201D16.toInt(),
+        // 10-12 OK, ERR, ON_ACC
+        0xFF7DAE88.toInt(), 0xFFE58E77.toInt(), 0xFF17131F.toInt(),
+        // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
+        0xFF2B2620.toInt(), 0xFF332E25.toInt(), 0xFF262218.toInt(), 0xFFA79D8D.toInt(),
+        // 17-20 CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG
+        0xFF332C55.toInt(), 0xFF262218.toInt(), 0xFF3A3428.toInt(), 0xFF211E17.toInt(),
+        // 21-23 HINT_FG, HINT_BG, SWITCH_OFF
+        0xFFD3B78C.toInt(), 0xFF2B2518.toInt(), 0xFF3B3529.toInt(),
+        // 24-26 EMOTE_1..3
+        0xFF3A3226.toInt(), 0xFF2B3730.toInt(), 0xFF352C38.toInt(),
+        // 27-28 STROKE, SCRIM
+        0x8C3A342A.toInt(), 0x8C000000.toInt()
     )
 
-    /** 纯黑档内置调色板：卡片与页面同为纯黑，靠描边与行底色分层。 */
+    /**
+     * 纯黑档内置调色板 —— 方向 A「纯黑」。
+     *
+     * 【为什么卡片不是纯黑】原值 card 与 bg 同为 #000000，只能靠 #303030 描边分层，
+     *   结果整屏像一堆玻璃框。新值 bg #000000（OLED 真黑省电）+ card #0A0907（几乎看不出，
+     *   但足以让卡片「浮起一丝」），结构主要仍由 #201C15 描边承担。
+     */
     private val BLACK = intArrayOf(
-        0xFF9B85F0.toInt(), 0xFFB39DFF.toInt(), 0xFF000000.toInt(), 0xFF000000.toInt(), 0xFFEDEDF2.toInt(), 0xFF9A9AA5.toInt(),
-        0xFF303030.toInt(), 0xFF0D0D0D.toInt(), 0xFF151515.toInt(), 0xFF1A1626.toInt(), 0xFF5FD07E.toInt(), 0xFFFF6B60.toInt(),
-        0xFF1A1030.toInt(), 0xFF5C7BE8.toInt(), 0xFF333333.toInt(), 0xFF1A1A1A.toInt(), 0xFFA9BCF5.toInt(), 0xFF2E2E3E.toInt(),
-        0xFF141414.toInt(), 0xFF8A93B0.toInt(), 0xFF1C1C28.toInt(), 0xFFF0C674.toInt(), 0xFF2A2416.toInt(), 0xFF3A3A3A.toInt(),
-        0xFFFF8A5C.toInt(), 0xFFFF8FB8.toInt(), 0xFF8AA6FF.toInt(), 0x26FFFFFF, 0xB3000000.toInt()
+        // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
+        0xFFA78EFF.toInt(), 0xFFBEA9FF.toInt(), 0xFF0A0907.toInt(), 0xFF000000.toInt(), 0xFFF0EBE0.toInt(), 0xFF9C9282.toInt(),
+        // 6-9  LINE, OPTION, SOFT, FIELD
+        0xFF201C15.toInt(), 0xFF100E0A.toInt(), 0xFF0B0A08.toInt(), 0xFF110F0B.toInt(),
+        // 10-12 OK, ERR, ON_ACC
+        0xFF79A984.toInt(), 0xFFE0866F.toInt(), 0xFF17131F.toInt(),
+        // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
+        0xFF171410.toInt(), 0xFF2A251D.toInt(), 0xFF16130E.toInt(), 0xFF9C9282.toInt(),
+        // 17-20 CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG
+        0xFF2A2450.toInt(), 0xFF16130E.toInt(), 0xFF2E2A21.toInt(), 0xFF100E0A.toInt(),
+        // 21-23 HINT_FG, HINT_BG, SWITCH_OFF
+        0xFFC9AE84.toInt(), 0xFF1F1B11.toInt(), 0xFF2E2A21.toInt(),
+        // 24-26 EMOTE_1..3
+        0xFF2A2419.toInt(), 0xFF1F2A24.toInt(), 0xFF28202C.toInt(),
+        // 27-28 STROKE, SCRIM
+        0x8C2A251D.toInt(), 0xB8000000.toInt()
     )
 
     /** 当前主题档位；非法值一律按「随系统」。 */
@@ -199,6 +258,15 @@ object ThemeManager {
             UiKit.HINT_FG = p[I_HINT_FG]
             UiKit.HINT_BG = p[I_HINT_BG]
             UiKit.SWITCH_OFF = p[I_SWITCH_OFF]
+            // 【M1·单一强调色】开关开启态跟随主色。
+            //   【为什么改】原实现是固定薄荷绿（#3ECFA0），理由是「与任何主色都能分辨开关状态」。
+            //     但设计稿方向 A 的核心约束是「一个屏只有一个强调色」，薄荷绿会变成第二个强调色：
+            //     浅色档里紫（按钮）+ 绿（开关）并排出现，看着像两个产品拼起来的。
+            //   【可分辨性怎么保证】开启态靠**位置 + 滑块右移 + 轨道填满**三重信号表达，
+            //     不依赖色相差异；关闭态用暖灰轨道（SWITCH_OFF），对比足够。
+            //   【注意】SWITCH_ON 不占调色板的 29 格（它在数组之外），所以这里显式赋值；
+            //     赋值来源是 p[I_ACC]，莫奈取色时同样自动跟随。
+            UiKit.SWITCH_ON = p[I_ACC]
             UiKit.EMOTE_1 = p[I_EMOTE_1]
             UiKit.EMOTE_2 = p[I_EMOTE_2]
             UiKit.EMOTE_3 = p[I_EMOTE_3]

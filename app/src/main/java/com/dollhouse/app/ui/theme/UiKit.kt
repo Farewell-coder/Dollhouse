@@ -56,73 +56,73 @@ object UiKit {
     var ACC2 = 0xFF8B6EF7.toInt()
 
     @JvmField
-    var CARD = 0xFFFFFFFF.toInt()
+    var CARD = 0xFFFCFAF6.toInt()
 
     @JvmField
-    var BG = 0xFFF4F5F9.toInt()
+    var BG = 0xFFF7F4EE.toInt()
 
     @JvmField
-    var TITLE = 0xFF22315B.toInt()
+    var TITLE = 0xFF2A2620.toInt()
 
     @JvmField
-    var SUB = 0xFF5A6B99.toInt()
+    var SUB = 0xFF6F675C.toInt()
 
     @JvmField
-    var LINE = 0xFFE6E7EF.toInt()
+    var LINE = 0xFFE6E0D4.toInt()
 
     /** 选项/对照组底色（设置页用）。 */
     @JvmField
-    var OPTION = 0xFFF2F5FF.toInt()
+    var OPTION = 0xFFF2EEE7.toInt()
 
     @JvmField
-    var SOFT = 0xFFF2F3F7.toInt()
+    var SOFT = 0xFFF4F0E9.toInt()
 
     @JvmField
-    var FIELD = 0xFFF4F2FD.toInt()
+    var FIELD = 0xFFF1EDE5.toInt()
 
     @JvmField
-    var OK = 0xFF1B8A3A.toInt()
+    var OK = 0xFF4B7A57.toInt()
 
     @JvmField
-    var ERR = 0xFFB3261E.toInt()
+    var ERR = 0xFFB0563F.toInt()
 
     @JvmField
     var ON_ACC = 0xFFFFFFFF.toInt()
 
     /** 聊天面板专用色（气泡 / 操作条 / 提示条）。 */
     @JvmField
-    var CHAT_BUBBLE_USER = 0xFF4C6FDE.toInt()
+    var CHAT_BUBBLE_USER = 0xFFEDE7DC.toInt()
 
     @JvmField
-    var CHAT_BORDER = 0xFFC9D4EE.toInt()
+    var CHAT_BORDER = 0xFFE2DACC.toInt()
 
     @JvmField
-    var CHAT_CHIP_BG = 0xFFE4EAF8.toInt()
+    var CHAT_CHIP_BG = 0xFFF1EDE4.toInt()
 
     @JvmField
-    var CHAT_CHIP_FG = 0xFF3A5BC7.toInt()
+    var CHAT_CHIP_FG = 0xFF6F675C.toInt()
 
     @JvmField
-    var CHAT_CHIP_ON = 0xFFDCE6FF.toInt()
+    var CHAT_CHIP_ON = 0xFFE9E3FF.toInt()
 
     @JvmField
-    var CHAT_CHIP_OFF = 0xFFEDF1FA.toInt()
+    var CHAT_CHIP_OFF = 0xFFF0ECE3.toInt()
 
     @JvmField
-    var CHAT_CHIP_MUTE = 0xFF7A88B0.toInt()
+    var CHAT_CHIP_MUTE = 0xFFDCD5C7.toInt()
 
     @JvmField
-    var CHAT_ACTION_BG = 0xFFE6EBF8.toInt()
+    var CHAT_ACTION_BG = 0xFFF2EEE7.toInt()
 
     @JvmField
-    var HINT_FG = 0xFF8A5A00.toInt()
+    var HINT_FG = 0xFF6F5B43.toInt()
 
     @JvmField
-    var HINT_BG = 0xFFFFF4D6.toInt()
+    var HINT_BG = 0xFFFAF0DF.toInt()
 
     /** 自绘开关的关闭态轨道色：比 LINE 深，保证白底卡片上看得清。 */
     @JvmField
-    var SWITCH_OFF = 0xFFC9CEDD.toInt()
+    var SWITCH_OFF = 0xFFD8D1C3.toInt()
 
     /**
      * 【v0.1.4·UI 统一】开关**开启态**专用强调色（薄荷绿）。
@@ -138,7 +138,7 @@ object UiKit {
      *   由主题切换时按明暗自动选一档（见 `ThemeManager` / `ThemeRefresh` 的调用点）。
      */
     @JvmField
-    var SWITCH_ON = 0xFF3ECFA0.toInt()
+    var SWITCH_ON = 0xFF6B4EE6.toInt()
 
     /** 开关滑块色：浅色主题纯白，深色主题略压暗避免「发光」刺眼。 */
     @JvmField
@@ -146,21 +146,21 @@ object UiKit {
 
     /** 桌宠表情色（惊叹 / 开心 / 眩晕）。 */
     @JvmField
-    var EMOTE_1 = 0xFFF2603C.toInt()
+    var EMOTE_1 = 0xFFE9DAC4.toInt()
 
     @JvmField
-    var EMOTE_2 = 0xFFE8608F.toInt()
+    var EMOTE_2 = 0xFFDCE4DA.toInt()
 
     @JvmField
-    var EMOTE_3 = 0xFF5A7BD8.toInt()
+    var EMOTE_3 = 0xFFE5DCE6.toInt()
 
     /** 卡片描边（带透明度，深色主题下会换成浅色）。 */
     @JvmField
-    var STROKE = 0x1422315B
+    var STROKE = 0x8CE6E0D4.toInt()
 
     /** 弹层遮罩色：抽屉 / 底部面板背后的压暗层，深色主题下更重。 */
     @JvmField
-    var SCRIM = 0x8A000000.toInt()
+    var SCRIM = 0x6B262018
 
     /**
      * 状态语义色的「淡底」：把 OK / ERR 压成 12% 透明当徽标背景。
@@ -1697,36 +1697,46 @@ object UiKit {
      *         点到哪个页面靠哪个工厂，观感不连贯。现全部收口到本节，
      *         页面只调工厂，不再散写字号 / 内边距 / 圆角。
      * 【兼容】原有 primary / secondary / press 保持不变，新工厂内部复用它们。
+     *
+     * 【M1·统一到设计系统】本节原先自成一档字号刻度（20 / 12 / 12 / 15 / 12 / 20），
+     *   与 `Design.kt`、`DhKit` 的字号各说各话。现在**唯一真源**是
+     *   `ui/design/DesignSystem.kt` 的 [DhDesign.Type]：title 20 / section 16 / body 15 /
+     *   sub 13 / caption 12 / label 11。本节常量只做映射，供仍在用的 View 侧工厂读取。
+     *   【12sp 为什么上调到 13】设计稿 §2.1 把小字档定为 13sp，12sp 只留给真正的 caption
+     *   （日期分隔、动作芯片）。改造前 FS_SUB / FS_TINY / FS_CHIP 全是 12，
+     *   于是「说明文字」和「注脚」一样大，全 App 都偏小偏淡。
      */
 
-    /** 页面标题字号。 */
+    /** 页面标题字号 ← [DhDesign.Type.title]。 */
     const val FS_TITLE = 20.0f
 
-    /** 副标题 / 注脚字号。 */
-    const val FS_SUB = 12.0f
+    /** 副标题 / 注脚字号 ← [DhDesign.Type.sub]。 */
+    const val FS_SUB = 13.0f
 
-    /** 底部说明文字号。
-     *  【需求】11sp 在浅底上偏小偏淡（用户实测反馈「底部小字看不清」），提到 12sp。
-     *   不再继续下探：再小一档在 1080p 上已接近可读下限。 */
-    const val FS_TINY = 12.0f
+    /** 底部说明文字号 ← [DhDesign.Type.sub]。
+     *  【需求】11sp 在浅底上偏小偏淡（用户实测反馈「底部小字看不清」），
+     *   M1 再上调到 13sp，与 [FS_SUB] 同档 —— 两者本来就是「说明文字」这一种语义。 */
+    const val FS_TINY = 13.0f
 
-    /** 标准按钮字号。 */
+    /** 标准按钮字号 ← [DhDesign.Type.body]。 */
     const val FS_BTN = 15.0f
 
-    /** 小药丸 / 状态标签字号。 */
+    /** 小药丸 / 状态标签字号 ← [DhDesign.Type.caption]。 */
     const val FS_CHIP = 12.0f
 
-    /** 顶栏图标字号。 */
+    /** 顶栏图标字号 ← [DhDesign.Size.iconMd]。 */
     const val FS_ICON = 20.0f
 
-    /** 图标控件的固定命中区边长（dp）。 */
+    /** 图标控件的固定命中区边长（dp）。
+     *  【M1】视觉命中区 40dp 保留（设计稿 §2.2 图标 40dp 命中区），
+     *   实际可点的最小尺寸由 [com.dollhouse.app.ui.design.DhDesign.Size.minTouch]（48dp）保证。 */
     const val HIT_DP = 40
 
-    /** 按钮圆角（dp）。 */
-    const val RADIUS_BTN = 12
+    /** 按钮圆角（dp）← [DhDesign.Radius.md]。 */
+    const val RADIUS_BTN = com.dollhouse.app.ui.design.DhDesign.Radius.md
 
-    /** 药丸 / 行 / 输入框圆角（dp）。 */
-    const val RADIUS_CHIP = 10
+    /** 药丸 / 行 / 输入框圆角（dp）← [DhDesign.Radius.md]。改造前 10（非 4 的倍数、无设计依据）。 */
+    const val RADIUS_CHIP = com.dollhouse.app.ui.design.DhDesign.Radius.md
 
     /**
      * 统一图标按钮：裸贴描边图标 + 固定命中区，靠 press 缩放反馈表达可点。
