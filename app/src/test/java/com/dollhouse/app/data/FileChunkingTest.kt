@@ -22,8 +22,9 @@ class FileChunkingTest {
     }
 
     @Test fun `长文本按行切分且拼接后内容不丢`() {
+        // 每行 70 字 × 200 行 = 14000 字，必定超过单段上限。
         val line = "这是一行内容。".repeat(10)
-        val text = (1..50).joinToString("\n") { line }
+        val text = (1..200).joinToString("\n") { line }
         val p = FileChunking.plan("b.txt", text)
         assertTrue(p.chunks.size > 1)
         // 去掉段头后，拼起来应与原文一致（允许尾部因超段数被截）
@@ -39,7 +40,8 @@ class FileChunkingTest {
     }
 
     @Test fun `超过最多段数时明确标记截断`() {
-        val text = "内容。".repeat(FileChunking.LIMIT)
+        // 需要超过 MAX_CHUNKS × LIMIT 才会真正触发截断。
+        val text = "内容。".repeat(FileChunking.LIMIT * FileChunking.MAX_CHUNKS)
         val p = FileChunking.plan("c.txt", text)
         assertTrue(p.truncated)
         assertEquals(FileChunking.MAX_CHUNKS, p.chunks.size)
