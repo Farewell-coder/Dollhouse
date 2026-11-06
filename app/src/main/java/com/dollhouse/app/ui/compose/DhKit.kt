@@ -872,10 +872,16 @@ object DhKit {
         if (iconRes == 0) {
             Text(
                 text = text,
-                modifier = modifier.padding(top = 12.dp, bottom = 2.dp),
+                modifier = modifier.padding(top = 12.dp, bottom = 4.dp),
                 color = c.sub,
-                fontSize = UiKit.FS_SUB.sp,
-                fontFamily = DhTokens.fonts
+                // 【M3】分组小标题走 label 档（11sp/600 + 0.44 字距）。
+                //   改造前用 FS_SUB（13sp 常规字重），与行内说明文字同字号同字重 ——
+                //   「分组名」和「说明文字」长得一样，用户分不清哪一行是标题。
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontFamily = DhTokens.fonts,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.44.sp
             )
         } else {
             // 有图标时「图标 + 文字」横排；图标用 SUB 色与文字同色，视觉是一个整体。
@@ -889,13 +895,16 @@ object DhKit {
                 //   不加 weight 时，长标签（如「常用端点（点一下填进上面的 API Base Url）」）
                 //   会把 Row 撑破 —— Compose 的 Row 默认不裁剪子项，文字会画到卡片外面去。
                 Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(GAP_ICON.dp))
                 Text(
                     text = text,
                     modifier = Modifier.weight(1f),
                     color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    fontFamily = DhTokens.fonts,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.44.sp
                 )
             }
         }
