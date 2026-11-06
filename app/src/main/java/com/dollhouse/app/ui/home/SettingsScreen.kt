@@ -38,6 +38,14 @@ import com.dollhouse.app.ui.theme.UiKit
  *
  * 【契约】对外只暴露 [build]；页面 tag 由调用方打上。
  */
+/**
+ * 卡片内行分隔线的左缩进（dp）。
+ *
+ * 【为什么是 28】行首图标 20dp + 图标与文字间距 8dp = 28：分隔线从**文字左缘**起，
+ *   与主流设置页一致（线不穿过图标区）。行没有图标时传 0。
+ */
+private const val ICON_ROW_INSET = 28
+
 object SettingsScreen {
 
     /** 【r13】设置页作为**覆盖层**时的页面 key（改造后它不再是底座之一，见 [open]）。 */
@@ -250,7 +258,17 @@ object SettingsScreen {
     @Composable
     private fun ExperimentCard(act: MainActivity) {
         DhKit.Card(collapsibleTitle = "实验", titleIcon = Icons.IC_WAND_SPARKLES) {
+            // 【M4·按语义分组，不再是一条平铺长列表】
+            //   改造前 7 个互不相干的入口挤在同一个列表里（设备控制 / 记忆 / 对话显示 /
+            //   识图 / 走位 / 睡觉 / 诊断），用户要读完全部描述才知道各自属于什么。
+            //   现在按「它改的是谁」分成三组：对外连接、人偶行为、对话与模型。
+            //   分组名用 label 档小标题（不抢眼），组内行之间用发丝线 —— 仍是同一张卡片，
+            //   卡片数没变（用户定案"实验卡排在最后且展开式"保持不变），只是内部有了结构。
+
             DhForm.Note("这里收纳还没正式归入上面几类、但已经能用的功能。")
+
+            // ---------- 组 1：对外连接 ----------
+            DhKit.SectionLabel("对外连接")
             DhKit.ActionRow(
                 label = "lamda 设备控制",
                 iconRes = Icons.IC_GAMEPAD_2,
@@ -258,19 +276,27 @@ object SettingsScreen {
             ) {
                 ProviderNav.openAt(act, ProviderNav.R_EXPERIMENT)
             }
-            // 【r13·新记忆系统】全局记忆策略入口。
-            //   【为什么放这里】用户定案：「多出来的全局设置放在实验卡片的下级」。
-            //   记忆数据本身按人偶分库（人偶编辑页里另有入口），这里只管抽取/检索策略。
+
+            // ---------- 组 2：人偶行为 ----------
+            DhKit.SectionLabel("人偶行为")
             DhKit.ActionRow(
-                label = "记忆库设置",
-                iconRes = Icons.IC_BOOK_OPEN,
-                desc = "抽取与检索策略"
+                label = "随机走位",
+                iconRes = Icons.IC_WAYPOINTS,
+                desc = "人偶自己在屏幕上缓慢游走"
             ) {
-                MemSettingsPage.open(act)
+                WanderSettingsPage.open(act)
             }
-            // 【r13·流式 + 思考过程】对话显示策略入口。
-            //   【为什么也放这里】同样是「全局、与具体人偶无关」的设置，
-            //   与记忆库设置并列，符合用户定案「多出来的全局设置放实验卡片下级」。
+            DhKit.RowDivider(insetStart = ICON_ROW_INSET)
+            DhKit.ActionRow(
+                label = "睡觉模式",
+                iconRes = Icons.IC_MOON,
+                desc = "人偶低功耗休眠，点击唤醒"
+            ) {
+                SleepSettingsPage.open(act)
+            }
+
+            // ---------- 组 3：对话与模型 ----------
+            DhKit.SectionLabel("对话与模型")
             DhKit.ActionRow(
                 label = "对话显示",
                 iconRes = Icons.IC_MESSAGE_SQUARE_HEART,
@@ -278,10 +304,7 @@ object SettingsScreen {
             ) {
                 ChatSettingsPage.open(act)
             }
-            // 【r15·识图模型】图片处理策略入口。
-            //   【为什么放这里】同上：全局设置、与具体人偶无关。
-            //   用户定案 3C 要求「当前模型不会看图时自动用指定识图模型」，
-            //   这个「指定」的落点就是本页。
+            DhKit.RowDivider(insetStart = ICON_ROW_INSET)
             DhKit.ActionRow(
                 label = "识图模型",
                 iconRes = Icons.IC_BOT,
@@ -289,28 +312,13 @@ object SettingsScreen {
             ) {
                 VisionModelPage.open(act)
             }
-            // 诊断中心入口已迁至「关于」页最后一项。
-            // 【r19·随机走位】人偶在屏幕范围内缓慢游走（每 8 秒走一步）。
-            //   【为什么放实验】新功能、默认关闭，由用户决定是否启用。
-            //   【功能说明】开启后人偶会自己在框内缓慢移动，像活物一样；
-            //     睡觉 / 拖动 / 有气泡时自动暂停，摘窗后停止。
+            DhKit.RowDivider(insetStart = ICON_ROW_INSET)
             DhKit.ActionRow(
-                label = "随机走位",
-                iconRes = Icons.IC_SPARKLES,
-                desc = "人偶自己在屏幕上缓慢游走"
+                label = "记忆库设置",
+                iconRes = Icons.IC_BOOK_OPEN,
+                desc = "抽取与检索策略"
             ) {
-                WanderSettingsPage.open(act)
-            }
-            // 【r19·睡觉模式】人偶进入低功耗休眠（帧率降到最低）。
-            //   【为什么放实验】新功能、默认关闭，由用户决定是否启用。
-            //   【功能说明】开启后人偶播 sleep 循环动作（或闭眼表情兜底），
-            //     任何点击 / 拖动 / 长按都会唤醒；适合长时间不用时省电。
-            DhKit.ActionRow(
-                label = "睡觉模式",
-                iconRes = Icons.IC_SPARKLES,
-                desc = "人偶低功耗休眠，点击唤醒"
-            ) {
-                SleepSettingsPage.open(act)
+                MemSettingsPage.open(act)
             }
         }
     }

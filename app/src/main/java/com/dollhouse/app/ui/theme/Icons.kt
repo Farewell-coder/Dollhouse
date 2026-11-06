@@ -335,6 +335,15 @@ object Icons {
     /** 缩小（Lucide zoom-out）：图谱缩小。 */
     @JvmField
     val IC_ZOOM_OUT = R.drawable.ic_zoom_out
+    /**
+     * 月亮（Lucide moon）：睡觉模式 / 夜间休眠。
+     *
+     * 【为什么新增】睡觉模式此前借用 [IC_SPARKLES]，与「随机走位」共用同一图标 ——
+     *   两个功能完全不同的入口显示同一张图，只能靠文字分辨；而且"闪烁"与"休眠"语义相悖。
+     */
+    @JvmField
+    val IC_MOON = R.drawable.ic_moon
+
     /** 最大化（Lucide maximize）：图谱「适配屏幕」。 */
     @JvmField
     val IC_MAXIMIZE = R.drawable.ic_maximize

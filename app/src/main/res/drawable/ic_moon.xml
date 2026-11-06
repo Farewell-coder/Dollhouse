@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 描边图标，取自 Lucide 官方 SVG（ISC 协议）：moon
+     24dp 视口 / 线宽 2 / 圆角端点；strokeColor 为占位白，
+     运行期由 Icons.get() / Icons.tint() 按主题覆盖真色。
+     【用途】睡觉模式（人偶低功耗休眠）。此前该入口借用 ic_sparkles（"闪烁"），
+       与「随机走位」共用同一个图标 —— 两个不同功能显示同一张图，
+       用户只能靠文字分辨，且"闪烁"与"休眠"语义相悖。
+     【为什么手工落盘而不是跑生成脚本】tools/gen_lucide.py 需要访问
+       raw.githubusercontent.com，本机网络对该域名持续 reset；
+       图标几何取自同版本 Lucide 官方 moon.svg（经 unpkg 镜像取到），
+       格式与工程其余 136 个图标逐字一致（同视口/同线宽/同占位色）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M20.985,12.486 a9,9 0 1,1 -9.473,-9.472 c0.405,-0.022 0.617,0.46 0.402,0.803 a6,6 0 0 0 8.268,8.268 c0.344,-0.215 0.825,-0.004 0.803,0.401"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+</vector>
