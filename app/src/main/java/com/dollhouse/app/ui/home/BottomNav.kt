@@ -31,7 +31,6 @@ import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
-import com.dollhouse.app.ui.theme.UiKit
 
 /**
  * 【职责】主界面底部的**三 Tab 悬浮导航栏**（聊天 / 人偶 / 主页）。
@@ -59,8 +58,14 @@ import com.dollhouse.app.ui.theme.UiKit
  */
 object BottomNav {
 
-    /** 底栏整体高度（不含系统导航栏留白）—— 页面内容要按它避让，故对外公开。 */
-    const val HEIGHT_DP = 62
+    /**
+     * 底栏整体高度（不含系统导航栏留白）—— 页面内容要按它避让，故对外公开。
+     *
+     * 【M3 为什么从 62 改成 64】设计稿 §2.2 把 bottom nav 定为 64dp，与顶栏 56dp 组成
+     *   「56 + 64」的固定节奏。62 这个值既不来自任何刻度，也让「内容区可用高度」
+     *   在不同 Tab 之间差 2dp —— 用户能感觉到列表底部留白有点不一样。
+     */
+    const val HEIGHT_DP = 64
 
     /**
      * 底栏本体。
@@ -81,7 +86,7 @@ object BottomNav {
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    // 【与全 App 底栏同源】半透明主题底 + 描边，见 UiKit.capsuleFill()。
+                    // 【与全 App 底栏同源】半透明主题底 + 描边，见 UiKit.capsuleFill()（`ui/theme/UiKit.kt`）。
                     .background(c.capsule)
                     .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
                     .padding(horizontal = 6.dp, vertical = 5.dp),
@@ -107,18 +112,27 @@ object BottomNav {
     @Composable
     private fun TabItem(tab: Int, selected: Boolean, badge: Int, onClick: () -> Unit) {
         val c = DhTokens.colors
+        // 【M3·单一强调色】选中态只用 accent 图标 + 加粗文字 + 弱底，
+        //   不再给整块 `option` 实心底 —— 那会在底栏里再出现一块「第二个高亮色」，
+        //   与设计稿「一个强调色」冲突，也让底栏比页面内容更抢眼。
         val tint = if (selected) c.acc else c.sub
         // 【轻放大】选中态图标放大到 1.08 —— 幅度刻意压得很小：
         //   底栏是常驻元素，动效过大在深色背景下会显得晃眼。
         val scale by animateFloatAsState(
-            targetValue = if (selected) 1.08f else 1.0f,
+            targetValue = if (selected) 1.06f else 1.0f,
             animationSpec = DhAnim.TAP_SCALE,
             label = "tabScale"
         )
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(if (selected) c.option else androidx.compose.ui.graphics.Color.Transparent)
+                .background(
+                    if (selected) {
+                        c.capsuleSel
+                    } else {
+                        androidx.compose.ui.graphics.Color.Transparent
+                    }
+                )
                 .pressable(onClick)
                 .padding(horizontal = 18.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -139,9 +153,15 @@ object BottomNav {
             Text(
                 text = labelOf(tab),
                 color = tint,
-                fontSize = UiKit.FS_TINY.sp,
+                // 【M3·层级】底栏文字走 label 档（11sp / 600）。
+                //   改造前用 FS_TINY=13sp 且选中加粗到 Bold —— 底栏文字和正文一样大，
+                //   三个 Tab 的标签比页面标题还显眼，视觉重量压过了内容。
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                letterSpacing = 0.44.sp,
+                maxLines = 1
             )
         }
     }
