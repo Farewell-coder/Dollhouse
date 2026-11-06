@@ -3,6 +3,11 @@ package com.dollhouse.app.ui.home
 import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.ai.TokenStat
 import com.dollhouse.app.data.PetPrefs
@@ -20,6 +25,7 @@ import com.dollhouse.app.ui.settings.VisionModelPage
 import com.dollhouse.app.ui.settings.WanderSettingsPage
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
+import com.dollhouse.app.ui.theme.UiKit
 
 /**
  * 【职责】设置页（Compose）：权限 / 聊天 / 人偶 / 外观 四张卡片。
@@ -79,10 +85,152 @@ object SettingsScreen {
             ChatCard(act)
             DollCard(act)
             LookCard(act)
+            BackupCard(act)
             // 【r13】「实验」卡片：收纳尚未正式归入设置卡片、但已经可用的实验性功能。
             //   用户定案：**排在最后一张**，且是**展开式**（卡片内直接展开，不跳页）——
             //   与上面四张卡片的展开方式一致。
             ExperimentCard(act)
+        }
+    }
+
+    /* ============================ 备份 ============================ */
+
+    /**
+     * 【v0.2.6·完整备份】把供应商、模型、人偶、记忆与外观设置打成一个文件。
+     *
+     * 【为什么单独一张卡】此前「导出配置」只导供应商与模型（那是给 Aivora 互通用的），
+     *   但用户换手机时真正要带走的是**对话、人偶、记忆**。两者语义完全不同，
+     *   混在一个入口里会让人误以为「导出配置 = 完整备份」。
+     */
+    @Composable
+    private fun BackupCard(act: MainActivity) {
+        var busy by remember { mutableStateOf(false) }
+        var message by remember { mutableStateOf("") }
+        var pending by remember { mutableStateOf<org.json.JSONObject?>(null) }
+        var pendingSummary by remember { mutableStateOf<List<String>>(emptyList()) }
+
+        DhKit.Card(collapsibleTitle = "备份与恢复", titleIcon = Icons.IC_DOWNLOAD) {
+            DhForm.Note("备份包含供应商、模型、人偶设定、聊天记忆与外观设置；不含 API Key 与图片。")
+
+            if (message.isNotEmpty()) {
+                DhForm.Note(message, color = if (message.startsWith("已")) DhTokens.colors.ok else DhTokens.colors.err)
+            }
+
+            DhKit.ActionRow(
+                label = "导出完整备份",
+                iconRes = Icons.IC_UPLOAD,
+                desc = "生成一个文件，通过系统分享保存",
+                trailing = if (busy) "处理中…" else "›"
+            ) {
+                if (busy) return@ActionRow
+                busy = true
+                Thread {
+                    var out: String? = null
+                    var err = ""
+                    try {
+                        val json = com.dollhouse.app.data.BackupService.export(act, act.packageName)
+                        out = json.toString()
+                    } catch (t: Throwable) {
+                        err = t.message ?: "导出失败"
+                    }
+                    act.runOnUiThread {
+                        busy = false
+                        if (out == null) {
+                            message = err
+                        } else {
+                            val f = com.dollhouse.app.data.BackupFile.write(act, out)
+                            com.dollhouse.app.data.BackupFile.prune(act)
+                            if (f == null) {
+                                message = "写文件失败，请检查存储空间"
+                            } else if (com.dollhouse.app.data.BackupFile.share(act, f)) {
+                                message = "已生成备份文件，选择保存位置即可"
+                            } else {
+                                message = "没有可用的分享目标"
+                            }
+                        }
+                    }
+                }.start()
+            }
+
+            DhKit.ActionRow(
+                label = "从备份恢复",
+                iconRes = Icons.IC_DOWNLOAD,
+                desc = "恢复前会先给你看会还原什么",
+                trailing = "›"
+            ) {
+                com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
+                    com.dollhouse.app.PickFileActivity.setFileListener(null)
+                    if (failed || paths.isEmpty()) {
+                        message = "没有读到文件"
+                        return@setFileListener
+                    }
+                    val f = java.io.File(paths[0])
+                    val bytes = try {
+                        if (f.length() > com.dollhouse.app.data.BackupEnvelope.MAX_BYTES) {
+                            message = "文件过大，不像是有效备份"
+                            return@setFileListener
+                        }
+                        f.readBytes()
+                    } catch (t: Throwable) {
+                        message = "读取失败：" + (t.message ?: "")
+                        return@setFileListener
+                    }
+                    val parsed = com.dollhouse.app.data.BackupEnvelope.parse(bytes)
+                    if (!parsed.ok()) {
+                        message = parsed.message()
+                        return@setFileListener
+                    }
+                    pendingSummary = com.dollhouse.app.data.BackupEnvelope.summary(parsed.root)
+                    pending = parsed.root
+                }
+                com.dollhouse.app.PickFileActivity.startFiles(act, false)
+            }
+        }
+
+        // 恢复确认：先摆概要，用户点「确认恢复」才写盘。
+        val toRestore = pending
+        if (toRestore != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pending = null },
+                title = { androidx.compose.material3.Text("确认恢复") },
+                text = {
+                    androidx.compose.foundation.layout.Column {
+                        pendingSummary.forEach { line ->
+                            androidx.compose.material3.Text(
+                                text = "· " + line,
+                                color = DhTokens.colors.sub,
+                                fontSize = UiKit.FS_TINY.sp,
+                                lineHeight = 18.sp,
+                                fontFamily = DhTokens.fonts
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton({
+                        pending = null
+                        busy = true
+                        Thread {
+                            var result = ""
+                            try {
+                                result = com.dollhouse.app.data.BackupService.restore(act, toRestore)
+                            } catch (t: Throwable) {
+                                result = "恢复失败：" + (t.message ?: "")
+                            }
+                            val r = result
+                            act.runOnUiThread {
+                                busy = false
+                                message = r
+                            }
+                        }.start()
+                    }) { androidx.compose.material3.Text("确认恢复") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton({ pending = null }) {
+                        androidx.compose.material3.Text("取消")
+                    }
+                }
+            )
         }
     }
 
