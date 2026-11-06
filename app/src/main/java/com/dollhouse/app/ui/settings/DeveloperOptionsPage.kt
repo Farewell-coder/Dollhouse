@@ -149,7 +149,7 @@ object DeveloperOptionsPage {
 
     @Composable private fun Stat(label: String, value: Int?, color: Color, modifier: Modifier, click: () -> Unit) {
         Column(modifier.clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
-            Text(value?.toString() ?: "—", color = color, fontSize = 24.sp, lineHeight = 35.sp, fontFamily = DhTokens.fontsBold)
+            Text(value?.toString() ?: "—", color = color, fontSize = 28.sp, lineHeight = 36.sp, fontFamily = DhTokens.fontsBold)
             Text(label, color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
         }
     }
@@ -221,7 +221,7 @@ object DeveloperOptionsPage {
         var contextOpen by remember(e.eventId) { mutableStateOf(false) }
         DhKit.Card {
             DhForm.Badge(level(e.severity), DhTokens.colors.err, DhForm.semanticBg(DhTokens.colors.err))
-            Text(e.message, Modifier.padding(top = 10.dp), color = DhTokens.colors.title, fontSize = 17.sp, lineHeight = 25.sp, fontFamily = DhTokens.fontsBold)
+            Text(e.message, Modifier.padding(top = 10.dp), color = DhTokens.colors.title, fontSize = 16.sp, lineHeight = 22.sp, fontFamily = DhTokens.fontsBold)
             DhKit.ValueRow("错误编号", e.code, iconRes = Icons.IC_CIRCLE_ALERT); DhKit.ValueRow("事件 ID", e.eventId, iconRes = Icons.IC_TAGS)
             DhKit.ValueRow("所属模块", e.module, iconRes = Icons.IC_BLOCKS); DhKit.ValueRow("发生时间", time(e.timestamp), iconRes = Icons.IC_CLOCK_3)
             DhKit.ValueRow("线程", e.thread.ifEmpty { "未采集" }, iconRes = Icons.IC_ACTIVITY); DhKit.ValueRow("异常类型", e.exceptionType.ifEmpty { "未采集" }, iconRes = Icons.IC_WARNING)

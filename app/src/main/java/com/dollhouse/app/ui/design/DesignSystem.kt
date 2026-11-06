@@ -386,6 +386,31 @@ object DhDesign {
         /** 失败淡底。 */
         val errBg: Color get() = err.copy(alpha = 0.12f)
 
+        /**
+         * 「错误色底上的文字」—— 徽标（未读数、失败计数）用。
+         *
+         * 【为什么必须单独一档，不能直接用 [onAcc]】
+         *   徽标底色是 `err`，而 `err` 在暗色/纯黑档是**浅红**（#E58E77 / #E0866F）——
+         *   白字压上去实测只有 **2.48 / 2.69:1**，远低于 4.5（浅色档 #B0563F 上白字 4.94 是达标的）。
+         *   改造前徽标硬编码 `Color.White`，于是暗色下小红点里的数字几乎看不清。
+         *   这里按「底色明暗」自动选黑或白：暗底配白字、亮底配深字，
+         *   不新增调色板槽位（仍是 29 格），切主题时跟着 [err] 自动变。
+         */
+        val onErr: Color
+            get() {
+                // 【为什么按"取对比度更高者"而不是固定阈值】
+                //   第一版用「亮度 > 0.5 就用深色字」，实测漏判：暗色档 err=#E58E77 的
+                //   相对亮度约 0.37（<0.5），于是仍选白字 → 对比度只有 2.48:1（要求 4.5）。
+                //   正确做法是分别算出「压白字」与「压深字」的 WCAG 对比度，取大的那个。
+                //   分界点其实是 L≈0.18，但直接比较对比度不依赖任何经验常数。
+                val l = relativeLuminance(err)
+                val onDark = Color(0xFF2A2620)
+                val onLight = Color(0xFFFFFFFF)
+                val cDark = (l + 0.05f) / (relativeLuminance(onDark) + 0.05f)
+                val cLight = (1.05f) / (l + 0.05f)
+                return if (cDark >= cLight) onDark else onLight
+            }
+
         /** 禁用前景：靠 alpha 表达「不可操作」，不另设灰色。 */
         val disabledFg: Color get() = title.copy(alpha = 0.38f)
 
@@ -441,6 +466,18 @@ object DhDesign {
                 scrim = Color(UiKit.SCRIM)
             )
         }
+    }
+
+    /**
+     * WCAG 2.1 相对亮度（0=纯黑，1=纯白）。
+     *
+     * 【用在哪】[Palette.onErr] 需要按底色亮度决定配黑字还是白字；
+     *   `tools/palette_contrast.py` 用同一公式做门禁校验，两边口径必须一致。
+     */
+    fun relativeLuminance(c: Color): Float {
+        fun ch(v: Float): Float =
+            if (v <= 0.03928f) v / 12.92f else Math.pow(((v + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
+        return 0.2126f * ch(c.red) + 0.7152f * ch(c.green) + 0.0722f * ch(c.blue)
     }
 
     /* ================================================================

@@ -403,7 +403,7 @@ object ContactScreen {
                     Text(
                         text = l,
                         color = c.sub,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )

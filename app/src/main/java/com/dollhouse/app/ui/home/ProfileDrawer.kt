@@ -482,7 +482,7 @@ object ProfileDrawer {
             Text(
                 text = name,
                 color = c.title,
-                fontSize = 19.sp, lineHeight = 28.sp,
+                fontSize = 20.sp, lineHeight = 28.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,

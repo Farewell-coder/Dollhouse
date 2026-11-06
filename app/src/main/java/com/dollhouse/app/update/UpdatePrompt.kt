@@ -3,21 +3,40 @@ package com.dollhouse.app.update
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.view.View
-import android.widget.LinearLayout
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import com.dollhouse.app.core.Logs
-import com.dollhouse.app.ui.theme.UiKit
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
- * 【职责】冷启动自动检查命中新版本时的**提示弹窗**（非关于页内，故不能复用 Compose 组件）。
+ * 【职责】冷启动自动检查命中新版本时的**提示弹窗**（非关于页内）。
  *
- * 【为什么不用 Compose】自动检查的触发点在 `MainActivity.onResume`，此时首页/设置页
- *   虽然已是 ComposeView，但弹窗属于「独立浮层」。工程既有的 View 侧弹窗入口是
- *   [UiKit.showDialog] —— 它已经处理了自绘底、圆角、遮罩、模糊、沉浸状态栏同步这些
- *   细节，直接复用即可，不必为这一个弹窗再搭一套 Compose Dialog 宿主。
+ * 【M8·从 View 迁到 Compose】
+ *   改造前这里用 `LinearLayout` + `TextView` 手搭正文，再交给 `UiKit.showDialog` 的
+ *   View 侧弹窗壳。理由是「工程既有 View 弹窗入口，复用即可」。但那条理由在架构统一后不成立：
+ *     · 它是 `ui/` 之外**唯一**还在新建 View 树的功能界面（其余 View 代码都是浮层/自绘引擎）；
+ *     · `UiKit.showDialog` 的观感与 Compose 侧 `DhForm.Alert` 是两套壳，同一个 App 里
+ *       「更新提示」和「确认恢复」长得不一样，字号与内边距也不一致；
+ *     · 它自己设字号（FS_BTN / FS_TINY），绕过了设计阶梯。
+ *   现在改为 Compose `AlertDialog` + 统一令牌，与全站其余弹窗同源。
  *
  * 【职责边界】本类只负责「展示 + 跳转」；节流、通道、判版本都在 [UpdateChecker]。
- *
  * 【静默兜底】弹窗构建失败（Activity 已销毁等）只记日志，绝不让更新提示把 App 搞崩。
  */
 object UpdatePrompt {
@@ -34,55 +53,119 @@ object UpdatePrompt {
             return
         }
         try {
-            val body = buildBody(act, available)
-            UiKit.showDialog(
-                act,
-                "发现新版本",
-                body,
-                "去下载",
-                { openDownload(act, available) },
-                "稍后",
-                null
-            )
+            // Compose 的 Dialog 是独立 Window，它的 ViewTree 上找不到 owner ——
+            //   必须先把 owner 装到 decorView（幂等），否则会抛
+            //   `ViewTreeLifecycleOwner not found`（见 ComposeHost 头注释）。
+            ComposeHost.installForActivity(act)
+            val cv = ComposeHost.createView(act) {
+                UpdateDialog(
+                    available = available,
+                    onDownload = {
+                        openDownload(act, available)
+                        dismissTop(act)
+                    },
+                    onLater = { dismissTop(act) }
+                )
+            }
+            // 用一个轻量 Dialog 承载：不引 Material 的 Dialog 状态机，
+            //   关窗由按钮回调直接完成（`dismissTop`），与 AlertDialog 的语义一致。
+            val dlg = android.app.Dialog(act)
+            dlg.setContentView(cv)
+            // 透明窗底：Compose 自己画纸张，去掉系统默认的白色方角。
+            dlg.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            dlg.setCanceledOnTouchOutside(true)
+            topDialog = dlg
+            dlg.show()
         } catch (t: Throwable) {
             Logs.w(LOG_TAG, "ignored", t)
         }
     }
 
-    /** 弹窗正文：版本对照 + 更新日志。 */
-    private fun buildBody(act: Activity, available: UpdateCheckResult.Available): View {
-        val col = LinearLayout(act)
-        col.orientation = LinearLayout.VERTICAL
+    /** 当前弹窗句柄（同一时刻只允许一个，避免连续回调叠出多个窗）。 */
+    private var topDialog: android.app.Dialog? = null
 
-        val ver = android.widget.TextView(act)
-        ver.text = "v" + available.currentVersion + "  →  v" + available.candidate.versionName +
-                "（" + available.channel.label + "）"
-        ver.setTextColor(UiKit.ACC)
-        ver.setTextSize(UiKit.FS_BTN)
-        col.addView(ver)
-
-        val notes = available.candidate.notes
-        if (notes.isNotEmpty()) {
-            val tv = android.widget.TextView(act)
-            tv.text = notes
-            tv.setTextColor(UiKit.SUB)
-            tv.setTextSize(UiKit.FS_TINY)
-            val lp = LinearLayout.LayoutParams(-1, -2)
-            lp.topMargin = UiKit.dp(act, 10)
-            tv.layoutParams = lp
-            col.addView(tv)
+    private fun dismissTop(act: Activity) {
+        try {
+            if (topDialog?.isShowing == true) {
+                topDialog?.dismiss()
+            }
+        } catch (ignored: Throwable) {
+        } finally {
+            topDialog = null
         }
+    }
 
-        val hint = android.widget.TextView(act)
-        hint.text = "下载与安装由系统浏览器完成。"
-        hint.setTextColor(UiKit.SUB)
-        hint.setTextSize(UiKit.FS_TINY)
-        val hlp = LinearLayout.LayoutParams(-1, -2)
-        hlp.topMargin = UiKit.dp(act, 10)
-        hint.layoutParams = hlp
-        col.addView(hint)
-
-        return col
+    /**
+     * 弹窗正文。
+     *
+     * 【为什么版本对照用主色】它是本屏唯一的"重点信息"（用户只关心 vA → vB 这一行），
+     *   其余（更新日志、下载说明）都是次要，一律 `sub` 色 + `caption/sub` 字号。
+     */
+    @Composable
+    private fun UpdateDialog(
+        available: UpdateCheckResult.Available,
+        onDownload: () -> Unit,
+        onLater: () -> Unit
+    ) {
+        val p = DhTokens.palette
+        val t = DhTokens.type
+        AlertDialog(
+            onDismissRequest = onLater,
+            containerColor = p.sheet,
+            shape = RoundedCornerShape(DhDesign.Radius.lg.dp),
+            title = {
+                Text(text = "发现新版本", color = p.title, style = t.section)
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "v" + available.currentVersion +
+                            "  →  v" + available.candidate.versionName +
+                            "（" + available.channel.label + "）",
+                        color = p.accent,
+                        style = t.body
+                    )
+                    val notes = available.candidate.notes
+                    if (notes.isNotEmpty()) {
+                        Spacer(Modifier.height(DhDesign.Space.md.dp))
+                        // 【更新日志可能很长】给一个最大高度并让它可滚动，
+                        //   否则一条长日志会把弹窗撑到整屏、按钮被挤出可视区。
+                        //   用 verticalScroll 而不是单纯 heightIn：后者只会把文字裁掉。
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp)
+                                .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                        ) {
+                            Text(
+                                text = notes,
+                                color = p.sub,
+                                style = t.sub,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(DhDesign.Space.md.dp))
+                    Text(
+                        text = "下载与安装由系统浏览器完成。",
+                        color = p.sub,
+                        style = t.caption
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDownload) {
+                    Text("去下载", color = p.accent, style = t.rowTitle)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onLater) {
+                    Text("稍后", color = p.sub, style = t.body)
+                }
+            }
+        )
     }
 
     /**

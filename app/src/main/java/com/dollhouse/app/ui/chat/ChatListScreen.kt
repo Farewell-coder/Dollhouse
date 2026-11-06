@@ -559,10 +559,14 @@ object ChatListScreen {
         ) {
             Text(
                 text = if (n > 99) "99+" else n.toString(),
-                color = Color.White,
-                fontSize = 10.sp, lineHeight = 15.sp,
+                // 【M4·修真实缺陷】原来硬编码 Color.White：徽标底是 err，
+                //   而 err 在暗色/纯黑档是浅红（#E58E77/#E0866F），白字实测只有 2.48/2.69:1，
+                //   数字几乎看不见。改用派生色 onErr（按底色明暗自动选黑/白）。
+                color = DhTokens.palette.onErr,
+                // 字号 10sp 不在任何一档上；徽标是 label 语义，归 11/600。
+                fontSize = 11.sp, lineHeight = 16.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
@@ -580,7 +584,7 @@ object ChatListScreen {
             Text(
                 text = text,
                 color = c.acc,
-                fontSize = 10.sp, lineHeight = 15.sp,
+                fontSize = 11.sp, lineHeight = 16.sp,
                 fontFamily = DhTokens.fonts
             )
         }

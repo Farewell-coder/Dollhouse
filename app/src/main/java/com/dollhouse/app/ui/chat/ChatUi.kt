@@ -299,7 +299,7 @@ object ChatUi {
             Text(
                 text = "${(ratio * 100f).roundToInt()}",
                 color = c.title,
-                fontSize = 10.sp, lineHeight = 15.sp,
+                fontSize = 11.sp, lineHeight = 16.sp,
                 fontFamily = DhTokens.fontsBold
             )
         }

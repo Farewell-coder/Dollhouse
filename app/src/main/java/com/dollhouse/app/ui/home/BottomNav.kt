@@ -181,8 +181,9 @@ object BottomNav {
         ) {
             Text(
                 text = text,
-                color = androidx.compose.ui.graphics.Color.White,
-                fontSize = 10.sp, lineHeight = 15.sp,
+                // 同 ChatListScreen：白字压浅红底在暗色档只有 2.48:1，改用派生色。
+                color = DhTokens.palette.onErr,
+                fontSize = 11.sp, lineHeight = 16.sp,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )
