@@ -178,6 +178,10 @@ object ProviderEditPage {
         var keyPlain by remember { mutableStateOf(false) }
         var hintText by remember { mutableStateOf<String?>(null) }
         var hintOk by remember { mutableStateOf(false) }
+        // 连接测试与保存各自只允许一条在途任务；它们都要把 Key 加密并交给网络链路，
+        // 重复点击会造成重复请求或重复创建同名供应商。状态仅用于 UI，不进入业务数据。
+        var testing by remember { mutableStateOf(false) }
+        var saving by remember { mutableStateOf(false) }
         // 【保存后必须留住 id】新建态保存成功才拿到真实 id；开关的即时写盘要用它，
         //   不能继续读 providerId（那还是进页时的空串，写盘会造出一条孤儿记录）。
         var pid by remember(src?.id) { mutableStateOf(src?.id ?: providerId ?: "") }
@@ -296,6 +300,9 @@ object ProviderEditPage {
                     if (raw.isEmpty()) {
                         hintOk = false
                         hintText = "请填写 API Key"
+                    } else if (testing || saving) {
+                        // 已有请求在途，忽略重复点击，不覆盖正在展示的结果。
+                        return@OutlineChip
                     } else {
                         val probe = buildProvider(pid, name, base, path, enabled, respApi, resendReason, allowCleartext)
                         probe.apiKey = KeyVault.encrypt(raw)
@@ -303,10 +310,12 @@ object ProviderEditPage {
                             hintOk = false
                             hintText = "密钥加密失败，无法测试，请重试或重启应用后重填"
                         } else {
+                            testing = true
                             hintOk = true
                             hintText = "正在测试连接…"
                             ProviderNav.testConnection(act, probe, object : ProviderNav.TestCallback {
                                 override fun onDone(ok: Boolean, detail: String?) {
+                                    testing = false
                                     hintOk = ok
                                     hintText = detail
                                 }
@@ -315,7 +324,9 @@ object ProviderEditPage {
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                DhForm.PrimaryChip("保存") {
+                DhForm.PrimaryChip(if (saving) "保存中…" else "保存") {
+                    if (saving || testing) return@PrimaryChip
+                    saving = true
                     val r = save(act, src, pid, name, key, base, path, enabled, respApi, resendReason, allowCleartext)
                     if (r.id != null) {
                         // 新建态保存成功后页面标题要变；栈顶路由也要换成真实 id，
@@ -339,12 +350,16 @@ object ProviderEditPage {
                     }
                     hintOk = true
                     hintText = r.text
+                    if (r.id == null) {
+                        saving = false
+                    }
                     if (r.id != null) {
                         // 保存成功后自动跑一次连通性测试（规格书要求）：失败只提示，不回滚已存数据。
                         val savedPv = ProviderStore.findProvider(act, r.id)
                         if (savedPv != null) {
                             ProviderNav.testConnection(act, savedPv, object : ProviderNav.TestCallback {
                                 override fun onDone(ok: Boolean, detail: String?) {
+                                    saving = false
                                     hintOk = ok
                                     hintText = if (ok) "已保存 · " + detail else "已保存，但连接没通过：" + detail
                                 }
