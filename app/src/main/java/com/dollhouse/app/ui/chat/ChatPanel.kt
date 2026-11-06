@@ -464,7 +464,11 @@ class ChatPanel(
         }
         val str = pendingText
         val max = Math.max(1, if (str != null) str.length / 1024 else 0)
-        ChatState.attachLabel = "已选文本内容（约 " + max + " KB），会拼在她看到的消息里"
+        // 【v0.2.6】把「切成几段、有没有截断」提前说清楚：
+        //   原文超长时只取前若干段，用户必须在发送前就知道，而不是事后才发现。
+        val plan = com.dollhouse.app.data.FileChunking.plan(null, str)
+        ChatState.attachLabel = "已选文本（约 " + max + " KB，" +
+            com.dollhouse.app.data.FileChunking.describe(plan) + "）"
     }
 
     fun showChat() {
@@ -1447,7 +1451,17 @@ class ChatPanel(
             return
         }
         if (str3 != null) {
-            text = (if (text.isEmpty()) "" else text + "\n\n") + "【文件内容】\n" + str3
+            // 【v0.2.6·长文件分段】原来整段塞成「【文件内容】 + 全文」：
+            //   读取端有 24KB 上限，超过就被静默截断，用户以为模型读完了；
+            //   而即便全读进来，一次塞给模型也会撑爆上下文。
+            //   现在按自然边界切成若干段、每段带「第 i/n 段」头，模型能理解这是同一份文件的续段。
+            //   段数与是否截断写进附件条，用户点发送前就能看到。
+            // 【不传文件名】ChatState 目前只保存文本内容，没有单独记录文件名；
+            //   为一段提示新加一个全局字段并不值得，段头用「文件」占位，
+            //   段序与总段数才是模型真正需要的信息。
+            val plan = com.dollhouse.app.data.FileChunking.plan(null, str3)
+            val body = plan.chunks.joinToString("\n\n")
+            text = (if (text.isEmpty()) "" else text + "\n\n") + body
         }
         if (str2 != null && text.isEmpty()) {
             text = "看看这张图。"
