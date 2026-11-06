@@ -739,7 +739,18 @@ object ChatUi {
         // 【r17·图标】「删除」配垃圾桶图标（与列表页的删除按钮同一语义图标）。
         val icons = IntArray(labels.size)
         icons[labels.size - 1] = Icons.IC_TRASH
-        MessageMenu.show(act, title.ifEmpty { "消息" }, labels, actions, icons)
+        // 【M8·改走统一弹窗宿主】MessageMenu 是改造前为「从回调里弹菜单」而手写的
+        //   原生 Dialog 实现；现在有 ui/kit/DhDialogHost 承接同一职责，
+        //   视觉与全站其余 Compose 弹窗同源（sheet 底 / 16 圆角 / 令牌内边距）。
+        //   dangerIndex 指向「删除」：危险项用 err 色，让用户在点之前就先看到它不一样。
+        com.dollhouse.app.ui.kit.DhDialogHost.showMenu(
+            act,
+            title.ifEmpty { "消息" },
+            labels,
+            actions,
+            icons,
+            dangerIndex = labels.size - 1
+        )
     }
     /** 气泡里的图片附件：异步解码（不卡首帧），12dp 圆角裁切。 */
     @Composable

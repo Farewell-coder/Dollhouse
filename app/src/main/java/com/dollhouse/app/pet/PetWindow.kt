@@ -22,7 +22,6 @@ import com.dollhouse.app.data.ActionViewport
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.pet.behavior.ActionSemantic
-import com.dollhouse.app.ui.chat.MessageMenu
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.doll.DollActionPage
 import com.dollhouse.app.ui.theme.UiKit
@@ -2075,7 +2074,10 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             { enterSleep() },
             { showDebugInfo(act) }
         )
-        MessageMenu.show(act, "快捷菜单", labels, actions, IntArray(labels.size))
+        // 【M8·改走统一弹窗宿主，同 ChatUi 的口径】。
+        com.dollhouse.app.ui.kit.DhDialogHost.showMenu(
+            act, "快捷菜单", labels, actions, IntArray(labels.size)
+        )
     }
 
     /** 【r19·调试状态】弹窗显示当前人偶的运行状态（动作 / 帧率 / 内存 / 坐标）。 */
