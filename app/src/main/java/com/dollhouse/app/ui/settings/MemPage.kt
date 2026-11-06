@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -198,6 +199,12 @@ object MemPage {
         var pickedEdge by remember { mutableStateOf<MemLink?>(null) }
         // 【r14】搜索命中的列表（非空 = 覆盖显示结果列表）。
         var searchOpen by remember { mutableStateOf(false) }
+        // 【v0.2.6·记忆可读】图谱之外的列表视图。
+        //   【为什么需要】图谱适合看结构，不适合「逐条读、逐条改」：节点上的文字只有标题，
+        //     正文得点开弹窗才看得到；记忆一多，想在图谱里找一条具体的话非常费劲。
+        //     UIKit 的搜索也只能定位到节点，仍然要再点一次。
+        //   列表模式把每条记忆的标题 + 正文摘要 + 来源 + 分类直接铺开，点一下即编辑。
+        var listMode by remember { mutableStateOf(false) }
 
         val all = remember(refresh, dollId) { readAll(act, dollId) }
         val folders = remember(refresh, dollId) { Mem.allFolders(act, dollId) }
@@ -264,6 +271,16 @@ object MemPage {
                 // 【右上角文件夹图标 → 分类界面】用户定案：
                 //   「纯替换成图谱 + 可以通过右上角的一个文件夹图标进入分类界面」。
                 // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
+                // 【v0.2.6】图谱 / 列表切换。默认仍是图谱（保持原主视觉），
+                //   列表只作为「逐条读」的补充，不替换图谱。
+                DhKit.IconButton(
+                    if (listMode) Icons.IC_WAYPOINTS else Icons.IC_LIST_CHECKS,
+                    Design.SZ_MD,
+                    c.title,
+                    label = if (listMode) "图谱" else "列表"
+                ) {
+                    listMode = !listMode
+                }
                 DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分类") {
                     folderMgr = true
                 }
@@ -305,6 +322,43 @@ object MemPage {
                 }
             }
 
+            // ---- 列表模式（可直接读/改每条记忆）----
+            //   【为什么与图谱互斥而不是并列】两者都要占满剩余高度，并列会各剩一半、都看不清。
+            //   默认显示图谱，点顶栏「列表」切过来；切回去不丢筛选与关键词。
+            if (listMode) {
+                Spacer(Modifier.height(10.dp))
+                if (shownMems.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
+                            color = c.sub,
+                            fontSize = UiKit.FS_BTN.sp,
+                            fontFamily = DhTokens.fonts
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(shownMems, key = { it.id }) { m ->
+                            Box(Modifier.animateItem()) {
+                                MemListRow(
+                                    m = m,
+                                    onClick = {
+                                        editingNew = false
+                                        editing = m
+                                    },
+                                    onLongClick = { delAskFor = m }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
             // ---- 图谱画布 ----
             Spacer(Modifier.height(10.dp))
             Box(
@@ -465,6 +519,9 @@ object MemPage {
                     }
                 }
             }
+
+            }
+            // —— 以上为图谱模式（含底部工具栏）；列表模式在此处结束 ——
 
             // ---- 资料文档（关于主人的印象）----
             val doc = remember(refresh, dollId) { Mem.profile(act, dollId) }
@@ -703,6 +760,75 @@ object MemPage {
     // ============================ 小件 ============================
 
     /** 分类条上的一枚胶囊。 */
+    /**
+     * 列表模式的一行：标题 + 正文摘要 + 分类/来源。
+     *
+     * 【为什么放正文摘要】图谱节点只画标题，正文必须点开弹窗才能看到；
+     *   而「她到底记住了什么」最需要读的正是正文。这里给两行摘要，
+     *   绝大多数记忆点一次都不用点就能确认内容对不对。
+     * 【来源】AI 自动抽的与用户手写的混在一起时很容易被误删 —— 标出来。
+     */
+    @Composable
+    private fun MemListRow(m: Memory, onClick: () -> Unit, onLongClick: () -> Unit) {
+        val c = DhTokens.colors
+        DhKit.Card {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = m.title,
+                        color = c.title,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fontsBold,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (m.content.isNotBlank()) {
+                        Text(
+                            text = m.content,
+                            modifier = Modifier.padding(top = 3.dp),
+                            color = c.sub,
+                            fontSize = UiKit.FS_TINY.sp,
+                            fontFamily = DhTokens.fonts,
+                            lineHeight = 18.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(modifier = Modifier.padding(top = 6.dp)) {
+                        DhForm.Badge(
+                            text = sourceLabel(m.source),
+                            fg = c.sub,
+                            bg = c.soft
+                        )
+                        if (m.folderPath.isNotBlank()) {
+                            Spacer(Modifier.width(6.dp))
+                            DhForm.Badge(
+                                text = shortFolder(m.folderPath),
+                                fg = c.chatChipFg,
+                                bg = c.chatChipBg
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** 来源徽标文案；未知来源按「自动」处理，避免出现空白徽标。 */
+    private fun sourceLabel(source: String): String {
+        return when (source) {
+            Memory.SOURCE_MANUAL -> "手动"
+            Memory.SOURCE_CHAT -> "来自聊天"
+            else -> "自动记录"
+        }
+    }
+
     @Composable
     private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
