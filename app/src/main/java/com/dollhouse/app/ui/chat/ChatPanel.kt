@@ -9,7 +9,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.ViewParent
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
@@ -33,7 +32,6 @@ import com.dollhouse.app.device.OcrEngine
 import com.dollhouse.app.pet.PetBus
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.UiKit
-import com.dollhouse.app.ui.widget.SheetPanel
 import java.util.regex.Pattern
 import org.json.JSONArray
 import org.json.JSONObject
@@ -283,12 +281,17 @@ class ChatPanel(
 
     /** 工具条：模型配置面板。 */
     internal fun showModels() {
-        SheetPanel.showModels(context, findLayer())
+        // 【M8·改走 Compose 面板】原 SheetPanel 是 521 行手写 View 弹层，
+        //   之所以必须手写只是因为"调用点在命令式代码里、不能直接写 @Composable"；
+        //   现在 ui/kit/DhDialogHost 承接了这个能力，面板本身用 Compose 重写（ChatPanels）。
+        //   【为什么不再传 findLayer()】旧实现要把遮罩塞进页面 ViewGroup 才能盖住内容；
+        //   Compose 版走 Dialog 窗口，窗口层级天然在最上，不需要宿主层。
+        ChatPanels.showModels(UiKit.findActivity(context))
     }
 
     /** 工具条：思考程度面板。 */
     internal fun showThink() {
-        SheetPanel.showThink(context, findLayer(), this)
+        ChatPanels.showThink(UiKit.findActivity(context))
     }
 
     /**
@@ -490,17 +493,16 @@ class ChatPanel(
     //   会话切换统一由**聊天列表页**（默认首页）承担：两处并存会出现「同一操作两种入口」，
     //   而抽屉那份列表是命令式 View 拼的、没有头像 / 预览 / 未读，信息密度也低于列表页。
     //   【不是删功能】改名 / 删除已由列表页长按菜单承接；「清空当前对话」保留在本页工具区。
-    /** 抽屉 / 确认框共用的挂载层。 */
-    internal fun findLayer(): ViewGroup? {
-        var p: ViewParent? = parent
-        while (p is View) {
-            if (p is FrameLayout) {
-                return p
-            }
-            p = (p as View).parent
-        }
-        return if (p is ViewGroup) p else null
-    }
+    /**
+     * 【M8 已删除】原 `findLayer()`：沿父链找第一个 `FrameLayout` 当「遮罩挂载层」。
+     *
+     * 它只服务于两件事：
+     *   ① `SheetPanel.showModels/showThink` —— 把遮罩塞进页面 ViewGroup 才能盖住内容；
+     *   ② 少数确认框的挂载。
+     * 现在两者都走 `ui/kit/DhDialogHost`（Dialog 窗口层级天然在最上，不需要宿主层），
+     * 该方法 0 处调用，一并删除 —— 少一个「手工找宿主」的隐式契约，
+     * 也少一条「找不到 FrameLayout 就退回父容器」的静默降级路径。
+     */
 
     // 【r13·入口收拢】原 closeDrawerIfOpen() 已移除（抽屉没了，返回键无需先关它）。
     //   聊天页的返回键现在直接走 PageStack / 系统返回，语义更简单。
