@@ -604,7 +604,15 @@ object ChatUi {
                             BlockRenderer(item.text, true)
                         } else Text(
                             text = item.text,
-                            color = if (mine) c.onAcc else c.title,
+                            // 【M4·修真实缺陷：白字压浅灰底】
+                            //   我方气泡原来用 `onAcc`（"主色上的文字"，浅色档是纯白）。
+                            //   改造前气泡底是蓝色（#4C6FDE），白字没问题；
+                            //   换成方向 A 的暖灰 `chatBubbleUser`（#EDE7DC）之后，
+                            //   白字对比度只有 **1.23:1** —— 几乎完全看不见（WCAG 要求 4.5）。
+                            //   现在两侧统一用 `title`：气泡底色本身已经把"我/对方"区分开了
+                            //   （我=暖灰、对方=卡片白），不需要再靠字色区分。
+                            //   实测 title/chatBubbleUser = 12.22（浅）/ 12.17（深）/ 15.44（纯黑）。
+                            color = c.title,
                             fontSize = UiKit.FS_BTN.sp,
                             fontFamily = DhTokens.fonts,
                             lineHeight = (UiKit.FS_BTN + 6f).sp
