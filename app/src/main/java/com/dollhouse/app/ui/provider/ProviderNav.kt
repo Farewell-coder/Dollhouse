@@ -16,7 +16,6 @@ import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.settings.ExperimentPage
 import com.dollhouse.app.ui.settings.LamdaPage
 import com.dollhouse.app.ui.compose.PageStack
-import com.dollhouse.app.ui.widget.ApiPageKit
 import java.net.HttpURLConnection
 
 /**
@@ -99,7 +98,7 @@ object ProviderNav {
     /** 从设置页直接进某张子页（例如「对话行为」）。栈底仍是该页，返回一次即关门。 */
     @JvmStatic
     fun openAt(ctx: Context, root: String?) {
-        val act = ApiPageKit.findActivity(ctx) ?: return
+        val act = com.dollhouse.app.ui.theme.UiKit.findActivity(ctx) ?: return
         STACK.clear()
         STACK.add(if (root == null || root.isEmpty()) R_LIST else root)
         // 【迁 PageStack】整页由全 App 页面栈托管，本类只保留内部业务路由栈（一层 = 一个 key）。
@@ -163,7 +162,7 @@ object ProviderNav {
             if (!PageStack.isTop(ctx, TAG_PAGE)) {
                 return false
             }
-            val act = ApiPageKit.findActivity(ctx) ?: return false
+            val act = com.dollhouse.app.ui.theme.UiKit.findActivity(ctx) ?: return false
             if (STACK.size > 1) {
                 STACK.removeAt(STACK.size - 1)
                 PageStack.replaceTop(act) { render(act) }

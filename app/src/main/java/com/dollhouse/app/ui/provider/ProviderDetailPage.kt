@@ -10,7 +10,6 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
-import com.dollhouse.app.ui.widget.ApiPageKit
 /**
  * 【职责】供应商详情页：内容区（按 tab 装整页）+ 悬浮胶囊底栏（配置 / 模型）。
  *
@@ -51,6 +50,31 @@ object ProviderDetailPage {
     )
 
 
+    /**
+     * 供应商模块的「不可用态」页：供应商已删除 / 尚未保存。
+     *
+     * 【为什么用 DhState 而不是一句 note】它和全站其它空态/错误态共用同一骨架
+     *   （56dp 图标座 → section 标题 → sub 说明 → 一个动作），用户不必重新判断
+     *   「这是空的、还是出错了、还是我做错了什么」。
+     */
+    @androidx.compose.runtime.Composable
+    private fun MissingPage(
+        title: String,
+        sub: String,
+        message: String,
+        onBack: () -> Unit
+    ) {
+        DhKit.Page(title = title, sub = sub, onBack = onBack) {
+            com.dollhouse.app.ui.kit.DhState(
+                title = "这一页暂时是空的",
+                body = message,
+                iconRes = Icons.IC_CIRCLE_ALERT,
+                actionText = "返回",
+                onAction = onBack
+            )
+        }
+    }
+
     internal fun build(act: Activity, providerId: String, tab: String): View {
         val ctx: Context = act
         // 【必须有不透明底】本页是叠加在设置页之上的整屏页，根若透明，
@@ -64,12 +88,24 @@ object ProviderDetailPage {
         //   但要走**同一个壳**（底部「配置｜模型」胶囊栏），才能和点卡片进来的长相一致。
         val isNew = providerId.isEmpty()
         if (!isNew && pv == null) {
-            val miss = ApiPageKit.pageRoot(ctx)
-            miss.addView(UiKit.topBar(ctx, "供应商", "已不存在", View.OnClickListener {
-                ProviderNav.back(act)
-            }))
-            miss.addView(ApiPageKit.note(ctx, "这个供应商已经被删除了。"))
-            root.addView(miss, FrameLayout.LayoutParams(-1, -1))
+            // 【M8·兜底页改 Compose】原来用 ApiPageKit.pageRoot + UiKit.topBar + 手写
+            //   FrameLayout 拼一棵 View 树。改用 DhKit.Page + DhState 后：
+            //     ① 与全站其它「缺失 / 空 / 错误」页共用同一套骨架
+            //        （图标座 → section 标题 → sub 说明），不再是一个页面一种空态长相；
+            //     ② `root.setBackgroundColor(UiKit.BG)` 那层不透明底只在这种情况下需要，
+            //        而 DhKit.Page 自己不画不透明底（见其注释：背景图由页根 View 铺），
+            //        于是这里显式让页根保持透明、由全局背景照常透出 —— 与本 App 其它页一致。
+            root.addView(
+                ComposeHost.createView(act) {
+                    MissingPage(
+                        title = "供应商",
+                        sub = "已不存在",
+                        message = "这个供应商已经被删除了。",
+                        onBack = { ProviderNav.back(act) }
+                    )
+                },
+                FrameLayout.LayoutParams(-1, -1)
+            )
             return root
         }
 
@@ -235,13 +271,19 @@ object ProviderDetailPage {
             //   —— 那对刚点加号进来的人是无意义的惊吓。这里给一句说明性占位，保存后
             //   栈顶换成真实 id、本页会被重建（见 pageFor 的 mdlPageId 判定）成真列表。
             if (providerId.isEmpty()) {
+                // 同上的 Compose 兜底页（"尚未保存"不是错误，用清楚的一句说明 + 返回）。
                 val root = FrameLayout(act)
-                val miss = ApiPageKit.pageRoot(act)
-                miss.addView(UiKit.topBar(act, "模型", "尚未保存", View.OnClickListener {
-                    ProviderNav.back(act)
-                }))
-                miss.addView(ApiPageKit.note(act, "这个供应商还没保存，保存之后就能在这里添加模型了。"))
-                root.addView(miss, FrameLayout.LayoutParams(-1, -1))
+                root.addView(
+                    ComposeHost.createView(act) {
+                        MissingPage(
+                            title = "模型",
+                            sub = "尚未保存",
+                            message = "这个供应商还没保存，保存之后就能在这里添加模型了。",
+                            onBack = { ProviderNav.back(act) }
+                        )
+                    },
+                    FrameLayout.LayoutParams(-1, -1)
+                )
                 return root
             }
             return ProviderModelsPage.build(act, providerId, bottomPadDp, onScroll)
