@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -36,6 +37,7 @@ import com.dollhouse.app.data.AexImport
 import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
@@ -783,7 +785,7 @@ object AexImportSheet {
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts,
-                        lineHeight = UiKit.LH_SUB.sp
+                        lineHeight = DhKit.LH_SUB.sp
                     )
                 }
             }
@@ -818,7 +820,7 @@ object AexImportSheet {
                         color = c.err,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts,
-                        lineHeight = UiKit.LH_SUB.sp
+                        lineHeight = DhKit.LH_SUB.sp
                     )
                 }
             }
