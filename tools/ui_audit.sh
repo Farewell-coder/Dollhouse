@@ -70,6 +70,10 @@ chk A10 "行图标只有一档（ICON_ROW_DP = 20）" \
 #   本轮 M2 真实踩过一次（编译报 Unclosed comment 却指在文件末尾），故纳入门禁。
 chk A11 "Kotlin 块注释全部闭合（防嵌套注释吞代码）" \
   "python3 tools/comment_balance.py > /dev/null"
+# 静态预检：本机无 aapt2 无法编译，把「漏 import / 括号不平衡 / 注解错位」
+#   这三类最高频的 CI 失败提前到本地抓（本轮已因此省掉至少两轮 8 分钟 CI）。
+chk A12 "Kotlin 静态预检通过（漏 import / 括号 / 注解错位）" \
+  "python3 tools/kotlin_precheck.py --quiet > /dev/null"
 
 echo "===== 组 B：组件统一（B01–B10）====="
 
