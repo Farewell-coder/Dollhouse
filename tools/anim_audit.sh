@@ -59,7 +59,12 @@ chk B06 "UiKit.expand 持有箭头动画句柄" "grep -q 'arrowAnimMap' $THEME/U
 chk B07 "UiKit.expand 箭头为空时安全" "grep -q 'if (arrow != null)' $THEME/UiKit.kt"
 chk B08 "UiKit.Switch 位移动画可取消" "grep -q 'trackAnim?.cancel()' $THEME/UiKit.kt"
 chk B09 "UiKit.Slider 进度动画可取消" "grep -q 'anim?.cancel()' $THEME/UiKit.kt"
-chk B10 "SwipeRow 有统一 cancelAnim" "grep -q 'private fun cancelAnim' $UI/widget/SwipeRow.kt"
+# B10 原判据检查 View 版 `SwipeRow` 的 cancelAnim。该文件已随架构统一删除
+#   （0 处代码引用，Compose 版 `DhSwipe.SwipeToDelete` 承接同一功能）。
+#   新判据：滑动手势必须有「统一收敛入口」（Compose 版是 settle(to)），
+#   否则松手后行会停在中途位置——这正是 cancelAnim 当初要防的问题。
+chk B10 "滑动行有统一收敛入口（Compose 版 settle）" \
+  "grep -q 'fun settle(' $UI/compose/DhSwipe.kt && ! test -f $UI/widget/SwipeRow.kt"
 # B11 原判据（markerAnim[0]?.cancel()）已失效：r21 把该页底栏换成 DhKit.NavBar 后，
 #   指示块滑动动画整体撤掉（选中态改为即时换底色），没有需要取消的动画句柄。
 #   新判据：确认它确实不再持有旧式动画句柄，且底栏确实走统一 NavBar。
