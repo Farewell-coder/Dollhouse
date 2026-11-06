@@ -574,7 +574,17 @@ object ChatUi {
             Column(
                 modifier = Modifier
                     .widthIn(max = maxW)
-                    .clip(RoundedCornerShape(DhKit.R_CARD.dp))
+                    // 【M4·按设计稿 §4.2 定气泡几何】
+                    //   圆角 16，但**朝向发出者的那个下角收成 6**：气泡的"尾巴"由圆角差承担，
+                    //   不加三角、不加描边，是"克制"取向里最省视觉噪音的做法。
+                    //   改造前四角一律 16，一列气泡看着像一排相同的圆角矩形，方向感靠对齐硬撑。
+                    .clip(
+                        if (mine) {
+                            RoundedCornerShape(16.dp, 16.dp, 6.dp, 16.dp)
+                        } else {
+                            RoundedCornerShape(16.dp, 16.dp, 16.dp, 6.dp)
+                        }
+                    )
                     .background(if (mine) c.chatBubbleUser else c.card)
                     // 【r13·消息长按】长按弹操作菜单。
                     //   需求：长按 AI 的消息 / 长按自己的消息，各弹出一组操作。
@@ -589,7 +599,9 @@ object ChatUi {
                         },
                         onLongClick = { showMessageMenu(ctx, host, item) }
                     )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    // 设计稿 §4.2：气泡内边距 10 垂直 / 14 水平。改造前 8/12 偏紧，
+                    //   长中文在窄气泡里换行密集，读起来"顶"。
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 val img = item.image
                 if (!img.isNullOrEmpty() && ImageStore.exists(ctx, img)) {
