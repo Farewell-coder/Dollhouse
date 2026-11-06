@@ -553,6 +553,16 @@ object UiKit {
     }
 
     /** 动效时长：按压 90ms / 微交互 180ms / 弹层 260ms / 普通页面转场 200ms。 */
+    /**
+     * 统一按压缩放比例（View 侧）。
+     *
+     * 【M2 与 Compose 侧对齐】Compose 的 `PRESS_SCALE` 同为 0.98（见 DhKit）。
+     *   设计稿 §3「Press: scale 0.98 over 90ms」是全 App 唯一手感，
+     *   两侧曾经一个是 0.96、一个也是 0.96，但都没有具名常量，
+     *   于是页面里还散落着 0.98 / 0.97 的自写值 —— 收口到这里。
+     */
+    const val PRESS_SCALE = 0.98f
+
     const val D_PRESS = 90
     const val D_MICRO = 180
     const val D_LAYER = 260
@@ -915,7 +925,7 @@ object UiKit {
                     pressSpringMap.remove(view)
                 }
                 view.animate().cancel()
-                view.animate().scaleX(0.96f).scaleY(0.96f)
+                view.animate().scaleX(PRESS_SCALE).scaleY(PRESS_SCALE)
                     .setDuration(D_PRESS.toLong())
                     .setInterpolator(EASE_STD).start()
             } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {

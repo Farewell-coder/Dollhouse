@@ -1,13 +1,6 @@
 package com.dollhouse.app.ui.settings
 
-import android.content.Context
-import android.view.Gravity
-import android.view.View
-import android.widget.LinearLayout
-import android.widget.TextView
 import com.dollhouse.app.ai.AiModel
-import com.dollhouse.app.ui.theme.UiKit
-import com.dollhouse.app.ui.theme.Fonts
 
 /**
  * 【职责】模型编辑的纯规则层 + 两个页面复用的小控件。
@@ -165,69 +158,13 @@ object ModelEditKit {
         return s
     }
 
-    /** 一行开关（左标题 + 可选说明 + 右 UiKit.Switch），返回句柄供读值。 */
-    fun switchRow(ctx: Context, dest: LinearLayout, name: String, desc: String?, on: Boolean): UiKit.Switch {
-        val r = LinearLayout(ctx)
-        r.orientation = LinearLayout.HORIZONTAL
-        r.gravity = Gravity.CENTER_VERTICAL
-        r.setPadding(0, UiKit.dp(ctx, 10f), 0, UiKit.dp(ctx, 10f))
-        val col = LinearLayout(ctx)
-        col.orientation = LinearLayout.VERTICAL
-        val t = TextView(ctx)
-        t.typeface = Fonts.ui(ctx)
-        t.text = name
-        t.setTextSize(UiKit.FS_BTN)
-        t.setTextColor(UiKit.TITLE)
-        col.addView(t)
-        if (desc != null && desc.isNotEmpty()) {
-            val d = TextView(ctx)
-            d.typeface = Fonts.ui(ctx)
-            d.text = desc
-            d.setTextSize(UiKit.FS_TINY)
-            d.setTextColor(UiKit.SUB)
-            d.setPadding(0, UiKit.dp(ctx, 2f), 0, 0)
-            col.addView(d)
-        }
-        r.addView(col, LinearLayout.LayoutParams(0, -2, 1.0f))
-        val s = UiKit.Switch(ctx)
-        s.setOn(on)
-        s.isClickable = true
-        r.addView(s)
-        dest.addView(r)
-        return s
-    }
-
-    /** 三格一排的可点 chip 行，返回这一行（chip 由调用方从返回的数组里取）。 */
-    fun chipRow(ctx: Context, labels: Array<String>, store: Array<TextView?>): LinearLayout {
-        val r = LinearLayout(ctx)
-        r.orientation = LinearLayout.HORIZONTAL
-        for (i in labels.indices) {
-            val t = UiKit.outlineChip(ctx, labels[i])
-            t.gravity = Gravity.CENTER
-            val lp = LinearLayout.LayoutParams(0, -2, 1.0f)
-            if (i < labels.size - 1) {
-                lp.rightMargin = UiKit.dp(ctx, 6f)
-            }
-            r.addView(t, lp)
-            store[i] = t
-        }
-        return r
-    }
-
-    /** 选中 / 未选中的 chip 样式（选中实心、未选描边）。 */
-    fun paintChip(t: TextView?, on: Boolean, ctx: Context) {
-        if (t == null) {
-            return
-        }
-        t.setTextColor(if (on) UiKit.ON_ACC else UiKit.TITLE)
-        t.background = if (on) UiKit.round(UiKit.CHAT_CHIP_FG, ctx, 10f)
-        else UiKit.roundStroke(0xFFFFFFFF.toInt(), UiKit.STROKE, ctx, 10f)
-    }
-
-    /** 点一下按钮的通用外壳。 */
-    fun click(r: Runnable): View.OnClickListener {
-        return View.OnClickListener {
-            r.run()
-        }
-    }
+    /* ============================ 已移除的 View 构造器（M2） ============================
+     *
+     * 本文件原先还有四个 View 侧构造器：`switchRow` / `chipRow` / `paintChip` / `click`。
+     * 它们随 `ModelEditPage` 迁到 Compose（`DhForm.SelectChip` + `DhKit.SwitchRow`）后已**无任何调用点**
+     * （实测：switchRow / chipRow / click 外部调用数均为 0，paintChip 仅剩注释提及）。
+     * 保留它们会让 `ui/` 里继续存在"白名单之外的 View 实例化"，
+     * 使「常规 UI 一律 Compose」的架构边界无法用静态检查守住 —— 故删除。
+     * 纯规则（Sel / of / save / 模态钳制）一行未动，行为与迁移前一致。
+     */
 }

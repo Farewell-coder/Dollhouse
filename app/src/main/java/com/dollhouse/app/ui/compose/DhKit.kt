@@ -1769,7 +1769,16 @@ fun Modifier.minTouchTarget(): Modifier =
     this.sizeIn(minWidth = DhKit.MIN_TOUCH.dp, minHeight = DhKit.MIN_TOUCH.dp)
 
 /**
- * 统一按压反馈：按下缩到 0.96，松手弹回（ζ=0.40）—— 与 `UiKit.press` + `Springs.bouncy()` 同口径。
+ * 统一按压缩放比例。
+ *
+ * 【M2 为什么从 0.96 改成 0.98】设计稿 §3「Press: scale 0.98 over 90ms, no ripple beyond that」。
+ *   0.96 在 44dp 按钮上是 1.8dp 的收缩，视觉上"抖一下"；0.98 只有 0.9dp，
+ *   更接近系统级反馈的克制感。全 App 只有这一个值 —— 页面不许自己写缩放。
+ */
+private const val PRESS_SCALE = 0.98f
+
+/**
+ * 统一按压反馈：按下缩到 [PRESS_SCALE]，松手弹回（ζ=0.40）—— 与 `UiKit.press` + `Springs.bouncy()` 同口径。
  * 全 App 的可点元素都走它，保证「点哪都有同一种手感」。
  *
  * 【为什么放顶层】页面（如 `MemPage`）要给自定义行加按压反馈。若留在 `object DhKit` 内
@@ -1781,7 +1790,7 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     val callback = { com.dollhouse.app.core.OperationRecorder.event("Action", "Compose click"); onClick() }
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    // 【本次修复·按下别过冲】按下缩到 96% 用 tween（跟手、不过冲），
+    // 【本次修复·按下别过冲】按下缩到 [PRESS_SCALE] 用 tween（跟手、不过冲），
     //   松手才用 ζ=0.4 弹簧弹回 —— 与 View 侧 `UiKit.press` + `Springs.bouncy()` 完全同口径。
     //   改造前按下/松手共用一个 ζ=0.4 弹簧：手指刚触屏元素会先缩过头再回弹到 0.96，
     //   短按时能看到「先弹一下」，与 View 侧手感也对不上。
@@ -1799,7 +1808,7 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier {
     //     文字 / 图标不会被拉伸。这与 M3「优先扩大透明命中区」的要求一致。
     val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
+        targetValue = if (pressed) PRESS_SCALE else 1f,
         animationSpec = spec,
         label = "press"
     )
@@ -1829,7 +1838,7 @@ fun Modifier.pressScaleClick(onClick: () -> Unit): Modifier {
     val pressed by source.collectIsPressedAsState()
     val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
+        targetValue = if (pressed) PRESS_SCALE else 1f,
         animationSpec = spec,
         label = "press"
     )
@@ -1867,7 +1876,7 @@ fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
     // 与单参重载同口径：按下 tween 跟手，松手弹簧回弹。
     val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
+        targetValue = if (pressed) PRESS_SCALE else 1f,
         animationSpec = spec,
         label = "press"
     )
