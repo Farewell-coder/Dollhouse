@@ -45,6 +45,8 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhDivider
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.home.ChatBadge
@@ -292,24 +294,34 @@ object ChatListScreen {
                             //   否则最后一张卡片会被底栏压住点不到。
                             bottom = com.dollhouse.app.ui.home.BottomNav.HEIGHT_DP.dp + 16.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        // 【M4】行间距 10dp → 0：间距改由 1dp 发丝线承担（见下方 item 内 DhDivider）。
+                        //   列表从"一堆分开的小卡片"变成"一条连续的列表"。
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
                         items(shown, key = { it.id }) { row ->
                             /* 【v0.2.4·条目动画】新会话进来、删除会话、清空未读导致列表重排时，
                                条目平滑让位，而不是整列瞬间跳一下。动画由 LazyColumn 托管，零依赖。 */
                             Box(Modifier.animateItem()) {
-                            Card(
-                                row = row,
-                                onClick = {
-                                    ChatListData.markRead(act, row.id)
-                                    ChatState.bumpList()
-                                    openConv(act, row.id)
-                                },
-                                // 【长按管理】长按弹出「重命名 / 删除」菜单。
-                                //   需求原文：「聊天界面的会话没有删除的方法 建议长按的时候给个删除」。
-                                //   与列表的「点击进入」不冲突（见 pressable 的带长按重载）。
-                                onLong = { menuFor = row }
-                            )
+                                Card(
+                                    row = row,
+                                    onClick = {
+                                        ChatListData.markRead(act, row.id)
+                                        ChatState.bumpList()
+                                        openConv(act, row.id)
+                                    },
+                                    // 【长按管理】长按弹出「重命名 / 删除」菜单。
+                                    //   需求原文：「聊天界面的会话没有删除的方法 建议长按的时候给个删除」。
+                                    //   与列表的「点击进入」不冲突（见 pressable 的带长按重载）。
+                                    onLong = { menuFor = row }
+                                )
+                                // 【M4·发丝分隔】最后一条不画线：连线贴着列表末尾会像"还有内容"。
+                                if (row.id != shown.lastOrNull()?.id) {
+                                    DhDivider(
+                                        modifier = Modifier.padding(
+                                            start = AVATAR_DP.dp + 12.dp
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
@@ -433,20 +445,24 @@ object ChatListScreen {
     @Composable
     private fun Card(row: ChatListData.Row, onClick: () -> Unit, onLong: () -> Unit) {
         val c = DhTokens.colors
-        // 【统一】会话卡片属于「一张卡片」，圆角取全 App 卡片口径 [DhKit.R_CARD]（16dp）。
-        //   改造前写的是 14dp —— 与设置页卡片（16）、行（10）都不同族，切换页面时能看出差异。
-        val shape = RoundedCornerShape(DhKit.R_CARD.dp)
+        // 【M4·改回"列表行"而不是"每行一个卡片"】
+        //   改造前每一条会话是一个 card 底 + 1dp 描边 + 16 圆角的"小卡片"，
+        //   一页 8 条就是 8 个圆角矩形叠在一起 —— 这正是设计稿明确禁止的
+        //   「每个区域都使用独立卡片 / 大量重复的圆角矩形」。它带来两个真实后果：
+        //     ① 列表看起来像一堆互不相干的碎片，读不出"这是一条连续的消息流"；
+        //     ② 每条都要画背景 + 边框，长列表滚动时多出可观的绘制开销。
+        //   现在按设计稿 §3：行直接铺在页面底色上，行与行之间用 1dp 发丝线分隔，
+        //   整块列表读起来是一个整体。卡片（DhGroup）只留给真正需要分组的内容。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(shape)
-                .background(c.card)
-                .border(1.dp, c.line, shape)
+                .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .pressable(
                     onClick = onClick,
                     onLongClick = onLong
                 )
-                .padding(12.dp),
+                .defaultMinSize(minHeight = DhDesign.Size.rowTwoLine)
+                .padding(horizontal = 4.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Avatar(row)
@@ -457,9 +473,12 @@ object ChatListScreen {
                         text = row.title,
                         modifier = Modifier.weight(1f, fill = false),
                         color = c.title,
-                        fontSize = 16.sp, lineHeight = 24.sp,
-                        fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold,
+                        // 【M4·字号对齐阶梯】16sp/Bold → 15sp/500。
+                        //   行标题在阶梯里是 body@500；16sp 既不在任何一档上，
+                        //   又与会话内气泡正文（15sp）不一致，进出会话时标题会"缩一下"。
+                        fontSize = 15.sp, lineHeight = 24.sp,
+                        fontFamily = DhTokens.fonts,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
