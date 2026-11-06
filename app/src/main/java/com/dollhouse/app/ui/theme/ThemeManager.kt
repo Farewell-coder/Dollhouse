@@ -99,7 +99,7 @@ object ThemeManager {
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
         0xFF6B4EE6.toInt(), 0xFF8B6EF7.toInt(), 0xFFFCFAF6.toInt(), 0xFFF7F4EE.toInt(), 0xFF2A2620.toInt(), 0xFF6F675C.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
-        0xFFE6E0D4.toInt(), 0xFFF2EEE7.toInt(), 0xFFF4F0E9.toInt(), 0xFFF1EDE5.toInt(),
+        0xFFDAD2C2.toInt(), 0xFFF2EEE7.toInt(), 0xFFF4F0E9.toInt(), 0xFFF1EDE5.toInt(),
         // 10-12 OK, ERR, ON_ACC
         0xFF4B7A57.toInt(), 0xFFB0563F.toInt(), 0xFFFFFFFF.toInt(),
         // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
@@ -111,7 +111,7 @@ object ThemeManager {
         // 24-26 EMOTE_1..3（低饱和暖色，不做彩虹）
         0xFFE9DAC4.toInt(), 0xFFDCE4DA.toInt(), 0xFFE5DCE6.toInt(),
         // 27-28 STROKE, SCRIM
-        0x8CE6E0D4.toInt(), 0x6B262018
+        0x8CDAD2C2.toInt(), 0x6B262018
     )
 
     /**
@@ -125,7 +125,7 @@ object ThemeManager {
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
         0xFFA78EFF.toInt(), 0xFFBEA9FF.toInt(), 0xFF1E1B15.toInt(), 0xFF171510.toInt(), 0xFFEDE7DB.toInt(), 0xFFA79D8D.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
-        0xFF2E2A22.toInt(), 0xFF211E17.toInt(), 0xFF1B1914.toInt(), 0xFF201D16.toInt(),
+        0xFF38332A.toInt(), 0xFF211E17.toInt(), 0xFF1B1914.toInt(), 0xFF201D16.toInt(),
         // 10-12 OK, ERR, ON_ACC
         0xFF7DAE88.toInt(), 0xFFE58E77.toInt(), 0xFF17131F.toInt(),
         // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
@@ -137,7 +137,7 @@ object ThemeManager {
         // 24-26 EMOTE_1..3
         0xFF3A3226.toInt(), 0xFF2B3730.toInt(), 0xFF352C38.toInt(),
         // 27-28 STROKE, SCRIM
-        0x8C3A342A.toInt(), 0x8C000000.toInt()
+        0x8C38332A.toInt(), 0x8C000000.toInt()
     )
 
     /**
@@ -151,7 +151,7 @@ object ThemeManager {
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
         0xFFA78EFF.toInt(), 0xFFBEA9FF.toInt(), 0xFF0A0907.toInt(), 0xFF000000.toInt(), 0xFFF0EBE0.toInt(), 0xFF9C9282.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
-        0xFF201C15.toInt(), 0xFF100E0A.toInt(), 0xFF0B0A08.toInt(), 0xFF110F0B.toInt(),
+        0xFF2A251C.toInt(), 0xFF100E0A.toInt(), 0xFF0B0A08.toInt(), 0xFF110F0B.toInt(),
         // 10-12 OK, ERR, ON_ACC
         0xFF79A984.toInt(), 0xFFE0866F.toInt(), 0xFF17131F.toInt(),
         // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
@@ -163,7 +163,7 @@ object ThemeManager {
         // 24-26 EMOTE_1..3
         0xFF2A2419.toInt(), 0xFF1F2A24.toInt(), 0xFF28202C.toInt(),
         // 27-28 STROKE, SCRIM
-        0x8C2A251D.toInt(), 0xB8000000.toInt()
+        0x8C332D22.toInt(), 0xB8000000.toInt()
     )
 
     /** 当前主题档位；非法值一律按「随系统」。 */

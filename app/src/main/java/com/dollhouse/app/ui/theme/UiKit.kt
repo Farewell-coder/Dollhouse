@@ -68,7 +68,7 @@ object UiKit {
     var SUB = 0xFF6F675C.toInt()
 
     @JvmField
-    var LINE = 0xFFE6E0D4.toInt()
+    var LINE = 0xFFDAD2C2.toInt()
 
     /** 选项/对照组底色（设置页用）。 */
     @JvmField
@@ -156,7 +156,7 @@ object UiKit {
 
     /** 卡片描边（带透明度，深色主题下会换成浅色）。 */
     @JvmField
-    var STROKE = 0x8CE6E0D4.toInt()
+    var STROKE = 0x8CDAD2C2.toInt()
 
     /** 弹层遮罩色：抽屉 / 底部面板背后的压暗层，深色主题下更重。 */
     @JvmField

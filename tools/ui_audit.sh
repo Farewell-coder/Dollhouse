@@ -140,6 +140,12 @@ chk D08 "字体阶梯含品牌档与正文档两套（品牌字不用于正文�
 chk D09 "行高显式声明（杜绝 CJK 行距贴死）" \
   "grep -q 'lineHeight = 24.sp' $UI/design/DesignSystem.kt"
 chk D10 "对比度回归脚本存在" "test -f tools/ContrastRegression.kt"
+# 【D11】三档调色板的**实际落地值**对比度校验。
+#   D10 检查的 ContrastRegression.kt 是 Kotlin 写的、需要 kotlinc，本机与 CI 都不跑它 ——
+#   等于"有脚本但没人验证"。本项直接解析 ThemeManager 的 29 格数组按 WCAG 计算，
+#   本轮已借此发现并修掉两个真实问题（浅色发丝线 1.20、纯黑描边 1.13）。
+chk D11 "三档主题对比度达标（正文≥4.5 / 发丝线≥1.3）" \
+  "python3 tools/palette_contrast.py --quiet > /dev/null"
 
 echo
 echo "=============================================="
