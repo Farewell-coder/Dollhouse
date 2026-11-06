@@ -77,6 +77,18 @@ class ShellTool : ChatTool {
             // 非 JSON：兼容模型直接传裸命令的写法。
             command = raw
         }
-        return ShizukuBridge.exec(command, 15000L)
+        // 【v0.2.6·安全沙盒】过了开关与授权两道门之后，命令仍可能是不可逆的：
+        //   模型把「帮我清理一下」理解成 `pm clear` 或 `rm -rf` 并非假设，而是真实风险。
+        //   这里在执行前分级：
+        //   · DANGER → 不执行，回一句让它停手（工具执行发生在对话中间，此时弹窗确认
+        //     会打断整轮回复，用户也多半没在看屏幕）；
+        //   · WRITE  → 执行，但结果前面明确标出「这是一次会改变设备状态的命令」。
+        val level = ShellRisk.level(command)
+        if (level == ShellRisk.Level.DANGER) {
+            com.dollhouse.app.core.Logs.w("DollhouseShell", "拒绝高风险命令：" + command)
+            return ShellRisk.rejectText(command)
+        }
+        val out = ShizukuBridge.exec(command, 15000L)
+        return if (level == ShellRisk.Level.WRITE) ShellRisk.writeNote(command) + out else out
     }
 }
