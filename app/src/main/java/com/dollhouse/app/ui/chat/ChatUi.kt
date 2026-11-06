@@ -675,6 +675,14 @@ object ChatUi {
 
         // ---- 仅她的消息 ----
         if (isAi) {
+            // 【v0.2.6·失败重试】错误提示本身也存成一条 assistant 气泡（见 finishWithError），
+            //   但它不是模型的真实回复：对它用「单条重新生成」会先删掉这条错误提示，
+            //   再请求一次 —— 语义正确且不会残留错误文案。这里单独把它提到菜单最前，
+            //   名字直说「重试这次」，比让用户在「单条重新生成」里猜更清楚。
+            if (item.text.contains("（出错了：")) {
+                labels.add("重试这次")
+                actions.add { host.retryAfterError() }
+            }
             labels.add("单条重新生成")
             actions.add { host.regenerateAt(idx) }
             // 【v0.1.0·新增】赞 / 学样式：把这一问一答存成学习示例。

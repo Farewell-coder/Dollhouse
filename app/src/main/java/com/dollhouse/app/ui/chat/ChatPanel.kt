@@ -1917,9 +1917,59 @@ class ChatPanel(
         //   否则用户离开期间出错，回来时输入框永远停在「停止」。
         setWaiting(false)
         removeThinking()
+        // 【v0.2.6·失败可重试】原来出错只往气泡里塞一句「（出错了：…）」，用户看完
+        //   唯一能做的是自己重新打一遍问题——而且模型已经扣过一次额度。
+        //   这里保留原错误气泡文案（不改变既有观感与历史记录），同时把「可重试」这件事
+        //   明确说出来：重试走既有的 [regenerate]（删掉最后一条助手回复再请求），
+        //   所以不会重复累加错误消息、也不会有两份回复并存。
+        val canRetry = lastUserBeforeError() != null
         if (isAttachedToWindow) {
-            appendBubble("（出错了：" + str + "）", false, null)
+            appendBubble(
+                "（出错了：" + str + "）" + if (canRetry) "\n点这条可重试" else "",
+                false, null
+            )
         }
+    }
+
+    /**
+     * 出错时，最后一条消息之前是否存在一条 user 提问。
+     *
+     * 【用途】决定错误气泡上要不要提示「可重试」。只有真正有可重答的问题时才提示，
+     *   避免用户点了却得到「这条前面没有可重答的问题」。
+     */
+    internal fun lastUserBeforeError(): JSONObject? {
+        try {
+            for (i in history.length() - 1 downTo 0) {
+                val o = history.optJSONObject(i) ?: continue
+                val role = o.optString("role")
+                if ("assistant" == role) {
+                    continue
+                }
+                if ("user" == role) {
+                    return o
+                }
+            }
+        } catch (unused: Throwable) {
+        }
+        return null
+    }
+
+    /**
+     * 用户点错误气泡后的重试：只在没有在途请求时放行。
+     *
+     * 【为什么不直接重发 askModel】那会把错误提示又追加一遍、且历史里多出一条错误回复。
+     *   [regenerate] 的语义是「删掉最后一条助手消息并重答」，正好对应「这次没答成」。
+     */
+    fun retryAfterError() {
+        if (waiting) {
+            flashMemo("等这轮回复完了再操作")
+            return
+        }
+        if (lastUserBeforeError() == null) {
+            flashMemo("这条前面没有可重答的问题")
+            return
+        }
+        regenerate()
     }
 
     /** 兼容入口：不带思考内容的旧签名（外部契约不变）。 */
