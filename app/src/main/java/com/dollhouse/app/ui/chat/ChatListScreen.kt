@@ -262,9 +262,13 @@ object ChatListScreen {
 
             // ---------- 列表 / 空态 ----------
             Row(Modifier.fillMaxWidth().padding(horizontal = PAD_H).padding(bottom = DhDesign.Space.md.dp), horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
-                DhKit.OutlineChip(if (filter == 0) "全部 ·" else "全部") { filter = 0 }
-                DhKit.OutlineChip(if (filter == 1) "未读 ·" else "未读") { filter = 1 }
-                DhKit.OutlineChip(if (filter == 2) "置顶 ·" else "置顶") { filter = 2 }
+                // 【改·选中态】原来用「在文案后加一个 `·`」表达选中
+                //   （`if (filter == 0) "全部 ·" else "全部"`）——
+                //   那个孤立小点看起来像"未读数角标没渲染出来"，是粗糙做法。
+                //   现在交给 `OutlineChip(selected = ...)`：选中=主色实底+反白字。
+                DhKit.OutlineChip("全部", selected = filter == 0) { filter = 0 }
+                DhKit.OutlineChip("未读", selected = filter == 1) { filter = 1 }
+                DhKit.OutlineChip("置顶", selected = filter == 2) { filter = 2 }
                 Spacer(Modifier.weight(1f))
                 DhKit.OutlineChip(if (archivedView) "返回" else "归档") { archivedView = !archivedView }
             }

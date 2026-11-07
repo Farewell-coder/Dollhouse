@@ -1898,9 +1898,17 @@ object DhKit {
         modifier: Modifier = Modifier,
         // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
         iconRes: Int = 0,
+        /**
+         * 【v3.1·选中态】默认 false 保持原样（不影响任何既有调用点）。
+         * 【为什么需要】聊天列表的筛选条原本用「在文案后面加一个 `·`」表达选中
+         *   （`if (filter == 0) "全部 ·" else "全部"`）—— 那个孤立的小点看起来
+         *   像"未读数角标没渲染出来"，是典型的粗糙做法。选中态应该靠**底色与字色**表达。
+         */
+        selected: Boolean = false,
         onClick: (() -> Unit)? = null
     ) {
         val c = DhTokens.colors
+        val chipBase = if (selected) c.acc else c.cardUp
         // 【v3·清透轻拟物】去硬描边。
         //   旧形态是 `cardUp 底 + 1dp line 描边` —— 描边在柔和明暗体系里会显"薄、硬"，
         //   与新方向相反。轮廓改由**上亮下暗的渐变**承担：
@@ -1909,14 +1917,16 @@ object DhKit {
         //   【仍然不加 elevation 阴影】遵守 Elevation 文档「芯片永不加阴影」的硬规则。
         val chipLight = if (ThemeManager.isDark(LocalContext.current)) 0.16f else 0.10f
         Box(
+            // 【修·内容不在中心】`Box` 的 `contentAlignment` 默认是 `TopStart`。
+            contentAlignment = Alignment.Center,
             modifier = modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            lighten(c.cardUp, chipLight),
-                            c.cardUp,
-                            darken(c.cardUp, chipLight * 0.8f)
+                            lighten(chipBase, chipLight),
+                            chipBase,
+                            darken(chipBase, chipLight * 0.8f)
                         )
                     )
                 )
@@ -1939,9 +1949,10 @@ object DhKit {
                 }
                 Text(
                     text = text,
-                    color = c.title,
+                    // 选中态用反白色（压在主色实底上）；未选中沿用原来的 title。
+                    color = if (selected) c.onAcc else c.title,
                     fontSize = UiKit.FS_CHIP.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts
                 )
             }
         }
