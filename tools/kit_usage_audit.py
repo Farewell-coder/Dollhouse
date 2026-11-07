@@ -471,6 +471,166 @@ def check_button_system():
     return rows, pill_buttons, total_999
 
 
+# ---------------------------------------------------------------- K3d 形态断言（不是调用点数）
+#
+# 【为什么必须另开一项】
+#   K3c 数的是「工厂被调用了多少次」——它**不会**因为工厂内部的形态被改好而减少。
+#   实测教训：`DhForm.DialogButton` 13 处调用全部是弹窗主次操作（纯 button），
+#   已从「999 药丸 + 内边距撑高 + 12sp」改成「44dp 定高 + 12 圆角 + 15sp」，
+#   但 K3c 的合计 54 一点没动 —— 因为 DialogButton 压根不在 BUTTON_FACTORIES 表里，
+#   改内部实现也不影响任何计数。于是「做对了却看不见」，门禁等于没覆盖这一项。
+#
+# 【判据】对每个具名工厂，提取它的**函数体**（从 `fun Name(` 到与之配平的结束花括号），
+#   检查体内是否仍出现 `RoundedCornerShape(999`。这直接回答「这个工厂还是不是药丸形态」。
+#
+# 【为什么要配平花括号而不是切到下一个 fun】
+#   工厂体内有 when / if / Row{} 等嵌套块，按行切会把相邻函数一起吃进来，产生假结果。
+#   按花括号配平才能准确圈定函数体边界。
+#
+# 【退出码】药丸形态的工厂**不算失败**（chip 工厂本来就该是 999，见 SHAPE_EXPECTED_PILL）。
+#   只有「登记为已收编、实际却还是 999」才算失败 —— 防止有人把改动悄悄退回去。
+SHAPE_EXPECTED_PILL = {
+    # chip 工厂：设计稿规定 chip = 999 pill，它们**应该**保持 999，永远不算失败。
+    "DhForm.PrimaryChip": "chip/button 混用，含真 chip 调用点（ModeChip / 分段选择）",
+    "DhForm.OutlineChip": "chip/button 混用，含真 chip 调用点（ModeChip / 分段选择）",
+    "DhKit.OutlineChip": "chip/button 混用，含真 chip 调用点（页面筛选器 / 纯标签）",
+}
+
+# 已知旧偏差：不是本轮引入，也不在本轮修（改它会动调用点）。
+# 记录在案是为了让门禁**如实**反映现状，而不是假装它「应该」是 999。
+SHAPE_KNOWN_DEVIATION = {
+    "DhForm.Chip": "chip 语义但圆角是 R_ROW=12（非 999）；K3c 表的描述是过期的，待产品确认",
+}
+
+# 登记为「已收编成 44dp+12」的工厂：它们体内**不得**再出现 999。
+SHAPE_MUST_BE_RECT = {
+    "DhForm.DialogButton": "已收编：44dp + 12 圆角 + 15sp SemiBold",
+    "DhForm.SubmitButton": "已收编：44dp + 12 圆角 + 15sp SemiBold",
+    "DhForm.Button": "语义化按钮工厂：44dp + 12 圆角 + 15sp SemiBold",
+}
+
+# 所有要检查形态的工厂（chip 工厂 + 已收编工厂）
+SHAPE_FACTORIES = (list(SHAPE_EXPECTED_PILL.keys())
+                   + list(SHAPE_KNOWN_DEVIATION.keys())
+                   + list(SHAPE_MUST_BE_RECT.keys()))
+
+
+def _extract_fun_body(src, fun_name):
+    """取出 `fun <fun_name>(` 的函数体文本（按花括号配平）。
+
+    找不到返回 None。配平过程跳过字符串与注释，避免被 `"{"` 或注释里的括号误导。
+    """
+    m = re.search(r"\bfun\s+" + re.escape(fun_name) + r"\s*\(", src)
+    if not m:
+        return None
+    # 从参数列表开始配平括号，找到函数体的第一个 '{'
+    i = src.find("(", m.end() - 1)
+    depth = 0
+    n = len(src)
+    while i < n:
+        ch = src[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    # 跳过 `: Unit {` / `{` 这类到函数体开头
+    brace = src.find("{", i)
+    if brace < 0:
+        return None
+    # 配平函数体的花括号
+    depth = 0
+    j = brace
+    in_str = False
+    in_line_comment = False
+    in_block_comment = 0
+    while j < n:
+        ch = src[j]
+        nxt = src[j + 1] if j + 1 < n else ""
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+        elif in_block_comment:
+            if ch == "/" and nxt == "*":
+                in_block_comment += 1
+                j += 1
+            elif ch == "*" and nxt == "/":
+                in_block_comment -= 1
+                j += 1
+        elif in_str:
+            if ch == "\\":
+                j += 1
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "/" and nxt == "/":
+                in_line_comment = True
+                j += 1
+            elif ch == "/" and nxt == "*":
+                in_block_comment += 1
+                j += 1
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return src[brace:j + 1]
+        j += 1
+    return src[brace:]
+
+
+def check_factory_shapes():
+    """K3d：逐个工厂检查**函数体内**是否仍是 999 药丸形态。
+
+    返回 (rows, violations)。rows: [(factory, shape, is_pill, expected, note)]；
+    violations: 只装「登记为已收编、实际仍是 999」——这些才是真失败。
+    """
+    src_path = SRC / "com/dollhouse/app/ui/compose/DhForm.kt"
+    dhkit_path = SRC / "com/dollhouse/app/ui/compose/DhKit.kt"
+    rows = []
+    violations = []
+    for name in SHAPE_FACTORIES:
+        short = name.split(".")[-1]
+        path = dhkit_path if name.startswith("DhKit.") else src_path
+        if not path.exists():
+            continue
+        src = read_code(path)
+        body = _extract_fun_body(src, short)
+        if body is None:
+            rows.append((name, "未找到", False, "?", "函数未定位"))
+            continue
+        is_pill = bool(re.search(r"RoundedCornerShape\(\s*999", body))
+        has_44 = bool(re.search(r"\.height\(\s*44\.dp\s*\)", body))
+        has_12 = bool(
+            re.search(r"Radius\.md", body) or re.search(r"R_ROW", body)
+            or re.search(r"RoundedCornerShape\(\s*12\.dp\s*\)", body)
+        )
+        if is_pill:
+            shape = "999 药丸"
+        elif has_44 and has_12:
+            shape = "44dp + 12 圆角"
+        else:
+            shape = "非药丸（%s）" % ("44dp" if has_44 else "无定高")
+        if name in SHAPE_MUST_BE_RECT:
+            expected = "应为 44dp+12"
+            if is_pill:
+                violations.append("%s 登记为已收编，但函数体内仍是 999 药丸圆角" % name)
+        elif name in SHAPE_KNOWN_DEVIATION:
+            # 已知旧偏差：不判失败，但要在表里如实显示，不许标成「应保持 999」。
+            expected = "已登记偏差"
+        else:
+            expected = "应保持 999"
+        rows.append((name, shape, is_pill, expected,
+                     SHAPE_MUST_BE_RECT.get(name)
+                     or SHAPE_KNOWN_DEVIATION.get(name)
+                     or SHAPE_EXPECTED_PILL.get(name, "")))
+    return rows, violations
+
+
 def check_bypass_switch():
     """自建 Switch：直接调用 DhKit 内部自绘的 Switch，而不是走 SwitchRow。
 
@@ -628,6 +788,25 @@ def main():
         out("  注意：kit.DhButton 库外调用为 0 —— 规范按钮没有任何页面在用。")
     out("  结论：按钮体系是 ui/kit 收口里唯一未统一的块（行/卡片/输入框都已转发）。")
     out("        本轮只量化，不做统一（统一 %d 处属独立工程）。" % pill_buttons)
+
+    # ---- K3d：形态断言（K3c 数调用点，K3d 看工厂体内到底是不是药丸）----
+    out()
+    out("--- K3d 工厂形态（函数体内是否仍为 999 药丸，K3c 的度量缺口）")
+    out("  %-22s %-16s %-12s %s" % ("工厂", "实际形态", "期望", "备注"))
+    out("  " + "-" * 78)
+    srows, sviol = check_factory_shapes()
+    for name, shape, is_pill, expected, note in srows:
+        flag = ""
+        if name in SHAPE_MUST_BE_RECT and is_pill:
+            flag = "  <<< 回退！"
+        out("  %-22s %-16s %-12s %s%s" % (name, shape, expected, note, flag))
+    for v in sviol:
+        issues.append("K3d 形态回退：" + v)
+    out("  " + "-" * 78)
+    if sviol:
+        out("  K3d FAIL %d 项：登记为已收编的工厂又退回 999 药丸。" % len(sviol))
+    else:
+        out("  K3d PASS：已收编工厂均为 44dp+12；chip 工厂保持 999（设计稿要求）。")
 
     # 引用 input_audit / state_audit 的结论（不重复实现）
     out()

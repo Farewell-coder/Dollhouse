@@ -174,8 +174,12 @@ def scan():
             ln = src[:m.start()].count("\n") + 1
             # 取该 Box 之后的 400 字符看有没有任何可绘制内容
             tail = src[m.end():m.end() + 400]
+            # 【白名单必须覆盖所有"真的会画出东西"的容器】
+            #   曾漏掉 `Layout`（自定义 measure/layout 的三页叠放就是用它），
+            #   导致 HomeUiContent 被误判成"纯空白态"——那是假阳性。
             has_content = re.search(
-                r"\b(Text|Row|Column|LazyColumn|DhKit\.|DhState|Image|Canvas|Spacer)\s*\(", tail)
+                r"\b(Text|Row|Column|LazyColumn|LazyRow|Layout|BoxWithConstraints|"
+                r"DhKit\.|DhState|Image|Canvas|Spacer|AndroidView)\s*\(", tail)
             if not has_content:
                 inventory["blank"].append((r, ln))
 
