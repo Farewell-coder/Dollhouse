@@ -1079,12 +1079,20 @@ onCover = {
         }
     }
 
-    /** 自绘拖拽把手：M3 默认把手取 `MaterialTheme.colorScheme`，本工程没建主题，会取到浅色默认值。 */
+    /**
+     * 自绘拖拽把手：M3 默认把手取 `MaterialTheme.colorScheme`，本工程没建主题，会取到浅色默认值。
+     *
+     * 【6dp/10dp 收敛】上下内边距原为 top=10 / bottom=6，两值都不在 Space 刻度上（R3 类）。
+     *   按 docs/SPACING_MAP.md §1 的映射表，10 → `sm`/`md`、6 → `sm`/`xs` 都合法；
+     *   取 `sm`/`sm` 的理由：① 与该文件既有的 6dp → `sm` 落档保持一致；
+     *   ② 上下合计仍是 16dp，把手整体占位高度（16 + 4 条）与他处面板口径不变，
+     *   只让 4dp 的条子在同一个抓取带内上移 2dp，不改变底部面板的整体留白。
+     */
     @Composable
     private fun SheetDragHandle() {
         Box(
             modifier = Modifier
-                .padding(top = 10.dp, bottom = 6.dp)
+                .padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
                 .width(32.dp)
                 .height(4.dp)
                 .clip(RoundedCornerShape(2.dp))
