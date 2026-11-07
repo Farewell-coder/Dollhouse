@@ -755,7 +755,7 @@ object DollActionPage {
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Normal,
                     maxLines = 1
                 )
             }
@@ -906,7 +906,7 @@ object DollActionPage {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(

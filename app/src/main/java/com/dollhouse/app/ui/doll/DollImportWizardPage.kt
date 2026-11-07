@@ -242,7 +242,7 @@ object DollImportWizardPage {
                         color = c.title,
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Normal
                     )
                 }
                 for (it in list) {
@@ -267,7 +267,7 @@ object DollImportWizardPage {
                                 color = c.title,
                                 fontSize = UiKit.FS_SUB.sp,
                                 fontFamily = DhTokens.fontsBold,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Normal,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

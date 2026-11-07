@@ -285,7 +285,7 @@ object ChatUi {
                         color = c.title,
                         fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -372,7 +372,7 @@ object ChatUi {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp)
-                .padding(top = 6.dp)
+                .padding(top = DhDesign.Space.xs.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -449,15 +449,22 @@ object ChatUi {
                 .collect { (idx, atBottom) -> host.onScrolled(idx - offset, atBottom) }
         }
 
-        // 【消息间距】改造前 LazyColumn 没有 verticalArrangement，气泡**首尾紧贴**：
-        //   连续两条消息之间没有任何呼吸，长会话读起来是一整块。
-        //   这里给 8dp 基础间距，并在每个 item 内部对「同一角色连续发言」收窄到 3dp ——
-        //   主流聊天软件的口径（同一个人连发不额外留白，换人说话才拉开）。
+        // 【消息间距·R7 两个不等式】留白节奏集中在**这一处**决定，item 内部不再叠第二份。
+        //   设计原则（SPACING_MAP R7）：组间距必须明显大于行间距，否则一屏消息糊成一片，
+        //   看不出「哪几条是一个人在接连说话」。
+        //   实测口径（绝对值）：
+        //     · 同一角色连发 → sm(8)
+        //     · 换人说话     → md(12)（ spacedBy 8 + 差额 xs 4 ）
+        //     · 气泡内部     → xs(4)（图片↔正文）
+        //   ⇒ 4 < 8 < 12，组间距 > 行间距成立。
+        //   改造前的叠加方式是「spacedBy(3) + item.padding(top=6) [+ 换人 5]」，
+        //   即同角色 9 / 换人 14 —— 两者只差 5，而且间距被拆在两个地方，
+        //   调一处漏一处就会前功尽弃。现在统一收到 spacedBy 一处。
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+            verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
         ) {
             if (ChatState.hasPrev) {
                 item(key = "loadEarlier") { LoadEarlierRow(host) }
@@ -488,19 +495,23 @@ object ChatUi {
                     }
                 }
             ) { idx, item ->
-                // 【消息间距】改造前相邻气泡之间**没有间距**，连续几条像一整块；
-                //   这里统一给 6dp（与列表页卡片间距 10、行间距 8 同族但更紧，
-                //   因为聊天需要更高信息密度）。首条不加，避免顶部空一截。
+                // 【消息间距】本 item **不再**承担气泡之间的距离（已由 LazyColumn 的 spacedBy 统一）；
+                //   这里只负责「换人说话」时的额外留白，见下方 prevRole 判断。
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = if (idx == 0) 0.dp else 6.dp)
+                        // 【间距收归一处】消息之间的距离统一由 LazyColumn 的 spacedBy(sm) 提供，
+                        //   这里不再叠第二份 —— 否则调间距要同时改两处，漏一处就前功尽弃。
+                        .padding(top = 0.dp)
                 ) {
-                    // 【换人说话才拉开】上一条是同角色且都不是摘要 → 用小间距；
-                    //   否则补 5dp 让「换人」这一视觉分组成立。
+                    // 【换人说话才拉开】上一 item 是不同角色时才补差额，使总数达到 md(12)。
+                    //   层级关系：气泡内 4 < 同角色 8 < 换角色 12 ——
+                    //   这正是 R7 要的两个不等式，分组感靠它成立。
                     val prevRole = if (idx > 0) items[idx - 1].role else null
                     if (prevRole != null && prevRole != item.role) {
-                        Spacer(Modifier.height(5.dp))
+                        // 【绝对值对齐】目标：换角色 = md(12)。spacedBy 已给 sm(8)，
+                        //   故这里只补差额 xs(4) —— 8 + 4 = 12。
+                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     }
                     // 【r13·思考过程】每条助手回复都在自己的气泡上方挂思考框 ——
                     //   不再只限最后一条（本轮改造前，历史里的回复一律看不到思考）。
@@ -549,11 +560,11 @@ object ChatUi {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 80.dp),
+                .padding(top = DhDesign.Space.xxl.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             DhKit.Icon(Icons.IC_MESSAGE_SQUARE_HEART, Design.SZ_XL, c.line)
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
             Text(
                 text = "还没有聊过，说点什么吧",
                 color = c.sub,
@@ -711,7 +722,7 @@ object ChatUi {
                 val img = item.image
                 if (!img.isNullOrEmpty() && ImageStore.exists(ctx, img)) {
                     BubbleImage(ctx, img, maxW)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.xs.dp))
                 }
                 if (item.text.trim().isNotEmpty()) {
                     // 【可选文本】消息正文支持长按选中复制 —— 与长按弹菜单不冲突：
@@ -901,7 +912,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 4.dp)
+                .padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp)
                 .then(if (text.trim().isNotEmpty()) Modifier.pressable { open = true } else Modifier),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -961,7 +972,7 @@ object ChatUi {
             )
             // 【覆盖条数放这里】主界面保持极简，需要细节的人点开才看到。
             if (cover > 0) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Text(
                     text = "这条摘要覆盖了 " + cover + " 条消息。",
                     color = c.sub,
@@ -1063,7 +1074,7 @@ object ChatUi {
                 if (open) {
                     Text(
                         text = box.reasoning,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fonts

@@ -616,7 +616,7 @@ object ProfileDrawer {
                 color = c.title,
                 fontSize = 20.sp, lineHeight = 28.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
