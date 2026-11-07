@@ -30,6 +30,22 @@ import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.device.ShizukuBridge
 import com.dollhouse.app.keepalive.KeepAliveBridge
 import com.dollhouse.app.ui.chat.ChatListScreen
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.dollhouse.app.ui.compose.ComposeLayerShield
+import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.theme.Fonts
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
@@ -1546,6 +1562,84 @@ object HomeUi {
             ctx.startService(i)
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
+        }
+    }
+
+    /* ================= 底座 Compose 版（阶段 1·纯新增，未接入） ================= */
+
+    /**
+     * 【HomeUi 去 View·阶段 1】底座（三 Tab + 底栏 + 抽屉）的**单一 Compose 实现**。
+     *
+     * ## 与 [apply] 的关系（现在）
+     * 本函数**尚未被调用**，[apply] 仍走原来的 View 装配。这样引入它是零风险的：
+     * 不改变任何现有行为，可以先独立编译、独立审阅，再决定何时切换。
+     *
+     * ## 为什么必须三个 Tab 常驻组合（这是本方案最关键的设计约束）
+     * 原实现用 `visibility = GONE` 切页，被隐藏的页**仍活着**，输入框里的搜索词、
+     * 列表滚动位置全部保留。若 Compose 版写成「只渲染当前 Tab」，其余两页会离开组合，
+     * `remember` 里的状态（如 `ChatListScreen` 的 `query`）会被销毁 ——
+     * 用户切到人偶页再切回来，搜索框内容就没了。这是**功能退化**，不可接受。
+     *
+     * 因此这里用 [key] 让三页各自独立成组、始终参与组合，只用 `alpha` + 最上层
+     * 决定可见性：`alpha=0` 的页仍保留状态，只是看不见、且不接收触摸
+     * （触摸由层叠顺序与 [ComposeLayerShield] 决定，不依赖 alpha）。
+     *
+     * ## 为什么用自定义 [Layout] 而不是 `Box`
+     * `Box` 会按顺序绘制，但**无法保证「目标页在最上」** —— 而触摸命中按 z 序判定。
+     * 这里用 [Layout] 显式按「当前 Tab 最后绘制」排序，等价于原实现里
+     * `showTab` 把目标页 `visibility=VISIBLE` 抬到最前的语义。
+     *
+     * ## 尚未解决的问题（如实记录，见报告）
+     * ① 底栏的「浮在内容之上且不占布局高度」需要 `Alignment.BottomCenter` + `wrapContentHeight`，
+     *    本轮未接线；
+     * ② [com.dollhouse.app.ui.compose.LayerGate] 的 `Layers` 四字段类型是
+     *    View 版 `LayerShield`，Compose 版闸门无法登记进去，因此**交互闸门暂不生效**；
+     * ③ 抽屉的 `progress` 目前只能由手势驱动，`open()/close()` 仍走 View 通道。
+     *
+     * @param act      宿主（MainActivity，需要它的 Compose owner 与资源）
+     * @param tab      当前 Tab（[AppNav.TAB_CHAT] / [AppNav.TAB_CONTACT] / [AppNav.TAB_HOME]）
+     * @param onPickTab 底栏点击回调；由调用方决定「是否先清覆盖层」
+     */
+    @Composable
+    fun HomeUiContent(act: MainActivity, tab: Int, onPickTab: (Int) -> Unit) {
+        // 【抽屉进度】直接复用 ProfileDrawer 已有的状态机，不另建一份真源。
+        val drawerProgress by ProfileDrawer.progress
+        // 【可见性】只有当前 Tab 的页 alpha=1；其余保持 0（仍在组合内，状态不丢）。
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 【三页常驻】用 Layout 显式控制绘制顺序：当前 Tab 最后画（压在最上）。
+            Layout(
+                content = {
+                    key(AppNav.TAB_CHAT) { ChatListScreen.Content(act) }
+                    key(AppNav.TAB_CONTACT) { ContactScreen.ContentForHost(act) }
+                    key(AppNav.TAB_HOME) { HomeScreen.HomeContentForHost(act) }
+                },
+                modifier = Modifier.fillMaxSize()
+            ) { measurables, constraints ->
+                val placeables = measurables.map { it.measure(constraints) }
+                val w = constraints.maxWidth
+                val h = constraints.maxHeight
+                layout(w, h) {
+                    // 【顺序】非当前页先放（在下面），当前页最后放（在最上面）。
+                    val order = placeables.indices.sortedBy { if (it == tab) 1 else 0 }
+                    for (i in order) {
+                        placeables[i].place(0, 0)
+                    }
+                }
+            }
+            // 【底栏】浮在最上、不占布局高度：底对齐 + 内容包裹。
+            //   与旧装配（buildBar 里那个 FrameLayout + wrap_content）等价：
+            //   只有那条胶囊挡触摸，其余区域让给下面的页面。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(androidx.compose.ui.Alignment.BottomCenter)
+            ) {
+                BottomNav.Bar(act, onPickTab)
+            }
+            // 【抽屉】必须最后画：它要盖住三页与底栏。
+            //   ProfileDrawer.Host 内部在未打开时 `if (!opened) return` 空转，
+            //   常驻代价只是一个空组合；换来点头像时零挂载延迟。
+            ProfileDrawer.Host(act)
         }
     }
 

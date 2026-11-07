@@ -83,6 +83,18 @@ object ContactScreen {
     }
 
     @Composable
+    /**
+     * 【供 HomeUi 的单一 Compose 根复用】把本页暴露成可组合函数。
+     *
+     * 【为什么不用 private 的 Content 直接调】它是 private；而且「把可见性改成 public」
+     *   会把内部实现变成对外契约。用一个一行的公开包装既能被宿主复用，
+     *   又不扩大内部实现的可访问面。
+     */
+    @Composable
+    fun ContentForHost(act: MainActivity) {
+        Content(act)
+    }
+
     private fun Content(act: MainActivity) {
         val c = DhTokens.colors
         // 【数据】人偶列表与分组都在 [DollState.rev] 变化时重算（与 DollListScreen 同一套机制）。
