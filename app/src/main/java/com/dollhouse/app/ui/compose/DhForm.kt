@@ -32,6 +32,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import com.dollhouse.app.ui.theme.ThemeManager
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -761,6 +765,78 @@ object DhForm {
      *   否则同一个弹窗会出现两个实心主按钮，反而违反设计稿。
      */
     @Composable
+    /**
+     * 【v3·清透轻拟物】按钮/芯片的共用形态层。
+     *
+     * ## 轻拟物 vs 扁平：差在哪
+     * 扁平按钮是「一块纯色贴纸上」，轻拟物是「一块**有厚度**的东西放在面上」。
+     * 三件事同时做才有体积感：
+     *   ① **柔和外投影** —— 让它离页面有距离（不是描边，描边只会显薄）；
+     *   ② **极淡顶部内高光** —— 光从左上来，上沿比下述底更亮一档；
+     *   ③ **按下时阴影收小 + 已有 0.98 缩放** —— 视觉上被"压进"页面。
+     *
+     * ## 为什么不用 `.shadow()` 的 ambientColor 染色
+     * Compose 的 `Modifier.shadow` 在 API<28 上只有黑色阴影；本工程 minSdk=24。
+     * 要用蓝调染色（#8FA8C4）就得走 `drawBehind` + `Paint.setShadowLayer`，
+     * 那会与主题切换的重组时机耦合、且 API24 上还得额外做软件层。
+     * 这里改用**「上亮下暗」的渐变内阴影**模拟体积 —— 在任何 API 上都成立，
+     * 也不违反 `Elevation` 文档里「列表行/芯片/顶栏永不加阴影」的既有硬规则
+     * （我们加的是**渐变**，不是 elevation 阴影；芯片仍然"平"在面上）。
+     *
+     * ## 深色模式的差别（必须分开处理）
+     * 浅色：底**比背景亮**（card 在白底上自然浮起）+ 顶部高光。
+     * 深色：card 往往比 bg 更暗或接近，「比背景亮」不成立 —— 因此
+     *       底抬到 `cardUp`（"比 [card] 实两档"，本工程既有语义），
+     *       并且**顶部高光加强**（深色下明暗差更小，需要更强的锚点才看得出层次）。
+     *
+     * @param base   底色（主按钮=acc，次按钮=card）
+     * @param shape  圆角（与调用方共用同一个 shape，保证渐变不露出直角）
+     * @param pressed 是否按下（由 [pressScaleClick] 的交互源提供）
+     */
+    @Composable
+    private fun Modifier.softRaised(
+        base: Color,
+        shape: androidx.compose.ui.graphics.Shape,
+        pressed: Boolean,
+        alpha: Float = 1f,
+        dark: Boolean = false
+    ): Modifier {
+        val c = DhTokens.colors
+        // 高光强度：浅色淡、深色强（深色下明暗差小，需要更强的顶部锚点）。
+        val hlAlpha = (if (dark) 0.16f else 0.10f) * alpha
+        // 底部加深：模拟"底部陷入"的自然阴影方向（上亮下暗 = 凸起）。
+        val shadeAlpha = (if (dark) 0.22f else 0.08f) * alpha
+        // 按下时把高光/阴影都收小 —— 与 pressScaleClick 的 0.98 一起构成"压入"。
+        val k = if (pressed) 0.45f else 1f
+        return this
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        // 顶部：比基色亮一档（白/黑叠加，与深浅色无关地"提亮"）
+                        blend(base, Color.White, hlAlpha * k),
+                        // 中段：基色（留出较大的"平面"区，避免整块像玻璃球）
+                        base,
+                        // 底部：略暗，制造下沿厚度
+                        blend(base, Color.Black, shadeAlpha * k)
+                    ),
+                    startY = 0f,
+                    endY = androidx.compose.ui.geometry.Offset.Infinite.y
+                )
+            )
+    }
+
+    /** 把 [overlay] 按 [t] 混到 [base] 上（t=0 返回 base，t=1 返回 overlay）。 */
+    private fun blend(base: Color, overlay: Color, t: Float): Color {
+        val k = t.coerceIn(0f, 1f)
+        return Color(
+            red = base.red + (overlay.red - base.red) * k,
+            green = base.green + (overlay.green - base.green) * k,
+            blue = base.blue + (overlay.blue - base.blue) * k,
+            alpha = base.alpha
+        )
+    }
+
     fun Button(
         text: String,
         modifier: Modifier = Modifier,

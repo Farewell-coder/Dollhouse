@@ -315,14 +315,15 @@ object ChatPanels {
 
             // 灯泡 + 当前档位名
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 【收编·IconSeat】底座 46dp / 圆角 12 / capsuleSel 底 / accent 图标，语义就是"一块图标底板"。
-                //   【46dp 不是标准档位】IconSeatSize 只有 32/40/56；这里显式传 46 保持视觉不变。
-                //   图标尺寸：sizeDp(46) > MD(40) 会落到 else 分支 → iconLg(24)，与改造前
-                //   `DhDesign.Size.iconLg` **完全一致**，所以这次替换是逐像素等价的。
+                // 【v3·清透轻拟物】圆角方块 → **圆形浅底**（用户定案"图标配浅色圆形背景"）。
+                //   46dp 仍不是标准档位（IconSeatSize 只有 32/40/56），保持视觉尺寸不变。
+                //   图标尺寸：sizeDp(46) > MD(40) 落到 else → iconLg(24)，与改造前一致。
+                //   底色仍显式传 capsuleSel（这是"当前档位"的强调底，不该被统一成 cardUp）。
+                //   CIRCLE 形态会自带 e1 柔和阴影 + 顶部内高光（见 IconSeat 的配方注释）。
                 IconSeat(
                     iconRes = Icons.IC_BRAIN,
                     sizeDp = 46,
-                    shape = IconSeatShape.ROUNDED,
+                    shape = IconSeatShape.CIRCLE,
                     bg = p.capsuleSel,
                     tint = p.accent
                 )

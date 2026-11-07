@@ -406,13 +406,13 @@ object AboutPage {
                 .padding(bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 【收编·IconSeat】40dp + 圆角 12 + 自定义底/图标色，与 IconSeatSize.MD(40)
-            //   + IconSeatShape.ROUNDED(12) 完全吻合，图标 24dp 也正好是 iconLg 档。
-            //   改造前是手拼 Box(clip+background)，与其它页的"图标座"各写各的。
+            // 【v3·清透轻拟物】圆角方块 → **圆形浅底**（用户定案"图标配浅色圆形背景"）。
+            //   40dp = IconSeatSize.MD，图标 20dp 落在 iconMd 档。
+            //   底色显式传 card 保持品牌鲸鱼的观感；圆形态自带 e1 阴影 + 顶部高光。
             IconSeat(
                 iconRes = Icons.IC_WHALE,
                 sizeDp = IconSeatSize.MD,
-                shape = IconSeatShape.ROUNDED,
+                shape = IconSeatShape.CIRCLE,
                 bg = c.card,
                 tint = c.acc
             )
