@@ -177,9 +177,6 @@ fun DhButton(
     val alpha = if (active) 1f else 0.38f
     val shape = RoundedCornerShape(DhDesign.Radius.btn.dp)
     Row(
-        // 【修·按钮内图标与文字错位】固定高度容器里，Row 默认 Top 对齐会让
-        //   图标贴顶、文字偏下；按钮/输入框必须垂直居中。
-        verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .height(height)
             .clip(shape)
