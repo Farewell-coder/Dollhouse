@@ -358,7 +358,7 @@ object ChatUi {
                 // 【等宽数字】环里的百分比会随上下文实时变化（0→100），
                 //   比例数字下「1」比「0」窄，每跳一次环心数字就左右晃一下。
                 //   等宽后数字位置稳定，环看起来才「稳」。
-                fontFeatureSettings = "tnum"
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
             )
         }
     }

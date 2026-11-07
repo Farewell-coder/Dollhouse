@@ -261,7 +261,7 @@ object ChatListScreen {
             }
 
             // ---------- 列表 / 空态 ----------
-            Row(Modifier.fillMaxWidth().padding(horizontal = PAD_H).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = PAD_H).padding(bottom = DhDesign.Space.md.dp), horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                 DhKit.OutlineChip(if (filter == 0) "全部 ·" else "全部") { filter = 0 }
                 DhKit.OutlineChip(if (filter == 1) "未读 ·" else "未读") { filter = 1 }
                 DhKit.OutlineChip(if (filter == 2) "置顶 ·" else "置顶") { filter = 2 }
@@ -508,7 +508,7 @@ object ChatListScreen {
                     if (row.muted) Tag(text = "免打扰")
                     if (row.pinned) Tag(text = "置顶")
                 }
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(DhDesign.Space.xs.dp))
                 Text(
                     text = row.preview,
                     color = c.sub,
@@ -588,7 +588,7 @@ object ChatListScreen {
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.SemiBold,
                 // 【等宽数字】未读数变化时避免徽标横向抖动（与底栏 Badge 同一口径）。
-                fontFeatureSettings = "tnum"
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
             )
         }
     }

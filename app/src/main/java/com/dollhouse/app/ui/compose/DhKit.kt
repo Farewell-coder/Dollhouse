@@ -83,6 +83,7 @@ import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import kotlinx.coroutines.flow.collect
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
  * 【职责】Compose 侧通用构件，视觉参数逐一对齐既有 View 版（[UiKit] / [com.dollhouse.app.ui.theme.Design]）。
