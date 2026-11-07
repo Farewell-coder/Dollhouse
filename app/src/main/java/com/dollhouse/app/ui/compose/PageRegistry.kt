@@ -86,6 +86,10 @@ object PageRegistry {
                 // 【r19·实验卡片下级】随机走位 / 睡觉模式设置页
                 || com.dollhouse.app.ui.settings.WanderSettingsPage.TAG_PAGE == key
                 || com.dollhouse.app.ui.settings.SleepSettingsPage.TAG_PAGE == key
+                // 【M-结构收编】权限与保活页：从设置页首页拆出的独立子页。
+                //   与上面同型：它由 PageStack.push 推进栈，必须在这里登记，
+                //   否则进程回收后该层会被静默跳过。
+                || com.dollhouse.app.ui.settings.PermissionPage.TAG_PAGE == key
                 // 【本轮·补登记】三个「自己 open、自己入栈」的页面此前漏登记。
                 //   后果与 r15 那次两个页面完全同型：栈里有 key、表里不认得 →
                 //   系统回收进程后恢复时该层被跳过，用户看到「页面回来了但内容空白」
@@ -221,6 +225,10 @@ object PageRegistry {
         }
         if (com.dollhouse.app.ui.settings.SleepSettingsPage.TAG_PAGE == key) {
             return com.dollhouse.app.ui.settings.SleepSettingsPage.build(act)
+        }
+        // 【M-结构收编】权限与保活页（语义同 isPageKey 处的注释）。
+        if (com.dollhouse.app.ui.settings.PermissionPage.TAG_PAGE == key) {
+            return com.dollhouse.app.ui.settings.PermissionPage.buildPage(act)
         }
         // 【本轮·补登记】个人资料 / 外观 / 人偶分组三页（语义同 isPageKey 处的注释）。
         if (com.dollhouse.app.ui.settings.MyProfilePage.KEY == key) {

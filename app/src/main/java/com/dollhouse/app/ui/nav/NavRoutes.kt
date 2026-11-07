@@ -207,6 +207,16 @@ data object WanderSettingsRoute : NavKey
 data object SleepSettingsRoute : NavKey
 
 /**
+ * 权限与保活页（`settings:permission`）。
+ *
+ * 【M-结构收编】从设置页首页拆出的独立子页：设计稿要求开关不在设置首页
+ *   （「Toggles live on their own sub-screen, never on the hub」）。
+ *   与 [WanderSettingsRoute] / [SleepSettingsRoute] 同型 —— 都是设置页的下级页。
+ */
+@Serializable
+data object PermissionRoute : NavKey
+
+/**
  * 供应商模块（`feiyu_cfg_page`）。
  *
  * 【为什么内部子路由不展开成 NavKey】供应商模块是「一层壳 + 内部业务路由栈」

@@ -56,6 +56,8 @@ object NavKeyCodec {
     const val LEGACY_WANDER = "settings:wander"
     /** 【r19】睡觉模式设置页 */
     const val LEGACY_SLEEP = "settings:sleep"
+    /** 【M-结构收编】权限与保活页（从设置首页拆出的子页）。 */
+    const val LEGACY_PERMISSION = "settings:permission"
 
     /* ============================ 各页面的 key 前缀（与各页面 PREFIX 常量同值） ============================ */
 
@@ -110,6 +112,9 @@ object NavKeyCodec {
             LEGACY_PROVIDER == legacy -> ProviderRoute
             LEGACY_WANDER == legacy -> WanderSettingsRoute
             LEGACY_SLEEP == legacy -> SleepSettingsRoute
+            // 【M-结构收编】不登记这里的后果：`toKey` 返回 null → NavHost.push 静默失败，
+            //   表现为「点设置页的『权限与保活』什么都不会发生」，既不崩也不报错。
+            LEGACY_PERMISSION == legacy -> PermissionRoute
             // 记忆库页的历史 key 不含 dollId（页内自己从偏好取当前人偶），故这里给空串。
             // 【本轮修正】`toLegacy` 侧同样只输出裸 key（见下方 is MemRoute 分支）——
             //   两侧对称，「key ↔ legacy」往返才不丢信息。真正的 dollId 由
@@ -197,6 +202,7 @@ object NavKeyCodec {
         is DollAnimRoute -> P_ANIM + key.dollId + "|" + key.actionId
         WanderSettingsRoute -> LEGACY_WANDER
         SleepSettingsRoute -> LEGACY_SLEEP
+        PermissionRoute -> LEGACY_PERMISSION
         else -> null
     }
 }

@@ -121,7 +121,7 @@ object SettingsScreen {
             //   【为什么这只是一张入口卡，不是把编辑搬进来】编辑仍走 MyProfilePage，
             //   这里只提供「看得见、点得到」的入口，避免一个页面承担两种职责。
             ProfileCard(act)
-            PermissionCard(act)
+            PermissionRow(act)
             ChatCard(act)
             DollCard(act)
             LookCard(act)
@@ -441,80 +441,42 @@ object SettingsScreen {
 
     /* ============================ 权限 ============================ */
 
+    /**
+     * 权限入口行（M-结构收编）。
+     *
+     * 【为什么不再是一整张 8 行的折叠卡】设计稿 §4.6 明确要求
+     *   「Toggles live on their own sub-screen, never on the hub」——
+     *   开关必须有自己的子页，设置首页只做分组导航。
+     *   改造前这 8 行（4 个权限 + 3 个开关 + 1 个指令）占着首页最显眼的位置，
+     *   而它们是「设完就走」的低频项，还要靠展开折叠卡才能看到。
+     *
+     * 【为什么保留一行摘要】导航行不该是空壳：右侧显示当前最关键的状态
+     *   （有几项未授权），用户不点进去也能知道「这里有没有事要处理」。
+     *   这是设计稿「trailing values 是状态摘要而非名词」的落地。
+     */
     @Composable
-    private fun PermissionCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "权限", titleIcon = Icons.IC_SHIELD_CHECK) {
-            // Shizuku：四态（已授权 / 未授权 / 服务未运行 / 未安装）。
-            val sh = HomeState.shizuku
-            DhKit.PermRow(
-                name = "Shizuku 授权",
-                iconRes = Icons.IC_KEY_ROUND,
-                desc = "通过 ADB 授权后可用系统级能力",
-                state = when (sh) {
-                    com.dollhouse.app.device.ShizukuBridge.S_GRANTED -> 0
-                    com.dollhouse.app.device.ShizukuBridge.S_NOT_RUNNING -> 2
-                    com.dollhouse.app.device.ShizukuBridge.S_NOT_INSTALLED -> 2
-                    else -> 1
-                }
-            ) { HomeUi.shizukuClicked(act) }
-            DhKit.PermRow(
-                name = "悬浮窗权限",
-                iconRes = Icons.IC_APP_WINDOW,
-                desc = "人偶要浮在其他应用上就必须有它",
-                state = if (HomeState.overlay) 0 else 1
-            ) {
-                HomeUi.requestOverlay(act)
-            }
-            DhKit.PermRow(
-                name = "通知权限",
-                iconRes = Icons.IC_BELL,
-                desc = "保活通知与消息提醒",
-                state = if (HomeState.notif) 0 else 1
-            ) {
-                HomeUi.requestNotif(act)
-            }
-            // 保活分组：电池优化白名单 + 无感保活总开关。
-            DhKit.PermRow(
-                name = "电池优化白名单",
-                iconRes = Icons.IC_BATTERY_CHARGING,
-                desc = "加入后不容易被系统清掉",
-                state = if (HomeState.battery) 0 else 1
-            ) {
-                HomeUi.requestIgnoreBattery(act)
-            }
-            DhKit.SwitchRow(
-                name = "无感保活",
-                iconRes = Icons.IC_ACTIVITY,
-                desc = "允许应用持续执行相关后台任务",
-                checked = HomeState.keepAlive
-            ) { on ->
-                HomeUi.onKeepAliveChanged(on, act)
-            }
-            // 开关通道：磁贴 + 隐藏后台卡片 + 开关指令（三者是同一条启停通道的不同入口）。
-            DhKit.SwitchRow(
-                name = "快捷设置磁贴",
-                iconRes = Icons.IC_LAYOUT_GRID,
-                desc = "从下拉快捷开关直接起停人偶",
-                checked = HomeState.tile
-            ) { on ->
-                HomeUi.onTileSwitchChanged(on, act)
-            }
-            DhKit.SwitchRow(
-                name = "隐藏后台卡片",
-                iconRes = Icons.IC_EYE_OFF,
-                desc = "不在最近任务里露出这一页",
-                checked = HomeState.hideRecents
-            ) { on ->
-                HomeUi.onHideRecentsChanged(on, act)
-            }
-            DhKit.ValueRow(
-                label = "开关指令",
-                iconRes = Icons.IC_LINK_2,
-                desc = "复制一条可粘贴到别处的指令",
-                value = "复制 ›"
-            ) {
-                HomeUi.copyToggleLink(act)
-            }
+    private fun PermissionRow(act: MainActivity) {
+        // 未授权的项数：Shizuku 未授权 / 悬浮窗 / 通知 / 电池白名单，各自 0 或 1。
+        val missing = listOf(
+            HomeState.overlay,
+            HomeState.notif,
+            HomeState.battery,
+            HomeState.shizuku == com.dollhouse.app.device.ShizukuBridge.S_GRANTED
+        ).count { !it }
+        // 【为什么用 DhGroup + DhRow 而不是 DhKit.Card + ActionRow】
+        //   ActionRow 自带 soft 底 + 圆角（旧式"每行一个小卡片"），与本轮统一的
+        //   "卡片内发丝线行"规范冲突；而 ui/kit 的 DhGroup/DhRow 就是那套规范本身。
+        //   这也是让组件库真正被页面使用的又一处（此前 DhRow/DhGroup 库外调用为 0）。
+        com.dollhouse.app.ui.kit.DhGroup {
+            com.dollhouse.app.ui.kit.DhRow(
+                title = "权限与保活",
+                desc = "系统授权、后台存活与启停通道",
+                iconRes = Icons.IC_SHIELD_CHECK,
+                // 右侧是「状态摘要」而非名词（设计稿 §4.6）。
+                value = if (missing == 0) "已就绪" else "$missing 项待处理",
+                showChevron = true,
+                onClick = { com.dollhouse.app.ui.settings.PermissionPage.open(act) }
+            )
         }
     }
 

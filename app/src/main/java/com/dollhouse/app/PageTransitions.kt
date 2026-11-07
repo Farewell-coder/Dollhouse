@@ -5,7 +5,15 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.os.Build
 
-/** 普通 Activity 页面共用 200ms 淡入淡出；不改变 Activity 的返回和生命周期。 */
+/**
+ * 普通 Activity 页面共用的淡入淡出；不改变 Activity 的返回和生命周期。
+ *
+ * 【时长对齐设计阶梯】入场 `page_fade_in` = 220ms（Motion.enter）、
+ *   退场 `page_fade_out` = 180ms（Motion.exit）。
+ *   改造前两者都是 200ms —— 而 Compose 覆盖页那边早就改成 220/180 了，
+ *   于是「同一个 App 里两套转场快慢不同」：从聊天列表进设置（Compose 覆盖页）220ms，
+ *   从桌面图示进聊天页（独立 Activity）200ms，用户能感觉到细微差别。
+ */
 internal object PageTransitions {
     fun start(activity: Activity, intent: Intent) {
         if (Build.VERSION.SDK_INT >= 26 && !android.animation.ValueAnimator.areAnimatorsEnabled()) {
