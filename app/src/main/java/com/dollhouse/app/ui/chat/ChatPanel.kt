@@ -33,6 +33,7 @@ import com.dollhouse.app.ui.theme.UiKit
 import java.util.regex.Pattern
 import org.json.JSONArray
 import org.json.JSONObject
+import com.dollhouse.app.ui.compose.ComposeHost
 
 /**
  * 【职责】聊天气泡面板本体：消息列表、输入行、附件条、AI 请求与工具回填。
@@ -174,7 +175,7 @@ class ChatPanel(
     val root: ComposeView = ComposeHost.createView(context) {
         // 【attached 同步】用组合生命周期替代 `isAttachedToWindow`：
         //   进入组合 = 挂上窗口，离开组合（onDispose）= 摘离。
-        ChatScreen(this, onAttachChanged = { setAttached(it) })
+        ChatUi.ChatScreen(this, onAttachChanged = { setAttached(it) })
     }
 
     /**
@@ -747,6 +748,23 @@ class ChatPanel(
             val newId = ChatSessions.createIn(context, pool, if ("pet" == pool) "p" else "c", title)
             ChatHistoryStore.saveHistory(context, arr, newId)
             ChatSessions.switchTo(context, newId)
+            // 【修·分支后数据脱节】改造前这里只切了「当前会话」指针，**没有重载 history、
+            //   也没有重铺界面** —— 于是 flashMemo 说"已分支到新会话"，界面却还停在旧会话，
+            //   之后用户发的新消息写进新会话、屏幕显示的却是旧会话的消息：
+            //   界面与实际数据脱节，退出重进才恢复. 这是数据一致性问题，不是显示问题.
+            //   【对照证据】另外两条切会话的路径都靠「重开聊天页 → onResume → reloadHistory」
+            //   达到一致（ChatListScreen.openConv / ConversationHistoryPage）;
+            //   本方法是唯一原地切换、不重载的路径 —— 属于遗漏，不是刻意设计.
+            //
+            //   【为什么用 reloadHistory() 而不是自己拼 loadHistory + renderHistory】
+            //   它已做全换会话该做的事：prevCount=0 → loadHistory → renderHistory
+            //   → refreshCtxRing → reloadDraft（重灌草稿与附件）.
+            //   最后那步是必需的：否则新会话里会显示上一个会话的草稿/附件，
+            //   正是附录D-5 修过的 bug；自己拼会漏掉它.
+            //
+            //   【环的值】新会话内容 = 原会话前 index+1 条，所以进度环
+            //   在 reloadHistory 内重算后应为 (index+1)/200，**不是 0**.
+            reloadHistory()
             flashMemo("已分支到新会话")
         } catch (unused: Throwable) {
         }
@@ -1494,6 +1512,22 @@ class ChatPanel(
         ChatState.ctxRatio = (history.length() / cap.toFloat()).coerceIn(0f, 1f)
     }
 
+    /**
+     * 【修·进度环陈旧值】把「当前条数 ÷ 记忆库容量」同步到 [ChatState.ctxRatio]。
+     *
+     * 【为什么单独抽出来】进度环有**两条**更新路径，必须共用同一口径：
+     *   ① 整屏重铺 —— [renderHistory] 开头调用本函数；
+     *   ② 增量追加 —— [onSend] / [handleReply] 走 [appendBubble]，**故意不重铺**
+     *      （重铺会丢流式占位气泡、也会让列表整体闪一下），所以那几处必须单独调本函数。
+     *   只把计算塞进 renderHistory 是覆盖不到 ② 的 —— 这正是改造前环不更新的根因之一。
+     *
+     * 【口径】`Mem.MAX_ENTRIES` = 200（按**条数**，不是字符数）。
+     */
+    private fun syncCtxRatio() {
+        val cap = Math.max(1, Mem.MAX_ENTRIES)
+        ChatState.ctxRatio = (history.length() / cap.toFloat()).coerceIn(0f, 1f)
+    }
+
     public override fun regenerate() {
         if (waiting) {
             return
@@ -2214,6 +2248,10 @@ class ChatPanel(
 
     // 把 history 重铺成可渲染快照（Compose 侧按状态重组）。
     private fun renderHistory() {
+        // 【修·进度环陈旧值】必须放在本函数**最开头**，早于下方「空历史 early-return」：
+        //   否则清空对话后 renderHistory 会提前 return，环不会归 0
+        //   （清空后环仍显示旧比例 = 正是本次要修的缺陷之一）。
+        syncCtxRatio()
         summaryIndex = -1
         // 【瞬态作废】占位与思考框都只对「当前这一轮请求」有效：重铺即换了一份历史，
         //   旧引用一律作废（等价于旧 View 版 removeAllViews 把节点整批摘掉）。
