@@ -377,7 +377,14 @@ object GlobalBackground {
      *   肉眼能看出"有光"，但不会像色块拼贴。
      */
     private fun pageGradient(base: Int): Drawable {
-        val top = liftForTop(base, 0.10f)
+        // 【深色档要单独调提亮幅度】人眼对暗部的亮度差更敏感：
+        //   浅色底 +10% 只是"有一点光"，深色底 +10% 会变成明显的灰带。
+        //   所以深色底收到 6%，让渐变仍在但不"跳"。
+        val brightness = (android.graphics.Color.red(base) * 299 +
+            android.graphics.Color.green(base) * 587 +
+            android.graphics.Color.blue(base) * 114) / 1000
+        val ratio = if (brightness > 128) 0.10f else 0.06f
+        val top = liftForTop(base, ratio)
         return GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(top, base)

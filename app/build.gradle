@@ -106,6 +106,17 @@ android {
     }
 
     /**
+     * 【Compose 截图测试】Robolectric 要在 JVM 上真渲染 Compose，必须能读到 Android 资源
+     *   （主题、颜色、dimen）。不开这个开关，`createAndroidComposeRule` 会拿不到 resources 而报错。
+     *   只影响 `src/test`，不进 APK、不影响 release 体积。
+     */
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
+    /**
      * 【r18·存储】剔除打包进 APK 的冗余 META-INF 与平台无关文件。
      *   这些是依赖库（kotlinx-coroutines、ML Kit、Compose 等）捎带的签名/许可/版本描述，
      *   对运行零贡献，但每个 ABI 分包都会重复带一份。剔除后每个 APK 瘦 ~200KB。
@@ -234,6 +245,23 @@ dependencies {
     //   【为什么是 testImplementation 而不是 implementation】只为测试而加，
     //     不能进 APK —— 平台已有，重复打进包只会白增体积。
     testImplementation 'org.json:json:20231013'
+
+    /**
+     * 【视觉回归·截图测试】用 Robolectric 在 JVM 上**真渲染** Compose 并截图。
+     *
+     * 【为什么需要】本项目长期没有办法验证"渲染出来是什么样"：
+     *   对比度是靠公式算的、阴影/圆角/渐变从来没在屏幕上确认过，
+     *   于是每次视觉改动都是"推理交付"，用户看不出变化也说不清哪里不对。
+     *   Robolectric + `GraphicsMode.NATIVE` 能在**单元测试**里跑真渲染，
+     *   不需要真机/模拟器，CI 里就能产出 PNG。
+     *
+     * 【版本】Robolectric 4.14+ 才完整支持 `GraphicsMode.NATIVE`（真光栅化）；
+     *   4.10 之前的截图是空白的。
+     */
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
 
     // 【r16·模型框架】Lottie 矢量动画（Apache-2.0）—— 任务书 §3.4 指定的第二引擎。
     //   【为什么用 LottieDrawable 而不是 LottieAnimationView】
