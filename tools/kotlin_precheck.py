@@ -341,6 +341,35 @@ def check_file(path: Path):
             "请用 DhTokens.type.X（Composable 内）或 DhDesign.Type.of(...)"
         )
 
+    # E10 注解被 KDoc 顶开：`@Composable` 后面紧跟 `/**`
+    #
+    # 【这是本项目真实踩过两次的形态】
+    #   正常写法是「KDoc → 注解 → 函数」：
+    #       /** 这个函数的文档 */
+    #       @Composable
+    #       fun foo()
+    #   但用脚本往中间插函数时，锚点常选到注解行，于是变成：
+    #       @Composable            ← 变成下一个函数的注解
+    #       /** 新函数的文档 */
+    #       private fun helper()   ← 普通函数被当成 Composable
+    #   两次都是「插入 lighten / softRaised 辅助函数」时踩的，症状一模一样：
+    #   辅助函数报「invoke @Composable 必须标注」，而真正的组件丢了注解。
+    #
+    #   特征极明确：`@Composable` 的**下一个非空行**就是 `/**`。
+    #   合法的「注解 + 其他注解 + 函数」不会命中（下一个是 `@`）。
+    _l3 = raw.split("\n")
+    for _i, _line in enumerate(_l3):
+        if _line.strip() != "@Composable":
+            continue
+        _j = _i + 1
+        while _j < len(_l3) and _l3[_j].strip() == "":
+            _j += 1
+        if _j < len(_l3) and _l3[_j].strip().startswith("/**"):
+            problems.append(
+                f"E10 @Composable 被 KDoc 顶开：第 {_i + 1} 行的注解下面紧跟文档注释，"
+                f"可能插函数时插错了位置（注解会落到下一个函数身上）"
+            )
+
     # E9 悬空注解：`@Composable` 之后（跳过注释）不是声明，也不是另一个注解
     #
     # 【为什么需要】E7 只查「相邻两个 @Composable」。但真实踩过的形态是

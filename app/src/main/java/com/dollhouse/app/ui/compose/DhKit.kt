@@ -1296,6 +1296,10 @@ object DhKit {
         onClick: () -> Unit
     ) {
         val hasLabel = !label.isNullOrEmpty()
+        // 图标座位的高光强度：深色下明暗差小，需要更强的顶部锚点（与按钮同一套取值）。
+        val iconSeatLight = if (ThemeManager.isDark(LocalContext.current)) 0.16f else 0.10f
+        // 本函数没有 `c` 局部变量（参数叫 `color`），故显式取调色板。
+        val seat = DhTokens.colors.soft
         // 无障碍名称：label 优先，其次 tooltip，都没有则为空（不朗读）。
         val a11yName = if (hasLabel) label!! else (tooltip ?: "")
         val button: @Composable () -> Unit = {
@@ -1313,6 +1317,22 @@ object DhKit {
                     else Modifier.size(HIT.dp)
                 )
                 .clip(RoundedCornerShape(999.dp))
+                // 【v3·清透轻拟物】图标按钮加"圆形浅底 + 柔和体积"。
+                //   【为什么现在加底】旧形态是**完全透明**的命中区 —— 在纯色顶栏上还行，
+                //   但在新方向的大圆角卡片 + 柔和阴影语境里，图标会"浮在空处"、没有归属。
+                //   加一层比背景略亮的圆底，图标就有了"坐在一块浅色圆片上"的物理感。
+                //   【颜色为什么用 soft】它本就是"比 bg 略亮一档"的既有语义槽；
+                //     深色下它同样比 bg 亮（调色板里 soft 已按深浅色分别定义），无需分支。
+                //   【不加 elevation 阴影】遵守「芯片/图标座不加阴影」的硬规则，体积靠渐变。
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            lighten(seat, iconSeatLight),
+                            seat,
+                            darken(seat, iconSeatLight * 0.8f)
+                        )
+                    )
+                )
                 // 【v0.2.0·Material 3 无障碍】把名称挂到节点上，读屏才会念出
                 // 「分享」「返回」这类动词，而不是干巴巴一句「按钮」。
                 // 放在 pressable 之前：语义描述的是「这个可点区域是什么」，
@@ -1837,8 +1857,6 @@ object DhKit {
 
     /* ============================ 药丸 ============================ */
 
-    /** 描边药丸（实底 + LINE 描边）← `UiKit.outlineChip`。 */
-    @Composable
     /** 把 [c] 向白色提亮 [t]（0=原色, 1=纯白）。轻拟物顶部高光用。 */
     private fun lighten(c: Color, t: Float): Color {
         val k = t.coerceIn(0f, 1f)
@@ -1861,6 +1879,8 @@ object DhKit {
         )
     }
 
+    /** 描边药丸（实底 + LINE 描边）← `UiKit.outlineChip`。 */
+    @Composable
     fun OutlineChip(
         text: String,
         modifier: Modifier = Modifier,
