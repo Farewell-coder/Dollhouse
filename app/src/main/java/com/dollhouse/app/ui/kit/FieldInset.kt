@@ -82,138 +82,146 @@ private val DARK_TOP_HIGHLIGHT = 1.dp
  * @param focused 聚焦态。聚焦时内凹加深 + 叠一圈极淡 accent 光晕
  * @param depth 内凹深度，默认 2dp
  */
+@Composable
 fun Modifier.dhFieldInset(
     shape: RoundedCornerShape,
     focused: Boolean,
     depth: Dp = INSET_DEPTH,
     glowColor: Color? = null
-): Modifier = drawBehind {
+): Modifier {
+    // 【必须在 Composable 上下文取色】`DhTokens.palette` 是 @Composable getter，
+    //   而 `drawBehind` 的 lambda 是 DrawScope 接收者、不是 @Composable ——
+    //   在 lambda 里读它会报 `@Composable invocations can only happen from
+    //   the context of a @Composable function`（CI 抓到过）。
+    //   所以在组合期取好，再闭包传给绘制层。
     val p = DhTokens.palette
     val dark = DhDesign.relativeLuminance(p.bg) <= 0.5f
-    val corner = shape.topStart.toPx(size, this)
+    return this.drawBehind {
+        val corner = shape.topStart.toPx(size, this)
 
-    // 同一个圆角路径：既用于裁绘制，也用于描内阴影的弧形边。
-    val path = Path().apply {
-        addRoundRect(
-            androidx.compose.ui.geometry.RoundRect(
-                left = 0f,
-                top = 0f,
-                right = size.width,
-                bottom = size.height,
-                radiusX = corner,
-                radiusY = corner
-            )
-        )
-    }
-
-    // 聚焦让"坑"更深一档：视觉上是"被激活了"，而不是靠加粗描边（那是扁平风格的做法）。
-    val boost = if (focused) 1.6f else 1f
-    val d = depth.toPx() * boost
-
-    clipPath(path) {
-        if (dark) {
-            // ---------- 深色档：更暗的内壁 + 顶部极淡高光 ----------
-            // 上沿暗（从顶部往里推）
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0.34f * boost),
-                    1f to Color.Transparent,
-                    startY = 0f,
-                    endY = d * 2.2f
-                ),
-                size = Size(size.width, d * 2.2f)
-            )
-            // 【关键】顶部一道极淡高光：深色下"清透"的来源。
-            //   画在 0~1dp 的极窄带里，alpha 很低 —— 过量就变成描边了。
-            val hi = DARK_TOP_HIGHLIGHT.toPx()
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0f to Color.White.copy(alpha = 0.10f),
-                    1f to Color.Transparent,
-                    startY = 0f,
-                    endY = hi
-                ),
-                size = Size(size.width, hi)
-            )
-            // 左侧极轻的暗（保持左上光源一致，但比上沿弱）
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    0f to Color.Black.copy(alpha = 0.16f * boost),
-                    1f to Color.Transparent,
-                    startX = 0f,
-                    endX = d
-                ),
-                size = Size(d, size.height)
-            )
-        } else {
-            // ---------- 浅色档：上左暗、下右亮 ----------
-            // 上沿暗
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0f to p.shadowTint.copy(alpha = 0.30f * boost),
-                    1f to Color.Transparent,
-                    startY = 0f,
-                    endY = d * 2f
-                ),
-                size = Size(size.width, d * 2f)
-            )
-            // 左沿暗
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    0f to p.shadowTint.copy(alpha = 0.20f * boost),
-                    1f to Color.Transparent,
-                    startX = 0f,
-                    endX = d * 1.6f
-                ),
-                size = Size(d * 1.6f, size.height)
-            )
-            // 下沿亮（坑底反光打到下边缘）
-            val bottomBand = d * 1.6f
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    1f to Color.White.copy(alpha = 0.42f),
-                    startY = size.height - bottomBand,
-                    endY = size.height
-                ),
-                topLeft = Offset(0f, size.height - bottomBand),
-                size = Size(size.width, bottomBand)
-            )
-            // 右沿亮
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    0f to Color.Transparent,
-                    1f to Color.White.copy(alpha = 0.28f),
-                    startX = size.width - d * 1.4f,
-                    endX = size.width
-                ),
-                topLeft = Offset(size.width - d * 1.4f, 0f),
-                size = Size(d * 1.4f, size.height)
+        // 同一个圆角路径：既用于裁绘制，也用于描内阴影的弧形边。
+        val path = Path().apply {
+            addRoundRect(
+                androidx.compose.ui.geometry.RoundRect(
+                    left = 0f,
+                    top = 0f,
+                    right = size.width,
+                    bottom = size.height,
+                    radiusX = corner,
+                    radiusY = corner
+                )
             )
         }
 
-        // ---------- 聚焦光晕（两档共用）----------
-        // 【为什么用"极淡 accent 内发光"而不是"加粗 accent 描边"】
-        //   描边是扁平风格的语言（一条明确的线）；轻拟物里表示"激活"要用**光**——
-        //   玻璃/亚克力被点亮时，边缘会泛出一圈同色系的辉光，不是一条实线。
-        //   这里沿内侧描一圈 1.5dp、alpha 0.5 的 accent，读起来是"发光的边"而非"框线"。
-        if (focused) {
-            // 【用调用方传入的 glowColor（若给）】它的好处是**跟着 160ms 一起渐变**：
-            //   调用方那边是 `animateColorAsState(Transparent → accent)`，把这个动画中的
-            //   值传进来，光晕就会淡入而不是"啪一下亮起"。传 null 时退回固定 accent。
-            val base = glowColor ?: p.accent
-            val ring = 1.5.dp.toPx()
-            drawPath(
-                path = path,
-                color = base.copy(alpha = 0.45f),
-                style = Stroke(width = ring * 2f)   // 半圈被裁在框外，视觉上约 1.5dp
-            )
-            // 柔和外扩：再叠一圈更淡更粗的，制造"辉光"而不是"线"
-            drawPath(
-                path = path,
-                color = base.copy(alpha = 0.16f),
-                style = Stroke(width = ring * 5f)
-            )
+        // 聚焦让"坑"更深一档：视觉上是"被激活了"，而不是靠加粗描边（那是扁平风格的做法）。
+        val boost = if (focused) 1.6f else 1f
+        val d = depth.toPx() * boost
+
+        clipPath(path) {
+            if (dark) {
+                // ---------- 深色档：更暗的内壁 + 顶部极淡高光 ----------
+                // 上沿暗（从顶部往里推）
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.34f * boost),
+                        1f to Color.Transparent,
+                        startY = 0f,
+                        endY = d * 2.2f
+                    ),
+                    size = Size(size.width, d * 2.2f)
+                )
+                // 【关键】顶部一道极淡高光：深色下"清透"的来源。
+                //   画在 0~1dp 的极窄带里，alpha 很低 —— 过量就变成描边了。
+                val hi = DARK_TOP_HIGHLIGHT.toPx()
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.10f),
+                        1f to Color.Transparent,
+                        startY = 0f,
+                        endY = hi
+                    ),
+                    size = Size(size.width, hi)
+                )
+                // 左侧极轻的暗（保持左上光源一致，但比上沿弱）
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Black.copy(alpha = 0.16f * boost),
+                        1f to Color.Transparent,
+                        startX = 0f,
+                        endX = d
+                    ),
+                    size = Size(d, size.height)
+                )
+            } else {
+                // ---------- 浅色档：上左暗、下右亮 ----------
+                // 上沿暗
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to p.shadowTint.copy(alpha = 0.30f * boost),
+                        1f to Color.Transparent,
+                        startY = 0f,
+                        endY = d * 2f
+                    ),
+                    size = Size(size.width, d * 2f)
+                )
+                // 左沿暗
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to p.shadowTint.copy(alpha = 0.20f * boost),
+                        1f to Color.Transparent,
+                        startX = 0f,
+                        endX = d * 1.6f
+                    ),
+                    size = Size(d * 1.6f, size.height)
+                )
+                // 下沿亮（坑底反光打到下边缘）
+                val bottomBand = d * 1.6f
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        1f to Color.White.copy(alpha = 0.42f),
+                        startY = size.height - bottomBand,
+                        endY = size.height
+                    ),
+                    topLeft = Offset(0f, size.height - bottomBand),
+                    size = Size(size.width, bottomBand)
+                )
+                // 右沿亮
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent,
+                        1f to Color.White.copy(alpha = 0.28f),
+                        startX = size.width - d * 1.4f,
+                        endX = size.width
+                    ),
+                    topLeft = Offset(size.width - d * 1.4f, 0f),
+                    size = Size(d * 1.4f, size.height)
+                )
+            }
+
+            // ---------- 聚焦光晕（两档共用）----------
+            // 【为什么用"极淡 accent 内发光"而不是"加粗 accent 描边"】
+            //   描边是扁平风格的语言（一条明确的线）；轻拟物里表示"激活"要用**光**——
+            //   玻璃/亚克力被点亮时，边缘会泛出一圈同色系的辉光，不是一条实线。
+            //   这里沿内侧描一圈 1.5dp、alpha 0.5 的 accent，读起来是"发光的边"而非"框线"。
+            if (focused) {
+                // 【用调用方传入的 glowColor（若给）】它的好处是**跟着 160ms 一起渐变**：
+                //   调用方那边是 `animateColorAsState(Transparent → accent)`，把这个动画中的
+                //   值传进来，光晕就会淡入而不是"啪一下亮起"。传 null 时退回固定 accent。
+                val base = glowColor ?: p.accent
+                val ring = 1.5.dp.toPx()
+                drawPath(
+                    path = path,
+                    color = base.copy(alpha = 0.45f),
+                    style = Stroke(width = ring * 2f)   // 半圈被裁在框外，视觉上约 1.5dp
+                )
+                // 柔和外扩：再叠一圈更淡更粗的，制造"辉光"而不是"线"
+                drawPath(
+                    path = path,
+                    color = base.copy(alpha = 0.16f),
+                    style = Stroke(width = ring * 5f)
+                )
+            }
         }
     }
 }

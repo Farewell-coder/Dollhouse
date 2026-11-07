@@ -66,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +84,7 @@ import com.dollhouse.app.ui.kit.IconSeat
 import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
 import kotlinx.coroutines.flow.collect
 import com.dollhouse.app.ui.design.DhDesign
@@ -1837,6 +1839,28 @@ object DhKit {
 
     /** 描边药丸（实底 + LINE 描边）← `UiKit.outlineChip`。 */
     @Composable
+    /** 把 [c] 向白色提亮 [t]（0=原色, 1=纯白）。轻拟物顶部高光用。 */
+    private fun lighten(c: Color, t: Float): Color {
+        val k = t.coerceIn(0f, 1f)
+        return Color(
+            red = c.red + (1f - c.red) * k,
+            green = c.green + (1f - c.green) * k,
+            blue = c.blue + (1f - c.blue) * k,
+            alpha = c.alpha
+        )
+    }
+
+    /** 把 [c] 向黑色压暗 [t]（0=原色, 1=纯黑）。轻拟物下沿厚度用。 */
+    private fun darken(c: Color, t: Float): Color {
+        val k = t.coerceIn(0f, 1f)
+        return Color(
+            red = c.red * (1f - k),
+            green = c.green * (1f - k),
+            blue = c.blue * (1f - k),
+            alpha = c.alpha
+        )
+    }
+
     fun OutlineChip(
         text: String,
         modifier: Modifier = Modifier,
@@ -1845,12 +1869,25 @@ object DhKit {
         onClick: (() -> Unit)? = null
     ) {
         val c = DhTokens.colors
+        // 【v3·清透轻拟物】去硬描边。
+        //   旧形态是 `cardUp 底 + 1dp line 描边` —— 描边在柔和明暗体系里会显"薄、硬"，
+        //   与新方向相反。轮廓改由**上亮下暗的渐变**承担：
+        //     顶部 = cardUp 提亮一档（光从左上来）
+        //     底部 = cardUp 压暗一档（下沿厚度）
+        //   【仍然不加 elevation 阴影】遵守 Elevation 文档「芯片永不加阴影」的硬规则。
+        val chipLight = if (ThemeManager.isDark(LocalContext.current)) 0.16f else 0.10f
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(999.dp))
-                // 【r13】卡片内嵌按钮 → cardUp。
-                .background(c.cardUp)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            lighten(c.cardUp, chipLight),
+                            c.cardUp,
+                            darken(c.cardUp, chipLight * 0.8f)
+                        )
+                    )
+                )
                 // 【v0.2.5·修「椭圆形背景框偏长」】
                 //   【根因】原来这里直接用 `pressable(onClick)`，而 `pressable` 从 v0.2.0 起
                 //     内置了 `minTouchTarget()`（48dp 下限，为满足 M3 无障碍要求）。
@@ -2095,7 +2132,10 @@ fun Modifier.minTouchTarget(): Modifier =
  *   0.96 在 44dp 按钮上是 1.8dp 的收缩，视觉上"抖一下"；0.98 只有 0.9dp，
  *   更接近系统级反馈的克制感。全 App 只有这一个值 —— 页面不许自己写缩放。
  */
-private const val PRESS_SCALE = 0.98f
+// 【为什么是 internal 而不是 private】`DhForm` 的按钮轻拟物需要同一个按压缩放值
+//   （它要在按下时同时收小阴影）。再定义一份就会变成"两个 0.98f"，
+//   那正是 A06 门禁在防的事 —— 复用同一个常量比复制数字正确。
+internal const val PRESS_SCALE = 0.98f
 
 /**
  * 统一按压反馈：按下缩到 [PRESS_SCALE]，松手弹回（ζ=0.40）—— 与 `UiKit.press` + `Springs.bouncy()` 同口径。

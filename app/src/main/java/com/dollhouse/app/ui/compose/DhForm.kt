@@ -6,8 +6,10 @@ import android.graphics.drawable.ColorDrawable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,11 +30,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import com.dollhouse.app.ui.compose.DhTokens
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import com.dollhouse.app.ui.theme.ThemeManager
@@ -527,11 +531,19 @@ object DhForm {
     @Composable
     fun Chip(text: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
         val c = DhTokens.colors
+        // 【v3·清透轻拟物】chip 底从"一块纯色"改成"有体积的软块"：
+        //   仍是药丸/圆角矩形、仍不加 elevation 阴影（遵守 Elevation 的既有硬规则），
+        //   体积靠上亮下暗的渐变承担。
+        val dark = ThemeManager.isDark(LocalContext.current)
         Text(
             text = text,
             modifier = modifier
-                .clip(RoundedCornerShape(DhKit.R_ROW.dp))
-                .background(c.chatChipBg)
+                .softRaised(
+                    base = c.chatChipBg,
+                    shape = RoundedCornerShape(DhKit.R_ROW.dp),
+                    pressed = false,
+                    dark = dark
+                )
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             color = c.chatChipFg,
@@ -614,11 +626,18 @@ object DhForm {
     @Composable
     fun PrimaryChip(text: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
         val c = DhTokens.colors
+        // 【v3·清透轻拟物】药丸形状保留（999 是 chip 的既定形态），但不再是一块纯色：
+        //   主色底 + 顶部高光 + 底部微暗，与主按钮同一套体积语言。
+        val dark = ThemeManager.isDark(LocalContext.current)
         Text(
             text = text,
             modifier = modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(c.acc)
+                .softRaised(
+                    base = c.acc,
+                    shape = RoundedCornerShape(999.dp),
+                    pressed = false,
+                    dark = dark
+                )
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 9.dp),
             color = c.onAcc,
@@ -668,14 +687,23 @@ object DhForm {
         //   避免用户连点。这是行为设计，不该被形态调整牵连。
         //   【高度为什么定死 44】与 DhButton 同档；文字单行 + 图标 14dp 都放得下。
         val btnShape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        // 【v3·清透轻拟物】与 [Button] 同一套形态（上亮下暗渐变 + 按下收小阴影）。
+        //   忙态（LOADING）不挂按压手势，但仍保留体积底 —— 否则转圈时按钮会"塌"成一块平面。
+        val dark = ThemeManager.isDark(LocalContext.current)
+        val pressSource = remember { MutableInteractionSource() }
+        val pressed by pressSource.collectIsPressedAsState()
         Row(
             modifier = modifier
                 .height(44.dp)
-                .clip(btnShape)
-                .background(bg)
+                .softRaised(
+                    base = bg,
+                    shape = btnShape,
+                    pressed = pressed && state != SubmitState.LOADING,
+                    dark = dark
+                )
                 .then(
                     if (state == SubmitState.LOADING) Modifier
-                    else Modifier.pressable(onClick)
+                    else Modifier.pressScaleClickWith(pressSource, onClick)
                 )
                 .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -847,12 +875,12 @@ object DhForm {
         val pressed by source.collectIsPressedAsState()
         val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
         val scale by androidx.compose.animation.core.animateFloatAsState(
-            targetValue = if (pressed) 0.98f else 1f,
+            targetValue = if (pressed) PRESS_SCALE else 1f,
             animationSpec = spec,
             label = "press"
         )
         return this
-            .androidx.compose.ui.draw.scale(scale)
+            .scale(scale)
             .clickable(interactionSource = source, indication = null, onClick = callback)
     }
 
@@ -1077,23 +1105,22 @@ object DhForm {
         //   kit.DhButton 的做法也是 pressScaleClick；这里与它保持完全一致。
         //   弹窗按钮自带可见轮廓且高 44dp，命中区足够，不需要额外的 48dp 透明补丁。
         val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        // 【v3·清透轻拟物】主/次同形态；次按钮底色保持 sheetUp（弹窗里必须浮得出来）。
+        val dark = ThemeManager.isDark(LocalContext.current)
+        val pressSource = remember { MutableInteractionSource() }
+        val pressed by pressSource.collectIsPressedAsState()
         Box(
             modifier = Modifier
                 .height(44.dp)
-                .clip(shape)
-                .then(
-                    if (primary) {
-                        Modifier.background(c.acc)
-                    } else {
-                        // 【r13】弹窗底已改成不透明的 sheet，次按钮跟着走 sheetUp：
-                        //   同色系但更实，任何磨砂档位下都浮得出来（用 cardUp 会在卡片
-                        //   透明度 100% 时与面板同色 → 按钮看不见）。
-                        Modifier
-                            .background(c.sheetUp)
-                            .border(1.dp, c.line, shape)
-                    }
+                .softRaised(
+                    base = if (primary) c.acc else c.sheetUp,
+                    shape = shape,
+                    pressed = pressed,
+                    dark = dark
                 )
-                .pressScaleClick(onClick)
+                // 【次按钮的硬描边已去掉】轻拟物下轮廓由 softRaised 的体积承担；
+                //   底色仍用 sheetUp（弹窗场景必须浮得出来，理由见上）。
+                .pressScaleClickWith(pressSource, onClick)
                 .padding(horizontal = 20.dp),
             contentAlignment = Alignment.Center
         ) {
