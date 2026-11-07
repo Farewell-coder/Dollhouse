@@ -95,6 +95,25 @@ object ThemeManager {
      * 【顺序必须与 `UiKit.snapshotPalette()` 完全一致】就地换主题靠两张表按下标重映射，
      *   错一位就会「换主题之后某块颜色对不上」。
      */
+    /*
+     * 【line / 描边色值偏离设计稿：这是有意的，且已用数值验证过】
+     *
+     * 设计稿 dollhouse-refresh 给的三档 line 值，实测对页面底的对比度全部低于 1.3
+     * （1dp 发丝线在可辨识下限之下，等于看不见）：
+     *
+     *              设计稿        实测对比度        实际采用      实测对比度
+     *   浅色   #E6E0D4   bg 1.20 / card 1.26   #DAD2C2   bg 1.37 / card 1.44
+     *   暗色   #2E2A22   bg 1.28 / card 1.20   #38332A   bg 1.46 / card 1.37
+     *   纯黑   #201C15   bg 1.24 / card 1.17   #2A251C   bg 1.38 / card 1.31
+     *
+     * 「层级由留白与发丝线承担」是方向 A 的核心手法。线看不见，层级就塌了 ——
+     * 那比「颜色和设计稿差几个色阶」严重得多。所以这里取「设计稿的色相 + 加深一档」。
+     *
+     * 【请勿把它们改回设计稿值】`tools/palette_contrast.py` 的门禁会立刻报红，
+     * 那是对的：它在守护可辨识下限，不是在挑刺。
+     */
+
+
     private val LIGHT = intArrayOf(
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
         0xFF6B4EE6.toInt(), 0xFF8B6EF7.toInt(), 0xFFFCFAF6.toInt(), 0xFFF7F4EE.toInt(), 0xFF2A2620.toInt(), 0xFF6F675C.toInt(),
