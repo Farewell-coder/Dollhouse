@@ -882,6 +882,22 @@ class ChatPanel(
         summaryCover = turns.size
         setWaiting(true)
         addThinking("正在总结这一段…")
+        // 【本轮·接回「记忆总结中」】发起前点亮工具条右侧的状态。
+        //   改造前这里只调了 setWaiting(true) + addThinking(...)，**漏了 setMemoBusy(true)**，
+        //   而代码注释仍按旧设计写着「回调 finally 必调 setMemoBusy(false)」——
+        //   说明调用方在重构中途丢了，注释留了下来。
+        //
+        //   【丢掉之后的实际观感（别夸大）】并非「完全没有任何反馈」：
+        //   addThinking 会把 ChatState.thinking 置上，聊天区底部仍会画出一个
+        //   ThinkingPlaceholder 气泡（「正在总结这一段…」）。真正缺的是**工具条那一侧**
+        //   的持续状态位 —— 气泡会随列表滚动离开视野（addThinking 虽请求滚到底，
+        //   但用户中途手动上滑就不再跟着），而工具条常驻，是「这件事还在跑」的锚点。
+        //   两者分工不同，所以补回状态位仍然有意义，只是不能说成「之前完全无反馈」。
+        //
+        //   【为什么必须放在 summarize 之前】MemExtractor 有两条路径会**同步**回调 onDone
+        //   （空 turns / 无 Key），另有同步异常分支；若先发起再置位，那几类失败会先跑完
+        //   复位、再被这里的 true 重新点亮，状态就卡在「记忆总结中」不消失。
+        setMemoBusy(true)
         MemExtractor.summarize(ctx = context, dollId = boundDollId(), turns = turns,
                 done = object : MemExtractor.Done {
                     override fun onDone(text: String?) {
@@ -889,9 +905,32 @@ class ChatPanel(
                             // 【状态收尾】失败也要收掉等待态与思考条，否则输入行一直禁用。
                             setWaiting(false)
                             removeThinking()
+                            // 【顺序·先复位、后提示】setMemoBusy(false) 排在 flashMemo(...) 之前。
+                            //
+                            //   【这条顺序在**当前**代码里不是「可见性开关」】核对过实现：
+                            //   setMemoBusy(false) 只在 `!flashHold` 时才把文字置 null，而
+                            //   flashMemo 会把 flashHold 置 true。所以**两种顺序的结果其实一致** ——
+                            //   就算先 flashMemo 再复位，复位会被 flashHold 挡掉，提示照样可见。
+                            //   v2.9.2 修的正是这件事（当年是「复位在 flash 之后」把提示同帧抹掉，
+                            //   才补了 flashHold 做护栏）。也就是说，护栏已经在了，
+                            //   顺序不再是硬约束 —— 我不该在注释里把旧结论当成现行事实。
+                            //
+                            //   【那为什么仍按这个顺序写】让「复位」不依赖 flashHold 的时序侥幸：
+                            //   复位在前，提示在后，语义上就是「先收状态、再报结果」，读起来是
+                            //   一条直线，不需要读者去推 flashHold 的时序；将来若有人去掉
+                            //   flashHold 护栏，这段代码也不会跟着坏。
+                            setMemoBusy(false)
                             flashMemo("总结失败，稍后再试")
                             return
                         }
+                        // 【成功分支】先复位，再走插入。applySummary 内部会 flashMemo 成功提示
+                        //   （「已插入总结…」），与失败分支保持同一个顺序：复位在前、提示在后。
+                        //   【口径同上】这不是「可见性必需」，因为 flashHold 护栏已经兜住；
+                        //   只是让收尾永远不依赖护栏的时序。
+                        //   【为什么放在 applySummary 外面而不是里面】applySummary 是私有实现，
+                        //   职责是「改数据 + 重绘」；工具条状态的收尾留在调用方，与失败分支对称，
+                        //   也避免下次有人复用 applySummary 时漏复位。
+                        setMemoBusy(false)
                         applySummary(text.trim(), at)
                     }
                 })

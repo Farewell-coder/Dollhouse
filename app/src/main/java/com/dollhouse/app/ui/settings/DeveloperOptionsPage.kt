@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.core.*
 import com.dollhouse.app.ui.compose.*
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.feedback.AppToast
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -124,12 +125,14 @@ object DeveloperOptionsPage {
                 Stat("崩溃", s?.crashes, DhTokens.colors.err, Modifier.weight(1f), all)
             }
         }
-        DhKit.SectionLabel("最近错误", Modifier.padding(top = 10.dp, bottom = 6.dp))
+        // 【间距收敛】SectionLabel 自带 top=12 / bottom=4；这里只补差额：
+        //   上 12 + 12 = 24（Space.xl，区块间距），下 4 + 4 = 8（Space.sm，标题与内容的间距）。
+        DhKit.SectionLabel("最近错误", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
         val recent = s?.groups?.take(3).orEmpty()
         if (s == null) Empty("正在加载…") else if (recent.isEmpty()) Empty("暂无错误记录。出现实际异常或警告后会显示在这里。")
         recent.forEach { EventCard(it) { open(it) } }
         // 查看全部统一由下方诊断工具进入。
-        DhKit.SectionLabel("诊断工具", Modifier.padding(top = 10.dp, bottom = 6.dp))
+        DhKit.SectionLabel("诊断工具", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
         DhKit.Card {
             DhKit.ActionRow("查看全部日志", iconRes = Icons.IC_TERMINAL, desc = "搜索、筛选与错误详情") { navigate(Screen.LOGS) }
             // 【v0.1.4·导出不跳二级页】用户要求「点一下就直接导出」。
@@ -178,13 +181,17 @@ object DeveloperOptionsPage {
             result.onSuccess { records = it.items; hasMore = it.hasMore }.onFailure { failed = true }
         }
         DhForm.Input(query, { query = it }, hint = "搜索错误、模块或异常类型…", imeAction = androidx.compose.ui.text.input.ImeAction.Search)
-        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(vertical = 10.dp)) {
+        // 【间距收敛】筛选控件条带：两侧对称 vertical 无法拆分「上=与搜索框同组」与
+        //   「下=与模块条带同组」两种语义，取组内值 Space.sm(8)，让整块筛选面板成一个整体。
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(vertical = DhDesign.Space.sm.dp)) {
             FilterChip("全部", severity == null) { severity = null }
             FilterChip("错误", severity == DiagnosticsStore.Severity.ERROR) { severity = DiagnosticsStore.Severity.ERROR }
             FilterChip("警告", severity == DiagnosticsStore.Severity.WARNING) { severity = DiagnosticsStore.Severity.WARNING }
             FilterChip("崩溃", severity == DiagnosticsStore.Severity.CRASH) { severity = DiagnosticsStore.Severity.CRASH }
         }
-        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(bottom = 10.dp)) {
+        // 【间距收敛】与上一条带同组，用 Space.sm(8) 保持一致；这里只留 bottom，
+        //   上方的间隙已由前一条的 vertical 提供，不重复叠加。
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(bottom = DhDesign.Space.sm.dp)) {
             FilterChip("全部模块", module.isEmpty()) { module = "" }
             modules.forEach { FilterChip(it, module == it) { module = it } }
         }
@@ -201,7 +208,10 @@ object DeveloperOptionsPage {
         } ?: Empty("正在加载…")
     }
 
-    @Composable private fun FilterChip(text: String, selected: Boolean, click: () -> Unit) = DhForm.SelectChip(text, selected, Modifier.padding(end = 6.dp), onClick = click)
+    // 【间距收敛】chip 与 chip 之间的行内间隙 → Space.sm(8)。
+    //   判断依据：间距两端都是**可点控件**，太紧会让相邻 chip 的命中区看起来粘连，
+    //   所以走 8 而不是按「纯微调」保原值 6。
+    @Composable private fun FilterChip(text: String, selected: Boolean, click: () -> Unit) = DhForm.SelectChip(text, selected, Modifier.padding(end = DhDesign.Space.sm.dp), onClick = click)
 
     @Composable private fun EventCard(e: DiagnosticsStore.DiagnosticEvent, click: () -> Unit) {
         DhKit.Card { Column(Modifier.fillMaxWidth().pressable(click)) {
@@ -209,7 +219,9 @@ object DeveloperOptionsPage {
                 DhForm.Badge(level(e.severity), if (e.severity == DiagnosticsStore.Severity.WARNING) DhTokens.colors.sub else DhTokens.colors.err, DhForm.semanticBg(if (e.severity == DiagnosticsStore.Severity.WARNING) DhTokens.colors.sub else DhTokens.colors.err))
                 Spacer(Modifier.weight(1f)); Text(time(e.timestamp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
             }
-            Text(e.message, Modifier.padding(top = 10.dp), color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // 【间距收敛】徽标行 → 主消息：卡内两个**内容块**之间的间距 → Space.md(12)。
+            //   注意它下面 5dp / 9dp 两处是同一段文字的微对位，按「纯微调不动」保持原值。
+            Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(e.module, Modifier.padding(top = 5.dp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
             Text("重复 ${e.count} 次 · ${e.code}", Modifier.padding(top = 9.dp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
         } }
@@ -221,13 +233,16 @@ object DeveloperOptionsPage {
         var contextOpen by remember(e.eventId) { mutableStateOf(false) }
         DhKit.Card {
             DhForm.Badge(level(e.severity), DhTokens.colors.err, DhForm.semanticBg(DhTokens.colors.err))
-            Text(e.message, Modifier.padding(top = 10.dp), color = DhTokens.colors.title, fontSize = 16.sp, lineHeight = 22.sp, fontFamily = DhTokens.fontsBold)
+            // 【间距收敛】徽标行 → 详情主消息：与事件卡同构，Space.md(12)。
+            Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontSize = 16.sp, lineHeight = 22.sp, fontFamily = DhTokens.fontsBold)
             DhKit.ValueRow("错误编号", e.code, iconRes = Icons.IC_CIRCLE_ALERT); DhKit.ValueRow("事件 ID", e.eventId, iconRes = Icons.IC_TAGS)
             DhKit.ValueRow("所属模块", e.module, iconRes = Icons.IC_BLOCKS); DhKit.ValueRow("发生时间", time(e.timestamp), iconRes = Icons.IC_CLOCK_3)
             DhKit.ValueRow("线程", e.thread.ifEmpty { "未采集" }, iconRes = Icons.IC_ACTIVITY); DhKit.ValueRow("异常类型", e.exceptionType.ifEmpty { "未采集" }, iconRes = Icons.IC_WARNING)
             DhKit.ValueRow("发生次数", "${e.count} 次", iconRes = Icons.IC_REFRESH); DhKit.ValueRow("首次发生", time(e.firstTimestamp), iconRes = Icons.IC_CLOCK_3)
             DhKit.ValueRow("关联操作 ID", e.operationId.ifEmpty { "未采集" }, iconRes = Icons.IC_LINK_2); DhKit.ValueRow("应用版本", e.appVersion.ifEmpty { "未采集" }, iconRes = Icons.IC_PACKAGE)
-            Column(Modifier.fillMaxWidth().padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 【间距收敛】ValueRow 块 → 三个诊断面板组：**组间距** → Space.md(12)。
+            //   组内三个面板之间已有 Arrangement.spacedBy(8)，与这里 12 形成「组间 > 组内」的正确层级。
+            Column(Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DiagnosticPanel("详情", e.readable(), detailsOpen, enabled = true) { detailsOpen = !detailsOpen }
                 DiagnosticPanel("堆栈", e.stackTrace, stackOpen, enabled = e.stackTrace.isNotBlank()) { stackOpen = !stackOpen }
                 DiagnosticPanel("关联日志", e.context, contextOpen, enabled = e.context.isNotBlank()) { contextOpen = !contextOpen }

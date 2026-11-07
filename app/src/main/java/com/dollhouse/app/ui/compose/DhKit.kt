@@ -277,9 +277,10 @@ object DhKit {
     /* ============================ 卡片 ============================ */
 
     /**
-     * 标准卡片：CARD 底 + 圆角 16 + 描边 STROKE + 微阴影，下方留 10dp 间距。
+     * 标准卡片：CARD 底 + 圆角 16 + 发丝描边，下方留组间距。
      *
      * @param spacingBottom 是否在卡片下方留 [GAP_CARD] 间距；连排最后一张可传 false。
+     * @param flat 平铺形态：不画卡片底 / 描边（用于"已在一张卡片内部的子分区"）。
      */
     @Composable
     fun Card(
@@ -291,6 +292,68 @@ object DhKit {
         //   只有显式传图标的那几处（设置页 5 张主卡片）才多一枚。
         titleIcon: Int = 0,
         flat: Boolean = false,
+        content: @Composable ColumnScope.() -> Unit
+    ) {
+        // 【M-收口·转发到规范实现】本函数有 53 处调用点，其中 47 处是折叠卡。
+        //   改造它等于一次性让全部卡片对齐设计规范（弱卡：card 底 + 1dp line 描边 + 圆角 16）。
+        //   【为什么用转发而不是复制样式】`ui/kit.DhGroup` 是规范源。
+        //
+        //   【两条必须走旧实现的路径】转发无法表达，硬转就是功能回归：
+        //     ① flat = true（5 处，全在 LamdaPage 的"嵌入卡片内"子分区）：
+        //        DhGroup 没有"不画卡片底/描边"的形态，直转会出现**卡片套卡片**的双层圆角。
+        //        该参数并非如任务描述所说"0 处调用" —— 实测 5 处，且是 Embedded 路径的真实入参。
+        //     ② 展开/收起动画：DhGroup 是直接显隐，而本组件用 AnimatedVisibility +
+        //        DhAnim.CARD_EXPAND/COLLAPSE 做高度过渡。丢掉它等于让 47 处折叠卡
+        //        "啪"一下跳变。anim_audit 的 C06 也断言这两个常量必须存在于本文件。
+        //        → 折叠卡继续走旧实现，保证动画与观感逐帧不变。
+        //
+        //   【因此转发范围】非折叠且非 flat 的卡片（ProviderModelsPage 的模型卡等）。
+        if (flat || collapsibleTitle != null) {
+            LegacyCard(modifier, spacingBottom, collapsibleTitle, titleIcon, flat, content)
+            return
+        }
+        com.dollhouse.app.ui.kit.DhGroup(
+            modifier = modifier,
+            spacingBottom = spacingBottom
+        ) {
+            // 【内边距对齐】旧 Card 的非折叠内容用 `padding(PAD_CARD)`（四边 16dp），
+            //   而 DhGroup 给的是「左右 lg(16) + 上下 xs(4)」—— 横向已经一致，
+            //   纵向少了 12dp。不补的话唯一走转发的调用点（ProviderModelsPage 的模型卡）
+            //   会明显变挤。这里补回差值，让转发前后的视觉逐像素一致。
+            Column(
+                modifier = Modifier.padding(
+                    vertical = (PAD_CARD - com.dollhouse.app.ui.design.DhDesign.Space.xs).dp
+                )
+            ) {
+                content()
+            }
+        }
+    }
+
+    /**
+     * 旧版 Card 实现：保留给转发表达不了的两种形态。
+     *
+     * 【谁在用】`flat = true`（5 处，LamdaPage 嵌入卡片内的子分区）
+     *   与 `collapsibleTitle != null`（47 处折叠卡，需要 AnimatedVisibility 高度过渡）。
+     *
+     * 【为什么折叠卡不转发】DhGroup 已具备折叠能力（collapsibleTitle / titleIcon /
+     *   expandState / onToggle），但它是**直接显隐**，没有展开动画。要保留动画就得在
+     *   DhGroup 里加 AnimatedVisibility —— 那会改到规范源 Components.kt，超出本任务范围，
+     *   且 anim_audit C06 要求 CARD_EXPAND/CARD_COLLAPSE 仍被真实使用。
+     *   【后续】若产品确认"折叠不需要动画"，把本段折叠分支改为 DhGroup + expandState 即可，
+     *   届时需同步删除 DhAnim 的四个 CARD_* 常量与 C06 断言。
+     *
+     * 【持久化】折叠态读写 PetPrefs.cardOpen / setCardOpen（用户收起后下次进来仍收起）。
+     *   DhGroup 的 expandState 正是为此准备的，但当前折叠分支仍在旧实现里，
+     *   持久化逻辑因此原样保留在这里 —— 这是"不丢功能"的直接证据。
+     */
+    @Composable
+    private fun LegacyCard(
+        modifier: Modifier,
+        spacingBottom: Boolean,
+        collapsibleTitle: String?,
+        titleIcon: Int,
+        flat: Boolean,
         content: @Composable ColumnScope.() -> Unit
     ) {
         val c = DhTokens.colors

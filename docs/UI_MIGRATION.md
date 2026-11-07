@@ -130,6 +130,115 @@ arm64 版在 GitHub 上反复断流取不到 → `./gradlew` 必然卡在 `proce
 **业务保护**：`PersonaIsolationTest`、`ChatDraftStoreTest`、`ImportSourceTest` 等
 既有单测全部通过；未改数据层、协议与会话/记忆/人格隔离逻辑；未删任何功能入口。
 
+### 4.1 交互态与状态一致性门禁（两个新增脚本）
+
+「代码里有」不等于「页面上有」。上一轮的真实例子：聚焦态写在 `DhField` 里，
+但没有任何页面调用它，53 处输入框仍然聚焦无反馈；而当时 `kotlin_precheck.py`
+（查编译）与 `ui_audit.sh`（查架构 / 色彩口径）**都看不见这类静默失效**。
+为此新增两个专门的静态脚本。
+
+#### `tools/input_audit.py` — 输入框交互态
+
+```
+python3 tools/input_audit.py            # 人类可读（逐项 PASS/FAIL + 定位）
+python3 tools/input_audit.py --quiet    # 只打结论（CI 用）
+```
+
+| 判据 | 检查什么 | 为什么单列 |
+|---|---|---|
+| I1 | 三个规范入口都存在（`DhField` / `DhForm.Input` 的 `LegacyInput` / `DhForm.InputMultiline`） | 入口被删或改名时立刻发现，而不是等页面各自退化 |
+| I2 | 入口内有 `collectIsFocusedAsState` | 没有它就没有聚焦态 |
+| **I3** | **`BasicTextField` 的 `interactionSource` 必须是「本函数 remember 出来的」且「正是被 `collectIsFocusedAsState` 订阅的那个」** | **最关键的一环**，见下 |
+| I4 | `animateColorAsState` + `tween(DhDesign.Motion.micro)` | 聚焦切换要有 160ms 过渡，不能瞬跳 |
+| I5 | 圆角走 `DhDesign.Radius`、高度走 `DhDesign.Size` | 防止入口自身写裸值，成为新的分叉点 |
+| I6 | 全仓除入口实现文件外，是否还有页面自建 `BasicTextField` **且未传 `interactionSource`** | 绕过入口是「规范形同虚设」的入口 |
+
+**I3 为什么是三条而不是一条**（这一项经过两次自测才立住）：
+
+1. 不传 `interactionSource` → Compose 内部自建一个，外层 source 永远收不到事件，
+   `collectIsFocusedAsState()` 恒为 false。**能编译、能运行、聚焦色永不变。**
+2. 传了，但传的不是本函数 remember 的那个 → 同上，仍然恒 false。
+3. 传了、也是本函数的，但**不是被订阅的那个** → 函数里若存在两个 source，
+   传 A 订阅 B，聚焦色同样永不变。这是最难发现的一种。
+   实测：向 `DhField` 插入一个 `decoy` source 并把它传给 `BasicTextField`，
+   早期版本的 I3 判 **PASS**（假绿）；现在的 I3 会判 FAIL 并指出被订阅的是 `source`。
+
+**判据实现要点**：脚本先按花括号配平切出函数体，再做判定；去注释时**保留换行**，
+保证报告的行号与真实文件一致（早期版本因丢弃换行把 `ChatUi.kt` 的真实 1217 行
+报成 1140，行号错了等于把人带到错误位置）。
+
+**当前基线（如实记录，未修）**：
+
+```
+输入框审计：PASS 21 / FAIL 1（共 22 项）
+FAIL I6  ui/chat/ChatUi.kt — 聊天页输入框自建 BasicTextField，未传 interactionSource
+```
+
+（快照：2026-11-07。`ChatUi.kt` 的行号请以脚本实时输出为准；该文件仍在被并行修改。）
+
+这一处是**真实缺陷**（聊天输入框聚焦时无任何变化），修它需要改 `ChatUi.kt`，
+不属于本脚本任务的范围，留待后续。
+
+#### `tools/state_audit.py` — 空 / 加载 / 错误 / 禁用
+
+```
+python3 tools/state_audit.py            # 人类可读（含清单）
+python3 tools/state_audit.py --quiet    # 只打结论
+```
+
+| 判据 | 检查什么 | 退出码影响 |
+|---|---|---|
+| S1 | 规范骨架 `DhState` 在本仓存在 | 不拦 |
+| S2 | `DhState` 被**实际调用**（不是死代码） | 不拦 |
+| S3 | 清点自建空态（函数名 `EmptyState`/`Empty`，或函数体内**真的画出**空态文案 + 有可点动作） | 不拦（只统计） |
+| **S4** | **纯空白态 `Box(Modifier.fillMaxSize())` 且框内无任何内容** | **非零即 FAIL**（设计稿明令禁止） |
+| S5 | 加载骨架 `DhSkeletonRow` 被实际使用 | 不拦 |
+
+**S4 是唯一会拦门禁的一项**：其余项只统计。「自建空态」是历史存量，
+一次性打红会让门禁失去参考价值；把它做成**可见的覆盖率数字**才可管理。
+
+**S3 的判定坑（已修）**：不能只看「函数里出现空态文案」——
+`MyProfile.name(act).ifBlank { "还没有取名字" }` 是**字段默认值**，不是空态。
+早期版本因此把 `SettingsScreen.ProfileCard` 误判成自建空态。
+现在要求文案必须出现在 `Text(...)` / `Note(...)` / `Label(...)` 的**实参里**才算。
+
+**当前基线（如实记录）**：
+
+```
+状态审计：已规范 1 处 / 自建 5 处（规范覆盖率 17%）；纯空白态 0 处
+检查项：PASS 5 / FAIL 0（共 5 项）
+```
+
+- 已规范 1 处：`ui/provider/ProviderDetailPage.kt` 的 `DhState`
+- 自建待收编 5 处：`ChatListScreen` 的 `EmptyState`、`ContactScreen` 的 `EmptyState`、
+  `ProviderListPage` 的 `ListContent`、`DeveloperOptionsPage` 的 `Empty`、
+  `MemPage` 的 `MemFolderDialog`
+- 纯空白态：**0 处**（`ChatListScreen` 曾经的空白 Box 已在 M4 换成骨架行）
+
+> **行号以脚本输出为准，本文不抄行号。** 这些文件仍在被并行修改，
+> 写死行号会在一小时内失效。需要定位时跑 `python3 tools/state_audit.py`，
+> 它会打印 `文件:行号`。同理，本文其它处的行号若与脚本不一致，
+> **一律以脚本为准**。
+
+**解释**：规范覆盖率 17% 说明骨架 `DhState` 已经「建好但没落地」——
+与上一轮 `ui/kit` 组件库的处境相同。后续应把 5 处自建空态逐个换到 `DhState`，
+每换一处覆盖率上升；这两个数字就是迁移进度。
+
+#### 自测记录（防「检查脚本自己假绿」）
+
+两个脚本都做过**注入式自测**：先制造缺陷 → 确认脚本报 FAIL → 删除缺陷 → 确认回到基线。
+自测文件在 `_auditprobe` 包下临时创建，验证后已删除。
+
+| # | 制造的缺陷 | 期望 | 实测 |
+|---|---|---|---|
+| 1 | 新建 `ProbeField.kt`：自建 `BasicTextField` 且不传 `interactionSource` | I6 FAIL 并给出 `ProbeField.kt:15` | FAIL，行号准确 |
+| 2 | 在 `DhField` 内插入 `decoy` source 并传给 `BasicTextField` | I3 FAIL | 早期版本 **PASS（假绿）** → 已修，现 FAIL 并指出被订阅的是 `source` |
+| 3 | 新建 `ProbeBlank.kt`：`Box(Modifier.fillMaxSize())` 空着 | S4 FAIL，退出码 1 | FAIL `ProbeBlank.kt:12`，exit 1 |
+| 4 | 把 `DhField` 的 `interactionSource = source` 整行删掉 | I3 FAIL | FAIL：「未传 interactionSource → 聚焦态恒为 false」 |
+
+第 2 项是本节最有价值的一条：它证明「写了检查」本身也可能假绿，
+必须用**注入缺陷**的方式验证检查器，而不是看它输出 PASS 就放心。
+
 ---
 
 ## 五、回退方式

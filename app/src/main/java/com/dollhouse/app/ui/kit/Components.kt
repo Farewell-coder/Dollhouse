@@ -1,6 +1,11 @@
 package com.dollhouse.app.ui.kit
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -532,7 +537,7 @@ fun DhGroup(
                     )
                 }
             }
-            if (!collapsible || open) {
+            if (!collapsible) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -542,6 +547,39 @@ fun DhGroup(
                         ),
                     content = content
                 )
+            } else {
+                // 【展开/收起动画】与旧 `DhKit.Card` 逐参数一致：
+                //   展开 `DhAnim.CARD_EXPAND`（enter 220ms，减速）+ `CARD_FADE_IN`；
+                //   收起 `DhAnim.CARD_COLLAPSE`（exit 180ms，加速）+ `CARD_FADE_OUT` ——
+                //   「离开比进入快」是 View 侧 `UiKit.expand` 的既有手感，这里保持。
+                //   【expandFrom / shrinkTowards 必须写死 Top】Compose 的默认值虽然是 Top，
+                //   但收起方向若不写，实测会残留一帧高度，表现为"抖一下"（旧的 Card 注释
+                //   记录过这个坑）。
+                //
+                //   【为什么这一步是 47 处折叠卡能否转发的关键】DhGroup 原先直接显隐，
+                //   转发过去会让设置页最常点的交互"啪"一下跳变。补上这段之后，
+                //   `DhKit.Card` 的折叠分支才可以安全转发到本组件。
+                AnimatedVisibility(
+                    visible = open,
+                    enter = expandVertically(
+                        animationSpec = DhAnim.CARD_EXPAND,
+                        expandFrom = Alignment.Top
+                    ) + fadeIn(animationSpec = DhAnim.CARD_FADE_IN),
+                    exit = shrinkVertically(
+                        animationSpec = DhAnim.CARD_COLLAPSE,
+                        shrinkTowards = Alignment.Top
+                    ) + fadeOut(animationSpec = DhAnim.CARD_FADE_OUT)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = DhDesign.Space.lg.dp,
+                                vertical = DhDesign.Space.xs.dp
+                            ),
+                        content = content
+                    )
+                }
             }
         }
     }
