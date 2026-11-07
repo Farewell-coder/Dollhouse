@@ -116,21 +116,24 @@ object ThemeManager {
 
     private val LIGHT = intArrayOf(
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
-        0xFF6B4EE6.toInt(), 0xFF8B6EF7.toInt(), 0xFFFCFAF6.toInt(), 0xFFF7F4EE.toInt(), 0xFF2A2620.toInt(), 0xFF6F675C.toInt(),
+        // 【v3·清透轻拟物】暖纸 → 浅蓝雾白。
+        //   关键：CARD 比 BG **亮**、FIELD 比 CARD **暗** —— 这一亮一暗是轻拟物体积感的来源，
+        //   旧暖纸色里 card 与 bg 只差 3 个色阶，压不出浮起/内凹的区别。
+        0xFF4375C1.toInt(), 0xFF6791D0.toInt(), 0xFFFAFCFE.toInt(), 0xFFE8EFF7.toInt(), 0xFF2B3A4A.toInt(), 0xFF5A6C80.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
-        0xFFDAD2C2.toInt(), 0xFFF2EEE7.toInt(), 0xFFF4F0E9.toInt(), 0xFFF1EDE5.toInt(),
+        0xFFC7D1DD.toInt(), 0xFFEFF5FB.toInt(), 0xFFEAF1F8.toInt(), 0xFFE4ECF6.toInt(),
         // 10-12 OK, ERR, ON_ACC
-        0xFF4B7A57.toInt(), 0xFFB0563F.toInt(), 0xFFFFFFFF.toInt(),
+        0xFF4A9D6E.toInt(), 0xFFD96A5B.toInt(), 0xFFFFFFFF.toInt(),
         // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
-        0xFFEDE7DC.toInt(), 0xFFE2DACC.toInt(), 0xFFF1EDE4.toInt(), 0xFF6F675C.toInt(),
+        0xFFDCE9FA.toInt(), 0xFFC7D1DD.toInt(), 0xFFEAF1F8.toInt(), 0xFF5A6C80.toInt(),
         // 17-20 CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG
-        0xFFE9E3FF.toInt(), 0xFFF0ECE3.toInt(), 0xFFDCD5C7.toInt(), 0xFFF2EEE7.toInt(),
+        0xFFDCE9FA.toInt(), 0xFFEDF3F9.toInt(), 0xFFC9D6E5.toInt(), 0xFFEFF5FB.toInt(),
         // 21-23 HINT_FG, HINT_BG, SWITCH_OFF
-        0xFF6F5B43.toInt(), 0xFFFAF0DF.toInt(), 0xFFD8D1C3.toInt(),
-        // 24-26 EMOTE_1..3（低饱和暖色，不做彩虹）
-        0xFFE9DAC4.toInt(), 0xFFDCE4DA.toInt(), 0xFFE5DCE6.toInt(),
+        0xFF4A637F.toInt(), 0xFFE3EEFA.toInt(), 0xFFCBD8E6.toInt(),
+        // 24-26 EMOTE_1..3（低饱和冷色，与整体蓝调同族）
+        0xFFD8E4F2.toInt(), 0xFFDDE8E2.toInt(), 0xFFE2DEEF.toInt(),
         // 27-28 STROKE, SCRIM
-        0x8CDAD2C2.toInt(), 0x6B262018
+        0x8CC1CBD7.toInt(), 0x6B1A2230
     )
 
     /**
@@ -142,21 +145,25 @@ object ThemeManager {
      */
     private val DARK = intArrayOf(
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
-        0xFFA78EFF.toInt(), 0xFFBEA9FF.toInt(), 0xFF1E1B15.toInt(), 0xFF171510.toInt(), 0xFFEDE7DB.toInt(), 0xFFA79D8D.toInt(),
+        // 【v3·深色独立设计，不是反转】暖褐 → 深蓝夜。
+        //   反转做不到的三件事：① 品牌蓝在深底上要**提亮**（6B→A3），否则发闷；
+        //   ② 卡片必须比背景**亮**才有浮起感（反转会让卡片变暗、空间感倒过来）；
+        //   ③ ON_ACC 在深色下要转成深字（accent 本身很亮，白字糊成一团）。
+        0xFF6BA3F5.toInt(), 0xFF8AB8F8.toInt(), 0xFF1E2632.toInt(), 0xFF141A23.toInt(), 0xFFE6ECF4.toInt(), 0xFF94A4B8.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
-        0xFF38332A.toInt(), 0xFF211E17.toInt(), 0xFF1B1914.toInt(), 0xFF201D16.toInt(),
+        0xFF303A47.toInt(), 0xFF252E3C.toInt(), 0xFF202836.toInt(), 0xFF171E28.toInt(),
         // 10-12 OK, ERR, ON_ACC
-        0xFF7DAE88.toInt(), 0xFFE58E77.toInt(), 0xFF17131F.toInt(),
+        0xFF5FBF85.toInt(), 0xFFE8887A.toInt(), 0xFF0F1620.toInt(),
         // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
-        0xFF2B2620.toInt(), 0xFF332E25.toInt(), 0xFF262218.toInt(), 0xFFA79D8D.toInt(),
+        0xFF26374D.toInt(), 0xFF303A47.toInt(), 0xFF202836.toInt(), 0xFF94A4B8.toInt(),
         // 17-20 CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG
-        0xFF332C55.toInt(), 0xFF262218.toInt(), 0xFF3A3428.toInt(), 0xFF211E17.toInt(),
+        0xFF2A3D57.toInt(), 0xFF1B222D.toInt(), 0xFF334052.toInt(), 0xFF252E3C.toInt(),
         // 21-23 HINT_FG, HINT_BG, SWITCH_OFF
-        0xFFD3B78C.toInt(), 0xFF2B2518.toInt(), 0xFF3B3529.toInt(),
+        0xFFA9C4E0.toInt(), 0xFF1E2C3D.toInt(), 0xFF34404F.toInt(),
         // 24-26 EMOTE_1..3
-        0xFF3A3226.toInt(), 0xFF2B3730.toInt(), 0xFF352C38.toInt(),
+        0xFF2A3546.toInt(), 0xFF26383A.toInt(), 0xFF322C42.toInt(),
         // 27-28 STROKE, SCRIM
-        0x8C38332A.toInt(), 0x8C000000.toInt()
+        0x8C353F4C.toInt(), 0x8C000000.toInt()
     )
 
     /**
@@ -168,21 +175,22 @@ object ThemeManager {
      */
     private val BLACK = intArrayOf(
         // 0-5  ACC, ACC2, CARD, BG, TITLE, SUB
-        0xFFA78EFF.toInt(), 0xFFBEA9FF.toInt(), 0xFF0A0907.toInt(), 0xFF000000.toInt(), 0xFFF0EBE0.toInt(), 0xFF9C9282.toInt(),
+        // 【v3】纯黑底 + 蓝灰层。BG 保持纯黑（OLED 省电），靠 CARD 与 FIELD 的东西向色差做体积。
+        0xFF6BA3F5.toInt(), 0xFF8AB8F8.toInt(), 0xFF0E1419.toInt(), 0xFF000000.toInt(), 0xFFE8EEF5.toInt(), 0xFF8A9AAD.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
-        0xFF2A251C.toInt(), 0xFF100E0A.toInt(), 0xFF0B0A08.toInt(), 0xFF110F0B.toInt(),
+        0xFF27303A.toInt(), 0xFF131A21.toInt(), 0xFF0D1218.toInt(), 0xFF0A0F14.toInt(),
         // 10-12 OK, ERR, ON_ACC
-        0xFF79A984.toInt(), 0xFFE0866F.toInt(), 0xFF17131F.toInt(),
+        0xFF55B37A.toInt(), 0xFFDE7F70.toInt(), 0xFF0F1620.toInt(),
         // 13-16 CHAT_BUBBLE_USER, CHAT_BORDER, CHAT_CHIP_BG, CHAT_CHIP_FG
-        0xFF171410.toInt(), 0xFF2A251D.toInt(), 0xFF16130E.toInt(), 0xFF9C9282.toInt(),
+        0xFF1B2A3C.toInt(), 0xFF27303A.toInt(), 0xFF0D1218.toInt(), 0xFF8A9AAD.toInt(),
         // 17-20 CHAT_CHIP_ON, CHAT_CHIP_OFF, CHAT_CHIP_MUTE, CHAT_ACTION_BG
-        0xFF2A2450.toInt(), 0xFF16130E.toInt(), 0xFF2E2A21.toInt(), 0xFF100E0A.toInt(),
+        0xFF1F3147.toInt(), 0xFF0B1015.toInt(), 0xFF26313D.toInt(), 0xFF131A21.toInt(),
         // 21-23 HINT_FG, HINT_BG, SWITCH_OFF
-        0xFFC9AE84.toInt(), 0xFF1F1B11.toInt(), 0xFF2E2A21.toInt(),
+        0xFF9DB8D2.toInt(), 0xFF12202D.toInt(), 0xFF2A343F.toInt(),
         // 24-26 EMOTE_1..3
-        0xFF2A2419.toInt(), 0xFF1F2A24.toInt(), 0xFF28202C.toInt(),
+        0xFF1A2430.toInt(), 0xFF172420.toInt(), 0xFF221C2C.toInt(),
         // 27-28 STROKE, SCRIM
-        0x8C332D22.toInt(), 0xB8000000.toInt()
+        0x8C2C353F.toInt(), 0xB8000000.toInt()
     )
 
     /** 当前主题档位；非法值一律按「随系统」。 */

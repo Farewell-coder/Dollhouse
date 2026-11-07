@@ -363,6 +363,40 @@ object GlobalBackground {
         return { color }
     }
 
+    /**
+     * 【v3·清透轻拟物】页面底不再是一块纯色，而是**上亮下暗的柔和渐变**。
+     *
+     * 【为什么做在这里】页面底是在 View 层铺的（`GlobalBackground`），Compose 内容保持透明 ——
+     *   这样才能同时满足「有自定义背景图时透出图」和「没图时给渐变」。
+     *   若画在 Compose 侧，就会重现历史上那个「不透明底把背景图盖死」的 bug。
+     *
+     * 【为什么上亮下暗】模拟光从上方来，是最自然的体积感来源；
+     *   纯色底无论选多好看的颜色，整屏仍是一块平的色。
+     *
+     * 【为什么只提亮 10】用户要「细腻的渐变、避免刺眼」。10% 在浅蓝底上约 2~3 个色阶，
+     *   肉眼能看出"有光"，但不会像色块拼贴。
+     */
+    private fun pageGradient(base: Int): Drawable {
+        val top = liftForTop(base, 0.10f)
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(top, base)
+        ).apply { setCornerRadius(0f) }
+    }
+
+    /** 把颜色朝白（或黑）方向抬一档，保持原有色相比例。 */
+    private fun liftForTop(c: Int, ratio: Float): Int {
+        val a = (c ushr 24) and 0xff
+        val r = (c shr 16) and 0xff
+        val g = (c shr 8) and 0xff
+        val b = c and 0xff
+        // 目标：整体变亮但仍保留相对色相。简单做法是向 255 插值。
+        val nr = (r + (255 - r) * ratio).toInt().coerceIn(0, 255)
+        val ng = (g + (255 - g) * ratio).toInt().coerceIn(0, 255)
+        val nb = (b + (255 - b) * ratio).toInt().coerceIn(0, 255)
+        return (a shl 24) or (nr shl 16) or (ng shl 8) or nb
+    }
+
     private fun applyNow(v: View, fallback: () -> Int, opaqueBase: Boolean, dollId: String?) {
         try {
             val d = buildDrawable(v.context, fallback(), opaqueBase, dollId)
@@ -410,15 +444,25 @@ object GlobalBackground {
     private fun buildDrawable(c: Context, fallbackColor: Int, opaqueBase: Boolean, dollId: String?): Drawable? {
         val p = resolvePath(c, dollId)
         if (p.isEmpty()) {
-            return if (ContrastCore.alphaOf(fallbackColor) == 0) null else ColorDrawable(fallbackColor)
+            return if (ContrastCore.alphaOf(fallbackColor) == 0) {
+                null
+            } else {
+                pageGradient(fallbackColor)
+            }
         }
         // 【r14·缓存键带上作用域】同一张图可能既是全局背景又是某人偶的背景，
         //   两处透明度 / 模糊不同 —— 只比路径会取错参数，故 key 用「路径 + dollId」。
         val key = cacheKey(p, dollId)
         val bmp = if (key == cachedPath) cachedBmp else null
         if (bmp == null || bmp.isRecycled) {
-            // 解码中 / 失败：先用纯色兜底，解码完成后 refreshAll 会换成图。
-            return if (ContrastCore.alphaOf(fallbackColor) == 0) null else ColorDrawable(fallbackColor)
+            // 解码中 / 失败：先用渐变兜底（与无图时同款），解码完成后 refreshAll 会换成图。
+            //   【为什么不退回纯色】那会让"有图用户"在解码那一瞬看到纯色闪一下，
+            //   再跳到图 —— 渐变与纯色都属于"无图底"，观感连续得多。
+            return if (ContrastCore.alphaOf(fallbackColor) == 0) {
+                null
+            } else {
+                pageGradient(fallbackColor)
+            }
         }
         // 有图时必须垫一层不透明纯色底：否则图片透明度会透出下层 window 或第二张同图，形成叠影。
         val base = if (opaqueBase || ContrastCore.alphaOf(fallbackColor) == 0) UiKit.BG else fallbackColor

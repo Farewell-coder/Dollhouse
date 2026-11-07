@@ -419,10 +419,16 @@ object DhKit {
                             //   留白与发丝线承担，阴影只做「几乎看不出、但大脑能感到」的纵深。
                             //   2dp 在浅色档几乎不可见，只在暗色档边缘有极淡的一圈 —— 这正是要的效果。
                             //   【clip = false】阴影必须画在形状**外侧**；先 clip 再 shadow 会被裁掉。
+                            // 【染色是轻拟物的关键】Compose 默认阴影是纯黑，
+                            //   在浅蓝底上会显脏、显硬。把 ambient（环境光）与 spot（投影）
+                            //   都染成蓝灰，阴影就有了「柔和」的观感而不是「一圈灰」。
+                            //   ambientColor/spotColor 需要 API 28+，低版本自动退回黑色，不会崩。
                             .shadow(
                                 elevation = com.dollhouse.app.ui.design.DhDesign.Elevation.e1,
                                 shape = RoundedCornerShape(R_CARD.dp),
-                                clip = false
+                                clip = false,
+                                ambientColor = androidx.compose.ui.graphics.Color(0xFF8FA8C4),
+                                spotColor = androidx.compose.ui.graphics.Color(0xFF8FA8C4)
                             )
                             .clip(RoundedCornerShape(R_CARD.dp))
                             .background(c.card)

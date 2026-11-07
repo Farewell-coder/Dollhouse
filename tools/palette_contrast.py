@@ -87,9 +87,9 @@ def flatten(fg, bg):
 def on_color(bg):
     """复刻 DhDesign.Palette.onErr：分别算白字/深字对比度，取更高者。"""
     l = luminance(bg)
-    c_dark = (l + 0.05) / (luminance(0xFF2A2620) + 0.05)
+    c_dark = (l + 0.05) / (luminance(0xFF0F141A) + 0.05)
     c_light = 1.05 / (l + 0.05)
-    return 0xFF2A2620 if c_dark >= c_light else 0xFFFFFFFF
+    return 0xFF0F141A if c_dark >= c_light else 0xFFFFFFFF
 
 
 def best_on(bg):
