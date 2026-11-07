@@ -87,7 +87,13 @@ chk C03 "pressable 两个重载口径一致" "test \$(grep -c 'val spec = if (pr
 chk C04 "Switch 颜色动画无过冲（ζ=1.0）" "grep -q 'dampingRatio = 1f' $COMPOSE/DhAnim.kt"
 chk C05 "Switch 位移/颜色分别取自词汇表" "grep -q 'DhAnim.SW_SPRING' $COMPOSE/DhKit.kt && grep -q 'DhAnim.COLOR_SPRING' $COMPOSE/DhKit.kt"
 chk C06 "Card 展开有显式 enter/exit spec" "grep -q 'CARD_EXPAND' $COMPOSE/DhKit.kt && grep -q 'CARD_COLLAPSE' $COMPOSE/DhKit.kt"
-chk C07 "Card 展开时长对齐 UiKit.D_LAYER" "grep -q 'UiKit.D_LAYER' $COMPOSE/DhAnim.kt"
+# 【C07 曾是假绿】原断言只查 `grep -q 'UiKit.D_LAYER' DhAnim.kt`——只验字符串存在。
+#   把时长收敛到设计令牌后，旧值残留在注释里，它就靠注释通过了，而代码根本不用它。
+#   已改为断言「Compose 侧真的用设计令牌」：要求出现 DhDesign.Motion.enter 与
+#   DhDesign.Motion.exit，且**不再**以 UiKit.D_LAYER/D_MICRO 作为实际取值来源
+#   （用 grep -c 统计「非注释行里引用 UiKit.D_*」必须为 0）。
+chk C07 "Card 展开/收起时长取自设计令牌（不靠注释假绿）" \
+  "grep -q 'DhDesign.Motion.enter' $COMPOSE/DhAnim.kt && grep -q 'DhDesign.Motion.exit' $COMPOSE/DhAnim.kt && test \$(grep -nE 'UiKit\.D_(LAYER|MICRO)' $COMPOSE/DhAnim.kt | grep -vE '^[0-9]+: *\*|^[0-9]+: *//' | wc -l) -eq 0"
 chk C08 "BottomNav 缩放动画有显式 spec" "grep -q 'DhAnim.TAP_SCALE' $UI/home/BottomNav.kt"
 chk C09 "DhSwipe 回弹参数与 snappy 同源" "grep -q 'DhAnim.SWIPE_SETTLE' $COMPOSE/DhSwipe.kt"
 chk C10 "NavHost 关闭 sizeTransform" "grep -q 'sizeTransform = null' $UI/nav/NavHost.kt"

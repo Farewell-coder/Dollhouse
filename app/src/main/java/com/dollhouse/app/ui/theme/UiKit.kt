@@ -564,8 +564,20 @@ object UiKit {
     const val PRESS_SCALE = 0.98f
 
     const val D_PRESS = 90
+    /** 微交互 / 退出（180ms）—— 与 `DhDesign.Motion.exit` 同值。 */
     const val D_MICRO = 180
-    const val D_LAYER = 260
+    /**
+     * 弹层 / 遮罩淡入（220ms）。
+     *
+     * 【M-收口】原值 260 不在设计稿阶梯上（阶梯只有 90/160/220/180），
+     *   导致「同一个弹窗，Compose 侧 220ms、View 侧 260ms」——用户能感觉到快慢不同。
+     *   现改为与 `DhDesign.Motion.enter` 一致的 220ms，两侧观感统一。
+     *
+     * 【为什么是 220 而不是 160】它对应「层进入」而非「微交互」：弹窗/抽屉/遮罩
+     *   出现在用户面前时需要一个「交代过程」，太快会显得突兀、太慢会显得卡。
+     *   设计稿把 enter 定在 220，View 侧收敛到它即可，不需要另立一档。
+     */
+    const val D_LAYER = 220
     const val D_PAGE = 200
 
     /** 系统关闭 Animator 时，普通页面直接切换，不播放装饰性转场。 */
