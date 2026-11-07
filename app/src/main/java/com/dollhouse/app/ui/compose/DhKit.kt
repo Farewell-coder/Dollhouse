@@ -564,21 +564,48 @@ object DhKit {
         value: String? = null,
         valueTint: Color? = null,
         modifier: Modifier = Modifier,
-        // 【r16·图标】可选前缀图标（Icons.IC_*）。默认 0 = 与改造前逐像素一致。
         iconRes: Int = 0,
-        /** 【v0.1.4】第二行说明；null / 空 = 单行，行高不额外增长。 */
         desc: String? = null,
         onClick: (() -> Unit)? = null
+    ) {
+        // 【M-收口·转发到规范实现】本函数有 38 处调用点，改造它等于一次性让
+        //   38 个页面的"信息行"对齐设计规范（圆角/行高/字号/图标尺寸/可点反馈）。
+        //   【为什么用转发而不是复制样式】`ui/kit.DhRow` 是规范源，复制一份就又回到
+        //   "同一语义两处实现、改一处漏一处"的老问题。这里只做参数适配：
+        //     · valueTint：DhRow 的右值固定用 sub 色；需要强调色的调用点（状态色）
+        //       保留旧路径，避免语义丢失
+        //     · 旧调用不带箭头（showChevron=false），保持原观感
+        if (valueTint != null) {
+            // 需要自定义右值颜色 → 走旧实现（少量调用点，观感不变）
+            LegacyValueRow(label, value, valueTint, modifier, iconRes, desc, onClick)
+            return
+        }
+        com.dollhouse.app.ui.kit.DhRow(
+            title = label,
+            modifier = modifier,
+            desc = desc,
+            value = value,
+            iconRes = iconRes,
+            showChevron = false,
+            onClick = onClick
+        )
+    }
+
+    /** 旧版 ValueRow 实现：仅保留给需要自定义右值颜色的少数调用点。 */
+    @Composable
+    private fun LegacyValueRow(
+        label: String,
+        value: String?,
+        valueTint: Color?,
+        modifier: Modifier,
+        iconRes: Int,
+        desc: String?,
+        onClick: (() -> Unit)?
     ) {
         val c = DhTokens.colors
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                // 【M3·列表行不再逐行成卡片】
-                //   改造前每一行都是 soft 底 + 圆角 10 的独立小块：一页 10 行 = 10 个圆角矩形，
-                //   这正是用户说的「每个区域都使用独立卡片」「大量重复的圆角矩形」。
-                //   设计稿 §3：行直接铺在卡片面上，行与行之间用 1dp 发丝线（见 DhKit.RowDivider），
-                //   整张卡读起来是一组设置，而不是十个碎块。
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
                 .padding(
                     horizontal = PAD_ROW.dp,
@@ -591,8 +618,6 @@ object DhKit {
                 RowIcon(iconRes)
                 Spacer(Modifier.width(GAP_ICON.dp))
             }
-            // 【v0.1.4】标题与说明收进同一个 Column：两行文字的基线由这一处决定，
-            //   调用方再怎么组合也不会出现「说明偏上 / 偏下」。
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = label,
@@ -612,7 +637,6 @@ object DhKit {
             }
             if (!value.isNullOrEmpty()) {
                 Spacer(Modifier.width(12.dp))
-                // 标签和值都必须受剩余宽度约束；长 ID、路径或状态文本允许换行。
                 Text(
                     text = value,
                     modifier = Modifier.weight(1.35f),
