@@ -74,6 +74,10 @@ chk A11 "Kotlin 块注释全部闭合（防嵌套注释吞代码）" \
 #   这三类最高频的 CI 失败提前到本地抓（本轮已因此省掉至少两轮 8 分钟 CI）。
 chk A12 "Kotlin 静态预检通过（漏 import / 括号 / 注解错位）" \
   "python3 tools/kotlin_precheck.py --quiet > /dev/null"
+# 【A13】悬空引用：本轮真实事故——删 MessageMenu.kt 时连带删掉了同文件的
+#   object MultiSelect，ChatUi 的 9 处引用全变 Unresolved reference，整轮 CI 白跑。
+chk A13 "无悬空符号引用（防删文件误伤同文件其它符号）" \
+  "python3 tools/symbol_refs.py --quiet > /dev/null"
 
 echo "===== 组 B：组件统一（B01–B10）====="
 
