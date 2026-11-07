@@ -58,12 +58,23 @@
 
 ---
 
-## 3. 当前现状（41 个页面）
+## 3. 当前现状（**39 个页面，离群 0**）
 
 ```
-合规 39 / 页面 41（合规率 95%），离群 2 处
-另排除 11 个非页面宿主（悬浮窗 / Dialog / Nav3 宿主），避免误报
+一致 39 / 共 39（100%），离群 0
+合理例外 9（不适用页面规范，逐条登记理由）
+跳过 7（转发壳 / 页内子视图，不作页面级审计）
 ```
+
+复跑：
+
+```bash
+python3 tools/page_consistency_audit.py
+```
+
+> 下表的「根水平 pad」列中，走脚手架的页面显示 `脚手架`（边距由 `DhKit.Page` 的
+> `PAD_CARD` 统一施加，页面不重复声明）。**页面若在脚手架内部又自加水平 padding，
+> 会被判为离群**（双倍边距），该判据在设计时曾被漏掉，现已补上。
 
 | 页面（文件:行） | Composable | 类型 | 根水平 pad | 项间距 | 顶栏 |
 |---|---|---|---|---|---|
@@ -72,7 +83,7 @@
 | `ui/chat/ChatUi.kt:94` | ChatContent | shell | N/A | - | 无 |
 | `ui/chat/ConversationHistoryPage.kt:46` | Content | page | 16 | 12 | **手搓** |
 | `ui/chat/FriendAppearancePage.kt:19` | Content | page | 脚手架 | - | TopBar(脚手架) |
-| `ui/chat/FriendModelConfigPage.kt:43` | Content | page | 16 | **10** | **手搓** |
+| `ui/chat/FriendModelConfigPage.kt:43` | Content | page | 脚手架 | 10 | TopBar(脚手架) · **已修** |
 | `ui/chat/FriendProfilePage.kt:103` | Content | page | 脚手架 | - | TopBar(脚手架) |
 | `ui/doll/DollActionPage.kt:129` | Content | page | 脚手架 | - | TopBar(脚手架) |
 | `ui/doll/DollAnimPage.kt:133` | Content | page | 脚手架 | - | TopBar(脚手架) |
@@ -126,9 +137,26 @@
 
 ---
 
-## 4. 离群清单（真不一致）
+## 4. 离群清单（**已全部修复**）
 
-### 4.1 `FriendModelConfigPage.kt:43` —— 3 项偏差，最严重
+> **状态：0 离群。** 下面两页原先记录的偏差已在后续任务中修掉，
+> 保留原始分析作为"为什么当初判它离群"的记录。
+> 复跑确认：`python3 tools/page_consistency_audit.py` → `一致 39 / 共 39；离群 0`。
+
+### 4.0 修复记录（2026-11-07）
+
+| 页面 | 改法 | 效果 |
+|---|---|---|
+| `FriendModelConfigPage.kt` | 手拼 `Column(...padding(16.dp))` + 手搓顶栏 → `DhKit.Page(title, onBack)` | 顶栏/边距/标题基线随脚手架统一；间距仍由 `spacedBy(10.dp)` 控制（内容节奏，非页面级） |
+| `ConversationHistoryPage.kt` | 同上，且 `scrollable = false`（内部 LazyColumn 自己滚，并补 `weight(1f)`） | 同上 |
+
+两处改动**只动布局壳**：业务逻辑、文案、回调、参数签名一律未改。
+
+---
+
+## 4.1 原始离群分析（已归档）
+
+### 归档 A · `FriendModelConfigPage.kt:43` —— 当时 3 项偏差（已修）
 
 | 项 | 实际 | 期望 |
 |---|---|---|
@@ -147,7 +175,7 @@ ui/chat/FriendModelConfigPage.kt:43  → Column(...padding(16.dp)) { Row { 返�
 用户从「聊天外观」切到「模型与生成」，会直接看到：**标题下移、返回键与标题距离变化、
 卡片间距变紧（10 vs 12）**。这就是「不像同一个团队做的」的典型来源。
 
-### 4.2 `ConversationHistoryPage.kt:46` —— 2 项偏差
+### 归档 B · `ConversationHistoryPage.kt:46` —— 当时 2 项偏差（已修）
 
 | 项 | 实际 | 期望 |
 |---|---|---|
@@ -168,6 +196,28 @@ P1（16）与 P4（12）都对，所以只剩「包壳」与「顶栏」两项�
 | 行高 | 走 `UiKit.FS_TITLE` 令牌 | 裸写 `20.sp / lineHeight = 29.sp` |
 
 所以在 edge-to-edge + 状态栏常隐的机型上，这两页的标题会**比其它 36 页明显更贴屏幕顶边**。
+
+---
+
+## 4.5 合理例外表（9 个，脚本内登记）
+
+不是每个"看起来不合规"的页面都该改。以下 9 个按页面规范去改是**错的**，
+因此登记在 `tools/page_consistency_audit.py` 的 `EXEMPT` 里，只报告理由、不计离群。
+
+| # | 文件 : 函数 | 为什么不该遵循页面规范 |
+|---|---|---|
+| 1 | `ui/compose/DhKit.kt : Page` | 这是页面脚手架**自身**的定义，不是页面 |
+| 2 | `pet/DollHomeOverlay.kt : Content` | 桌宠悬浮层：自绘 View 覆盖桌面，无页面栈、无顶栏 |
+| 3 | `pet/DollRangeOverlay.kt : Content` | 同上（手势范围悬浮层） |
+| 4 | `ui/chat/ChatListScreen.kt : Screen` | **底部 Tab 根页**：`TabTopBar` + 自己的 LazyColumn，列表边距由 `contentPadding` 控制 |
+| 5 | `ui/home/ContactScreen.kt : Content` | **底部 Tab 根页**（人偶 Tab），同上 |
+| 6 | `ui/doll/DollLookTab.kt : Content` | 人偶编辑页内的**栏位（Tab）**，被 DollEditScreen / FriendAppearancePage 当子内容调用 |
+| 7 | `ui/chat/ChatUi.kt : ChatScreen` | **全屏聊天画布**：整幅被 `Box + clip(16dp)` 包裹，套脚手架会与既有 TopBarRow 重复出两层顶栏 |
+| 8 | `ui/nav/NavHost.kt : RouteContent` | 导航宿主：只做路由分发，不渲染页面内容 |
+| 9 | `ui/home/ComingSoonPage.kt : Content` | 占位页：40dp 是刻意的大留白，不是页面级内容边距 |
+
+**写进 `EXEMPT` 的门槛**：必须说明"为什么它不该遵循页面规范"。
+写「暂时不改」「后续再说」不算理由。
 
 ---
 
@@ -284,3 +334,29 @@ EXIT=0
    但因为宿主是 `ChatPanel`（View 壳），本脚本**不判**它。
    这也是 `ChatPanel` 去 View 化（`docs/CHATPANEL_MIGRATION_PLAN.md`）的另一个理由。
 4. **基线机制可被「改基线」绕过。** 它能防手滑，防不了故意 —— 和保护 `ui_audit.sh` 的约束同一性质。
+
+---
+
+## 7. 自测证据（防"检查脚本假绿"）
+
+判据本身也要被验证。以下两次注入都在修完判据后重跑，且均已逐字节还原。
+
+| # | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| 1 | 在走脚手架的 `AboutPage` 内容区加 `Column(Modifier.padding(horizontal = 12.dp))` | 报"脚手架内又自加" | **第一次失败**：脚本仍报 `离群 0` ← 判据盲区 |
+| 1b | 补上"脚手架内部 padding"检测后重测 | 报离群 | `OUTLIER ui/settings/AboutPage.kt:115 -> 走脚手架但内容区又自加水平 padding: 12.dp`，exit 1 ✓ |
+| 2 | 把已修好的 `FriendModelConfigPage` 退回手拼 + `padding(24.dp)` | 报"未走脚手架 + padding 离群" | `OUTLIER ... -> 未走 DhKit.Page; 水平 padding 离群: 24.dp（应为 16.dp）`，exit 1 ✓ |
+| 3 | 两处均恢复 | 回到 39/39 | `一致 39 / 共 39；离群 0`，exit 0 ✓ |
+
+**第 1 项是本轮最有价值的发现**：`_root_container_head()` 在 `DhKit.Page(` 的 `{` 处就停止扫描，
+所以它**只能看见脚手架那一层，看不见脚手架内部又包的一层**。而"走脚手架 + 再自加 padding"
+恰恰是双倍边距最常见的成因。自测直接命中了这个盲区 —— 若不做注入测试，
+这个门禁会一直报"全部合规"，而实际问题从未被检查。
+
+### 7.1 本轮修掉的三个误报/漏报
+
+| 类型 | 表现 | 修法 |
+|---|---|---|
+| **漏报** | 页面函数写作 `@Composable private fun Content(...)`（注解同行）时抓不到 | 正则改贪婪前缀 + 两步判定（先抓名字、再判后缀） |
+| **误报** | `DollHomePage` 的 `.padding(48.dp)` 是人偶贴图的边距，被当成页面边距 | 只取「根容器的 modifier 链」，遇 `{` 即停 |
+| **误报** | `DeveloperOptionsPage` 的 LogsPage/DetailPage/SettingsPage 被判成 3 个离群页面 | 用「调用图根节点」法：同文件内从入口可达的都是页内子视图 |

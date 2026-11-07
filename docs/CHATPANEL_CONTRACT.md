@@ -256,23 +256,32 @@ grep -rn --include='*.kt' --include='*.java' -w 'highlightIndex'  app/src   # 72
 | 29 | `openPicker` / `openMain` | 归档态禁选图；`EXTRA_OPEN_PROVIDERS` 协议 | 跳转落空（`213-231` 记的 bug） |
 | 30 | `companion object` 两个常量 | 3 轮工具、12 条示例 | 预算/成本失控 |
 
-### 表 B · 可改为状态驱动（11 项）
+### 表 B · 可改为状态驱动（11 项 · 其中 4 项已完成或改判）
 
 迁移后**不再暴露为方法**，改为「写一个 `ChatState` 字段 / 触发一次状态事件」，由 Compose 读。
 
+> **进度（r27 更新）**
+> - ✅ 已完成：`refreshInputRow`（删，纯别名）、`scrollToSummary`（内联）、`refreshHint`（抽顶层 `chatHintText`）、
+>   `setMemoBusy`（已接回，3 处调用）
+> - ↪️ 改判移出：`clearChat`（是数据操作，非状态写入）
+> - ⏳ 待做：`refreshCtxRing`（**口径已定：陈旧值算 bug**，方案见 `docs/CHATPANEL_BATCH2.md` §7）
+> - ⛔ 当前不可动：`onInputChange` / `onScrolled` / `openPicker` / `showModels` / `showThink`
+>   —— 这 5 项已成为 `ChatHostUi` 接口成员，删改必须同时动 `ChatUi.kt`，且「调用点集合相等」
+>   在接口契约存在时**不再推出「可以删」**（详见 BATCH2 §1）
+
 | # | 成员 | 现状 | 目标形态 |
 |---|---|---|---|
-| 1 | `refreshInputRow` | 纯 `ChatState` 写入（377-378） | 内联到 4 个调用点：`ChatState.browsingArchives = …` + 附件条刷新函数 |
-| 2 | `refreshCtxRing` | 只写 `ChatState.ctxRatio`（1409） | 改成 `derivedStateOf { history.length() / Mem.MAX_ENTRIES }`，**彻底不需要方法** |
-| 3 | `refreshHint` | 只写 `ChatState.hint` | 同上，改 `derivedStateOf { hasChatTarget }`；`ChatActivity` 两处调用改为刷新数据源 |
-| 4 | `scrollToSummary` | 只发一次滚动请求（373） | `ChatState.requestScrollTo(summaryIndex)` 直接调用；`summaryIndex` 本身进 `ChatState` |
+| 1 | `refreshInputRow` | **✅ 已完成（r27）**：它已退化为私有 `refreshAttachStrip()` 的单行别名 | 已删除方法，3 处调用点改调私有函数（行为逐字节相同） |
+| 2 | `refreshCtxRing` | 只写 `ChatState.ctxRatio`（`ChatPanel.kt:1430`） | **方案已定（r27）**：计算收进 `renderHistory()` 开头（早于空历史 early-return，保证清空后归 0），增量路径（`onSend` / `handleReply`×3）用私有 `syncCtxRatio()` 单独补；`branchAt` 另补 `loadHistory`+`renderHistory`。随后删除方法与 8 处调用点。**不用 `derivedStateOf`** —— 它会在每次重组读盘算比例，且无法覆盖增量路径。详见 `docs/CHATPANEL_BATCH2.md` §7 |
+| 3 | `refreshHint` | **✅ 已完成（r27）**：已删除方法，判据抽成顶层纯函数 `chatHintText(ctx)` | `ChatActivity.kt:56/103` 与 init 处改为直接 `ChatState.hint = chatHintText(...)`（未用 derivedStateOf，因它要读盘） |
+| 4 | `scrollToSummary` | **✅ 已完成（r27）**：已内联到唯一调用点（`onScrolled` 收回分支） | 现为 `if (summaryIndex >= 0) ChatState.requestScrollTo(summaryIndex)`；`summaryIndex` 仍私有，待随后续批次进 ChatState |
 | 5 | `onInputChange` | 写 `input` + 存草稿（276-279） | `ChatState.input` 已是 `mutableStateOf`；草稿保存改成 `snapshotFlow{ input }.debounce.collect` |
-| 6 | `clearChat` | 只改 `history` + 存盘 + 重铺 | 抽成不依赖 View 的 `ChatStore.clear(convId)` |
+| 6 | `clearChat` | **分类修正（r27）**：这不是「只写 ChatState 的纯壳」，而是**数据操作**（`history = JSONArray()` + 存盘 + 清暂存位）。它本不该在本表 | **已移出表 B**，归入「抽 `ChatStore` 数据层」待办（属表 A / 重构范畴，不是状态驱动） |
 | 7 | `onScrolled` | 只做判据 + 调 `collapsePrev` | 判据搬到 Compose（`LazyListState`）内的 `LaunchedEffect`，`collapsePrev` 留数据层 |
-| 8 | `setMemoBusy` | 见 §5 表 C（当前 0 调用） | 若要恢复此功能：`ChatState.memoBusy: Boolean`，由 `MemExtractor` 的作用域写 |
+| 8 | `setMemoBusy` | **已完成（r27 更新）**：已接回，现有 **3 处调用**（`ChatPanel.kt:917` 发起 summarize 之前置 true；`:939` 失败分支复位；`:950` 成功分支复位） | **无需再改**——表 B 原写的「当前 0 调用」已过时。原拟的 `ChatState.memoBusy: Boolean` 也不必加：现有 `ChatState.memoText` + 私有 `flashHold`/`memoBusyOn` 已覆盖全部状态与时序，再拆一层无收益 |
 | 9 | `openPicker` | 只做 Activity 跳转 | 改 `rememberLauncherForActivityResult`，或保留为宿主回调（二选一，**建议保留宿主回调**，因为 `PickFileActivity` 是多用途选择器） |
 | 10 | `showModels` / `showThink` | 只调 `ChatPanels.xxx(activity)` | 改成 `ChatState.showModelsPanel = true` 之类的开关，面板在 Composable 里渲染（这才是 Compose 的做法；**当前 `showModels` 能工作只是因为 `ChatPanels` 走 Dialog 窗口**，`ChatPanels.kt:48` 的注释已承认这一点） |
-| 11 | `showChat` | 已 0 调用（归档页删了） | 直接删，不需要状态 |
+| 11 | `showChat` | **✅ 已完成（表 C 批次）**：0 调用，已随表 C 清理删除 | 无需动作 |
 
 ### 表 C · 可删除（0 调用，8 项）
 
