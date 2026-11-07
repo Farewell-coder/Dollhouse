@@ -379,3 +379,73 @@ D8 是圆角语义（此处是 padding），D4 是「与 1dp/2dp 边框配套的
 
 每批改完均跑：`kotlin_precheck`（275 文件未发现问题）、`comment_balance`（全部平衡）、
 `symbol_refs --quiet`（exit 0）。**无真机视觉验证** —— 见 §7.3 的既有结论。
+
+---
+
+## 10. 剩余裸间距收敛（第四批）：69 → 54
+
+> 口径同 §9：Python 正则 `(?<![0-9])(6|10)\.dp` 扫 `app/src/main/java/**/*.kt`（按**出现次数**，含注释行）。
+> 本轮任务书给的是「68 处」；**实测为 69**（6=40 / 10=29）。差 1 处的原因未能复现，
+> 可能是统计时点或口径差异（按 grep 行数算是 63，排除注释行是 61），以本节数字为准。
+
+### 总数
+
+| | 6dp | 10dp | 合计 | 文件 |
+|---|---|---|---|---|
+| 改前 | 40 | 29 | **69** | 13 |
+| 改后 | 35 | 19 | **54** | 11 |
+| 本轮收敛 | −5 | −10 | **−15** | −2 |
+
+### 本轮解除「在改中」后可处理的两个文件
+
+| 文件 | 改前 | 改后 | 说明 |
+|---|---|---|---|
+| `ui/compose/DhKit.kt` | 14 | **5** | 收敛 9 处（R1×3、R2×2、R3×2、R4×1、R9×1）；剩 5 处为底栏/胶囊几何 |
+| `ui/kit/Components.kt` | 4 | **3** | 收敛 1 处（骨架条 R10）；剩 3 处为控件自身几何常量 |
+| `ui/home/ProfileDrawer.kt` | 1 | **0** | R1 图标↔文字 → `Space.iconGap` |
+
+### 本轮保留原值的位置及理由（6 处）
+
+| 位置 | 值 | 类别 | 为什么不动 |
+|---|---|---|---|
+| `DhKit.kt:1486` | `vertical = 6.dp` | D4 | NavItem 纵向内边距，与 `NAV_ITEM_H(54)` 配套；两者相加是**定值**，改了底栏会随页抖 |
+| `DhKit.kt:1584` | `top = 6.dp, bottom = 10.dp` | D4 | NavBar 胶囊上下留白，同上「项高 + 内边距 = 定值」 |
+| `DhKit.kt:1599` | `horizontal = 6.dp, vertical = 4.dp` | D4 | 胶囊内边距，决定胶囊总高（设计稿 64dp 口径） |
+| `DhKit.kt:1755` | `horizontal = 6.dp, vertical = 4.dp` | D4 | `BarButton` 自身几何，不是间距 |
+| `Components.kt:121/122/123` | `ChipPadH=10` / `TagPadH=6` / `RowPadV=10` | D6 | **控件自身几何**：前两者决定 chip/tag 宽度，后者是 DhRow 两行形态行高；改动放大到 **169 处**转发调用点，按 §7.4 须单独立项验证 |
+
+> 依据本次指令「拿不准时保留原值并注释比硬落档安全」，以上均在代码内就地注明。
+
+### DhKit.kt 本轮收敛明细（9 处）
+
+| 行 | 语义 | 规则 | 落档 |
+|---|---|---|---|
+| 529 | SectionLabel 图标分支：图标↔文字 | R1 | `iconGap(8)` |
+| 1097 | SectionLabel 无图标→带图标分支：图标↔文字 | R1 | `iconGap(8)` |
+| 1143 | `InfoRow`：图标↔文字 | R1 | `iconGap(8)` |
+| 574 | Page 顶栏：返回按钮↔标题（两侧都可点） | R2 | `md(12)` |
+| 631 | TabBar：左槽↔标题 | R2 | `md(12)` |
+| 707 | `LegacyValueRow` 两行形态行内纵向内边距 | R3 | `sm(8)` |
+| 1385 | `LegacyActionRow` 有 desc 时行内纵向内边距 | R3 | `sm(8)` |
+| 1139 | `InfoRow` 与上方内容块 | R4 | `md(12)` |
+| 1893 | `Segmented` 分段项面板内边距 | R9 | `md(12)` / `sm(8)` |
+
+### 仍未收敛（11 文件 / 54 处）
+
+| 文件 | 剩余 | 原因 |
+|---|---|---|
+| `ui/chat/ChatUi.kt` | 33 | 🔒 排除清单（chat-contract 在改圆角） |
+| `ui/compose/DhForm.kt` | 4 | 🔒 排除清单 |
+| `ui/doll/DollListScreen.kt` | 2 | 🔒 排除清单（且为 D8 圆角） |
+| `ui/compose/DhKit.kt` | 5 | 底栏/胶囊几何（D4），见上表 |
+| `ui/kit/Components.kt` | 3 | 控件自身几何常量（D6），见上表 |
+| `ui/home/BottomNav.kt` | 2 | D3/D4 底栏口径 |
+| `pet/DollHomeOverlay.kt` · `ui/doll/DollHomePage.kt` | 各 1 | D5/D6 虚化半径 |
+| `ui/chat/ChatListScreen.kt` | 1 | D4 未读徽标 |
+| `ui/chat/ChatPanels.kt` | 1 | D6 分段条尺寸 |
+| `ui/widget/MiniChart.kt` | 1 | D5 Canvas 内留白 |
+
+### 门禁
+
+`kotlin_precheck` 275 文件未发现问题 · `comment_balance` 全部平衡 · `symbol_refs` exit 0 ·
+`ui_audit` 44/44 · `anim_audit` 101/101。**无真机视觉验证**（见 §7.3）。

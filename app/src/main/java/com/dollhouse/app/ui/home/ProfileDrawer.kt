@@ -624,7 +624,7 @@ object ProfileDrawer {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 【引号图标】让「签名」一眼可辨 —— 光一行灰字容易被当成状态文字。
                 DhKit.Icon(iconRes = Icons.IC_QUOTE, sizeDp = Design.SZ_XS, color = c.line)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                 Text(
                     text = bio.ifEmpty { "还没有个性签名" },
                     color = if (bio.isEmpty()) c.line else c.sub,
