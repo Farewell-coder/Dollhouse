@@ -239,7 +239,8 @@ object ContactScreen {
                 Text(
                     text = "· 没归组的人偶",
                     color = c.line,
-                    fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
+                    fontSize = DhTokens.type.label.fontSize,
+                    lineHeight = DhTokens.type.label.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -412,7 +413,9 @@ object ContactScreen {
                     Text(
                         text = l,
                         color = c.sub,
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
+                        // 【特例·不进令牌】侧栏 A-Z 字母：行高按剩余空间动态分配（14~20dp），
+                        //   套 label 档的 11sp 会连带行高，把字母压偏/裁掉半截（原注释已记录）。
+                        fontSize = 11.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )
