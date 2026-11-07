@@ -325,6 +325,31 @@ def check_file(path: Path):
     if re.search(r"@Composable\s*\n\s*(?:private\s+|internal\s+)?const\s+val", raw):
         problems.append("E4 @Composable 注解落在了常量上（注解错位）")
 
+    # E7 重复注解：同一个声明上方出现两次 `@Composable`（含被 KDoc 隔开的情况）
+    #
+    # 【为什么会发生】往「已有 `@Composable` 的 private fun」前面插入新函数时，
+    #   如果插入点选在注解与函数签名之间，就会变成：
+    #       @Composable          ← 原属于 Content
+    #       /** 新函数的注释 */
+    #       @Composable          ← 新加的
+    #       fun ContentForHost(...)
+    #       private fun Content(...)   ← 丢了自己的 @Composable
+    #   编译期才报 `Composable is not a repeatable annotation type`（kapt 阶段），
+    #   而括号平衡、import 齐全等静态检查全都看不出来。本项目本轮真踩过。
+    _lines = raw.split("\n")
+    for _i in range(len(_lines) - 1):
+        if _lines[_i].strip() != "@Composable":
+            continue
+        # 往下跳过 KDoc / 空白行，看下一个有内容的行是否又是 @Composable
+        _j = _i + 1
+        while _j < len(_lines) and (_lines[_j].strip().startswith("*")
+                                    or _lines[_j].strip().startswith("/*")
+                                    or _lines[_j].strip().startswith("//")
+                                    or _lines[_j].strip() == ""):
+            _j += 1
+        if _j < len(_lines) and _lines[_j].strip() == "@Composable":
+            problems.append(f"E7 @Composable 重复注解（第 {_i + 1} 行与第 {_j + 1} 行）")
+
     return problems
 
 

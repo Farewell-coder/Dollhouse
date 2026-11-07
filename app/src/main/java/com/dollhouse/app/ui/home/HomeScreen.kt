@@ -42,13 +42,13 @@ object HomeScreen {
         return ComposeHost.createView(act) { HomeContent(act) }
     }
 
-    @Composable
     /** 【供 HomeUi 的单一 Compose 根复用】同 [ContactScreen.ContentForHost] 的理由。 */
     @Composable
     fun HomeContentForHost(act: MainActivity) {
         HomeContent(act)
     }
 
+    @Composable
     private fun HomeContent(act: MainActivity) {
         // 【为什么不传 act】占位页无任何交互，不需要 Activity。
         //   参数留着是为了不动 build 的签名（见上一条注释）。

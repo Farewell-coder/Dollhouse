@@ -82,7 +82,6 @@ object ContactScreen {
         return ComposeHost.createView(act) { Content(act) }
     }
 
-    @Composable
     /**
      * 【供 HomeUi 的单一 Compose 根复用】把本页暴露成可组合函数。
      *
@@ -95,6 +94,7 @@ object ContactScreen {
         Content(act)
     }
 
+    @Composable
     private fun Content(act: MainActivity) {
         val c = DhTokens.colors
         // 【数据】人偶列表与分组都在 [DollState.rev] 变化时重算（与 DollListScreen 同一套机制）。
