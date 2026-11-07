@@ -325,6 +325,22 @@ def check_file(path: Path):
     if re.search(r"@Composable\s*\n\s*(?:private\s+|internal\s+)?const\s+val", raw):
         problems.append("E4 @Composable 注解落在了常量上（注解错位）")
 
+    # E8 「data class 的实例属性当 object 用」
+    #
+    # 【为什么会发生】`DhDesign.Type` 是 **data class**，`body/sub/label/caption` 是
+    #   **实例属性**。要拿到实例只有两条路：`Type.of(brand, body)` 或 Compose 侧的
+    #   `DhTokens.type`。写成 `DhDesign.Type.body` 是 `object.属性` 形态,
+    #   值本身没错、符号名也没错，但**取不到实例** ⇒ CI 报 Unresolved reference。
+    #
+    # 本项目为此连续浪费了两轮 CI（ae75957、e66ee15）。静态检查原本抓不到,
+    #   因为它在文本层面完全合法 —— 但「形态」是能静态识别的：
+    #   `DhDesign.Type` 后面只允许跟 `of(` / `fallback(` ，不允许跟 `.属性`。
+    if re.search(r"DhDesign\s*\.\s*Type\s*\.\s*(?!of\b|fallback\b)[a-z]", raw):
+        problems.append(
+            "E8 `DhDesign.Type` 是 data class，不能当 object 取实例属性；"
+            "请用 DhTokens.type.X（Composable 内）或 DhDesign.Type.of(...)"
+        )
+
     # E7 重复注解：同一个声明上方出现两次 `@Composable`（含被 KDoc 隔开的情况）
     #
     # 【为什么会发生】往「已有 `@Composable` 的 private fun」前面插入新函数时，
