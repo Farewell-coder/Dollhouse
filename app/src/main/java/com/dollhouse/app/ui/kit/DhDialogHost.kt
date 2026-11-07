@@ -2,6 +2,7 @@ package com.dollhouse.app.ui.kit
 
 import android.app.Activity
 import android.app.Dialog
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
@@ -13,9 +14,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
@@ -112,6 +115,110 @@ object DhDialogHost {
     }
 
     /**
+     * 弹一个**破坏性操作的二次确认**框。
+     *
+     * 【为什么需要它】改造前这类确认走 `UiKit.showDialog`（View 侧原生 Dialog），
+     *   与 Compose 侧 `DhForm.Alert` 是两套壳；而命令式调用点（如聊天页工具区的
+     *   「清空」按钮）又不能直接调 @Composable 的 `DhForm.Alert`。
+     *   这里给出与 `DhForm.Alert` 同视觉、可从命令式代码调用的等价物。
+     *
+     * @param danger true 时确认按钮用 err 色 —— 破坏性操作必须让用户在点之前看到风险
+     * @param body   正文（说清「会发生什么」与「什么不会动」，例如记忆不会被删）
+     */
+    fun confirm(
+        act: Activity?,
+        title: String,
+        body: String,
+        confirmText: String,
+        onConfirm: () -> Unit,
+        cancelText: String = "取消",
+        onCancel: (() -> Unit)? = null,
+        danger: Boolean = true
+    ) {
+        if (act == null) {
+            return
+        }
+        show(act, widthInsetDp = 32) { dismiss ->
+            ConfirmSheet(
+                title = title,
+                body = body,
+                confirmText = confirmText,
+                cancelText = cancelText,
+                danger = danger,
+                onConfirm = {
+                    dismiss()
+                    try {
+                        onConfirm()
+                    } catch (t: Throwable) {
+                        Logs.w(LOG_TAG, "confirm action failed", t)
+                    }
+                },
+                onCancel = {
+                    dismiss()
+                    onCancel?.invoke()
+                }
+            )
+        }
+    }
+
+    /**
+     * 确认框纸张。
+     *
+     * 视觉与 `DhForm.Alert` 同源：sheet 不透明底 + 16 圆角 + 标题 section / 正文 sub，
+     * 两个按钮右对齐、确认在右（与系统 Alert 一致的操作顺序）。
+     */
+    @Composable
+    private fun ConfirmSheet(
+        title: String,
+        body: String,
+        confirmText: String,
+        cancelText: String,
+        danger: Boolean,
+        onConfirm: () -> Unit,
+        onCancel: () -> Unit
+    ) {
+        val p = DhTokens.palette
+        val t = DhTokens.type
+        val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 【e2·确认框同为浮层】与菜单纸张同一档：先 shadow 再 clip，
+                //   形状共用同一个变量，保证阴影不露出直角。
+                .shadow(
+                    elevation = DhDesign.Elevation.e2,
+                    shape = shape,
+                    clip = false
+                )
+                .clip(shape)
+                .background(p.sheet)
+                .padding(DhDesign.Space.xl.dp)
+        ) {
+            Text(text = title, color = p.title, style = t.section)
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
+            Text(text = body, color = p.sub, style = t.sub)
+            Spacer(Modifier.height(DhDesign.Space.xl.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onCancel) {
+                    Text(text = cancelText, color = p.sub, style = t.body)
+                }
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                TextButton(onClick = onConfirm) {
+                    Text(
+                        text = confirmText,
+                        color = if (danger) p.err else p.accent,
+                        style = t.rowTitle
+                    )
+                }
+            }
+        }
+    }
+
+    /**
      * 通用的「弹一块 Compose 内容」。
      *
      * @param widthInsetDp 左右各留多少 dp（与既有弹窗口径一致：28dp 不铺满）
@@ -132,8 +239,14 @@ object DhDialogHost {
             ComposeHost.installForActivity(act)
             val dlg = Dialog(act)
             dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            // 【e2 阴影留白】浮层要投影就必须在窗口边界内留出余量，否则阴影会被窗口裁掉。
+            //   这里给四周各留 e2 的宽度，并把窗口同量加宽 —— 两者相抵，
+            //   纸张的**视觉宽度与改造前完全一致**，只是外面多了一圈透明可投影区。
+            val shadowRoom = DhDesign.Elevation.e2
             val cv = ComposeHost.createView(act) {
-                content { dismissCurrent() }
+                Box(modifier = Modifier.padding(shadowRoom)) {
+                    content { dismissCurrent() }
+                }
             }
             dlg.setContentView(cv)
             dlg.window?.setBackgroundDrawable(
@@ -141,7 +254,9 @@ object DhDialogHost {
             )
             dlg.setCanceledOnTouchOutside(true)
             val dm = act.resources.displayMetrics
-            val w = dm.widthPixels - act.resources.displayMetrics.density.toInt() * widthInsetDp * 2
+            val insetPx = act.resources.displayMetrics.density.toInt() * widthInsetDp * 2
+            val roomPx = (act.resources.displayMetrics.density * shadowRoom.value).toInt() * 2
+            val w = (dm.widthPixels - insetPx + roomPx).coerceAtMost(dm.widthPixels)
             dlg.window?.setLayout(
                 w,
                 if (wrapHeight) {
@@ -191,10 +306,20 @@ object DhDialogHost {
     ) {
         val p = DhTokens.palette
         val t = DhTokens.type
+        val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(DhDesign.Radius.lg.dp))
+                // 【e2·菜单属于真正的浮层】设计稿「阴影只留给真正的浮起层」——
+                //   菜单纸张压在整个页面之上，是这套层级里唯一该投影的形态之一。
+                //   先 shadow 再 clip：反过来剪完再投影会被裁掉，阴影看不见。
+                //   形状必须与下面的 clip 完全一致，否则阴影会露出圆角外的直角。
+                .shadow(
+                    elevation = DhDesign.Elevation.e2,
+                    shape = shape,
+                    clip = false
+                )
+                .clip(shape)
                 .background(p.sheet)
                 .padding(
                     start = DhDesign.Space.lg.dp + 2.dp,

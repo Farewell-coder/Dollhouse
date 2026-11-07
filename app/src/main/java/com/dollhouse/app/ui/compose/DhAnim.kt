@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -62,31 +63,45 @@ object DhAnim {
     @JvmField
     val TAP_SCALE: SpringSpec<Float> = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 900f)
 
-    /** 卡片展开 / 收起：时长对齐 `UiKit.D_LAYER`，曲线对齐 `UiKit.EASE_DECEL`。 */
+    /**
+     * 卡片展开 / 收起。
+     *
+     * 【时长来源·本批收敛】展开属于「进入」，改取 `DhDesign.Motion.enter`（220ms）；
+     *   收起属于「退出」，取 `DhDesign.Motion.exit`（180ms）。
+     *   收敛前这里是 `UiKit.D_LAYER`(260) / `UiKit.D_MICRO`(180)：260 不在设计稿阶梯上，
+     *   于是「同一件事（一块内容从无到有）在设置页 260ms、在转场 220ms」，手感不一致。
+     *   曲线保持原样（LinearOutSlowInEasing / FastOutLinearInEasing），本批不动曲线。
+     */
     @JvmField
     val CARD_EXPAND: TweenSpec<IntSize> =
-        tween(durationMillis = UiKit.D_LAYER, easing = LinearOutSlowInEasing)
+        tween(durationMillis = DhDesign.Motion.enter, easing = LinearOutSlowInEasing)
 
     /** 卡片收起：用加速曲线（「离开比进入快」）。 */
     @JvmField
     val CARD_COLLAPSE: TweenSpec<IntSize> =
-        tween(durationMillis = UiKit.D_MICRO, easing = FastOutLinearInEasing)
+        tween(durationMillis = DhDesign.Motion.exit, easing = FastOutLinearInEasing)
 
     /** 卡片展开时的透明度：与 [CARD_EXPAND] 同时长同曲线。 */
     @JvmField
     val CARD_FADE_IN: TweenSpec<Float> =
-        tween(durationMillis = UiKit.D_LAYER, easing = LinearOutSlowInEasing)
+        tween(durationMillis = DhDesign.Motion.enter, easing = LinearOutSlowInEasing)
 
     /** 卡片收起时的透明度：与 [CARD_COLLAPSE] 同时长同曲线。 */
     @JvmField
     val CARD_FADE_OUT: TweenSpec<Float> =
-        tween(durationMillis = UiKit.D_MICRO, easing = FastOutLinearInEasing)
+        tween(durationMillis = DhDesign.Motion.exit, easing = FastOutLinearInEasing)
 
     /** 滑动行吸附：ζ=0.73、k=420 —— 与 `Springs.snappy()` **逐参数相同**。 */
     @JvmField
     val SWIPE_SETTLE: SpringSpec<Float> = spring(dampingRatio = 0.73f, stiffness = 420f)
 
-    /** 通用淡入 / 淡出：时长对齐 `UiKit.D_MICRO`。 */
+    /**
+     * 通用淡入 / 淡出。
+     *
+     * 【为什么取最轻的一档】淡入淡出不承载结构变化，只做「出现 / 消失」的过渡，
+     *   用 `DhDesign.Motion.micro`（160ms）最短的一档；拉长会让界面显得迟钝。
+     *   收敛前是 `UiKit.D_MICRO`(180)。
+     */
     @JvmField
-    val FADE: TweenSpec<Float> = tween(durationMillis = UiKit.D_MICRO)
+    val FADE: TweenSpec<Float> = tween(durationMillis = DhDesign.Motion.micro)
 }

@@ -990,6 +990,16 @@ object ChatUi {
         ) {
             ActionChip(text = "重新生成", iconRes = Icons.IC_REFRESH) { host.regenerate() }
             ActionChip(text = "复制", iconRes = Icons.IC_COPY) { host.copyLastReply() }
+            // 【本轮·把丢掉的功能补回来】ChatUi 的注释一直写着「清空当前对话保留在
+            //   聊天页右下角的工具区（见 ActionRow）」，但 ActionRow 实际只实现了
+            //   重新生成与复制 —— 承诺的入口从来没落地。
+            //   连带后果：ChatPanel.confirmClearChat()（唯一调用点）成了 0 调用被清理，
+            //   于是「清空当前对话」在整个 App 里彻底不可达，而 clearChat() 的逻辑一直完好。
+            //   这里按注释原本的设计补回入口，并且**用 Compose 弹窗**（原实现是原生 Dialog）：
+            //   破坏性操作用 Alert 是正确形态（与「从列表移除」区分开，那条是可逆的）。
+            ActionChip(text = "清空", iconRes = Icons.IC_TRASH) {
+                host.confirmClearChat()
+            }
         }
     }
 

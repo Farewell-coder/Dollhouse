@@ -6,9 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Outline
 import android.view.View
-import android.view.ViewGroup
 import android.view.ViewOutlineProvider
-import android.view.ViewParent
 import android.widget.LinearLayout
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
@@ -188,11 +186,6 @@ class ChatPanel(
         }
     }
 
-    /** 【交互】气泡渲染已整体迁到 ChatUi / ChatState；以下为薄壳，保持内部调用点不变。 */
-    fun addBubble(str: String?, z: Boolean) {
-        appendBubble(str ?: "", z, null)
-    }
-
     private fun addThinking(str: String?) {
         ChatState.thinking = str
         if (!ChatState.holdScroll) {
@@ -292,14 +285,6 @@ class ChatPanel(
     /** 工具条：思考程度面板。 */
     internal fun showThink() {
         ChatPanels.showThink(UiKit.findActivity(context))
-    }
-
-    /**
-     * 【r13·需求改造】原「功能面板（记忆 / 发图）」已随加号面板一起删除。
-     * 【现在怎么发图】工具条上的图片按钮直接调 [openPicker]（用户定案：甲 —— 整页删掉，发图挪到别处）。
-     */
-    internal fun showMemory() {
-        openPicker()
     }
 
     /* ------------------------- 对外方法（契约不变） ------------------------- */
@@ -472,13 +457,6 @@ class ChatPanel(
         val plan = com.dollhouse.app.data.FileChunking.plan(null, str)
         ChatState.attachLabel = "已选文本（约 " + max + " KB，" +
             com.dollhouse.app.data.FileChunking.describe(plan) + "）"
-    }
-
-    fun showChat() {
-        browsingArchives = false
-        refreshInputRow()
-        renderHistory()
-        refreshHint()
     }
 
     /* ------------------------- 多会话 / 上下文环 / 抽屉 ------------------------- */
@@ -1288,27 +1266,30 @@ class ChatPanel(
     }
 
     /**
-     * 清空当前对话（先二次确认）。
+     * 「清空当前对话」的二次确认。
      *
-     * 【r13·入口收拢改造】原实现借 `ChatDrawer.confirm(...)` 叠确认框 —— 那是抽屉时代的
-     *   命令式 View 弹窗。抽屉已移除，这里改用全 App 统一的弹窗通道 [UiKit.showDialog]
-     *   （与「没配模型」「打不开相册」等提示同一套壳、同一磨砂质感），
-     *   顺带彻底断开本页对 `ChatDrawer` 的依赖。
+     * 【为什么这一轮要把它加回来】它不是新增功能，是**把丢掉的功能补回**：
+     *   `ChatUi` 的注释一直写着「清空当前对话保留在聊天页右下角的工具区（见 ActionRow）」，
+     *   但 `ActionRow` 自始只实现了重新生成/复制 —— 承诺的入口从未落地。
+     *   于是 `confirmClearChat` 成了 0 调用被清理，`clearChat()` 逻辑虽完好却彻底不可达。
      *
-     * 【为什么不用 Compose 的 DhForm.Alert】本方法是从「清空当前对话」按钮的命令式回调里
-     *   调进来的（不是 Composable 作用域），而 `DhForm.Alert` 标了 `@Composable`，
-     *   在这里调会编译不过。`UiKit.showDialog` 是原生 Dialog，任何线程/上下文都能调。
+     * 【为什么用 Compose 弹窗，而不是恢复原来的原生 Dialog 壳】
+     *   原实现走 `UiKit.showDialog`（View 侧），与全站 Compose 弹窗是两套观感。
+     *   现在经 `ui/kit/DhDialogHost.confirm`，与 `DhForm.Alert` 同视觉、又能从命令式代码调用。
+     *
+     * 【文案为什么强调「记忆不会删」】这是用户最容易误解的一点：清空对话 ≠ 清空记忆。
+     *   摘要与总记忆库是两份独立数据，这里必须说清楚，否则用户不敢点。
      */
     fun confirmClearChat() {
-        val act = com.dollhouse.app.ui.theme.UiKit.findActivity(context) ?: return
-        com.dollhouse.app.ui.theme.UiKit.showDialog(
+        val act = UiKit.findActivity(context) ?: return
+        com.dollhouse.app.ui.kit.DhDialogHost.confirm(
             act,
-            "清空当前对话",
-            com.dollhouse.app.ui.theme.UiKit.dialogMessage(act, "这段对话会从本机彻底删掉，不能恢复。"),
-            "清空",
-            android.view.View.OnClickListener { clearChat() },
-            "取消",
-            null
+            title = "清空当前对话",
+            body = "这条会话的全部消息都会被删除，且不可恢复。\n" +
+                "人偶、人格设定与长期记忆不受影响，仍会保留。",
+            confirmText = "清空",
+            onConfirm = { clearChat() },
+            danger = true
         )
     }
 
@@ -1322,22 +1303,6 @@ class ChatPanel(
         PetPrefs.removeConvPrev(context, ChatSessions.currentId(context))
         renderHistory()
         refreshCtxRing()
-    }
-
-    /** 本地估算的当前上下文占用字符数（人设 + 记忆 + 历史正文）。 */
-    fun ctxUsedChars(): Int {
-        // 【r13·一人偶一对话】人设与记忆都按**当前会话绑定的那只人偶**取 ——
-        //   写死默认那只会让环里显示的占用与实际请求不一致（换了人偶后数字不变）。
-        val who = boundDollId()
-        var n = DollProfile.persona(context, who).length
-        n += Mem.injectText(context, who, Mem.MAX_INJECT_CHARS).length
-        for (i in 0 until history.length()) {
-            val o = history.optJSONObject(i)
-            if (o != null) {
-                n += o.optString("content", "").length
-            }
-        }
-        return n
     }
 
     /**
@@ -1904,12 +1869,7 @@ class ChatPanel(
         }, "feiyu-tools").start()
     }
 
-    /** 【交互】联网工具已收口到 ChatToolRegistry / SearchTool；以下两处为兼容薄壳。 */
-    fun doSearch(str: String?): String {
-        return ChatToolRegistry.execute("web_search", "{\"query\":\"" + str + "\"}",
-                webSearch = true, remember = false)
-    }
-
+    /** 【交互】联网工具已收口到 ChatToolRegistry / SearchTool；执行侧统一走 [runTool]。 */
     private fun buildTools(): JSONArray {
         // 【三件套】两个开关：联网工具（设置页）+ 记忆工具（记忆库设置 → 自动保存记忆）。
         //   【r13·新记忆系统】记忆开关从旧的 memAutoSave 换成 mem2Auto —— 与新键一致。
@@ -1986,11 +1946,6 @@ class ChatPanel(
             return
         }
         regenerate()
-    }
-
-    /** 兼容入口：不带思考内容的旧签名（外部契约不变）。 */
-    fun handleReply(str: String?) {
-        handleReply(str, "", 0L)
     }
 
     /**

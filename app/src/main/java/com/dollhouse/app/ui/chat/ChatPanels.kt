@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.ai.ModelRules
@@ -383,15 +384,25 @@ object ChatPanels {
         content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
     ) {
         val p = DhTokens.palette
+        val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(DhDesign.Radius.lg.dp))
+                // 【e2·面板属于真正的浮层】模型 / 思考面板是压在聊天页之上的层，
+                //   与菜单纸张同级，是这套层级里该投影的另一处。
+                //   shadow 必须在 clip 之前：先裁后投影会把阴影一起裁没。
+                //   shape 与下面的 clip / border 共用同一个值，避免阴影露出直角。
+                .shadow(
+                    elevation = DhDesign.Elevation.e2,
+                    shape = shape,
+                    clip = false
+                )
+                .clip(shape)
                 .background(p.sheet)
                 .border(
                     DhDesign.Size.hairline,
                     p.line,
-                    RoundedCornerShape(DhDesign.Radius.lg.dp)
+                    shape
                 )
                 .padding(DhDesign.Space.lg.dp),
             content = content

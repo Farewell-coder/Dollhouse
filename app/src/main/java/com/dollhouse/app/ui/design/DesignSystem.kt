@@ -1,5 +1,7 @@
 package com.dollhouse.app.ui.design
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Typography
@@ -264,6 +266,21 @@ object DhDesign {
         /** 输入区高度。 */
         val composerH = 64.dp
 
+        /**
+         * 单行输入框高度（dp）。
+         *
+         * 【为什么单开一槽】规范里「输入框 40dp」被两处各写一遍：
+         *   `ui/kit/Components.kt` 的私有 `FieldHeight`、`ui/compose/DhForm.kt` 的 `FIELD_MIN_DP`。
+         *   两处都写 40 时看不出问题，一旦有人只改一处，「同一个输入框在两个页面高度不同」
+         *   就会复发 —— 这正是本轮要根治的「同一语义两个值」。
+         *
+         * 【注意它与 48dp 命中区的关系】设计稿的口径是「视觉 40 / 命中 48」。
+         *   带尾部图标（如清除叉、密码显示）的输入框若强行定高 40，
+         *   会把 48dp 的可点区域裁掉，等于用可见性换无障碍。所以调用方允许
+         *   只把它当**下限**用（defaultMinSize），由内容自己决定实际高度。
+         */
+        val fieldH = 40.dp
+
         /** 分隔线粗。 */
         val hairline = 1.dp
     }
@@ -323,9 +340,69 @@ object DhDesign {
         /** 列表项入场错峰间隔。 */
         const val stagger = 26
 
-        /** 标准缓动（减速）。Compose 的 FastOutSlowInEasing 与设计稿 ease-std 等价。 */
+        /* ---------------------------------------------------------------
+         * 缓动曲线（4 条，与设计稿 token.css 的 --ease-* 一一对应）
+         *
+         * 【为什么必须显式给贝塞尔而不是用 Compose 内置名】
+         *   设计稿给的是 CSS 的 cubic-bezier 四元组；Compose 内置的
+         *   FastOutSlowInEasing 只是「近似」标准曲线，数值上并不相等
+         *   （内置是 (0.4, 0.0, 0.2, 1.0) 的 Material 版本）。
+         *   要让 Compose 页与 View 页（走 UiKit.EASE_* 的 PathInterpolator）
+         *   在同样的时长下走出来**同一条曲线**，必须用同一个四元组。
+         *
+         * 【命名】与设计稿 token 名严格同名，避免出现「中文名 / 英文名 / 缩写」
+         *   三套叫法（历史上 DhAnim 与 UiKit 各叫过一遍，就是混乱的起点）。
+         * --------------------------------------------------------------- */
+
+        /** 减速（标准）：cubic-bezier(0.2, 0, 0, 1)。绝大多数进入 / 位移 / 颜色过渡。 */
+        val easeStd: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+
+        /** 标准进出：cubic-bezier(0.4, 0, 0.2, 1)。双向对称的动作（展开后又收起这类）。 */
+        val easeIo: Easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
+
+        /** 加速退出：cubic-bezier(0.4, 0, 1, 1)。**离开永远比进入快**，用加速曲线。 */
+        val easeExit: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
+
+        /** 弹簧阻尼比（仅用于必须带物理直觉的位移：底栏指示器、按压回弹）。 */
         const val springDamping = 0.82f
         const val springStiffness = 380f
+    }
+
+    /* ================================================================
+     * 5b. 高度层级（Elevation）
+     * ================================================================ */
+
+    /**
+     * 阴影三档：e0 / e1 / e2。
+     *
+     * 【设计稿原文】「elevation（0/1/2，outline-first）」——
+     *   也就是说**默认不投影，靠 1dp 发丝描边承载层级**；
+     *   只有真正浮起于页面之上的层才用 e2。
+     *
+     * 【为什么会缺这一组】改造前全工程 `.shadow(` 调用数为 0：
+     *   弹窗 / 底部面板 / 菜单纸张全靠描边区分，与本工程「卡片只微微浮起」的取向一致，
+     *   但**浮层与页面之间的纵深完全消失了** —— 用户看不出「这个框是压在上面的」。
+     *
+     * 【数值怎么来的】设计稿给的是 CSS 的 box-shadow：
+     *   e1 = `0 1px 2px rgba(...,0.06)`   → Compose shadowElevation 取 **2dp**
+     *   e2 = `0 12px 32px rgba(...,0.16)` → Compose shadowElevation 取 **12dp**
+     *   Compose 的 shadowElevation 只接受一个模糊半径近似值，
+     *   无法表达 CSS 的「纵向偏移 + 扩散」，因此这里只存 dp 近似值；
+     *   CSS 的原始四元组保留在设计稿 token.css，供墨卡 / 网页端对齐。
+     *
+     * 【硬规则】**列表行 / 芯片 / 顶栏永不加阴影**（见设计稿「不要做」清单）。
+     *   e1 只用于「被按下的卡片」这类瞬时反馈，e2 只用于 sheet / dialog / menu / snackbar。
+     */
+    @Immutable
+    object Elevation {
+        /** e0：默认。不投影，层级由 1dp 描边承担。 */
+        val e0 = 0.dp
+
+        /** e1：轻微浮起（被按下的卡片、B 方向抬升卡片、键盘按键）。 */
+        val e1 = 2.dp
+
+        /** e2：真正的浮层（底部面板、对话框、菜单纸张、Snackbar）。 */
+        val e2 = 12.dp
     }
 
     /* ================================================================

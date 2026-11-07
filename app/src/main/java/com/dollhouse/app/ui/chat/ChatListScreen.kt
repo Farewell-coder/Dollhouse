@@ -48,6 +48,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhDivider
+import com.dollhouse.app.ui.kit.DhTag
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.home.ChatBadge
@@ -571,23 +572,23 @@ object ChatListScreen {
         }
     }
 
-    /** 小标签（人偶 / 自聊）。 */
+    /**
+     * 小标签（人偶 / 自聊）。
+     *
+     * 【本轮·形态纠正】改造前这里是**手写的一枚 chip 形态**：`clip(999)` 药丸 +
+     *   `option` 底 + `acc` 强调字 + 11sp。问题不在好看与否，而在语义错位：
+     *   设计稿把两者分得很清 ——
+     *     · chip：26dp、pill、**可点**，表达「我在筛什么」；
+     *     · tag ：20dp、radius 8、**不可点**，表达「这条数据是什么」。
+     *   这里三处用法（「N 段会话」「免打扰」「置顶」）全是描述数据本身、都不带 onClick，
+     *   属于 tag。用 chip 的形态画 tag 的语义，等于让用户以为它能点。
+     *
+     * 【改法】直接转发到 `ui/kit` 的规范实现 [DhTag]（20dp / radius 8 / soft 底 / sub 字，
+     *   label 11sp-600）。保留本函数名与签名，三处调用点零改动。
+     */
     @Composable
     private fun Tag(text: String) {
-        val c = DhTokens.colors
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(c.option)
-                .padding(horizontal = 6.dp, vertical = 1.dp)
-        ) {
-            Text(
-                text = text,
-                color = c.acc,
-                fontSize = 11.sp, lineHeight = 16.sp,
-                fontFamily = DhTokens.fonts
-            )
-        }
+        DhTag(text = text)
     }
 
     /**

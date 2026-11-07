@@ -3,13 +3,18 @@ package com.dollhouse.app.ui.compose
 import android.app.Dialog
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.ColorDrawable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -21,6 +26,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -41,11 +48,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Design
 
 /** 紧凑尾部图标的视觉尺寸（dp）：与正文行高相当，不会撑高输入框。 */
 private const val TRAILING_VISUAL_DP = 22
+
+/**
+ * 单行输入框的最小高度（dp）—— 直接取 `DhDesign.Size.fieldH`（设计稿 40dp）。
+ *
+ * 【M-收口】上一版这里是文件内常量，因为当时 `DhDesign.Size` 还没有这个槽位。
+ *   现已补 `fieldH`，并与规范源 `ui/kit/Components.kt` 共用同一个 token ——
+ *   避免「改一处、另一处不动」导致同一输入框在两个页面高度不同。
+ */
+private val FIELD_H = com.dollhouse.app.ui.design.DhDesign.Size.fieldH
 
 /**
  * 【职责】Compose 侧的表单 / 弹层构件：输入框、标签、徽标、主色药丸、分隔间距、确认弹窗。
@@ -103,6 +120,40 @@ object DhForm {
         compactTrailing: Boolean = false
     ) {
         val c = DhTokens.colors
+        // 【聚焦态·本轮补】改造前本框**聚焦时什么都不变**：底恒为 field、无描边。
+        //   于是多框表单里用户看不出「现在激活的是哪一个」，这是设计稿明令要求的一环。
+        //   规范实现（聚焦 → 底 field→card、描边 Transparent→accent、160ms）本来只存在于
+        //   `ui/kit` 的 DhField 里，而它库外 0 调用 —— 等于规范没落地。
+        //   这里把同一套行为补进**真正被 53 处调用的** DhForm.Input，参数与签名零改动。
+        //
+        // 【token 口径】颜色取规范名 `DhTokens.palette`，与 DhField 完全同源
+        //   （Palette.fromUiKit 与 DhColors.fromUiKit 读同一批 UiKit 字段，值相等）。
+        //   时长取 `DhDesign.Motion.micro`（160），描边粗取 `DhDesign.Size.hairline`（1dp），
+        //   圆角取 `DhDesign.Radius.md`（12）—— 不写裸值。
+        val p = DhTokens.palette
+        val focusSource = remember { MutableInteractionSource() }
+        val focused by focusSource.collectIsFocusedAsState()
+        val fill by animateColorAsState(
+            targetValue = if (focused) p.card else p.field,
+            animationSpec = tween(DhDesign.Motion.micro),
+            label = "dhform-input-fill"
+        )
+        val stroke by animateColorAsState(
+            targetValue = if (focused) p.accent else Color.Transparent,
+            animationSpec = tween(DhDesign.Motion.micro),
+            label = "dhform-input-stroke"
+        )
+        val fieldShape = RoundedCornerShape(DhDesign.Radius.md.dp)
+        // 【高度对齐设计稿 40dp】原来高度全靠上下各 12dp 内边距把文字撑出来（≈44dp）。
+        //   这里改成：单行且无尾部内容时**定高 40**；其余情况只给 40 的下限。
+        //   【为什么不一律定高】带 trailing 的 6 处里，IconButton 的命中区是 48dp，
+        //   定高 40 会把它裁掉（无障碍与可点性双退化）。用 defaultMinSize 让 48dp 的
+        //   那几处维持原高度，其余 47 处收敛到 40 —— 既对齐设计稿，又不碰命中区。
+        val fixedHeight = singleLine && trailing == null
+        // 【定高时上下不留内边距】40dp 已经由 Modifier.height 定死，再叠 8dp 上下内边距
+        //   会把文字挤进 24dp 的窄条里（大字号时可读性退化）。留 0、改由 Box 居中承担，
+        //   与 DhField 的口径一致（它也是定高 + 只有水平内边距）。
+        val verticalPad = if (fixedHeight) 0.dp else DhDesign.Space.md.dp
         Column(modifier = modifier.fillMaxWidth()) {
             if (!label.isNullOrEmpty()) {
                 Text(
@@ -118,9 +169,30 @@ object DhForm {
                 onValueChange = onValueChange,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.field)
-                    .padding(12.dp),
+                    .then(
+                        if (fixedHeight) {
+                            Modifier.height(FIELD_H)
+                        } else {
+                            Modifier.defaultMinSize(minHeight = FIELD_H)
+                        }
+                    )
+                    .clip(fieldShape)
+                    .background(fill)
+                    // 【描边按需加，与 DhField 同口径】`Modifier.border` 不参与测量
+                    //   （它在组件边界内绘制，不改变尺寸），所以这里不是「为了防止框宽跳动」。
+                    //   条件加的真正理由是：维持与规范实现 DhField 完全一致的写法与绘制路径，
+                    //   未聚焦时（颜色为 Transparent）根本不必挂一层描边节点。
+                    .then(
+                        if (stroke.alpha > 0f) {
+                            Modifier.border(DhDesign.Size.hairline, stroke, fieldShape)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .padding(horizontal = DhDesign.Space.md.dp, vertical = verticalPad),
+                // 【必须把 interactionSource 交给 BasicTextField】否则它永远收不到 Focus 事件，
+                //   collectIsFocusedAsState 会恒为 false —— 聚焦态等于没加。
+                interactionSource = focusSource,
                 textStyle = TextStyle(
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
@@ -135,7 +207,11 @@ object DhForm {
                 cursorBrush = SolidColor(c.acc),
                 decorationBox = { inner ->
                     if (trailing == null) {
-                        Box {
+                        // 【必须显式垂直居中】定高 40dp + 上下零内边距之后，Box 的默认
+                        //   TopStart 会让 15sp/24dp 高的文字贴住框顶，下方空出一条 —
+                        //   与带 trailing 那条分支（曾出现同款「字偏上」）是同一个坑。
+                        //   提示文字与输入内容同在 CenterStart，两者基线上才对得齐。
+                        Box(contentAlignment = Alignment.CenterStart) {
                             if (value.isEmpty() && hint.isNotEmpty()) {
                                 Text(
                                     text = hint,

@@ -103,7 +103,7 @@ object DhButtonStyle {
  */
 private val ButtonHeight = 44.dp
 private val ButtonHeightSm = 34.dp
-private val FieldHeight = 40.dp
+private val FieldHeight = DhDesign.Size.fieldH
 private val ChipHeight = 26.dp
 private val TagHeight = 20.dp
 private val StateSeat = 56.dp
