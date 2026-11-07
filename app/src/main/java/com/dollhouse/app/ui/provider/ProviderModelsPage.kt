@@ -31,6 +31,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.SwipeToDelete
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Icons
@@ -148,11 +149,11 @@ object ProviderModelsPage {
                         overflow = TextOverflow.Ellipsis
                     )
                     Row(
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         DhForm.Badge(AiModel.kindLabel(m.kind), c.chatChipFg, c.chatChipBg)
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Badge(
                             text = if (m.enabled) "启用" else "禁用",
                             fg = if (m.enabled) c.ok else c.err,

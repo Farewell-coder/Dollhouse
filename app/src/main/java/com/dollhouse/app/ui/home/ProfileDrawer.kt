@@ -41,6 +41,8 @@ import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.MyProfile
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollState
@@ -300,6 +302,13 @@ object ProfileDrawer {
         val icon: (MainActivity) -> Int,
         val desc: String? = null,
         val closesDrawer: Boolean = false,
+        /**
+         * 该入口对应的页面 key（`PageStack.topKey` 的值）；null = 动作类（无页面）。
+         *
+         * 【用途】「当前选中项高亮」：若栈顶 key 等于本字段，该行画对比底块。
+         * 动作类（启停人偶）没有页面，恒不高亮。
+         */
+        val pageKey: String? = null,
         val onPick: (MainActivity) -> Unit
     )
 
@@ -314,13 +323,15 @@ object ProfileDrawer {
         Entry(
             label = { "我的资料" },
             icon = { Icons.IC_CIRCLE_USER },
-            desc = "头像、昵称、个性签名"
+            desc = "头像、昵称、个性签名",
+            pageKey = MyProfilePage.KEY
         ) { act -> MyProfilePage.open(act) },
 
         Entry(
             label = { "外观" },
             icon = { Icons.IC_PALETTE },
-            desc = "主题、背景、聊天气泡、弹窗"
+            desc = "主题、背景、聊天气泡、弹窗",
+            pageKey = AppearancePage.KEY
         ) { act -> AppearancePage.open(act) },
 
         // 【动作类】不跳页面，只切桌宠启停 —— 抽屉必须让开才能看到结果。
@@ -334,25 +345,43 @@ object ProfileDrawer {
         Entry(
             label = { "记忆库设置" },
             icon = { Icons.IC_BRAIN },
-            desc = "抽取与检索策略"
+            desc = "抽取与检索策略",
+            pageKey = MemSettingsPage.TAG_PAGE
         ) { act -> MemSettingsPage.open(act) },
 
         Entry(
             label = { "人偶管理" },
             icon = { Icons.IC_LAYERS },
-            desc = "编辑、启停、封面、动作"
+            desc = "编辑、启停、封面、动作",
+            pageKey = DollListScreen.KEY
         ) { act -> DollListScreen.open(act) },
 
         Entry(
             label = { "设置" },
-            icon = { Icons.IC_SETTINGS }
+            icon = { Icons.IC_SETTINGS },
+            pageKey = SettingsScreen.TAG_PAGE
         ) { act -> SettingsScreen.open(act) },
 
         Entry(
             label = { "关于" },
-            icon = { Icons.IC_INFO }
+            icon = { Icons.IC_INFO },
+            pageKey = AboutPage.TAG_PAGE
         ) { act -> AboutPage.open(act) }
     )
+
+    /**
+     * 【底部固定区】设置 / 关于。
+     *
+     * 【为什么单独列一份而不是从 ENTRIES 过滤】参考图的硬要求就是「设置、帮助、账户固定在底部」——
+     *   这是**布局契约**，不是"恰好这两条排在最后"。写成独立常量后：
+     *   · 谁把它删了 / 把它挪进中段，编译期就会露馅（`Host` 直接引用本常量）；
+     *   · 新增入口时不必猜"该放 ENTRIES 还是放底部"——两个列表语义互斥、显式选择。
+     * 【7 个入口一个不少】ENTRIES(7) 里去掉这两条后剩 5 条进中段，
+     *   FOOTER_ENTRIES(2) 进底部，5 + 2 = 7，与改造前完全一致。
+     */
+    private val FOOTER_ENTRIES: List<Entry> = ENTRIES.filter { e ->
+        e.pageKey == SettingsScreen.TAG_PAGE || e.pageKey == AboutPage.TAG_PAGE
+    }
 
     /**
      * 抽屉本体。宿主（[HomeUi]）把它叠在**所有内容之上**（含底栏）。
@@ -413,34 +442,129 @@ object ProfileDrawer {
                             setProgress(progress.value + drag / panelW)
                         }
                     }
-                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 18.dp)
             ) {
-                Spacer(Modifier.height(20.dp))
+                // ================= 三段式：头部固定 / 中间滚动 / 底部固定 =================
+                // 【为什么不再整体 verticalScroll】按参考图要求：入口多时顶部（头像）与
+                //   底部（设置 / 关于）必须**固定**，只有中间那组随手指滚动。
+                //   整体滚动会让"设置/关于"被推出屏幕外，用户每次都要先滚到底 ——
+                //   那正是参考图明确要避免的形态。
+                //
+                // 【手势为什么不失效】`detectHorizontalDragGestures` 仍挂在**最外层 Column**
+                //   上（上面那段没动），它只吃横向位移；纵向滚动由中间那层
+                //   `verticalScroll` 消费 —— 两者方向正交，互不抢事件。
+                //   左滑收起照常工作。
+
+                // ---------- 顶部固定：头像 + 昵称 + 签名 ----------
+                Spacer(Modifier.height(DhDesign.Space.xl.dp))
                 Header(act)
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(DhDesign.Space.lg.dp))
                 DhKit.Divider()
-                Spacer(Modifier.height(10.dp))
-                // ---------- 功能入口（【r20】统一由 ENTRIES 渲染）----------
-                // 【为什么不再手写七个 ActionRow】见 [Entry] 与 [ENTRIES] 的注释：
-                //   手写时每个入口都要自己调 close()，「跳转不该关抽屉」这条规则只能靠人记住。
-                //   现在渲染器统一执行 [Entry.closesDrawer]，新增入口只需往 ENTRIES 加一条。
-                for (e in ENTRIES) {
-                    DhKit.ActionRow(
-                        label = e.label(act),
-                        iconRes = e.icon(act),
-                        desc = e.desc
-                    ) {
-                        // 【顺序固定为「先关（如需）→ 再导航」】动作类（如启停人偶）必须先让开，
-                        //   否则用户看不到操作结果；导航类不关，覆盖页会盖在抽屉之上，
-                        //   返回时抽屉原地露出，展开态 / 滚动位置全保留。
-                        if (e.closesDrawer) {
-                            close()
-                        }
-                        e.onPick(act)
-                    }
+
+                // ---------- 中间滚动：分组入口 ----------
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    val topKey = PageStack.topKey(act)
+                    // 【分组】按使用场景分两块：「常用」= 日常配置；「动作」= 会改变运行时状态的开关。
+                    //   【为什么这么分】参考图要求"按使用场景分组"；把「启动/关闭人偶」与
+                    //   其它配置项混在一起时，它是唯一会"立刻改变桌面上有没有人偶"的入口，
+                    //   语义与其它"打开一个设置页"的项不同，单独成组更符合直觉。
+                    // 【必须排除底部那两条】`FOOTER_ENTRIES` 是从 ENTRIES 过滤出来的，
+                    //   若这里只按 `pageKey != null` 取"有页面的"，「设置」「关于」会**同时**
+                    //   出现在中段与底部 —— 7 个入口变 9 个、且用户看到重复项。
+                    //   所以中段显式排除底部集合（按对象引用），保证 5 + 2 = 7 不重不漏。
+                    val footerSet = FOOTER_ENTRIES.toSet()
+                    val common = ENTRIES.filter { it.pageKey != null && it !in footerSet }
+                    val actions = ENTRIES.filter { it.pageKey == null }
+
+                    Spacer(Modifier.height(DhDesign.Space.md.dp))
+                    SectionGroup("常用", common, act, topKey)
+                    // 组间距明显大于行间距：用 xl(24)，而行间距由 ActionRow 自带的 GAP_ROW(8) 决定。
+                    Spacer(Modifier.height(DhDesign.Space.xl.dp))
+                    SectionGroup("动作", actions, act, topKey)
+                    Spacer(Modifier.height(DhDesign.Space.xxl.dp))
                 }
-                Spacer(Modifier.height(28.dp))
+
+                // ---------- 底部固定：设置 / 关于 ----------
+                // 【分割线只用来分大块、颜色要淡】DhKit.Divider 已是 1dp 发丝线（colors.line）。
+                DhKit.Divider()
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
+                    // 【底部同样要高亮】原先想传 null（"底部不需要选中态"），但那是错的：
+                    //   用户从「设置」返回时抽屉原地露出，底部那一项**应当**显示为当前页，
+                    //   与中段项的行为一致 —— 否则同一份列表里两套高亮规则，读起来很怪。
+                    val footerTopKey = PageStack.topKey(act)
+                    for (e in FOOTER_ENTRIES) {
+                        DrawerRow(e, act, footerTopKey)
+                    }
+                    Spacer(Modifier.height(DhDesign.Space.md.dp))
+                }
+            }
+        }
+    }
+
+    /**
+     * 一个分组：小标题 + 若干入口行。
+     *
+     * 【组间距 vs 行间距】参考图硬要求「组间距明显大于行间距」：
+     *   · 组与组之间 —— 由调用方插 `Space.xl`(24) / `Space.xxl`(32)；
+     *   · 组内行与行 —— `DhKit.ActionRow` 自带 `GAP_ROW`(8)；
+     *   24 : 8 = 3 : 1，视觉层级清楚。
+     */
+    @Composable
+    private fun SectionGroup(
+        title: String,
+        entries: List<Entry>,
+        act: MainActivity,
+        topKey: String?
+    ) {
+        if (entries.isEmpty()) {
+            return
+        }
+        DhKit.SectionLabel(title)
+        Spacer(Modifier.height(DhDesign.Space.xs.dp))
+        for (e in entries) {
+            DrawerRow(e, act, topKey)
+        }
+    }
+
+    /**
+     * 单个入口行：统一渲染 + 选中态高亮 + `closesDrawer` 语义。
+     *
+     * 【选中态】参考图要求「当前选中项用与背景有明显对比的底块高亮，其他项文字颜色降一档」。
+     *   判定依据是 `PageStack.topKey` 与本入口的 `pageKey` 相等 —— 抽屉是覆盖层，
+     *   用户从某页返回时抽屉原地露出，此时栈顶已回到底层，选中态自然消失，语义正确。
+     *   【为什么不用 ActionRow 的 selected 参数】`DhKit.ActionRow` 当前没有该参数；
+     *   这里用一层 Box 垫 `colors.option` 底块 + 圆角，避免为了一个高亮去改组件库
+     *   （DhKit 本轮被他人占用，且这只是抽屉内部形态）。
+     */
+    @Composable
+    private fun DrawerRow(e: Entry, act: MainActivity, topKey: String?) {
+        val selected = e.pageKey != null && e.pageKey == topKey
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                .then(
+                    if (selected) Modifier.background(DhTokens.colors.option) else Modifier
+                )
+        ) {
+            DhKit.ActionRow(
+                label = e.label(act),
+                iconRes = e.icon(act),
+                desc = e.desc
+            ) {
+                // 【顺序固定为「先关（如需）→ 再导航」】动作类（如启停人偶）必须先让开，
+                //   否则用户看不到操作结果；导航类不关，覆盖页会盖在抽屉之上，
+                //   返回时抽屉原地露出，展开态 / 滚动位置全保留。
+                if (e.closesDrawer) {
+                    close()
+                }
+                e.onPick(act)
             }
         }
     }
@@ -456,7 +580,15 @@ object ProfileDrawer {
         val bio = remember(tick) { MyProfile.bio(act) }
         val avatar = remember(tick) { MyProfile.avatarBitmap(act, 256) }
 
-        Column(modifier = Modifier.fillMaxWidth()) {
+        // 【可点进「我的资料」】参考图原文：「头像 + 昵称 + 签名（点进「我的资料」）」。
+        //   改造前这里纯展示、不可点，用户只能再往下找「我的资料」那一行。
+        //   现在整块头部就是一个大命中区 —— 但这**不替代**列表里的「我的资料」入口：
+        //   参考图另一条硬要求是"所有入口都保留，不要删除"。
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pressable { MyProfilePage.open(act) }
+        ) {
             // 头像
             Box(
                 modifier = Modifier

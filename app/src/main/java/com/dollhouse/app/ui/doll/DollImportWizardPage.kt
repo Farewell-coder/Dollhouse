@@ -40,6 +40,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.Design
@@ -226,7 +227,7 @@ object DollImportWizardPage {
             if (checking) {
                 Text(
                     text = "正在检查 " + picked.size + " 个文件…",
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
                     fontFamily = DhTokens.fonts
@@ -237,7 +238,7 @@ object DollImportWizardPage {
                 if (okCount > 0) {
                     Text(
                         text = "可用 " + okCount + " 个" + (if (badCount > 0) "，不可用 " + badCount + " 个" else ""),
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                         color = c.title,
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBold,
@@ -248,7 +249,7 @@ object DollImportWizardPage {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp)
+                            .padding(top = DhDesign.Space.md.dp)
                             .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                             .background(c.soft)
                             .padding(DhKit.PAD_ROW.dp),

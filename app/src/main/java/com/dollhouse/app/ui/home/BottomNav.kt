@@ -89,7 +89,7 @@ object BottomNav {
                     // 【与全 App 底栏同源】半透明主题底 + 描边，见 UiKit.capsuleFill()（`ui/theme/UiKit.kt`）。
                     .background(c.capsule)
                     .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                    .padding(horizontal = 6.dp, vertical = 5.dp), // 【不收敛·D4】与 999 圆角+1dp 描边配套，改动会改变胶囊总高
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -134,7 +134,7 @@ object BottomNav {
                     }
                 )
                 .pressable(onClick)
-                .padding(horizontal = 18.dp, vertical = 6.dp),
+                .padding(horizontal = 18.dp, vertical = 6.dp), // 【不收敛·D3】决定单项命中区与底栏 64dp 口径
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(modifier = Modifier.size(Design.SZ_MD.dp), contentAlignment = Alignment.Center) {
@@ -156,7 +156,7 @@ object BottomNav {
                 // 【M3·层级】底栏文字走 label 档（11sp / 600）。
                 //   改造前用 FS_TINY=13sp 且选中加粗到 Bold —— 底栏文字和正文一样大，
                 //   三个 Tab 的标签比页面标题还显眼，视觉重量压过了内容。
-                fontSize = 11.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
                 lineHeight = 16.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -183,7 +183,7 @@ object BottomNav {
                 text = text,
                 // 同 ChatListScreen：白字压浅红底在暗色档只有 2.48:1，改用派生色。
                 color = DhTokens.palette.onErr,
-                fontSize = 11.sp, lineHeight = 16.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )

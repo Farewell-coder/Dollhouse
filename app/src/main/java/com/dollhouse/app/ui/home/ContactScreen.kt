@@ -44,6 +44,7 @@ import com.dollhouse.app.ui.chat.ChatSessions
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollGroupPage
@@ -206,7 +207,7 @@ object ContactScreen {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 14.dp, bottom = 6.dp)
+                .padding(top = DhDesign.Space.xl.dp, bottom = DhDesign.Space.xs.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .pressable(onClick)
                 .padding(vertical = 4.dp),
@@ -217,28 +218,28 @@ object ContactScreen {
                 sizeDp = Design.SZ_XS,
                 color = c.sub
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             Text(
                 text = name,
                 color = c.sub,
-                fontSize = 13.sp, lineHeight = 19.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = count.toString(),
                 color = c.line,
-                fontSize = 12.sp, lineHeight = 18.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             if (isNone) {
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 // 【提示语】「未分组」是兜底桶，用户可能不知道能往里拖 —— 给一句极轻的说明。
                 Text(
                     text = "· 没归组的人偶",
                     color = c.line,
-                    fontSize = 11.sp, lineHeight = 16.sp,
+                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -299,14 +300,14 @@ object ContactScreen {
                         text = doll.name,
                         modifier = Modifier.weight(1f, fill = false),
                         color = c.title,
-                        fontSize = 16.sp, lineHeight = 24.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (doll.enabled) {
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         // 【在线点】用「启用中」这一状态做一个小圆点，位置与 QQ 的在线标识一致。
                         //   它是**状态**，所以只用一个小点表示，不占一行文字。
                         Box(
@@ -322,7 +323,7 @@ object ContactScreen {
                     Text(
                         text = brief,
                         color = c.sub,
-                        fontSize = 12.sp, lineHeight = 18.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
                         fontFamily = DhTokens.fonts,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

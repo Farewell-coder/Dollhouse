@@ -451,7 +451,7 @@ object DhKit {
                         color = c.title,
                         // 【M3·层级】卡片标题走 section 档（16sp/600），与行标题（15sp/500）形成
                         //   明确的一级差异；改造前标题 15sp/Bold、行标题 15sp，几乎分不出谁是分组。
-                        fontSize = 16.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize,
                         lineHeight = 22.sp,
                         fontFamily = DhTokens.fonts,
                         fontWeight = FontWeight.SemiBold
@@ -1022,7 +1022,7 @@ object DhKit {
                 // 【M3】分组小标题走 label 档（11sp/600 + 0.44 字距）。
                 //   改造前用 FS_SUB（13sp 常规字重），与行内说明文字同字号同字重 ——
                 //   「分组名」和「说明文字」长得一样，用户分不清哪一行是标题。
-                fontSize = 11.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
                 lineHeight = 16.sp,
                 fontFamily = DhTokens.fonts,
                 fontWeight = FontWeight.SemiBold,
@@ -1045,7 +1045,7 @@ object DhKit {
                     text = text,
                     modifier = Modifier.weight(1f),
                     color = c.sub,
-                    fontSize = 11.sp,
+                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
                     lineHeight = 16.sp,
                     fontFamily = DhTokens.fonts,
                     fontWeight = FontWeight.SemiBold,

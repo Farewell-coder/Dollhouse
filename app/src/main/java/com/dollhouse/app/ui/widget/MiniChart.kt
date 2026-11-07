@@ -55,7 +55,7 @@ fun MiniChart(
                 text = "暂无消耗",
                 modifier = Modifier.align(Alignment.Center),
                 color = c.sub,
-                fontSize = 13.sp, lineHeight = 19.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             return@Box
@@ -102,6 +102,7 @@ fun MiniChart(
         ) {
             val padL = 8.dp.toPx()
             val padR = 8.dp.toPx()
+            // 【不收敛·D5】Canvas 内绘图留白（px 值），与轴标签排版配套，不是行间距
             val padT = 10.dp.toPx()
             val padB = 18.dp.toPx()
             val left = padL

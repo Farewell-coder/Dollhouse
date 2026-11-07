@@ -753,12 +753,24 @@ object DhForm {
      *
      * @param text    按钮文案（单行；过长时按 maxLines=1 省略，不会撑破 44dp）
      * @param enabled false 时视觉降到 38% 且不接收点击（与 kit.DhButton 同口径）
+     * @param primary true = 主按钮（accent 实心），false = 次按钮（card 底 + line 描边）。
+     *   设计稿 §3 明确两档：「Primary = accent fill + onAcc text」，
+     *   「Secondary = card fill + line border」，且**一屏只许一个主按钮**。
+     *   所以迁调用点时不能一律用主按钮 —— 弹窗里的「取消 / 留在此页」必须走次按钮，
+     *   否则同一个弹窗会出现两个实心主按钮，反而违反设计稿。
      */
     @Composable
     fun Button(
         text: String,
         modifier: Modifier = Modifier,
         enabled: Boolean = true,
+        primary: Boolean = true,
+        // 【可选前缀图标】Icons.IC_*；默认 0 = 不带图标，与只有文字时逐像素一致。
+        //   有它才能接住原来 OutlineChip(iconRes = ...) 的调用点（如「测试连接」）——
+        //   否则迁移会静默丢掉图标，那是删功能，不是换形态。
+        //   尺寸走 DhDesign.Size.iconSm(16dp)，与 kit.DhButton 同档；
+        //   比原来 chip 档的 SZ_XS(14dp) 大一档，因为按钮文字已经是 15sp。
+        leadingIcon: Int = 0,
         onClick: () -> Unit
     ) {
         val c = DhTokens.colors
@@ -768,21 +780,54 @@ object DhForm {
         val alpha = if (enabled) 1f else 0.38f
         Box(
             modifier = modifier
-                .height(44.dp)
-                .clip(shape)
-                .background(c.acc.copy(alpha = c.acc.alpha * alpha))
-                .then(if (enabled) Modifier.pressScaleClick(onClick) else Modifier)
-                .padding(horizontal = 20.dp),
+                // 【命中区 48 / 视觉 44】用 defaultMinSize 给下限而不是再叠一层 height：
+                //   视觉高度由内层 44dp 决定，外层只保证「可点区域不小于 48dp」
+                //   （设计稿 §Icons「40dp hit area (48dp minimum)」+ Android 无障碍基线）。
+                //   这与旧 pressable 的做法不同 —— 那个是把布局也撑到 48，
+                //   于是圆角 999 被拉成细长椭圆（详见 DhKit.OutlineChip 的注释）。
+                //   这里视觉与命中分开，两边都不牺牲。
+                .defaultMinSize(minHeight = 48.dp)
+                .then(if (enabled) Modifier.pressScaleClick(onClick) else Modifier),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = text,
-                color = c.onAcc.copy(alpha = alpha),
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
-                fontFamily = DhTokens.fonts,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
+            Box(
+                modifier = Modifier
+                    .height(44.dp)
+                    .clip(shape)
+                    .then(
+                        if (primary) {
+                            Modifier.background(c.acc.copy(alpha = c.acc.alpha * alpha))
+                        } else {
+                            // 【次按钮为什么用 card 而不是 sheetUp】设计稿写的是 card fill。
+                            //   弹窗场景下 card 可能与面板同色，这时描边承担轮廓职责 ——
+                            //   line 是发丝线，正是设计稿「Secondary = card fill + line border」。
+                            Modifier
+                                .background(c.card.copy(alpha = c.card.alpha * alpha))
+                                .border(1.dp, c.line.copy(alpha = alpha), shape)
+                        }
+                    )
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (leadingIcon != 0) {
+                        DhKit.Icon(
+                            iconRes = leadingIcon,
+                            sizeDp = com.dollhouse.app.ui.design.DhDesign.Size.iconSm.value,
+                            color = if (primary) c.onAcc.copy(alpha = alpha) else c.title.copy(alpha = alpha)
+                        )
+                        Spacer(Modifier.width(com.dollhouse.app.ui.design.DhDesign.Space.sm.dp))
+                    }
+                    Text(
+                        text = text,
+                        color = if (primary) c.onAcc.copy(alpha = alpha) else c.title.copy(alpha = alpha),
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
+                        fontFamily = DhTokens.fonts,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 
@@ -836,7 +881,7 @@ object DhForm {
                 Text(
                     text = title,
                     color = c.title,
-                    fontSize = 16.sp, lineHeight = 24.sp,
+                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = FontWeight.Bold
                 )
@@ -992,7 +1037,7 @@ object DhForm {
                     Text(
                         text = title,
                         color = c.title,
-                        fontSize = 16.sp, lineHeight = 24.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )

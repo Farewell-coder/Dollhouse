@@ -22,6 +22,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -97,7 +98,7 @@ object DollTalkPage {
                             modifier = Modifier.weight(1f),
                             hint = "第 " + (i + 1) + " 条台词"
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.sub, label = "删除") {
                             lines.removeAt(i)
                             flush()

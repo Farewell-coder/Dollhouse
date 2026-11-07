@@ -63,6 +63,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
@@ -457,7 +458,7 @@ object DollAnimPage {
                     if (baking) {
                         Text(
                             text = "首次打开会把这只人偶的动画逐帧渲染出来，稍等片刻。",
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp),
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(DhDesign.Space.md.dp),
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp,
                             fontFamily = DhTokens.fonts
@@ -509,7 +510,7 @@ object DollAnimPage {
                             Math.round(edgeInset * 100) + "% 会被屏幕挡掉，露出 " +
                             Math.round((1f - edgeInset) * 100) + "%。" +
                             "直接拖预览里的竖线，或点下面的按钮微调。",
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts
@@ -523,17 +524,17 @@ object DollAnimPage {
                         //   方向就反了（用户会以为「露出更多」是把人偶往左边拉）。
                         //   「露出更多」= 少挡一点 = 面积变大 → 用放大/缩小这一对语义，
                         //   与方向无关，贴哪边都说得通。
-                        DhKit.OutlineChip("露出更多", iconRes = Icons.IC_MAXIMIZE) {
+                        DhForm.Button("露出更多", primary = false, leadingIcon = Icons.IC_MAXIMIZE) {
                             DollAnim.setEdgeInset(act, dollId, actionId, edgeInset - 0.02f)
                             insetTick++
                         }
                         Spacer(Modifier.width(8.dp))
-                        DhKit.OutlineChip("露出更少", iconRes = Icons.IC_MINIMIZE) {
+                        DhForm.Button("露出更少", primary = false, leadingIcon = Icons.IC_MINIMIZE) {
                             DollAnim.setEdgeInset(act, dollId, actionId, edgeInset + 0.02f)
                             insetTick++
                         }
                         Spacer(Modifier.width(8.dp))
-                        DhKit.OutlineChip("恢复默认") {
+                        DhForm.Button("恢复默认", primary = false) {
                             DollAnim.setEdgeInset(act, dollId, actionId, DollAnim.EDGE_INSET_DEFAULT)
                             insetTick++
                         }
@@ -541,7 +542,7 @@ object DollAnimPage {
                 }
 
                 // ---------- 偏移微调（方向键） ----------
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -568,8 +569,8 @@ object DollAnimPage {
                         DollProfile.setFrameOffset(act, dollId, off[0] + FINE_STEP, off[1])
                         offTick++
                     }
-                    Spacer(Modifier.width(10.dp))
-                    DhKit.OutlineChip("居中", iconRes = Icons.IC_CROSSHAIR) {
+                    Spacer(Modifier.width(DhDesign.Space.md.dp))
+                    DhForm.Button("居中", primary = false, leadingIcon = Icons.IC_CROSSHAIR) {
                         DollProfile.setFrameOffset(act, dollId, 0f, 0f)
                         offTick++
                     }
@@ -584,7 +585,7 @@ object DollAnimPage {
                 )
 
                 // ---------- 播放控制 ----------
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -598,7 +599,7 @@ object DollAnimPage {
                             frameIdx = if (frameIdx <= 0) frames.size - 1 else frameIdx - 1
                         }
                     }
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     DhKit.IconButton(
                         // 【v0.1.0·修·图标语义】暂停不能用方块（方块 = 停止，语义是「回到开头」）。
                         //   这里只是「停在这一帧、稍后从同一帧继续」，必须用暂停图标，
@@ -607,7 +608,7 @@ object DollAnimPage {
                         Design.SZ_MD, c.acc,
                         label = if (playing) "暂停" else "播放"
                     ) { playing = !playing }
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     DhKit.IconButton(Icons.IC_STEP_FORWARD, Design.SZ_MD, c.title, label = "下一帧") {
                         if (frames.isNotEmpty()) {
                             playing = false
@@ -750,12 +751,12 @@ object DollAnimPage {
                             else bind.triggers.joinToString("、") {
                                 com.dollhouse.app.data.ActionWorkbench.triggerLabel(it)
                             },
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fonts
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     DhKit.MiniChip("选择触发方式", iconRes = Icons.IC_WAYPOINTS) { triggerOpen = true }
                     DhKit.ValueRow(
                         label = "优先级",
@@ -1180,7 +1181,7 @@ object DollAnimPage {
                     fontFamily = DhTokens.fonts
                 )
                 DhForm.Gap()
-                DhForm.PrimaryChip("导出这只人偶为模型包") {
+                DhForm.Button("导出这只人偶为模型包") {
                     val r = ModelExporter.exportDoll(
                         act, dollId,
                         DollStore.byId(act, dollId)?.name ?: dollId,
@@ -1307,7 +1308,7 @@ object DollAnimPage {
                         draft = DollAnim.clampFps(draft + 1)
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhForm.Note("单帧时长约 " + DollAnim.frameMs(draft) + " 毫秒。")
             }
         }

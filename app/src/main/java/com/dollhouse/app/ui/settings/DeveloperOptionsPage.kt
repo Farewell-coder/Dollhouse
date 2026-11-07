@@ -152,7 +152,7 @@ object DeveloperOptionsPage {
 
     @Composable private fun Stat(label: String, value: Int?, color: Color, modifier: Modifier, click: () -> Unit) {
         Column(modifier.clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
-            Text(value?.toString() ?: "—", color = color, fontSize = 28.sp, lineHeight = 36.sp, fontFamily = DhTokens.fontsBold)
+            Text(value?.toString() ?: "—", color = color, fontSize = com.dollhouse.app.ui.design.DhDesign.Type.display.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.display.lineHeight, fontFamily = DhTokens.fontsBold)
             Text(label, color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
         }
     }
@@ -234,7 +234,7 @@ object DeveloperOptionsPage {
         DhKit.Card {
             DhForm.Badge(level(e.severity), DhTokens.colors.err, DhForm.semanticBg(DhTokens.colors.err))
             // 【间距收敛】徽标行 → 详情主消息：与事件卡同构，Space.md(12)。
-            Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontSize = 16.sp, lineHeight = 22.sp, fontFamily = DhTokens.fontsBold)
+            Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight, fontFamily = DhTokens.fontsBold)
             DhKit.ValueRow("错误编号", e.code, iconRes = Icons.IC_CIRCLE_ALERT); DhKit.ValueRow("事件 ID", e.eventId, iconRes = Icons.IC_TAGS)
             DhKit.ValueRow("所属模块", e.module, iconRes = Icons.IC_BLOCKS); DhKit.ValueRow("发生时间", time(e.timestamp), iconRes = Icons.IC_CLOCK_3)
             DhKit.ValueRow("线程", e.thread.ifEmpty { "未采集" }, iconRes = Icons.IC_ACTIVITY); DhKit.ValueRow("异常类型", e.exceptionType.ifEmpty { "未采集" }, iconRes = Icons.IC_WARNING)
@@ -263,7 +263,15 @@ object DeveloperOptionsPage {
 
     @Composable private fun DiagnosticPanel(title: String, content: String, open: Boolean, enabled: Boolean, onClick: () -> Unit) {
         val visible = enabled && open && content.isNotBlank()
-        val arrowRotation by animateFloatAsState(if (visible) 180f else 0f, label = "diagnosticArrow")
+        // 【补 animationSpec】改造前没传，走 Compose 默认曲线（与设计令牌不一致）。
+        //   折叠箭头用 micro(160ms) —— 与 DhGroup 的展开箭头同一档，全 App 折叠语义统一。
+        val arrowRotation by animateFloatAsState(
+            targetValue = if (visible) 180f else 0f,
+            animationSpec = androidx.compose.animation.core.tween(
+                com.dollhouse.app.ui.design.DhDesign.Motion.micro
+            ),
+            label = "diagnosticArrow"
+        )
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).border(1.dp, DhTokens.colors.stroke, RoundedCornerShape(12.dp))) {
             Row(Modifier.fillMaxWidth().then(if (enabled && content.isNotBlank()) Modifier.pressable(onClick) else Modifier).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f), color = if (enabled && content.isNotBlank()) DhTokens.colors.title else DhTokens.colors.sub, fontFamily = DhTokens.fontsBold)

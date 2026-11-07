@@ -35,6 +35,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -262,7 +263,7 @@ object ProviderListPage {
         ) {
             if (iconRes != 0) {
                 DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Text(
                 text = text,
@@ -314,7 +315,7 @@ object ProviderListPage {
                         overflow = TextOverflow.Ellipsis
                     )
                     Row(
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Start
                     ) {
@@ -323,7 +324,7 @@ object ProviderListPage {
                             fg = if (p.enabled) c.ok else c.err,
                             bg = if (p.enabled) DhForm.semanticBg(c.ok) else DhForm.semanticBg(c.err)
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Badge(
                             text = count.toString() + " 个模型",
                             fg = c.chatChipFg,

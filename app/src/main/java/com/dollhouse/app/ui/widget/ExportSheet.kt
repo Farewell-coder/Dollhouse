@@ -29,6 +29,7 @@ import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 import java.io.File
 import java.io.FileOutputStream
@@ -108,7 +109,7 @@ object ExportSheet {
                 }
                 Text(
                     text = "默认不导出密钥，导出的 Key 只保留首尾各 4 位。开启后文件里是可用的完整密钥，请自行妥善保管。",
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.err,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts,
@@ -121,9 +122,9 @@ object ExportSheet {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
-                    DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
-                    Spacer(Modifier.width(10.dp))
-                    DhForm.PrimaryChip(text = if (busy) "导出中…" else "导出") {
+                    DhForm.Button(text = "取消", primary = false) { ref.get()?.dismiss() }
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                    DhForm.Button(text = if (busy) "导出中…" else "导出") {
                         if (!busy) {
                             busy = true
                             run(act, withKeys) { path, err ->
@@ -149,7 +150,7 @@ object ExportSheet {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
-                    DhForm.PrimaryChip(text = "好") { ref.get()?.dismiss() }
+                    DhForm.Button(text = "好") { ref.get()?.dismiss() }
                 }
             }
         }

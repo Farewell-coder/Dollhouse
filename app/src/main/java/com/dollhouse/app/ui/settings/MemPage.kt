@@ -702,13 +702,13 @@ object MemPage {
             Text(
                 text = "连线 = 关系",
                 color = c.line,
-                fontSize = 12.sp, lineHeight = 17.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             Text(
                 text = "大圈 = 关联多",
                 color = c.line,
-                fontSize = 12.sp, lineHeight = 17.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -742,7 +742,7 @@ object MemPage {
             }
             DetailLine("强度", pct(link.weight))
             Spacer(Modifier.height(DhDesign.Space.md.dp))
-            DhKit.OutlineChip("删除这条关系") { onDelete() }
+            DhForm.Button("删除这条关系", primary = false) { onDelete() }
         }
     }
 
@@ -1038,7 +1038,7 @@ object MemPage {
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fonts
                     )
-                    DhKit.OutlineChip("选择") { linkPicker = true }
+                    DhForm.Button("选择", primary = false) { linkPicker = true }
                 }
                 if (linked.isEmpty()) {
                     DhForm.Note("还没有关联。关联之后，图谱上会从这里连一条线出去。")

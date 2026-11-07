@@ -30,6 +30,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
@@ -229,7 +230,7 @@ object AboutPage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -417,7 +418,7 @@ object AboutPage {
             Text(
                 text = title,
                 color = c.title,
-                fontSize = 16.sp, lineHeight = 22.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
@@ -443,7 +444,7 @@ object AboutPage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp),
+                .padding(vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

@@ -42,6 +42,7 @@ import com.dollhouse.app.data.ImportSession
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -71,7 +72,7 @@ internal object ImportAssistantKit {
     ) {
         val c = DhTokens.colors
         DhKit.Card {
-            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.sm.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().pressable(onClick),
                     verticalAlignment = Alignment.CenterVertically
@@ -147,7 +148,7 @@ internal object ImportAssistantKit {
     ) {
         val c = DhTokens.colors
         DhKit.Card {
-            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.sm.dp)) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -183,7 +184,7 @@ internal object ImportAssistantKit {
                             iconRes = if (picked.isEmpty()) Icons.IC_IMAGE else Icons.IC_REFRESH
                         ) { onPick() }
                         if (picked.isNotEmpty()) {
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(DhDesign.Space.sm.dp))
                             Text(
                                 text = "已选 " + picked.size + " 张 / " + frames + " 帧",
                                 color = c.acc,
@@ -214,7 +215,7 @@ internal object ImportAssistantKit {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp)
+                .padding(top = DhDesign.Space.md.dp)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(c.soft)
                 .padding(DhKit.PAD_ROW.dp)
@@ -244,7 +245,7 @@ internal object ImportAssistantKit {
             }
             // 同槽多组：让用户选（R-072），不能静默覆盖。
             if (alternatives.size > 1) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhForm.Note("这里找到 " + alternatives.size + " 组「" + label + "」，选一组用：")
                 for (g in alternatives) {
                     DhKit.CheckRow(
@@ -376,7 +377,7 @@ internal object ImportAssistantKit {
     fun BusyHint(text: String) {
         val c = DhTokens.colors
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(Icons.IC_SPINNER, Design.SZ_SM, c.acc)
@@ -402,7 +403,7 @@ internal object ImportAssistantKit {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp)
+                .padding(top = DhDesign.Space.md.dp)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(c.err.copy(alpha = 0.10f))
                 .padding(DhKit.PAD_ROW.dp),
@@ -427,7 +428,7 @@ internal object ImportAssistantKit {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp)
+                .padding(top = DhDesign.Space.md.dp)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(c.soft)
                 .padding(DhKit.PAD_ROW.dp),
@@ -484,7 +485,7 @@ internal object ImportAssistantKit {
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
         ) {
             for (slot in slots) {
                 SlotTab(
@@ -638,7 +639,7 @@ internal object ImportAssistantKit {
             // 「可以拖动」提示：只在还没拖过时显示一次，不长期占位。
             if (!atEdge) {
                 Row(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = DhDesign.Space.sm.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(Icons.IC_GRIP, Design.SZ_XS, c.sub)
@@ -697,7 +698,7 @@ internal object ImportAssistantKit {
             if (open) {
                 Spacer(Modifier.height(8.dp))
                 DhKit.MiniChip("全部统一到待机", iconRes = Icons.IC_LIST_CHECKS) { onFixAll() }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.MiniChip(
                     if (outline) "隐藏待机轮廓" else "显示待机轮廓",
                     iconRes = Icons.IC_SCAN_LINE
@@ -705,7 +706,7 @@ internal object ImportAssistantKit {
                 if (outline) {
                     DhForm.Note("待机轮廓会叠在预览上，方便对齐。")
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhKit.SectionLabel("手动微调", iconRes = Icons.IC_PEN_TOOL)
                 DhKit.SliderRow(
                     title = "动作大小",
@@ -724,7 +725,7 @@ internal object ImportAssistantKit {
                         DhKit.MiniChip("对齐头顶", iconRes = Icons.IC_ALIGN_START_VERTICAL) { onAlignTop() }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.MiniChip("恢复自动", iconRes = Icons.IC_ROTATE_CCW) { onReset() }
             }
         }

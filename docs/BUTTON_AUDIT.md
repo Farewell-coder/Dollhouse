@@ -27,10 +27,40 @@
 | **待产品确认** | **1** |
 | 合计 | **67** |
 
-**实际改动：只在工厂内部迁移 `DhForm.DialogButton`（13 处调用自动受益）**，
-其余 38 处判为 button 的调用点**没有改**，
-原因是它们全部与 chip 调用点共享同一个工厂函数体 —— 详见 §4「结构性阻碍」。
-这是本任务最重要的结论：**不能按工厂一刀切，改动只能在工厂内部做**。
+**改动进度（两轮）**
+
+| 轮次 | 改动 | button 落地 |
+|---|---|---|
+| 第 1 轮 | 工厂内部收编 `DhForm.DialogButton`（13 处调用自动受益） | 13 |
+| 第 2 轮 | 新增语义化 `DhForm.Button`，逐处迁移 38 个 button 调用点 | **38** |
+| 合计 | | **51 / 53** |
+
+> **剩余 2 处 button 未迁**：`DhForm.SubmitButton` 的 2 处（`ModelListPage` / `AexImportSheet`），
+> 它本身已经是 44dp + 12 圆角 + 15sp，形态已达标，只是保留了四态反馈（转圈/对勾/警告）这一额外职责。
+
+**chip 11 处一处未动**（ModeChip 选择 ×4、TokenStat 分段 ×2、ChatList 筛选 ×4、AboutPage 纯标签 ×1），
+外加「待产品确认」1 处（`DollListScreen:687`）也按规则保持 999。
+
+第 1 轮的核心结论是：**不能按工厂一刀切** —— `PrimaryChip` / `DhForm.OutlineChip` /
+`DhKit.OutlineChip` 三个工厂的函数体内部**同时装着** chip 与 button 两种调用点，
+工厂签名又没有语义参数，改函数体必然误伤真 chip。
+所以第 2 轮改为**在调用点逐处迁移**到新工厂 `DhForm.Button` —— 详见 §4、§9。
+
+## 1.1 第二轮：38 处逐处迁移明细
+
+| 页面 | 迁移数 | 主按钮 | 次按钮 |
+|---|---|---|---|
+| `AexImportSheet.kt` | 8 | 4 | 4 |
+| `AkcpImportSheet.kt` | 6 | 4 | 2 |
+| `ProviderEditPage.kt` | 6 | 1 | 5 |
+| `DollAnimPage.kt` | 5 | 1 | 4 |
+| `ExportSheet.kt` | 3 | 2 | 1 |
+| `ConversationHistoryPage.kt` | 3 | 0 | 3 |
+| `ModelEditPage.kt` | 2 | 1 | 1 |
+| `MemPage.kt` | 2 | 0 | 2 |
+| `DollGroupPage.kt` | 2 | 0 | 2 |
+| `AppearancePage.kt` | 1 | 0 | 1 |
+| 合计 | **38** | **13** | **25** |
 
 ## 2. 六个工厂的实况（比任务书多一个）
 
@@ -257,22 +287,124 @@ bash tools/anim_audit.sh            → 总计 101 项：PASS 101 / FAIL 0
 | 全仓 `RoundedCornerShape(999)` | 51 | **49** |
 | K3c「合计（药丸按钮）」 | 54 | **54（数字未变，见下）** |
 
-**为什么 K3c 的 54 没降**：该脚本统计的是**工厂的调用点数**（`BUTTON_FACTORIES` 表），
-不是「这些工厂内部是不是 999」。`DialogButton` 既不在它的表里，改内部实现也不影响计数。
-这是脚本的度量口径问题，**不是改动没生效** —— 全仓 999 字面量从 51 降到 49 是实证。
-建议后续把 `DhForm.DialogButton` 补进 `BUTTON_FACTORIES`，并给 K3c 增加一条
-「工厂函数体内是否仍为 999」的断言（当前只数调用点，无法反映形态是否已收编）。
+> 注：第一轮时 K3c 仍报 54，因为该脚本统计的是**工厂的调用点数**（`BUTTON_FACTORIES` 表），
+> 不是「这些工厂内部是不是 999」。当时只改了 `DialogButton` 的函数体、没动任何调用点，
+> 所以计数不动 —— 那是度量口径问题，不是改动没生效（全仓 999 字面量 51→49 是实证）。
+> 第二轮迁移了 38 个调用点之后，K3c 从 54 降到 **16**，口径与事实终于对齐。
+> 同时已在 `kit_usage_audit.py` 增加 **K3d**：直接检查「工厂函数体内是否仍为 999」，
+> 这样即使不动调用点、只把函数体改坏，也能被门禁抓住。
 
-## 8. 建议的后续（超出本任务硬约束，需产品/Lead 决定）
+## 9. 第二轮：`DhForm.Button` 工厂设计
 
-1. **新增语义化工厂**：`DhForm.Button(text, onClick)`（44dp+12+15sp，通用主按钮）
-   与 `DhForm.SecondaryButton(...)`，然后逐处迁移 §3.2/3.3/3.4 里那 38 处 button 调用点。
-   这是唯一合规路径（先加工厂，再改调用点，两步都必须被授权）。
-2. **补 K3c 断言**：见 §7，让门禁能真实反映「药丸是否已收编」。
-3. **`DhForm.Chip` 描述修正**：`kit_usage_audit.py:428` 的「999 药丸 / 小号」与实际不符（实为 12）。
-4. **待确认 1 处**：`DollListScreen:687`「恢复自动适配」的 chip / button 归属。
+### 9.1 为什么需要「主/次」两档
+
+第一轮定的方案是「一个主按钮工厂」，落地时发现**不够**：
+
+设计稿 §3 写的是四档，且最后一句是硬规则：
+> Primary = `accent` fill + `onAcc` text. Secondary = `card` fill + `line` border.
+> Ghost = transparent + `accent` text. Danger = transparent + `err` border/text.
+> **One primary button per screen.**
+
+而那 38 处 button 里，有 26 处是「取消 / 留在此页 / 返回列表 / 看全部 / 重命名 / 删除」
+这类**次操作**。若一律迁成 accent 实心：
+
+- 弹窗里「取消」和「解密并预览」会同时是实心主按钮 → 同屏两个主按钮，**直接违反上面那句**；
+- 列表行的「重命名 / 删除」变成实心强调块 → 视觉重量压过列表内容本身，
+  与用户新要求的「轻量化、精致」正好相反。
+
+所以 `Button` 增加 `primary: Boolean = true`（默认 true = 与第一轮形态完全一致，无行为回归）。
+
+### 9.2 最终签名
+
+```kotlin
+@Composable
+fun Button(
+    text: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    primary: Boolean = true,      // 新增：主/次两档
+    leadingIcon: Int = 0,         // 新增：可选前缀图标（Icons.IC_*）
+    onClick: () -> Unit
+)
+```
+
+**为什么加 `leadingIcon`**：`ProviderEditPage:380` 原来是
+`OutlineChip("测试连接", iconRes = Icons.IC_PLUG)`。`Button` 若没有图标参数，
+迁移就会**静默丢掉图标** —— 那是删功能，不是换形态。同理还接住了
+`ConversationHistoryPage:69`（`IC_PLUS`）、`DollAnimPage` 的 3 处（`IC_MAXIMIZE` /
+`IC_MINIMIZE` / `IC_CROSSHAIR`）、`DollGroupPage` 的 2 处（`IC_SIGNATURE` / `IC_TRASH`）。
+尺寸走 `DhDesign.Size.iconSm`(16dp)，比 chip 档 `SZ_XS`(14dp) 大一档，与 15sp 正文配平。
+
+### 9.3 命中区 48 / 视觉 44（用户新要求的「原生 Android 风格」）
+
+```kotlin
+Box(Modifier.defaultMinSize(minHeight = 48.dp).pressScaleClick(onClick)) {
+    Box(Modifier.height(44.dp).clip(shape)...) { Text(...) }
+}
+```
+
+| 层 | 值 | 作用 |
+|---|---|---|
+| 视觉高度 | **44dp** | 设计稿「one height, 44dp」 |
+| 命中区下限 | **48dp** | 设计稿 §Icons「40dp hit area (48dp minimum)」+ Android 无障碍基线 |
+| 按压反馈 | **`pressScaleClick`** | 0.98 缩放，无 ripple（设计稿「Press: scale 0.98 over 90ms」） |
+
+**【关键】为什么用 `defaultMinSize` 而不是 `pressable`**：
+`pressable` 内部调 `minTouchTarget()` = `sizeIn(minWidth=48, minHeight=48)`，
+它会把**布局**撑到 48，于是 `height(44)` 名存实亡（这正是 `DhKit.OutlineChip`
+注释里记过的 v0.2.5 那个坑）。`defaultMinSize` 只给**下限**，视觉由内层 44dp 决定 ——
+两边都不牺牲：既满足 48dp 可点，又保住 44dp 视觉。
+
+### 9.4 「One primary button per screen」的落实
+
+迁移时逐屏核对了主按钮数量，发现并发问题并已修正：
+
+- `ProviderEditPage` 同屏原本有「用它」(卡片内建议) 和「保存」(底部提交) 两个主按钮
+  → 「用它」**降为次按钮**，本屏主按钮只保留「保存」。
+- `AexImportSheet` 的「知道了」在独立 tip 弹窗，与「解密并预览」不在同一屏，合规。
+
+最终 38 处里主按钮 **13 处**、次按钮 **25 处**。
+
+## 10. 第二轮验证
+
+```
+python3 tools/kotlin_precheck.py    → 检查 275 个文件：未发现问题
+python3 tools/comment_balance.py    → 检查 275 个文件：全部平衡
+python3 tools/symbol_refs.py --quiet → exit 0
+bash tools/ui_audit.sh              → 总计 44 项：PASS 44 / FAIL 0
+bash tools/anim_audit.sh            → 总计 101 项：PASS 101 / FAIL 0
+```
+
+`kit_usage_audit.py` K3c 药丸按钮数：
+
+| 阶段 | 药丸按钮 | 说明 |
+|---|---|---|
+| 迁移前 | **54** | 5 个工厂全部是 999 |
+| 第二轮后 | **16** | 见下方拆解 |
+
+剩余 16 处的确切构成（**没有一处是被漏掉的 button**）：
+
+| 构成 | 处数 | 为什么不动 |
+|---|---|---|
+| ModeChip 选择（Aex ×2 / Akcp ×2） | 4 | chip 语义，选择器 |
+| TokenStat 分段（每日/每周/累计） | 2 | chip 语义，分段选择 |
+| ChatListScreen 筛选（全部/未读/置顶/归档） | 4 | chip 语义，页面筛选器 |
+| AboutPage 纯标签（**无 onClick**） | 1 | 状态标签，不可点 |
+| DollListScreen「恢复自动适配」 | 1 | **待产品确认** |
+| `DhForm.Chip` 的 2 处 | 2 | 圆角本就是 12（K3c 描述过期） |
+| `DhForm.SubmitButton` 的 2 处 | 2 | 已是 44dp+12+15sp，保留四态反馈职责 |
+| **合计** | **16** | |
+
+## 11. 建议的后续
+
+1. **`DollListScreen:687`「恢复自动适配」** 的 chip / button 归属需产品确认（当前按 chip 保留）。
+2. **`DhForm.Chip` 语义待定**：设计稿 chip=999，它实际是 12；改它需产品拍板。
+3. **K3c 统计口径**：`BUTTON_FACTORIES` 应补 `DhForm.DialogButton` / `DhForm.Button`，
+   并增加「工厂函数体内是否仍为 999」的断言（本轮已在 `kit_usage_audit.py` 加了 K3d）。
 
 ---
 
-**改动文件**：`app/src/main/java/com/dollhouse/app/ui/compose/DhForm.kt`（仅 `DialogButton` 一个函数体）
+**本轮改动文件**：
+- `app/src/main/java/com/dollhouse/app/ui/compose/DhForm.kt`（`Button` 加 `primary` / `leadingIcon` / 48dp 命中区）
+- 10 个页面的 38 个调用点
 **未提交**：按要求不 commit / 不 push / 不触发 CI。

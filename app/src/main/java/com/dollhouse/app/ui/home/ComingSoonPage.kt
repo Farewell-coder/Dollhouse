@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -75,7 +76,7 @@ object ComingSoonPage {
                         textAlign = TextAlign.Center
                     )
                     if (!hint.isNullOrEmpty()) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
                         Text(
                             text = hint,
                             color = c.line,

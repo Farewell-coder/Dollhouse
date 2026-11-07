@@ -20,6 +20,7 @@ import com.dollhouse.app.data.OutputRule
 import com.dollhouse.app.data.PersonaInject
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Icons
 
 /**
@@ -85,7 +86,7 @@ object DollInjectDialog {
             minHeight = 110
         )
         DhForm.Label("注入位置")
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp)) {
             for (p in InjectPos.ALL) {
                 DhForm.SelectChip(text = InjectPos.label(p), selected = position == p) {
                     position = p
@@ -95,7 +96,7 @@ object DollInjectDialog {
             }
         }
         DhForm.Label("注入角色")
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp)) {
             DhForm.SelectChip(text = "系统", selected = role == "system") { role = "system"; persist() }
             Spacer(Modifier.width(8.dp))
             DhForm.SelectChip(text = "用户", selected = role == "user") { role = "user"; persist() }

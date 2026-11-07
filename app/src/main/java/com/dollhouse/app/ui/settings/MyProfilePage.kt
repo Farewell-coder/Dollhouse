@@ -32,6 +32,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.ProfileState
 import com.dollhouse.app.ui.theme.Design
@@ -158,7 +159,7 @@ object MyProfilePage {
         ) {
             // ---------- 头像 ----------
             Row(
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(

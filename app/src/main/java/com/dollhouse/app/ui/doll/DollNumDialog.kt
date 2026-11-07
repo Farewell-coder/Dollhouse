@@ -20,6 +20,7 @@ import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
  * 【职责】「暂离」与「回归时间」的**弹窗**形态（r12 改）。
@@ -133,13 +134,13 @@ object DollNumDialog {
         ) {
             // 取消 = 直接关，不写任何键（用户定案：取消之后不记录改动）。
             DhForm.DialogButton(text = "取消", primary = false) { onClose() }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             DhForm.DialogButton(text = "恢复", primary = false) {
                 // 【恢复】只把草稿拨回出厂默认，**不落盘** —— 要落盘得再点「保存」。
                 text = def.toString()
                 err = null
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             DhForm.DialogButton(text = "保存", primary = true) {
                 // 校验通过才关窗；非法时保持打开，让用户看到错误提示。
                 if (commitNow()) {

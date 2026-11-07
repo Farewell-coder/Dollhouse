@@ -287,3 +287,95 @@ D8 是圆角语义（此处是 padding），D4 是「与 1dp/2dp 边框配套的
 - `ui/settings/DeveloperOptionsPage.kt`（10 → 0）
 - `ui/settings/MemPage.kt`（22 → 0）
 - `ui/doll/DollListScreen.kt`（13 → 4，剩余全为 D8/D10 类别，非间距语义）
+---
+
+## 9. 全仓收敛批次（第三批 / 本轮）：182 → 69
+
+> 快照口径：`python3` 正则 `(?<![0-9])(6|10)\.dp` 扫 `app/src/main/java/**/*.kt`。
+> 本轮**排除**了他人正在编辑的文件：`ChatUi.kt`、`DhKit.kt`、`DhForm.kt`、
+> `ProfileDrawer.kt`（34 + 14 + 4 + 2 = **54 处**，均未动）。
+
+### 总数
+
+| | 6dp | 10dp | 合计 | 文件数 |
+|---|---|---|---|---|
+| 改前 | 108 | 74 | **182** | 39 |
+| 改后 | 40 | 29 | **69** | 13 |
+| 本轮收敛 | −68 | −45 | **−113** | −26 |
+
+其中留在原地的 5 处是**新加的 D 类例外**（见下），其余 64 处属于被排除的他人文件。
+
+### 逐文件结果（本轮处理 24 个文件，113 处）
+
+| 文件 | 改前 | 改后 | 收敛 |
+|---|---|---|---|
+| `ui/widget/AexImportSheet.kt` | 13 | 0 | 13 |
+| `ui/widget/AkcpImportSheet.kt` | 7 | 0 | 7 |
+| `ui/widget/ExportSheet.kt` | 2 | 0 | 2 |
+| `ui/doll/ImportAssistantKit.kt` | 13 | 0 | 13 |
+| `ui/doll/ImportAssistantPage.kt` | 3 | 0 | 3 |
+| `ui/doll/DollAnimPage.kt` | 10 | 0 | 10 |
+| `ui/doll/DollActionPage.kt` | 6 | 0 | 6 |
+| `ui/doll/DollGroupPage.kt` | 4 | 0 | 4 |
+| `ui/doll/DollImportWizardPage.kt` | 3 | 0 | 3 |
+| `ui/doll/ModelManagePage.kt` | 3 | 0 | 3 |
+| `ui/doll/DollLookTab.kt` | 2 | 0 | 2 |
+| `ui/doll/DollNumDialog.kt` | 2 | 0 | 2 |
+| `ui/doll/DollPersonaDialogs.kt` | 2 | 0 | 2 |
+| `ui/doll/DollTalkPage.kt` | 1 | 0 | 1 |
+| `ui/settings/AppearancePage.kt` | 5 | 0 | 5 |
+| `ui/settings/LamdaPage.kt` | 4 | 0 | 4 |
+| `ui/settings/ModelEditPage.kt` | 4 | 0 | 4 |
+| `ui/settings/ModelListPage.kt` | 2 | 0 | 2 |
+| `ui/settings/AboutPage.kt` | 2 | 0 | 2 |
+| `ui/settings/MyProfilePage.kt` | 1 | 0 | 1 |
+| `ui/provider/ProviderListPage.kt` | 3 | 0 | 3 |
+| `ui/provider/ProviderEditPage.kt` | 2 | 0 | 2 |
+| `ui/provider/ProviderModelsPage.kt` | 2 | 0 | 2 |
+| `ui/home/ContactScreen.kt` | 5 | 0 | 5 |
+| `ui/home/ComingSoonPage.kt` | 1 | 0 | 1 |
+| `ai/TokenStat.kt` | 5 | 0 | 5 |
+| `ui/chat/BlockRenderer.kt` | 2 | 1 | 1（剩 D8 圆角） |
+| `ui/chat/ChatListScreen.kt` | 5 | 1 | 4（剩 D4 徽标内边距） |
+
+### 本轮新增的 D 类例外（5 处，一律保持原值 + 就地注释）
+
+| 文件:行 | 原值 | 类别 | 为什么不动 |
+|---|---|---|---|
+| `ui/doll/DollHomePage.kt:135` | `.blur(6.dp)` | D5/D6 | 虚化**半径**是滤镜强度，不是间距；改 4/8 直接改变画面 |
+| `pet/DollHomeOverlay.kt:183` | `.blur(6.dp)` | D5/D6 | 同上（同一处视觉的浮层版本） |
+| `ui/widget/MiniChart.kt:105` | `padT = 10.dp.toPx()` | D5 | Canvas 内绘图留白（px），与轴标签排版配套，非行间距 |
+| `ui/chat/ChatPanels.kt:344` | `.height(6.dp)` | D6 | 分段条**自身尺寸**（Size 语义），不是元素之间的间距 |
+| `ui/chat/ChatListScreen.kt:572` | `padding(horizontal = 6.dp, vertical = 1.dp)` | D4 | 未读徽标内边距，与 999 圆角配套并决定徽标尺寸 |
+| `ui/home/BottomNav.kt:92/137` | `6/5`、`18/6` | D3/D4 | 底栏胶囊与单项内边距，决定底栏 64dp 口径与命中区宽度 |
+
+### 本轮遵守的两条易错规则
+
+1. **§3 组件内边距叠加**：`DollImportWizardPage` / `ModelEditPage` 等处紧邻
+   `DhKit.SectionLabel`（自带 `top=12`），所以「标题→内容」只补差额，
+   没有把 10 直接换成 24（那样真实间距会变成 36）。
+2. **R4 / R5 / R10 的语义区分**：本轮所有 `<6dp → xs(4)>` 都只用在
+   **主标题→次级说明**（无图标参与）的场合；凡两端是不同的内容块一律给 `md(12)`。
+
+### 仍未收敛（13 个文件 / 69 处）及原因
+
+| 文件 | 剩余 | 原因 |
+|---|---|---|
+| `ui/chat/ChatUi.kt` | 34 | 🔒 队友在改（去 View 阶段） |
+| `ui/compose/DhKit.kt` | 14 | 🔒 队友在改（button-audit） |
+| `ui/compose/DhForm.kt` | 4 | 🔒 队友在改 |
+| `ui/home/ProfileDrawer.kt` | 2 | 🔒 队友在改 |
+| `ui/kit/Components.kt` | 4 | **组件库自身的几何常量**（`ChipPadH` / `TagPadH` / `RowPadV`），改一处放大到 168 处转发调用点 —— 按 §7.4 必须单独一批单独验证 |
+| `ui/doll/DollListScreen.kt` | 4 | 全部 D8（圆角）/ D10（注释） |
+| `ui/chat/BlockRenderer.kt` | 1 | D8 圆角 |
+| `ui/chat/ChatListScreen.kt` | 1 | D4 徽标 |
+| `ui/chat/ChatPanels.kt` | 1 | D6 分段条尺寸 |
+| `pet/DollHomeOverlay.kt` | 1 | D5/D6 虚化半径 |
+| `ui/widget/MiniChart.kt` | 1 | D5 Canvas 内留白 |
+| `ui/home/BottomNav.kt` | 1 | D3/D4 底栏口径 |
+| `ui/doll/DollHomePage.kt` | 1 | D5/D6 虚化半径 |
+
+### 门禁
+
+每批改完均跑：`kotlin_precheck`（275 文件未发现问题）、`comment_balance`（全部平衡）、
+`symbol_refs --quiet`（exit 0）。**无真机视觉验证** —— 见 §7.3 的既有结论。

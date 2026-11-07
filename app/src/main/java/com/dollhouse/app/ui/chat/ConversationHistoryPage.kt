@@ -66,7 +66,7 @@ object ConversationHistoryPage {
             onBack = { PageStack.pop(act) },
             scrollable = false
         ) {
-            DhKit.OutlineChip(text = "新建会话", iconRes = Icons.IC_PLUS) {
+            DhForm.Button(text = "新建会话", primary = false, leadingIcon = Icons.IC_PLUS) {
                 ChatSessions.createForDoll(act, personaId)
                 rev++
             }
@@ -78,9 +78,9 @@ object ConversationHistoryPage {
                             ChatListScreen.openConv(act, entry.first)
                         }, desc = if (ChatDraftStore.load(act, personaId, entry.first).text.isEmpty()) "独立消息历史" else "存有草稿")
                         Row {
-                            DhKit.OutlineChip("重命名") { renaming = entry.first; draftName = entry.second }
+                            DhForm.Button("重命名", primary = false) { renaming = entry.first; draftName = entry.second }
                             Spacer(Modifier.width(8.dp))
-                            DhKit.OutlineChip("删除") { deleting = entry.first }
+                            DhForm.Button("删除", primary = false) { deleting = entry.first }
                         }
                     }
                 }
@@ -91,6 +91,6 @@ object ConversationHistoryPage {
         }, "取消") { DhForm.Input(draftName, { draftName = it }, hint = "会话名称", keyboard = androidx.compose.ui.text.input.KeyboardType.Text) }
         if (deleting != null) DhForm.Alert("删除这段会话？", { deleting = null }, "删除", {
             ChatSessions.delete(act, deleting!!); ChatDraftStore.clear(act, personaId, deleting!!); deleting = null; rev++
-        }, "取消") { Text("只删除此会话的消息，不删除好友、人格、记忆或其他会话。", color = c.sub, fontSize = 13.sp, lineHeight = 20.sp) }
+        }, "取消") { Text("只删除此会话的消息，不删除好友、人格、记忆或其他会话。", color = c.sub, fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight) }
     }
 }

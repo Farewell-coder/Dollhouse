@@ -341,7 +341,7 @@ object ChatPanels {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(6.dp)
+                            .height(6.dp) // 【不收敛·D6】分段条自身高度属 Size 语义
                             .clip(RoundedCornerShape(DhDesign.Radius.sm.dp))
                             .background(if (i <= level) p.accent else p.line)
                             .pressable { level = i }

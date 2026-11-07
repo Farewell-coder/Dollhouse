@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.*
 
 /** 只增强卡片；普通段落由 ChatUi 的原文渲染路径显示。 */
@@ -26,7 +27,7 @@ import com.dollhouse.app.ui.theme.*
                 is Block.Card -> CardBlock(block)
                 is Block.Divider -> HorizontalDivider(Modifier.padding(vertical = 4.dp), color = DhTokens.colors.line)
                 is Block.Heading -> Text(block.text, color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
-                is Block.CodeBlock -> Text(block.code, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(10.dp)).padding(10.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp)
+                is Block.CodeBlock -> Text(block.code, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(10.dp) /* 【不收敛·D8】圆角属 Radius 语义，非 Space */).padding(DhDesign.Space.md.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 18.sp)
                 is Block.Paragraph -> if (enhanced) Text(block.text, color = DhTokens.colors.title, fontFamily = DhTokens.fonts, lineHeight = 22.sp)
             }
         } }

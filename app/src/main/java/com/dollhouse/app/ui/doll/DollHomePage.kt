@@ -130,6 +130,8 @@ object DollHomePage {
                                 translationY = (ry - 0.5f) * hPx
                             }
                             .alpha(0.35f)
+                            // 【不收敛】blur 的 6dp 属视图滤镜半径（D6/D5），不是 Space 语义；
+                            //   改成 4/8 会直接改变虚化强度，本轮不动。
                             .blur(6.dp),
                         contentScale = ContentScale.Fit
                     )

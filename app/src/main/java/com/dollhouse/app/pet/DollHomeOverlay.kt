@@ -180,7 +180,7 @@ object DollHomeOverlay {
                         modifier = Modifier
                             .size(with(den) { basePx.toDp() })
                             .alpha(0.35f)
-                            .blur(6.dp),
+                            .blur(6.dp), // 【不收敛·D6/D5】虚化半径，属滤镜而非间距
                         contentScale = ContentScale.Fit
                     )
                 }

@@ -41,6 +41,7 @@ import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
@@ -414,7 +415,7 @@ object DollActionPage {
                     fontFamily = DhTokens.fonts
                 )
                 if (chk.warnings.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     Text(
                         text = chk.warnings.joinToString("\n"),
                         color = DhTokens.colors.sub,
@@ -603,7 +604,7 @@ object DollActionPage {
                     fontFamily = DhTokens.fonts
                 )
                 if (target != null && DollAnim.isFixedGroup(target.group)) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     Text(
                         text = "「" + target.group + "」是固定位，副本会放进「" + DollAnim.GROUP_MANUAL +
                             "」组（固定位只能有一个）。",
@@ -645,7 +646,7 @@ object DollActionPage {
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fonts
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.xs.dp))
                 Text(
                     text = "导出位置：应用文件目录 / export/。帧图会按播放顺序重命名，" +
                         "别人拿到包不用猜顺序。",
@@ -758,7 +759,7 @@ object DollActionPage {
                     maxLines = 1
                 )
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -806,7 +807,7 @@ object DollActionPage {
             //   【为什么改成三列等分】固定位卡片宽度足够放三个 2 字按钮；
             //   等分后每个命中区都 ≥ 40dp，比原来「清空」整行的超宽按钮更均匀。
             if (!empty && dollId != DollStore.DEFAULT_ID) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     DhKit.MiniChip("清空", iconRes = Icons.IC_ERASER) { onClear() }
                     Spacer(Modifier.width(12.dp))
@@ -938,7 +939,7 @@ object DollActionPage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp)
+                .padding(top = DhDesign.Space.md.dp)
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 DhKit.MiniChip("复制", iconRes = Icons.IC_COPY, onClick = onDuplicate)

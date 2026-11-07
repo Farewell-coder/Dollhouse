@@ -39,6 +39,7 @@ import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.UiKit
@@ -292,7 +293,7 @@ object AexImportSheet {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
-                    DhForm.PrimaryChip(text = "知道了") { ref.get()?.dismiss() }
+                    DhForm.Button(text = "知道了") { ref.get()?.dismiss() }
                 }
             }
         )
@@ -441,9 +442,9 @@ object AexImportSheet {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
-            DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
-            Spacer(Modifier.width(10.dp))
-            DhForm.PrimaryChip(text = "解密并预览") {
+            DhForm.Button(text = "取消", primary = false) { ref.get()?.dismiss() }
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            DhForm.Button(text = "解密并预览") {
                 if (!AexImport.credentialLooksValid(cred)) {
                     error = "凭据不能为空（Aivora 生成的通常形如 XXXX-XXXX-…）"
                 } else {
@@ -495,7 +496,7 @@ object AexImportSheet {
         Text(
             text = names.take(3).joinToString("、") +
                 if (names.size > 3) " 等 " + names.size + " 个" else "",
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fonts
@@ -536,9 +537,9 @@ object AexImportSheet {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
-            DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
-            Spacer(Modifier.width(10.dp))
-            DhForm.PrimaryChip(text = "解密并预览") {
+            DhForm.Button(text = "取消", primary = false) { ref.get()?.dismiss() }
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            DhForm.Button(text = "解密并预览") {
                 if (!AexImport.credentialLooksValid(cred)) {
                     error = "凭据不能为空（Aivora 生成的通常形如 XXXX-XXXX-…）"
                 } else {
@@ -794,7 +795,7 @@ object AexImportSheet {
                 Text(
                     text = "地址：" + profiles[0].baseUrl + "\n密钥：" +
                         AexDeepLink.maskKeyTail(profiles[0].apiKey),
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts,
@@ -805,7 +806,7 @@ object AexImportSheet {
             if (result.warnings.isNotEmpty()) {
                 // 【v0.2.4·警告行加图标】此前警告与普通说明长得一模一样，只是颜色偏红；
                 //   加一枚三角警告后，用户扫一眼就知道「这几行要先读」。
-                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
+                Row(Modifier.padding(top = DhDesign.Space.md.dp), verticalAlignment = Alignment.Top) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(
                             com.dollhouse.app.R.drawable.ic_warning
@@ -814,7 +815,7 @@ object AexImportSheet {
                         modifier = Modifier.padding(top = 2.dp).size(14.dp),
                         tint = c.err
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                     Text(
                         text = result.warnings.joinToString("\n"),
                         color = c.err,
@@ -829,7 +830,7 @@ object AexImportSheet {
                     .fillMaxWidth()
                     .heightIn(max = 240.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(top = 10.dp)
+                    .padding(top = DhDesign.Space.md.dp)
             ) {
                 profiles.forEachIndexed { i, p ->
                     PreviewRow(p, picked[i]) {
@@ -852,7 +853,7 @@ object AexImportSheet {
                         text = "部分配置带有本应用存不下的内容（说明文字、extra 扩展对象、" +
                             "以及本版不认识的字段）。导入只保留名称、地址、密钥、模型列表与启用状态，" +
                             "其余内容不会带过来。",
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.err,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts,
@@ -868,7 +869,7 @@ object AexImportSheet {
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
-                Row(modifier = Modifier.padding(top = 6.dp)) {
+                Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                     ModeChip("跳过", mode == MODE_SKIP) { mode = MODE_SKIP }
                     Spacer(Modifier.width(8.dp))
                     ModeChip("覆盖", mode == MODE_OVERWRITE) { mode = MODE_OVERWRITE }
@@ -881,7 +882,7 @@ object AexImportSheet {
                         MODE_DUPLICATE -> "新建一个带「副本」后缀的供应商，原配置保持不变。"
                         else -> "同名供应商保持原样，只导入不冲突的那些。"
                     },
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -892,8 +893,8 @@ object AexImportSheet {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
-                DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
-                Spacer(Modifier.width(10.dp))
+                DhForm.Button(text = "取消", primary = false) { ref.get()?.dismiss() }
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 // 【v0.2.4·四态按钮】原来是 PrimaryChip：按下去立刻变页面，中间没有任何
                 //   「点到了 / 在处理 / 成了」的信号。导入要写好几次存储、还要联网拉模型，
                 //   期间用户只能干等，容易连点。现在走 SubmitButton：转圈 → 完成。
@@ -938,14 +939,14 @@ object AexImportSheet {
                 //   此时供应商列表已经写好，跳过去正好能立刻看到刚导入的条目。
                 //   与聊天页那条提示条的修法一致：不在弹窗里直接操作页面栈，
                 //   而是把意图交给宿主 Activity（见 ProviderNav.open 的注释）。
-                DhForm.PrimaryChip(text = "去查看") {
+                DhForm.Button(text = "去查看") {
                     ref.get()?.dismiss()
                     act.runOnUiThread {
                         runCatching { com.dollhouse.app.ui.provider.ProviderNav.open(act) }
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-                DhForm.OutlineChip(text = "留在此页") { ref.get()?.dismiss() }
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                DhForm.Button(text = "留在此页", primary = false) { ref.get()?.dismiss() }
             }
         }
     }
@@ -1184,7 +1185,7 @@ object AexImportSheet {
     private fun PreviewRow(p: AexImport.AexProfile, checked: Boolean, onToggle: () -> Unit) {
         val c = DhTokens.colors
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).pressable(onClick = onToggle),
+            modifier = Modifier.fillMaxWidth().padding(bottom = DhDesign.Space.sm.dp).pressable(onClick = onToggle),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 自绘勾选框：工程里没有现成 checkbox 组件，用字符保持视觉一致、零依赖。

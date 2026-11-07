@@ -27,6 +27,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.provider.ProviderNav
@@ -149,7 +150,7 @@ object ModelEditPage {
                     next.`in`[i] = !next.`in`[i]
                     sel = normalize(next)
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhKit.SectionLabel("输出模态", iconRes = Icons.IC_BLOCKS)
                 ChipRow(
                     labels = Array(ModelEditKit.MODS.size) { i -> AiModel.modLabel(ModelEditKit.MODS[i]) },
@@ -226,9 +227,9 @@ object ModelEditPage {
                     .padding(top = 14.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DhForm.OutlineChip("取消") { ProviderNav.back(act) }
+                DhForm.Button("取消", primary = false) { ProviderNav.back(act) }
                 Spacer(Modifier.weight(1f))
-                DhForm.PrimaryChip("保存") {
+                DhForm.Button("保存") {
                     val r = save(act, src, pid, name, sel, enabled)
                     if (r == null) {
                         hintOk = true
@@ -250,7 +251,7 @@ object ModelEditPage {
         dimmed: Array<Boolean>? = null,
         onPick: (Int) -> Unit
     ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp)) {
             for (i in labels.indices) {
                 DhForm.SelectChip(
                     text = labels[i],
@@ -260,7 +261,7 @@ object ModelEditPage {
                     onClick = { onPick(i) }
                 )
                 if (i < labels.size - 1) {
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 }
             }
         }
@@ -273,7 +274,7 @@ object ModelEditPage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp),
+                .padding(vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {

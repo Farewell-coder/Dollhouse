@@ -29,6 +29,7 @@ import com.dollhouse.app.data.ImportSource
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.Icons
@@ -354,7 +355,7 @@ object ImportAssistantPage {
                         "如果是一整组动作，可以一起选，或者打包成压缩包。",
                     Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhKit.MiniChip("选择图片或压缩包", iconRes = Icons.IC_FOLDER_OPEN) {
                     PickFileActivity.setFileListener { paths, failed ->
                         if (paths.isEmpty()) {
@@ -387,11 +388,11 @@ object ImportAssistantPage {
                         failure = null
                         PickFileActivity.startFiles(act, true)
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     DhKit.MiniChip("查看支持格式", iconRes = Icons.IC_BOOK_OPEN) {
                         showFormats = true
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     DhKit.MiniChip("用示例角色", iconRes = Icons.IC_WAND_SPARKLES) {
                         DollStore.addTemplate(act, "示例角色")
                         DollState.bump()

@@ -32,6 +32,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -419,7 +420,7 @@ object TokenStat {
     private fun SegRow(mode: Int, onPick: (Int) -> Unit) {
         val names = arrayOf("每日", "每周", "累计")
         Row(
-            modifier = Modifier.padding(top = 10.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             for (i in names.indices) {
@@ -443,7 +444,7 @@ object TokenStat {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.IconButton(
@@ -507,7 +508,7 @@ object TokenStat {
             )
             Text(
                 text = fmt(inTok + outTok) + " Token",
-                modifier = Modifier.padding(top = 10.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                 color = c.title,
                 fontSize = 30.sp,
                 fontFamily = DhTokens.fontsBold,
@@ -539,7 +540,7 @@ object TokenStat {
             MiniChart(
                 values = vals,
                 labels = labs,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                 onPick = { index, value, label ->
                     // 【硬约束】不用浮层短提示：把结果写进图表下那行已有小字里。
                     tip = (if (label == null || label.isEmpty()) "#" + index else label) +
@@ -548,7 +549,7 @@ object TokenStat {
             )
             Text(
                 text = tip,
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fonts

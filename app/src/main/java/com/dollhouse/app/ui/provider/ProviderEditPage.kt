@@ -34,6 +34,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.UiKit
@@ -230,7 +231,7 @@ object ProviderEditPage {
                 // 【r16·图标】密钥属敏感信息，配一枚钥匙图标提醒「这里填的是凭据」。
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     DhKit.Icon(iconRes = Icons.IC_KEY_ROUND, sizeDp = Design.SZ_XS, color = c.sub)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                     DhForm.Note("密钥只加密存在本机，不会上传到我们这边。")
                 }
                 DhForm.Input(base, { base = it }, label = "API Base Url", hint = "例如：https://api.deepseek.com/v1")
@@ -319,12 +320,12 @@ object ProviderEditPage {
                         )
                         Spacer(Modifier.height(8.dp))
                         Row {
-                            DhForm.PrimaryChip("用它") {
+                            DhForm.Button("用它", primary = false) {
                                 val id = pid
                                 if (id.isEmpty()) {
                                     hintOk = false
                                     hintText = "请先保存供应商"
-                                    return@PrimaryChip
+                                    return@Button
                                 }
                                 // 复用已有写入与选中接口：加模型 → 设为当前。
                                 val m = com.dollhouse.app.ai.AiModel()
@@ -342,7 +343,7 @@ object ProviderEditPage {
                                 hintText = "已把「" + pick + "」设为默认模型，可以直接去聊天了"
                             }
                             Spacer(Modifier.width(8.dp))
-                            DhForm.OutlineChip("看全部") {
+                            DhForm.Button("看全部", primary = false) {
                                 val id = pid
                                 if (id.isNotEmpty()) {
                                     ProviderNav.openModels(act, id)
@@ -358,7 +359,7 @@ object ProviderEditPage {
                             lineHeight = 18.sp,
                         )
                         Spacer(Modifier.height(8.dp))
-                        DhForm.OutlineChip("自己去看") {
+                        DhForm.Button("自己去看", primary = false) {
                             val id = pid
                             if (id.isNotEmpty()) {
                                 ProviderNav.openModels(act, id)
@@ -375,9 +376,9 @@ object ProviderEditPage {
                     .padding(top = 14.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DhForm.OutlineChip(if (embedded) "返回列表" else "取消") { ProviderNav.back(act) }
+                DhForm.Button(if (embedded) "返回列表" else "取消", primary = false) { ProviderNav.back(act) }
                 Spacer(Modifier.weight(1f))
-                DhForm.OutlineChip("测试连接", iconRes = Icons.IC_PLUG) {
+                DhForm.Button("测试连接", primary = false, leadingIcon = Icons.IC_PLUG) {
                     // 只测试不保存：用当前表单值直接打一次 /models，结果就地回显。
                     val raw = key.trim()
                     if (raw.isEmpty()) {
@@ -385,7 +386,7 @@ object ProviderEditPage {
                         hintText = "请填写 API Key"
                     } else if (testing || saving) {
                         // 已有请求在途，忽略重复点击，不覆盖正在展示的结果。
-                        return@OutlineChip
+                        return@Button
                     } else {
                         val probe = buildProvider(pid, name, base, path, enabled, respApi, resendReason, allowCleartext)
                         probe.apiKey = KeyVault.encrypt(raw)
@@ -407,8 +408,8 @@ object ProviderEditPage {
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                DhForm.PrimaryChip(if (saving) "保存中…" else "保存") {
-                    if (saving || testing) return@PrimaryChip
+                DhForm.Button(if (saving) "保存中…" else "保存") {
+                    if (saving || testing) return@Button
                     saving = true
                     val r = save(act, src, pid, name, key, base, path, enabled, respApi, resendReason, allowCleartext)
                     if (r.id != null) {
@@ -535,7 +536,7 @@ object ProviderEditPage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp),
+                .padding(vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {

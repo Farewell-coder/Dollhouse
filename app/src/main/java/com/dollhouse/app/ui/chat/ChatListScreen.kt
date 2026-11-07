@@ -235,7 +235,7 @@ object ChatListScreen {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = PAD_H)
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = DhDesign.Space.md.dp)
             ) {
                 DhForm.Input(
                     value = query,
@@ -478,7 +478,7 @@ object ChatListScreen {
                     onLongClick = onLong
                 )
                 .defaultMinSize(minHeight = DhDesign.Size.rowTwoLine)
-                .padding(horizontal = 4.dp, vertical = 10.dp),
+                .padding(horizontal = 4.dp, vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Avatar(row)
@@ -492,7 +492,7 @@ object ChatListScreen {
                         // 【M4·字号对齐阶梯】16sp/Bold → 15sp/500。
                         //   行标题在阶梯里是 body@500；16sp 既不在任何一档上，
                         //   又与会话内气泡正文（15sp）不一致，进出会话时标题会"缩一下"。
-                        fontSize = 15.sp, lineHeight = 24.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.body.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.body.lineHeight,
                         fontFamily = DhTokens.fonts,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -507,22 +507,22 @@ object ChatListScreen {
                 Text(
                     text = row.preview,
                     color = c.sub,
-                    fontSize = 13.sp, lineHeight = 19.sp,
+                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight,
                     fontFamily = DhTokens.fonts,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(DhDesign.Space.md.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = timeText(row.time),
                     color = c.sub,
-                    fontSize = 11.sp, lineHeight = 16.sp,
+                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 if (row.unread > 0) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     UnreadDot(row.unread)
                 }
             }
@@ -569,7 +569,7 @@ object ChatListScreen {
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(c.err)
-                .padding(horizontal = 6.dp, vertical = 1.dp),
+                .padding(horizontal = 6.dp, vertical = 1.dp), // 【不收敛·D4】徽标内边距与 999 圆角配套，决定徽标尺寸
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -579,7 +579,7 @@ object ChatListScreen {
                 //   数字几乎看不见。改用派生色 onErr（按底色明暗自动选黑/白）。
                 color = DhTokens.palette.onErr,
                 // 字号 10sp 不在任何一档上；徽标是 label 语义，归 11/600。
-                fontSize = 11.sp, lineHeight = 16.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.SemiBold
             )

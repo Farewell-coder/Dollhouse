@@ -282,7 +282,7 @@ object ChatUi {
                     Text(
                         text = name,
                         color = c.title,
-                        fontSize = 16.sp, lineHeight = 24.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -352,7 +352,7 @@ object ChatUi {
             Text(
                 text = "${(ratio * 100f).roundToInt()}",
                 color = c.title,
-                fontSize = 11.sp, lineHeight = 16.sp,
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold
             )
         }

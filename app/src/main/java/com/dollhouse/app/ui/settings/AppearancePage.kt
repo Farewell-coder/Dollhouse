@@ -38,6 +38,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeState
@@ -108,7 +109,7 @@ object AppearancePage {
         ) {
             // ---------- 顶栏 Tab ----------
             TabBar(tab) { tab = it }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
 
             // ---------- 内容 ----------
             Column(
@@ -345,7 +346,7 @@ object AppearancePage {
             // 【颜色提示】滑条下方的小色块让用户一眼看到「当前主题下这些层的实际颜色」。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DhKit.Icon(iconRes = Icons.IC_PALETTE, sizeDp = Design.SZ_XS, color = c.line)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                 Text(
                     text = "主题跟随：" + ThemeManager.MODE_NAMES[HomeState.themeMode],
                     color = c.line,
@@ -443,7 +444,7 @@ object AppearancePage {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_WARNING, sizeDp = Design.SZ_XS, color = c.err)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                     Text(
                         text = "本机 Android 版本低，系统不支持弹窗背后的模糊，" +
                             "这一项不会有效果（弹窗本身仍然正常）。",
@@ -491,7 +492,7 @@ object AppearancePage {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             Text(
                 text = title,
                 color = c.sub,
@@ -582,8 +583,8 @@ object AppearancePage {
                     }
                 )
                 if (HomeState.fontColor != 0) {
-                    Row(modifier = Modifier.padding(top = 10.dp)) {
-                        DhKit.OutlineChip("恢复跟随主题") {
+                    Row(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
+                        DhForm.Button("恢复跟随主题", primary = false) {
                             HomeUi.applyFontColor(act, 0)
                             open = false
                         }

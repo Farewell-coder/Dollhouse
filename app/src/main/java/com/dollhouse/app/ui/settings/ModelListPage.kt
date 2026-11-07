@@ -35,6 +35,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.Icons
@@ -149,7 +150,7 @@ object ModelListPage {
             if (feedback.isNotEmpty()) {
                 Text(
                     text = feedback,
-                    modifier = Modifier.padding(start = 2.dp, top = 6.dp),
+                    modifier = Modifier.padding(start = 2.dp, top = DhDesign.Space.xs.dp),
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts,
@@ -208,7 +209,7 @@ object ModelListPage {
                             fg = c.chatChipFg,
                             bg = c.chatChipBg
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Badge(text = "流式", fg = c.sub, bg = c.soft)
                     }
                 }

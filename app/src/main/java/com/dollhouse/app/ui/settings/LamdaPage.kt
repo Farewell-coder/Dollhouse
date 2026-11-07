@@ -33,6 +33,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.Design
@@ -198,7 +199,7 @@ object LamdaPage {
         ) {
             // 【r12】18f 不在 [Design] 的图标五档内 → 归到 SZ_MD(20)。
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = fg)
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(DhDesign.Space.md.dp))
             Text(
                 text = name,
                 modifier = Modifier.weight(1f),
@@ -222,7 +223,7 @@ object LamdaPage {
             Box(modifier = Modifier.padding(top = 1.dp)) {
                 DhKit.Icon(iconRes = iconRes, sizeDp = 16f, color = c.acc)
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(DhDesign.Space.md.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = name,
@@ -247,7 +248,7 @@ object LamdaPage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -301,7 +302,7 @@ object LamdaPage {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                     .pressable { refresh(st, null) }
-                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                    .padding(horizontal = 4.dp, vertical = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 【v0.1.0·修·图标偏小】这是状态行主图标（右侧文字 15sp），按 [Design] 口径走 SZ_SM。

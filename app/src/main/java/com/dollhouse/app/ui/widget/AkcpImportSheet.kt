@@ -33,6 +33,7 @@ import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.UiKit
 import java.io.File
@@ -157,7 +158,7 @@ object AkcpImportSheet {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
-                    DhForm.PrimaryChip(text = "知道了") { ref.get()?.dismiss() }
+                    DhForm.Button(text = "知道了") { ref.get()?.dismiss() }
                 }
             }
         )
@@ -227,9 +228,9 @@ object AkcpImportSheet {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
-            DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
-            Spacer(Modifier.width(10.dp))
-            DhForm.PrimaryChip(text = "解密并预览") {
+            DhForm.Button(text = "取消", primary = false) { ref.get()?.dismiss() }
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            DhForm.Button(text = "解密并预览") {
                 if (!AkcpImport.credentialLooksValid(cred)) {
                     error = "凭据应为 52 位 Base32（字母 A–Z 与数字 2–7）"
                 } else {
@@ -308,7 +309,7 @@ object AkcpImportSheet {
                     .fillMaxWidth()
                     .heightIn(max = 240.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(top = 10.dp)
+                    .padding(top = DhDesign.Space.md.dp)
             ) {
                 configs.forEach { cfg -> PreviewRow(cfg) }
             }
@@ -326,7 +327,7 @@ object AkcpImportSheet {
                     Text(
                         text = "部分配置带有本应用存不下的扩展字段。导入只会保留名称、地址、密钥、" +
                             "模型列表与启用状态，其余内容不会带过来。",
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.err,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts,
@@ -342,7 +343,7 @@ object AkcpImportSheet {
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
-                Row(modifier = Modifier.padding(top = 6.dp)) {
+                Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                     ModeChip("跳过", mode == MODE_SKIP) { mode = MODE_SKIP }
                     Spacer(Modifier.width(8.dp))
                     ModeChip("覆盖", mode == MODE_OVERWRITE) { mode = MODE_OVERWRITE }
@@ -355,7 +356,7 @@ object AkcpImportSheet {
                         MODE_DUPLICATE -> "新建一个带「副本」后缀的供应商，原配置保持不变。"
                         else -> "同名供应商保持原样，只导入不冲突的那些。"
                     },
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -368,9 +369,9 @@ object AkcpImportSheet {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
-                DhForm.OutlineChip(text = "取消") { ref.get()?.dismiss() }
-                Spacer(Modifier.width(10.dp))
-                DhForm.PrimaryChip(text = "导入") {
+                DhForm.Button(text = "取消", primary = false) { ref.get()?.dismiss() }
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                DhForm.Button(text = "导入") {
                     summary = apply(act, configs, mode)
                     done = true
                 }
@@ -390,7 +391,7 @@ object AkcpImportSheet {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
-                DhForm.PrimaryChip(text = "好") { ref.get()?.dismiss() }
+                DhForm.Button(text = "好") { ref.get()?.dismiss() }
             }
         }
     }
@@ -408,7 +409,7 @@ object AkcpImportSheet {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 10.dp),
+                .padding(bottom = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

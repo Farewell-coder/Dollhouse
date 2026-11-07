@@ -30,6 +30,7 @@ import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
@@ -100,7 +101,7 @@ object DollLookTab {
                     runCatching { ImageStore.loadScaled(act, path, 384) }.getOrNull()
                 }
                 Row(
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
@@ -281,7 +282,7 @@ object DollLookTab {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = Icons.IC_DROPLET, sizeDp = Design.SZ_XS, color = c.line)
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             Box(
                 modifier = Modifier
                     .size(20.dp)

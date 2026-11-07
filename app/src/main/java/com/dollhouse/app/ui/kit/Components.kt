@@ -771,3 +771,94 @@ fun DhIconButton(
         DhKit.Icon(iconRes, DhDesign.Size.iconMd.value, tint ?: p.title)
     }
 }
+/**
+ * 圆角/圆形「图标座」：一块柔色底 + 居中图标。
+ *
+ * 【为什么需要这个构件】审计（docs/VISUAL_AUDIT.md 第七节）发现：同一个
+ * 「柔色方块 + 居中图标」的视觉，在全仓有 **13 种组合、15 处**各自手写，
+ * 尺寸从 20dp 到 72dp 毫无规律（20/26/32/34/38/40/46/48/52/72），
+ * 形状在「圆角 8 / 圆角 12 / 药丸」之间随意切换。
+ * 后果不是"某处难看"，而是**同一类元素在不同页面看起来不是一套东西** ——
+ * 空状态的图标座、权限行的图标座、联系人卡片的小头像座，本该是同一个语汇。
+ *
+ * 【分档依据·来自实测用量】尺寸频次（15 处）：
+ *   34×2、46×2、52×2、其余 20/26/32/38/40/48/72 各 1。
+ * 由此定三档，覆盖「列表行内 / 卡片内 / 空状态」三种典型场景：
+ *   · [SM] 32dp —— 列表行内、小卡片内（原 26/32/34 归此档）
+ *   · [MD] 40dp —— 卡片内的主要图标座、设置项（原 38/40/46 归此档）
+ *   · [LG] 56dp —— 空状态 / Hero 区（原 48/52 归此档）
+ * 超过 56 的（如 72dp 人偶大图标）**不归此构件**，属 Hero 特例，保留原值。
+ *
+ * 【形状两选一】[Shape.ROUNDED]（12dp 圆角，默认）/ [Shape.CIRCLE]（药丸/正圆）。
+ * 审计里 9 处用药丸、4 处用 8~12dp 圆角 —— 两者语义不同：
+ *   圆角 = 「一块方形底板」；正圆 = 「一个头像/指示点」。都由调用方按语义选。
+ *
+ * 【底色与图标色】默认 `palette.soft` + `palette.sub`，与既有 15 处的一致；
+ * 需要强调时由调用方覆写 [bg] / [tint]（例如人偶头像用 emote 色）。
+ *
+ * 【不做什么】不自带点击。图标座在多数场景是纯装饰（如空状态），
+ * 需要可点时由调用方在外面套 `pressable` —— 这样「点哪里」由页面决定，
+ * 构件本身不预设命中区，避免又造出一个"看起来能点但其实不响应"的元素。
+ */
+object IconSeatShape {
+    /** 圆角矩形（12dp）。用于「一块底板」语义。 */
+    const val ROUNDED = 0
+    /** 正圆 / 药丸。用于「头像、指示点」语义。 */
+    const val CIRCLE = 1
+}
+
+/** [IconSeat] 的三档尺寸（dp）。取值见该构件的 KDoc「分档依据」。 */
+object IconSeatSize {
+    /** 32dp：列表行内 / 小卡片。 */
+    const val SM = 32
+    /** 40dp：卡片内主要图标座。 */
+    const val MD = 40
+    /** 56dp：空状态 / Hero。 */
+    const val LG = 56
+}
+
+/**
+ * 图标座。见 [IconSeatSize] / [IconSeatShape]。
+ *
+ * @param iconRes 图标资源（`Icons.IC_*`）；0 表示只画底板不画图标（少见）
+ * @param sizeDp  见 [IconSeatSize]；也可传特例值，但应先确认不属于三档
+ * @param shape   见 [IconSeatShape]
+ * @param iconSizeDp 图标本体尺寸；默认按座大小自动取（32→16 / 40→20 / 56→24）
+ * @param bg      底板色，默认 `palette.soft`
+ * @param tint    图标色，默认 `palette.sub`
+ */
+@Composable
+fun IconSeat(
+    iconRes: Int,
+    modifier: Modifier = Modifier,
+    sizeDp: Int = IconSeatSize.MD,
+    shape: Int = IconSeatShape.ROUNDED,
+    iconSizeDp: Int = 0,
+    bg: Color? = null,
+    tint: Color? = null
+) {
+    val p = DhTokens.palette
+    val sh = if (shape == IconSeatShape.CIRCLE) {
+        RoundedCornerShape(DhDesign.Radius.pill.dp)
+    } else {
+        RoundedCornerShape(DhDesign.Radius.md.dp)
+    }
+    // 【图标尺寸随座大小走】三档对应 16/20/24，正好落在既有图标阶梯上。
+    //   调用方显式传 iconSizeDp 时以传入为准（少数特例需要）。
+    val icoDp = if (iconSizeDp > 0) iconSizeDp else when {
+        sizeDp <= IconSeatSize.SM -> DhDesign.Size.iconSm.value
+        sizeDp <= IconSeatSize.MD -> DhDesign.Size.iconMd.value
+        else -> DhDesign.Size.iconLg.value
+    }
+    Box(
+        modifier = modifier
+            .size(sizeDp.dp)
+            .clip(sh)
+            .background(bg ?: p.soft),
+        contentAlignment = Alignment.Center
+    ) {
+        if (iconRes != 0) {
+            DhKit.Icon(iconRes, icoDp, tint ?: p.sub)
+        }
+    }
+}

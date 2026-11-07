@@ -18,6 +18,7 @@ import com.dollhouse.app.data.ImportPlan
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.data.model.ModelImporter
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.sp
@@ -226,14 +227,14 @@ object ModelManagePage {
                 PickFileActivity.startFiles(act, false)
             }
             pkgMsg?.let { msg ->
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhForm.Note(msg)
             }
             Spacer(Modifier.height(8.dp))
             DhKit.MiniChip("调整位置", iconRes = Icons.IC_MOVE) {
                 showSize = true
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhForm.Note(
                 "换模型只换样子：她的人格、记忆和聊天记录都不会变，角色库里也不会多出人。"
             )
@@ -280,7 +281,7 @@ object ModelManagePage {
                     fontFamily = DhTokens.fonts
                 )
                 if (chk.warnings.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     Text(
                         text = chk.warnings.joinToString("\n"),
                         color = DhTokens.colors.sub,
