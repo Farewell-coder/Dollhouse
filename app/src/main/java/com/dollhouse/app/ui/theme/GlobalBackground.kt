@@ -383,7 +383,12 @@ object GlobalBackground {
         val brightness = (android.graphics.Color.red(base) * 299 +
             android.graphics.Color.green(base) * 587 +
             android.graphics.Color.blue(base) * 114) / 1000
-        val ratio = if (brightness > 128) 0.10f else 0.06f
+        // 【v3.1·用截图校对后加强】第一版浅色 0.10 / 深色 0.06，
+        //   截图出来被描述为「无法确定是纯色还是极弱渐变」—— 也就是说做了等于没做。
+        //   实测亮度差：0.10 → +0.92（看不出）；0.22 → +2.68（能看出但仍是浅蓝白，不刺眼）。
+        //   【为什么单靠计算不够】+0.92 在公式上是"有差"，在屏幕上是"没差" ——
+        //   这正是引入截图测试的价值：它把「算得出」和「看得见」分开了。
+        val ratio = if (brightness > 128) 0.22f else 0.10f
         val top = liftForTop(base, ratio)
         return GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
