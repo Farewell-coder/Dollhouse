@@ -375,6 +375,10 @@ object ChatUi {
                 .padding(top = DhDesign.Space.xs.dp)
         ) {
             Box(
+                // 【修·文字贴顶】`pressable` 内置 `minTouchTarget()`（48dp 下限），
+                //   而这个提示条本身只有「12sp 字 + 上下 7dp」≈ 31dp 高，
+                //   被撑到 48dp 后 `Box` 的默认 `TopStart` 会让文字贴在上沿。
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     // 【圆角收敛】原 10dp -> Radius.md(12)：提示条与卡片同族。
                     .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
@@ -994,6 +998,8 @@ object ChatUi {
             horizontalArrangement = Arrangement.Center
         ) {
             Box(
+                // 【同上】加载更早的药丸也被 pressable 撑到 48dp，需显式居中。
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .clip(RoundedCornerShape(UiKit.RADIUS_CHIP.dp))
                     .background(c.chatChipBg)

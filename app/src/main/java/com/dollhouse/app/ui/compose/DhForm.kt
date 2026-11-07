@@ -643,7 +643,6 @@ object DhForm {
             color = c.onAcc,
             fontSize = UiKit.FS_CHIP.sp,
             fontFamily = DhTokens.fontsBold,
-            fontWeight = FontWeight.Bold
         )
     }
 
@@ -1041,7 +1040,6 @@ object DhForm {
                     color = c.title,
                     fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
                 )
                 Column(modifier = Modifier.padding(top = 12.dp)) {
                     content()
@@ -1196,7 +1194,6 @@ object DhForm {
                         color = c.title,
                         fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold
                     )
                 }
                 content()

@@ -554,7 +554,6 @@ object DhKit {
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
             )
         } else {
             // 【r16·图标】卡片内小标题也可带图标；默认 0 = 与改造前逐像素一致。
@@ -574,7 +573,6 @@ object DhKit {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -620,7 +618,6 @@ object DhKit {
                     color = DhTokens.colors.title,
                     fontSize = UiKit.FS_TITLE.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
                 )
                 if (!sub.isNullOrEmpty()) {
                     Text(
@@ -677,7 +674,6 @@ object DhKit {
                 color = DhTokens.colors.title,
                 fontSize = TAB_TITLE_SP.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
             )
             if (actions != null) {
                 actions()
@@ -779,7 +775,6 @@ object DhKit {
                     color = valueTint ?: c.sub,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.End
                 )
             }
@@ -991,7 +986,6 @@ object DhKit {
                     color = tint,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold,
                     maxLines = 1
                 )
                 Spacer(Modifier.width(4.dp))
@@ -1050,7 +1044,6 @@ object DhKit {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
                 StepButton(iconRes = Icons.IC_PLUS, enabled = canPlus, onClick = onPlus)
@@ -1517,7 +1510,6 @@ object DhKit {
                     color = c.sub,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -1599,7 +1591,6 @@ object DhKit {
                 color = tint,
                 fontSize = UiKit.FS_CHIP.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 textAlign = TextAlign.Center
             )
         }
@@ -1747,7 +1738,6 @@ object DhKit {
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
             )
             if (selected) {
                 Icon(iconRes = Icons.IC_CHECK, sizeDp = 16f, color = c.acc)
@@ -1825,7 +1815,6 @@ object DhKit {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
@@ -2048,7 +2037,6 @@ object DhKit {
                 color = tint,
                 fontSize = UiKit.FS_CHIP.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
             )
             // 计数：用「· N」而不是纯数字，避免和标签粘成一个词读不通。
             if (item.badge > 0) {

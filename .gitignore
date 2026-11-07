@@ -42,6 +42,7 @@ __pycache__/
 !tools/design_parity.py
 !tools/kit_usage_audit.py
 !tools/page_consistency_audit.py
+!tools/align_audit.py
 /rstub/
 
 # 回归测试日志
