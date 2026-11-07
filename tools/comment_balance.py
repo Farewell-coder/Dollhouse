@@ -19,7 +19,12 @@ import sys
 import os
 from pathlib import Path
 
-DEFAULT_ROOT = "app/src/main/java"
+# 【范围必须覆盖 main 与 test】
+#   本项目踩过一次：`src/test` 里写了 `screenshot/*.png`，
+#   其中的 /* 在 Kotlin 块注释里会**开启嵌套注释**，导致 Unclosed comment；
+#   而当时的扫描范围只有 main，于是门禁全绿、CI 才报。
+#   门禁覆盖不到的地方等于没有门禁。
+DEFAULT_ROOTS = ["app/src/main/java", "app/src/test/java", "app/src/androidTest/java"]
 
 
 def scan(path: Path):
@@ -115,7 +120,7 @@ def scan(path: Path):
 
 
 def main(argv):
-    roots = argv[1:] or [DEFAULT_ROOT]
+    roots = argv[1:] or DEFAULT_ROOTS
     files = []
     for r in roots:
         p = Path(r)

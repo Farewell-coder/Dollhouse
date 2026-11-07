@@ -52,7 +52,7 @@ import java.io.File
  *   · CI 里就能跑；
  *   · 产出 PNG，人和模型都能直接看。
  *
- * 【产物】`app/build/screenshot/*.png`（CI 收成 artifact 即可下载）。
+ * 【产物】`app/build/screenshot/` 下的 png（CI 收成 artifact 即可下载）。
  * 【注意】`GraphicsMode.NATIVE` 需要 Robolectric 4.14+；更早版本截图是白板 ——
  *   那种「测试通过但图是空白」的假绿比没有测试更糟。
  */
