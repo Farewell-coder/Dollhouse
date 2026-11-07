@@ -130,6 +130,20 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: ignore
 
+      # 【视觉回归】Robolectric 截图测试产出的 PNG。
+      #   用途：让"设计改成了什么样"变成一张可下载、可比对的图，
+      #   而不是靠静态推算（本项目的对比度一直是公式算的，从没在屏幕上确认过）。
+      #   `if-no-files-found: warn` 而不是 error：截图测试若因环境原因未产出，
+      #   不应该把整轮 CI 判红 —— 但日志里会显式警告，不会被静默忽略。
+      - name: 上传设计截图（视觉回归）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-screenshots
+          path: app/build/screenshot/
+          if-no-files-found: warn
+          retention-days: 30
+
       # 只有打 tag（v*）才发 Release
       # 发布前先确认更新公告存在且非空：否则宁可失败，也不要发出一个空正文的 Release。
       - name: 校验更新公告
