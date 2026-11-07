@@ -139,10 +139,18 @@ chk D03 "主题切换后夹紧对比度（WCAG）" \
   "grep -q 'fun clampPaletteContrast' $UI/theme/UiKit.kt"
 chk D04 "开关开启色跟随主色（单一强调色）" \
   "grep -q 'UiKit.SWITCH_ON = p\[I_ACC\]' $UI/theme/ThemeManager.kt"
-chk D05 "阴影不落在列表行/芯片/顶栏（kit 层无 shadow 调用）" \
-  "test \$(grep -c 'shadow(' $KIT/Components.kt) -eq 0"
-chk D06 "没有 gradient 滥用（kit 层无 Brush.linearGradient）" \
-  "test \$(grep -c 'Brush\.' $KIT/Components.kt) -eq 0"
+# 【v3·方向变更】这两条原来是「禁止」：shadow 数必须为 0、Brush 数必须为 0。
+#   那是「安静居所」方向的口径（层级只靠留白与发丝线，不许有阴影/渐变）。
+#   新方向「清透轻拟物」恰恰**需要**阴影与渐变 —— 继续禁止等于把设计判成违规。
+#
+#   改守「边界」而不是「有无」：
+#     · 卡片 / 浮层 可以有阴影与渐变（这是轻拟物的体积来源）
+#     · **列表行（DhRow）不许有** —— 一行一个浮块的列表既碎又卡，这条原则在新方向下仍成立
+#   这样门禁从「挡新设计」变成「挡滥用」。
+chk D05 "阴影只落在卡片/浮层，不落在列表行（DhRow 内无 shadow）" \
+  "! sed -n '/^fun DhRow(/,/^}/p' $KIT/Components.kt | grep -q 'shadow('"
+chk D06 "渐变只落在底/卡片，不落在列表行（DhRow 内无 Brush）" \
+  "! sed -n '/^fun DhRow(/,/^}/p' $KIT/Components.kt | grep -q 'Brush\.'"
 chk D07 "文字选择把手走主题色（不再是 M3 默认蓝）" \
   "grep -q 'palette.accent' $UI/compose/DhTheme.kt"
 chk D08 "字体阶梯含品牌档与正文档两套（品牌字不用于正文）" \

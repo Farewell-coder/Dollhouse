@@ -341,6 +341,44 @@ def check_file(path: Path):
             "请用 DhTokens.type.X（Composable 内）或 DhDesign.Type.of(...)"
         )
 
+    # E9 悬空注解：`@Composable` 之后（跳过注释）不是声明，也不是另一个注解
+    #
+    # 【为什么需要】E7 只查「相邻两个 @Composable」。但真实踩过的形态是
+    #   「KDoc 被插到了注解与函数之间」：
+    #       @Composable          ← 悬空
+    #       /** 另一个函数的文档 */
+    #       @Composable
+    #       private fun foo()
+    #   这种时候 E7 能报（因为出现了两次），但如果只留一个 @Composable 悬空、
+    #   下面接的是普通函数，E7 就完全看不见。直接校验「注解下面必须是声明」更本质。
+    #
+    # 【允许的后续】另一个注解（@JvmStatic 等）、常见修饰符 + fun/val/var/class/object/interface。
+    _l2 = raw.split("\n")
+    for _i, _line in enumerate(_l2):
+        if _line.strip() != "@Composable":
+            continue
+        _j = _i + 1
+        while _j < len(_l2):
+            _t = _l2[_j].strip()
+            if (_t.startswith("*") or _t.startswith("/*") or _t.startswith("//")
+                    or _t == "" or _t.startswith("@file:") or _t.startswith("@suppress")):
+                _j += 1
+                continue
+            break
+        if _j >= len(_l2):
+            continue
+        _nx = _l2[_j].strip()
+        if _nx.startswith("@"):
+            continue
+        if re.match(r"^(public |private |internal |protected |open |override |suspend |inline |"
+                    r"operator |infix |tailrec |external |actual |expect |abstract |final |"
+                    r"fun |val |var |class |object |interface |typealias |constructor)", _nx):
+            continue
+        problems.append(
+            f"E9 @Composable 悬空：第 {_i + 1} 行的注解下面不是声明"
+            f"（第 {_j + 1} 行是 `{_nx[:40]}`）"
+        )
+
     # E7 重复注解：同一个声明上方出现两次 `@Composable`（含被 KDoc 隔开的情况）
     #
     # 【为什么会发生】往「已有 `@Composable` 的 private fun」前面插入新函数时，
