@@ -70,28 +70,44 @@ KIT_COMPONENTS = [
 #   这里同时接受两种写法（全限定 / 短名），并在报告中说明实际命中的是哪一种。
 #
 # 【候选函数与实测结果】
-#   Card      → DhGroup ✓
-#   ValueRow  → DhRow   ✓
-#   ActionRow → DhRow   ✓
-#   SwitchRow → DhRow   ✓（此前登记为"未转发"，已补齐：Switch 进 trailing 槽）
-#   PermRow   → DhRow   ✓（此前登记为"未转发"，已补齐：状态文字+图标进 trailing 槽）
-#   五个候选现在**全部**在 FORWARD_CHAIN 里 —— 转发链 5/5。
+#   Card       → DhGroup ✓
+#   ValueRow   → DhRow   ✓
+#   ActionRow  → DhRow   ✓
+#   SwitchRow  → DhRow   ✓（此前登记为"未转发"，已补齐：Switch 进 trailing 槽）
+#   PermRow    → DhRow   ✓（此前登记为"未转发"，已补齐：状态文字+图标进 trailing 槽）
+#   StepperRow → DhRow   ✓（此前未登记，已补齐：减号/数值/加号三件进 trailing 槽）
+#   六个候选现在**全部**在 FORWARD_CHAIN 里 —— 转发链 6/6。
 #
-# 【为什么这两个曾长期登记在 KNOWN_NOT_FORWARDED】
+# 【StepperRow 为什么也必须登记，而不是"转发完就算了"】
+#   本脚本存在的全部意义就是**防回退**：不登记的转发等于没被守护。
+#   若哪天有人把 StepperRow 的 `kit.DhRow(...)` 改回自己画 Row + soft 底，
+#   代码照样能编译、界面看起来"差不多"、其它门禁全绿，规范就悄悄失效了 ——
+#   而 K2 是唯一能发现这件事的检查。登记它，才会在那一刻报"转发链断裂"。
+#
+# 【StepperRow 当初为何曾被判断"语义对不上"】
+#   一度以为它的右尾是"减号 / 数值 / 加号"三件套 + 两个方向的回调，
+#   与 DhRow「单个 onClick + 单个 trailing」对不上，硬塞等于假装成一件东西。
+#   复核后发现这个前提是错的：`DhRow.trailing` 的形参类型本来就是
+#   `@Composable RowScope.() -> Unit` —— 接收器是 RowScope，天然可放任意多件，
+#   且 `Modifier.width` 在 RowScope 内正常工作。PermRow 早就把两件放进同一槽作先例。
+#   所以**不需要给 DhRow 加任何参数**，直接复用现有槽即可。
+#
+# 【为什么 SwitchRow / PermRow 曾长期登记在 KNOWN_NOT_FORWARDED】
 #   它们是**从未转发过**的历史实现（各自画 Row + Text + Switch/Icon），
 #   与"从转发版改回复制"（回退）必须区分：前者是技术债，后者才是要让门禁红的错误。
-#   现在两者都转发完毕，登记表里不再有"待收编"项 —— 一旦有人把转发改回自绘，
-#   K2 会直接判"转发链断裂"而失败，这正是本表想要的防回退效果。
+#   现在都与 StepperRow 一起转发完毕，登记表里不再有"待收编"项 ——
+#   一旦有人把转发改回自绘，K2 会直接判"转发链断裂"而失败，这正是本表想要的防回退效果。
 FORWARD_CHAIN = {
     "Card": ["DhGroup"],
     "ValueRow": ["DhRow"],
     "ActionRow": ["DhRow"],
     "SwitchRow": ["DhRow"],
     "PermRow": ["DhRow"],
+    "StepperRow": ["DhRow"],
 }
 
 # 已知「从未转发」的函数：只报告，不计失败（技术债，不是回退）
-# 【当前为空】SwitchRow / PermRow 已于本轮真正转发到 DhRow，登记一并移除。
+# 【当前为空】SwitchRow / PermRow / StepperRow 均已真正转发到 kit 组件，登记一并移除。
 KNOWN_NOT_FORWARDED = {}
 
 

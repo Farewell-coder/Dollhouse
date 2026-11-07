@@ -825,10 +825,25 @@ object DhForm {
     @Composable
     fun DialogButton(text: String, primary: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
-        Text(
-            text = text,
+        // 【形态对齐设计稿】设计稿 §3「Buttons — one height, 44dp」+ 12 圆角，
+        //   并把 999 明确留给 chip/switch/badge/avatar。改造前这里是
+        //   「999 全圆角 + 内边距撑高 + 12sp」—— 那是 **chip** 的形态，不是按钮。
+        //   【为什么本工厂可以整体改】它 13 处调用点**全部**是弹窗主/次操作
+        //   （取消 / 保存 / 删除 / 恢复 / 关闭），没有一处是筛选、选择或状态标签。
+        //   与 PrimaryChip / OutlineChip 不同：那两个工厂内部**同时**装着
+        //   chip 调用点（筛选、分段选择），不能从工厂层面统一，只能逐处判断。
+        //   【为什么不改调用点】签名与 13 处调用点零改动，改造只在工厂内部。
+        //   【高度为什么定死 44】与 kit.DhButton 同档；单行文字 + 左右 20dp 内边距放得下。
+        //   【为什么从 pressable 换成 pressScaleClick】pressable 内置 minTouchTarget()
+        //   （48dp 下限，为孤立小图标准备）。它会把 height(44) 的布局**撑到 48**，
+        //   于是「44dp 统一高度」名存实亡 —— 这正是 DhKit.OutlineChip 注释里记过的同一个坑。
+        //   kit.DhButton 的做法也是 pressScaleClick；这里与它保持完全一致。
+        //   弹窗按钮自带可见轮廓且高 44dp，命中区足够，不需要额外的 48dp 透明补丁。
+        val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .height(44.dp)
+                .clip(shape)
                 .then(
                     if (primary) {
                         Modifier.background(c.acc)
@@ -838,16 +853,24 @@ object DhForm {
                         //   透明度 100% 时与面板同色 → 按钮看不见）。
                         Modifier
                             .background(c.sheetUp)
-                            .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                            .border(1.dp, c.line, shape)
                     }
                 )
-                .pressable(onClick)
-                .padding(horizontal = 16.dp, vertical = 9.dp),
-            color = if (primary) c.onAcc else c.title,
-            fontSize = UiKit.FS_CHIP.sp,
-            fontFamily = if (primary) DhTokens.fontsBold else DhTokens.fonts,
-            fontWeight = if (primary) FontWeight.Bold else FontWeight.Normal
-        )
+                .pressScaleClick(onClick)
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = if (primary) c.onAcc else c.title,
+                // 【字号对齐设计稿】原 12sp（chip 档）→ 15sp（body 档，按钮正文）。
+                //   按钮文字比 chip 大一档是应有的层级；12sp 在高 44 的按钮里显得空。
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
+                fontFamily = if (primary) DhTokens.fontsBold else DhTokens.fonts,
+                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1
+            )
+        }
     }
 
     /**

@@ -778,9 +778,9 @@ object DhKit {
         )
     }
     /* ============================ 开关行 / 权限行 / 步进器 ============================
-     * 【转发链现状：5 条，全部由本类转发出去】
+     * 【转发链现状：6 条，全部由本类转发出去】
      *   Card → DhGroup、ValueRow → DhRow、ActionRow → DhRow、
-     *   SwitchRow → DhRow、PermRow → DhRow。
+     *   SwitchRow → DhRow、PermRow → DhRow、StepperRow → DhRow。
      *
      *   【记一段纠错】此前有一个说法是「SwitchRow / PermRow 各转发 2 次
      *   （注释里的路径算一次、真调用算一次）」—— 那是把注释里提到的路径
@@ -789,9 +789,14 @@ object DhKit {
      *   这就是「同一张卡里开关行比信息行矮 2~3dp」那条观感问题的来源。
      *   本轮已把两者真正转发，38 处调用点（SwitchRow 34 + PermRow 4）一次性对齐。
      *
-     *   仍未转发的是下方的 [StepperRow]：它的右尾是「减号 / 数值 / 加号」三件套，
-     *   需要两个方向各自的回调与可用性，与 DhRow「单个 onClick + 单个 trailing」的语义
-     *   对不上，硬转发会把两个按钮塞进一个 trailing 槽里假装成一件东西。
+     *   【[StepperRow] 也曾被我判断成"转发不了"】理由是「右尾是减号 / 数值 / 加号
+     *   三件套 + 两个方向各自的回调，与 DhRow 单个 onClick + 单个 trailing 的语义对不上」。
+     *   这个前提是**错的**：`DhRow.trailing` 的形参类型本来就是
+     *   `@Composable RowScope.() -> Unit`，接收器是 RowScope，天然可放任意多件。
+     *   （PermRow 早把「状态文字 + 图标」两件放进同一槽，就是先例。）
+     *   所以三件套原样进槽即可，**不需要给 DhRow 加任何参数** ——
+     *   加了反而给 6 个转发方多一个可被误用的开关。
+     *   教训：判断"某组件表达不了"之前，先复核它的形参类型，别凭印象断言。
      */
 
     /**
@@ -936,34 +941,46 @@ object DhKit {
         onPlus: () -> Unit
     ) {
         val c = DhTokens.colors
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(top = GAP_ROW.dp)
-                .clip(RoundedCornerShape(R_ROW.dp))
-                .background(c.soft)
-                .padding(horizontal = PAD_ROW.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = name,
-                modifier = Modifier.weight(1f),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
-            )
-            StepButton(iconRes = Icons.IC_MINUS, enabled = canMinus, onClick = onMinus)
-            Text(
-                text = value,
-                modifier = Modifier.width(62.dp),
-                color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-            StepButton(iconRes = Icons.IC_PLUS, enabled = canPlus, onClick = onPlus)
-        }
+        // 【M-收口·转发到规范实现·结论是"不必给 DhRow 加参数"】
+        //   本函数此前是**最后一行自带 soft 底 + 圆角 12 的行**（其余行早已转发走）。
+        //   它被塞在已转发的 SwitchRow / ActionRow / 普通行之间，同页里只有它长成一个小卡片，
+        //   行高与内边距也不是同一个来源 —— 这正是设计稿要收敛掉的"逐行卡片"。
+        //
+        //   【曾评估的 A 方案：给 DhRow 加 weightedTrailing / trailingSlot 参数】
+        //   **实测不需要**：`DhRow` 的 `trailing` 形参类型本来就是
+        //   `@Composable RowScope.() -> Unit` —— 接收器是 `RowScope`，
+        //   天然可以放任意多件、并按 RowScope 的规则排版（含 Modifier.width 定宽居中）。
+        //   上一轮的 PermRow 已经把「状态文字 + 图标」两件放进同一个槽，即是先例。
+        //   所以这里**没有改动 Components.kt 的任何一行** ——
+        //   加参数反而会给 6 个转发方（Card→DhGroup、ValueRow、ActionRow、SwitchRow、
+        //   PermRow、本函数）多一个可被误用的开关，风险大于收益。
+        //
+        //   【右尾三件套怎么放】把「减号 / 数值 / 加号」原样放进 trailing 槽：
+        //   两枚 StepButton 各有自己的回调与可用性，数值保持 62dp 定宽居中（避免
+        //   数字位数变化时按钮跳动）。这不是"假装成一件东西"，而是槽本来就是多件的。
+        //
+        //   【行为原样保住】旧实现的**整行不可点**（只有两个 StepButton 可点），
+        //   故这里 onClick 传 null —— DhRow 因此不挂 pressable，可点面只剩两枚按钮。
+        //   StepButton 自己的 enabled / alpha(0.35f) / 34dp 圆形实底描边全部不动。
+        com.dollhouse.app.ui.kit.DhRow(
+            title = name,
+            modifier = modifier,
+            showChevron = false,
+            onClick = null,
+            trailing = {
+                StepButton(iconRes = Icons.IC_MINUS, enabled = canMinus, onClick = onMinus)
+                Text(
+                    text = value,
+                    modifier = Modifier.width(62.dp),
+                    color = c.title,
+                    fontSize = UiKit.FS_BTN.sp,
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                StepButton(iconRes = Icons.IC_PLUS, enabled = canPlus, onClick = onPlus)
+            }
+        )
     }
 
     /**
