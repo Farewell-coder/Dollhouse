@@ -178,4 +178,69 @@ class DesignScreenshotTest {
             Text(label, color = fg, fontSize = 11.sp)
         }
     }
+
+    /**
+     * 【像素级居中验证】IconButton 的图标必须落在圆底的几何中心。
+     *
+     * 【为什么用像素而不是肉眼】用户反馈「左上角返回键不在最中心」，
+     *   而目视只能看出"大概偏左"，说不出偏几个像素。
+     *   这里直接算：把渲染结果里**明显区别于底色的像素**（即图标笔画）的包围盒中心，
+     *   与容器中心对比，偏差超过 1dp 就报错。
+     *
+     * 【为什么阈值是 1dp】抗锯齿会让边缘像素抖动 1px 左右；
+     *   1dp（480dpi 下约 3px）以内可认为视觉居中，超过就是布局没对齐。
+     */
+    @Test
+    fun iconButton_isCentered() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val sizePx = 96
+        val cv = ComposeView(activity).apply {
+            setContent {
+                DollhouseTheme {
+                    Box(Modifier.size(48.dp).background(DhTokens.colors.bg)) {
+                        DhKit.IconButton(
+                            iconRes = Icons.IC_ARROW_LEFT,
+                            sizeDp = 20f,
+                            color = DhTokens.colors.title,
+                            onClick = {}
+                        )
+                    }
+                }
+            }
+        }
+        activity.setContentView(cv)
+        ShadowLooper.idleMainLooper()
+
+        val bmp = renderToBitmap(cv)
+        save(bmp, "02-iconbutton")
+
+        // 找出所有"深色笔画"像素（图标是 title 色，明显深于 soft 圆底）
+        var minX = Int.MAX_VALUE; var maxX = -1
+        var minY = Int.MAX_VALUE; var maxY = -1
+        for (y in 0 until bmp.height) {
+            for (x in 0 until bmp.width) {
+                val c = bmp.getPixel(x, y)
+                val lum = (0.2126 * ((c shr 16) and 0xff) +
+                           0.7152 * ((c shr 8) and 0xff) +
+                           0.0722 * (c and 0xff)) / 255.0
+                if (lum < 0.35) {
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+        check(maxX > 0 && maxY > 0) { "没找到图标笔画，截图可能没渲染出来" }
+        val cx = (minX + maxX) / 2
+        val cy = (minY + maxY) / 2
+        val px = (bmp.width - 1) / 2
+        val py = (bmp.height - 1) / 2
+        val dx = kotlin.math.abs(cx - px)
+        val dy = kotlin.math.abs(cy - py)
+        println("[center] 图标包围盒=($minX,$minY)-($maxX,$maxY) 中心=($cx,$cy) 容器中心=($px,$py) 偏差=($dx,$dy)px")
+        // 1dp ≈ 3px @480dpi
+        check(dx <= 3) { "图标水平不居中：偏 ${dx}px（>3px ≈ 1dp）" }
+        check(dy <= 3) { "图标垂直不居中：偏 ${dy}px（>3px ≈ 1dp）" }
+    }
 }

@@ -262,6 +262,12 @@ object DhKit {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = PAD_CARD.dp)
+                        // 【修·上下留白不对称】改造前这里是「顶部 0 + 底部 24」：
+                        //   TopBar 自带 bottom=4，于是标题到第一块内容只有 4dp，
+                        //   而最后一块内容到底部有 24dp —— 整页看起来"头重脚轻地挤在标题下面"。
+                        //   顶部补 8dp（标题与内容的呼吸），与底部 24dp（列表末端留白）形成
+                        //   合理的主次：内容区自带呼吸、末端再多留一档。
+                        .padding(top = DhDesign.Space.sm.dp)
                         .padding(bottom = 24.dp + bottomPadDp.dp),
                     content = content
                 )
@@ -1343,6 +1349,12 @@ object DhKit {
                 )
                 .pressable(onClick)
                 .then(if (hasLabel) Modifier.padding(horizontal = 8.dp) else Modifier),
+            // 【修·图标不在圆心】改造前只有 `verticalAlignment`，而 `Row` 的
+            //   `horizontalArrangement` 默认是 **Start** —— 于是 40dp 圆底里 20dp 的图标
+            //   贴在左侧，右侧空出 20dp。用户看到的就是「返回键不在最中心」。
+            //   `Row` 的默认值在「一行几个元素」时没问题，但这里容器是固定尺寸的圆、
+            //   内容只有一枚图标，**必须显式居中**。
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(iconRes = iconRes, sizeDp = sizeDp, color = color)
