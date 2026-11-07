@@ -535,6 +535,19 @@ object DhDesign {
         val disabledBg: Color get() = soft.copy(alpha = 0.60f)
 
         /** 骨架屏底：用 soft 与 line 之间的一档，不做扫光渐变。 */
+        /**
+         * 【v3·清透轻拟物】阴影的染色。
+         *
+         * 【为什么不能固定一个色】浅色底上，纯黑阴影会显脏显硬 —— 染成蓝灰才"柔"；
+         *   但深色底上同一个浅蓝会**发亮**，像一圈光晕，反而更脏。
+         *   所以按底色明暗二选一：浅色用蓝灰、深色用近黑。
+         *
+         * 【为什么用相对亮度判】比"按主题枚举"稳：用户调主题色 / 莫奈取色后，
+         *   底色明暗可能变，固定枚举会失配。
+         */
+        val shadowTint: Color
+            get() = if (relativeLuminance(bg) > 0.5) Color(0xFF8FA8C4) else Color(0xFF05080C)
+
         val skeleton: Color get() = soft
 
         /** 聚焦环：accent2 的 40%。 */

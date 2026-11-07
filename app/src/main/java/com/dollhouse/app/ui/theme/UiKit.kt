@@ -50,79 +50,79 @@ object UiKit {
      */
     /** 主色（参考软件 --acc / --acc2）。 */
     @JvmField
-    var ACC = 0xFF6B4EE6.toInt()
+    var ACC = 0xFF4375C1.toInt()
 
     @JvmField
-    var ACC2 = 0xFF8B6EF7.toInt()
+    var ACC2 = 0xFF6791D0.toInt()
 
     @JvmField
-    var CARD = 0xFFFCFAF6.toInt()
+    var CARD = 0xFFFAFCFE.toInt()
 
     @JvmField
-    var BG = 0xFFF7F4EE.toInt()
+    var BG = 0xFFE8EFF7.toInt()
 
     @JvmField
-    var TITLE = 0xFF2A2620.toInt()
+    var TITLE = 0xFF2B3A4A.toInt()
 
     @JvmField
-    var SUB = 0xFF6F675C.toInt()
+    var SUB = 0xFF5A6C80.toInt()
 
     @JvmField
-    var LINE = 0xFFDAD2C2.toInt()
+    var LINE = 0xFFC7D1DD.toInt()
 
     /** 选项/对照组底色（设置页用）。 */
     @JvmField
-    var OPTION = 0xFFF2EEE7.toInt()
+    var OPTION = 0xFFEFF5FB.toInt()
 
     @JvmField
-    var SOFT = 0xFFF4F0E9.toInt()
+    var SOFT = 0xFFEAF1F8.toInt()
 
     @JvmField
-    var FIELD = 0xFFF1EDE5.toInt()
+    var FIELD = 0xFFE4ECF6.toInt()
 
     @JvmField
-    var OK = 0xFF4B7A57.toInt()
+    var OK = 0xFF4A9D6E.toInt()
 
     @JvmField
-    var ERR = 0xFFB0563F.toInt()
+    var ERR = 0xFFD96A5B.toInt()
 
     @JvmField
     var ON_ACC = 0xFFFFFFFF.toInt()
 
     /** 聊天面板专用色（气泡 / 操作条 / 提示条）。 */
     @JvmField
-    var CHAT_BUBBLE_USER = 0xFFEDE7DC.toInt()
+    var CHAT_BUBBLE_USER = 0xFFDCE9FA.toInt()
 
     @JvmField
-    var CHAT_BORDER = 0xFFE2DACC.toInt()
+    var CHAT_BORDER = 0xFFC7D1DD.toInt()
 
     @JvmField
-    var CHAT_CHIP_BG = 0xFFF1EDE4.toInt()
+    var CHAT_CHIP_BG = 0xFFEAF1F8.toInt()
 
     @JvmField
-    var CHAT_CHIP_FG = 0xFF6F675C.toInt()
+    var CHAT_CHIP_FG = 0xFF5A6C80.toInt()
 
     @JvmField
-    var CHAT_CHIP_ON = 0xFFE9E3FF.toInt()
+    var CHAT_CHIP_ON = 0xFFDCE9FA.toInt()
 
     @JvmField
-    var CHAT_CHIP_OFF = 0xFFF0ECE3.toInt()
+    var CHAT_CHIP_OFF = 0xFFEDF3F9.toInt()
 
     @JvmField
-    var CHAT_CHIP_MUTE = 0xFFDCD5C7.toInt()
+    var CHAT_CHIP_MUTE = 0xFFC9D6E5.toInt()
 
     @JvmField
-    var CHAT_ACTION_BG = 0xFFF2EEE7.toInt()
+    var CHAT_ACTION_BG = 0xFFEFF5FB.toInt()
 
     @JvmField
-    var HINT_FG = 0xFF6F5B43.toInt()
+    var HINT_FG = 0xFF4A637F.toInt()
 
     @JvmField
-    var HINT_BG = 0xFFFAF0DF.toInt()
+    var HINT_BG = 0xFFE3EEFA.toInt()
 
     /** 自绘开关的关闭态轨道色：比 LINE 深，保证白底卡片上看得清。 */
     @JvmField
-    var SWITCH_OFF = 0xFFD8D1C3.toInt()
+    var SWITCH_OFF = 0xFFCBD8E6.toInt()
 
     /**
      * 【v0.1.4·UI 统一】开关**开启态**专用强调色（薄荷绿）。
@@ -138,7 +138,7 @@ object UiKit {
      *   由主题切换时按明暗自动选一档（见 `ThemeManager` / `ThemeRefresh` 的调用点）。
      */
     @JvmField
-    var SWITCH_ON = 0xFF6B4EE6.toInt()
+    var SWITCH_ON = 0xFF4375C1.toInt()
 
     /** 开关滑块色：浅色主题纯白，深色主题略压暗避免「发光」刺眼。 */
     @JvmField
@@ -146,21 +146,21 @@ object UiKit {
 
     /** 桌宠表情色（惊叹 / 开心 / 眩晕）。 */
     @JvmField
-    var EMOTE_1 = 0xFFE9DAC4.toInt()
+    var EMOTE_1 = 0xFFD8E4F2.toInt()
 
     @JvmField
-    var EMOTE_2 = 0xFFDCE4DA.toInt()
+    var EMOTE_2 = 0xFFDDE8E2.toInt()
 
     @JvmField
-    var EMOTE_3 = 0xFFE5DCE6.toInt()
+    var EMOTE_3 = 0xFFE2DEEF.toInt()
 
     /** 卡片描边（带透明度，深色主题下会换成浅色）。 */
     @JvmField
-    var STROKE = 0x8CDAD2C2.toInt()
+    var STROKE = 0x8CC1CBD7.toInt()
 
     /** 弹层遮罩色：抽屉 / 底部面板背后的压暗层，深色主题下更重。 */
     @JvmField
-    var SCRIM = 0x6B262018
+    var SCRIM = 0x6B1A2230
 
     /**
      * 状态语义色的「淡底」：把 OK / ERR 压成 12% 透明当徽标背景。

@@ -427,8 +427,8 @@ object DhKit {
                                 elevation = com.dollhouse.app.ui.design.DhDesign.Elevation.e1,
                                 shape = RoundedCornerShape(R_CARD.dp),
                                 clip = false,
-                                ambientColor = androidx.compose.ui.graphics.Color(0xFF8FA8C4),
-                                spotColor = androidx.compose.ui.graphics.Color(0xFF8FA8C4)
+                                ambientColor = DhTokens.palette.shadowTint,
+                                spotColor = DhTokens.palette.shadowTint
                             )
                             .clip(RoundedCornerShape(R_CARD.dp))
                             .background(c.card)
