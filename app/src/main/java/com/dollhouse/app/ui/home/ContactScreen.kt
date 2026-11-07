@@ -125,7 +125,7 @@ object ContactScreen {
             )
 
             if (groups.isEmpty() || groups.all { it.second.isEmpty() }) {
-                EmptyState(act)
+                ContactEmptyState(act)
                 return@Column
             }
 
@@ -322,32 +322,28 @@ object ContactScreen {
 
     /** 空态：一只人偶都没有。 */
     @Composable
-    private fun EmptyState(act: MainActivity) {
-        val c = DhTokens.colors
+    private fun ContactEmptyState(act: MainActivity) {
+        // 【S-收编·改用规范骨架】原先自己拼「图标 + 15sp 主文案 + 12sp 副文案 + OutlineChip」，
+        //   现转发到 `ui/kit.DhState`（56dp 图标座 → section 标题 → sub 正文 ≤2 行 →
+        //   恰好一个动作）。**文案一字未改。**
+        //   【为什么改名】`state_audit.py` 先按函数名（EmptyState / Empty / NoData…）
+        //   匹配，函数体转发到 DhState 也不会自动出列 —— 改名才能如实计入覆盖率。
+        //   【底部留白必须留着】原实现在动作后补了一个 `BottomNav.HEIGHT_DP` 的 Spacer。
+        //   这一层不能省：本空态是 `Column` 的**直接子节点**，不是那个 LazyColumn
+        //   （LazyColumn 的 `contentPadding.bottom` 只管它自己的内容）。少了这段留白，
+        //   Box 居中后内容会整体下沉，被底部胶囊压住。
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                DhKit.Icon(Icons.IC_USERS, Design.SZ_XL, c.line)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "还没有人偶",
-                    color = c.sub,
-                    fontSize = 15.sp, lineHeight = 22.sp,
-                    fontFamily = DhTokens.fonts
+                com.dollhouse.app.ui.kit.DhState(
+                    title = "还没有人偶",
+                    body = "建一只，她就会在这里出现",
+                    iconRes = Icons.IC_USERS,
+                    actionText = "去添加人偶",
+                    onAction = { DollListScreen.open(act) }
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "建一只，她就会在这里出现",
-                    color = c.line,
-                    fontSize = 12.sp, lineHeight = 18.sp,
-                    fontFamily = DhTokens.fonts
-                )
-                Spacer(Modifier.height(14.dp))
-                DhKit.OutlineChip(text = "去添加人偶") {
-                    DollListScreen.open(act)
-                }
                 Spacer(Modifier.height(BottomNav.HEIGHT_DP.dp))
             }
         }

@@ -127,22 +127,22 @@ object ProviderListPage {
                 hint = "搜索供应商名称"
             )
             if (shown.isEmpty()) {
-                DhKit.Card {
-                    Text(
-                        text = if (all.isEmpty()) "还没有配置任何供应商。" else "没有匹配的供应商。",
-                        color = c.title,
-                        fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts
-                    )
-                    if (all.isEmpty()) {
-                        Spacer(Modifier.width(0.dp))
-                        Box(modifier = Modifier.padding(top = 12.dp)) {
-                            DhForm.PrimaryChip(text = "添加供应商") {
-                                ProviderNav.openNewProvider(act)
-                            }
-                        }
+                // 【S-收编·改用规范骨架】原先是一张 Card 里放「主文案 + PrimaryChip」，
+                //   与全 App 其他空态不是一个样。现转发到 `ui/kit.DhState`。
+                //   **文案一字未改**（两种情形各自的原句都原样保留）。
+                //   【动作口径】「没有匹配」是搜索无果 —— 不该给「添加供应商」按钮
+                //   （用户只是在找词，不是想新建）；只有「一个都没配」才给这一个动作。
+                //   改造前也已经是这个口径（动作只在 all.isEmpty() 分支里），此处无功能变化。
+                com.dollhouse.app.ui.kit.DhState(
+                    title = if (all.isEmpty()) "还没有配置任何供应商。" else "没有匹配的供应商。",
+                    iconRes = Icons.IC_LAYERS,
+                    actionText = if (all.isEmpty()) "添加供应商" else null,
+                    onAction = if (all.isEmpty()) {
+                        { ProviderNav.openNewProvider(act) }
+                    } else {
+                        null
                     }
-                }
+                )
             } else {
                 shown.forEach { p ->
                     ProviderRow(

@@ -289,7 +289,7 @@ object ChatListScreen {
                 }
 
                 shown.isEmpty() -> {
-                    EmptyState(
+                    ChatEmptyState(
                         searching = query.trim().isNotEmpty(),
                         // 【r13·空态引导改造】切到「人偶」Tab（而不是打开人偶管理页）——
                         //   用户此刻要的是「找人聊」，不是「建角色」。
@@ -610,40 +610,35 @@ object ChatListScreen {
      *
      * 【两种文案】搜索无结果 vs 一条会话都没有 —— 前者要提示「换个词」，
      *   后者要引导「去建一只人偶」（改造后会话由人偶派生，不能凭空新建）。
+     *
+     * 【S-收编·改用规范骨架】原先自己拼「图标 + 15sp 主文案 + 12sp 副文案 + OutlineChip」，
+     *   与全 App 其他空态不是一个样。现转发到 `ui/kit.DhState`（56dp 图标座 → section 标题
+     *   → sub 正文 ≤2 行 → 恰好一个动作）。**文案一字未改。**
+     *
+     * 【为什么改名】`state_audit.py` 先按函数名匹配（EmptyState / Empty / NoData…）
+     *   再判内容，所以只要还叫 `EmptyState`，即使函数体已经转发到 DhState 也会被继续
+     *   计为「自建空态」。改名 `ChatEmptyState` 才能让覆盖率如实反映改动。
      */
     @Composable
-    private fun EmptyState(searching: Boolean, onAddDoll: () -> Unit) {
-        val c = DhTokens.colors
+    private fun ChatEmptyState(searching: Boolean, onAddDoll: () -> Unit) {
+        // 【为什么外面还套一层 Box】DhState 自身只 fillMaxWidth + 上下内边距，
+        //   不负责在剩余空间里居中；而这个空态原先占满列表区并垂直居中。
+        //   保留这层壳，空态的落点才与改造前一致。
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                DhKit.Icon(Icons.IC_MESSAGE_SQUARE, Design.SZ_XL, c.line)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = if (searching) "没有匹配的会话" else "还没有对话",
-                    color = c.sub,
-                    fontSize = 15.sp, lineHeight = 22.sp,
-                    fontFamily = DhTokens.fonts
-                )
-                if (!searching) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "每一只人偶自带一个对话",
-                        color = c.line,
-                        fontSize = 12.sp, lineHeight = 18.sp,
-                        fontFamily = DhTokens.fonts
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    // 【r13·空态引导改造】需求原文：
-                    //   「同时这里也不应该是去添加人偶 而是建议用户去联系人上找 人偶聊天」。
-                    //   旧按钮「去添加人偶」跳的是**人偶管理页**（建角色的地方），
-                    //   但用户此刻的意图是「聊天」—— 正确动作是去「人偶」页挑一只开聊，
-                    //   而不是去建新的。这里改成切到「人偶」Tab，语义与落点都对上。
-                    DhKit.OutlineChip(
-                        text = "去和人偶聊天",
-                        onClick = onAddDoll
-                    )
-                }
-            }
+            com.dollhouse.app.ui.kit.DhState(
+                title = if (searching) "没有匹配的会话" else "还没有对话",
+                // 搜索态只提示「换个词」，不引导动作（用户本来就在找词）；
+                // 真正的空列表才给「去和人偶聊天」这一个动作。
+                body = if (searching) null else "每一只人偶自带一个对话",
+                iconRes = Icons.IC_MESSAGE_SQUARE,
+                // 【r13·空态引导改造】需求原文：「同时这里也不应该是去添加人偶
+                //   而是建议用户去联系人上找 人偶聊天」。旧按钮跳的是**人偶管理页**
+                //   （建角色的地方），但用户此刻的意图是「聊天」—— 正确动作是去
+                //   「人偶」页挑一只开聊。actionText 的落点由调用方传入的 onAddDoll 决定，
+                //   语义与改造后一致，这里不改。
+                actionText = if (searching) null else "去和人偶聊天",
+                onAction = if (searching) null else onAddDoll
+            )
         }
     }
 

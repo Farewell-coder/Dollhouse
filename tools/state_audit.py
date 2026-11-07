@@ -128,13 +128,23 @@ def scan():
                 continue
             inventory["skeleton"].append((r, src[:m.start()].count("\n") + 1))
 
-        # S3 自建空态：函数名像空态，或函数体里**真的把空态文案画出来** + 可点动作
+        # S3 自建空态：**按函数体实现判定，不按函数名**
+        #
+        # 【为什么必须改】原实现第一步就是「函数名匹配 ^EmptyState|Empty|... 就直接计为
+        #   自建并 continue」，完全不看函数体。后果：把函数体改成 DhState、但保留旧函数名，
+        #   仍然会被算作"自建"（覆盖率不涨）；反过来，**把自建空态改个名字就能骗过检查**
+        #   （覆盖率虚高）。后者是假绿 —— 与本项目已修过的 C06/C07 是同一类病。
+        #
+        #   现在改为：先看函数体是否**真的用了 DhState**，用了就是规范实现（无论叫什么名）；
+        #   没用才继续按"画出空态文案 + 可点动作"判自建。
+        #   函数名只作为**报告里的提示**（方便定位），不再作为判定依据。
         for name, start, body in fun_bodies(src):
-            if re.match(r"^(EmptyState|Empty|EmptyBox|NoData|Placeholder)$", name):
-                inventory["selfbuilt"].append((r, start, name, "函数名 " + name))
-                continue
             if "DhState" in body:
                 continue
+            # 函数名只作报告提示，不参与判定（见上方注释）。
+            name_hint = "函数名 " + name + "（未用 DhState）" if re.match(
+                r"^(EmptyState|Empty|EmptyBox|NoData|Placeholder)$", name
+            ) else "自建空态骨架（未用 DhState）"
             if not re.search(r"\bDhButton\b|\bButton\(|pressable\s*\{", body):
                 continue
             # 收紧：空态文案必须真的被「画」出来（在 Text( / Note( / Label( 实参里），

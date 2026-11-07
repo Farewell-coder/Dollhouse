@@ -1119,8 +1119,23 @@ object MemPage {
             posText = "关闭"
         ) {
             DhForm.Note("文件夹用来分类。改名前先想好 —— 改完会同步挪动里面的条目。")
+            // 【S-收编·改用规范骨架】原先只是一行 `DhForm.Note`，与全 App 其他空态不同形。
+            //   现转发到 `ui/kit.DhState`。**文案一字未改**（"还没有文件夹。在下面新建一个吧。"）。
+            //   【为什么 actionText = null】本对话框的「新建文件夹」动作就在空态**正下方**：
+            //   一个 `DhForm.Input(label="新建文件夹")` + `DhKit.ActionRow("创建")`。
+            //   若在这里再给一个动作按钮，弹窗内会出现两个入口指向同一件事 ——
+            //   正是设计稿要收敛的重复动作，也会把用户的注意力从输入框上抢走。
+            //   文案本身已经写明「在下面新建一个吧」，指向下方那个动作。
+            //   【为什么套一层 Box + 内边距】DhState 自带 `horizontal=24 / vertical=32` 的
+            //   大留白，直接塞进 Alert 会把对话框撑得很高（它原本只有一行小字）。
+            //   这里收窄上下留白，保持弹窗紧凑。
             if (folders.isEmpty()) {
-                DhForm.Note("还没有文件夹。在下面新建一个吧。")
+                Box(modifier = Modifier.padding(vertical = 8.dp)) {
+                    com.dollhouse.app.ui.kit.DhState(
+                        title = "还没有文件夹。在下面新建一个吧。",
+                        iconRes = Icons.IC_FOLDER_OPEN
+                    )
+                }
             }
             for (f in folders) {
                 if (renaming == f) {

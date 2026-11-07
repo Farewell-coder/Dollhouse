@@ -99,7 +99,7 @@ object DeveloperOptionsPage {
                     onExport = { runExport(act) { busy -> exporting = busy } }
                 )
                 Screen.LOGS -> LogsPage(act, tick) { selected = it; screen = Screen.DETAIL }
-                Screen.DETAIL -> selected?.let { DetailPage(act, it) } ?: Empty("未选择错误记录")
+                Screen.DETAIL -> selected?.let { DetailPage(act, it) } ?: StateNote("未选择错误记录")
                 Screen.SETTINGS -> SettingsPage(act) { refresh() }
             }
         }
@@ -129,7 +129,7 @@ object DeveloperOptionsPage {
         //   上 12 + 12 = 24（Space.xl，区块间距），下 4 + 4 = 8（Space.sm，标题与内容的间距）。
         DhKit.SectionLabel("最近错误", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
         val recent = s?.groups?.take(3).orEmpty()
-        if (s == null) Empty("正在加载…") else if (recent.isEmpty()) Empty("暂无错误记录。出现实际异常或警告后会显示在这里。")
+        if (s == null) StateNote("正在加载…") else if (recent.isEmpty()) StateNote("暂无错误记录。出现实际异常或警告后会显示在这里。")
         recent.forEach { EventCard(it) { open(it) } }
         // 查看全部统一由下方诊断工具进入。
         DhKit.SectionLabel("诊断工具", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
@@ -196,8 +196,8 @@ object DeveloperOptionsPage {
             modules.forEach { FilterChip(it, module == it) { module = it } }
         }
         DhForm.Note("本地诊断占用 $usage · 每次加载 30 组")
-        if (failed) Empty("日志读取失败，请导出诊断包保留现场后重试。") else records?.let { current ->
-            if (current.isEmpty()) Empty("没有符合条件的记录") else current.forEach { e -> EventCard(e) { open(e) } }
+        if (failed) StateNote("日志读取失败，请导出诊断包保留现场后重试。") else records?.let { current ->
+            if (current.isEmpty()) StateNote("没有符合条件的记录") else current.forEach { e -> EventCard(e) { open(e) } }
             if (hasMore) DhKit.ActionRow(if (loadingMore) "正在加载…" else "加载更多", iconRes = Icons.IC_CLOCK_3, desc = "读取后续错误分组", enabled = !loadingMore) {
                 scope.launch {
                     loadingMore = true
@@ -205,7 +205,7 @@ object DeveloperOptionsPage {
                     records = current + page.items; hasMore = page.hasMore; loadingMore = false
                 }
             }
-        } ?: Empty("正在加载…")
+        } ?: StateNote("正在加载…")
     }
 
     // 【间距收敛】chip 与 chip 之间的行内间隙 → Space.sm(8)。
@@ -324,7 +324,27 @@ object DeveloperOptionsPage {
         }, "取消") { Text("此操作无法撤销。统计、列表、详情与后续导出会同时更新。", color = DhTokens.colors.sub) }
     }
 
-    @Composable private fun Empty(text: String) { DhKit.Card { Text(text, color = DhTokens.colors.sub, fontSize = UiKit.FS_BTN.sp) } }
+    /**
+     * 空/加载/失败态（同一个骨架）。
+     *
+     * 【S-收编·改用规范骨架】原先是一张 Card 里一行 sub 字，与全 App 其他空态
+     *   不是一个样。现转发到 `ui/kit.DhState`（56dp 图标座 → section 标题 →
+     *   sub 正文 ≤2 行 → 恰好一个动作）。
+     *
+     * 【为什么不给动作】本页六处调用传入的都是「说明」性质的一句话
+     *   （未选择记录 / 正在加载 / 暂无记录 / 读取失败 / 无符合条件 / 正在加载），
+     *   没有一处对应一个可点动作 —— 按设计稿「有动作才给动作」，这里传 `actionText = null`，
+     *   骨架只出图标座 + 标题。**文案一字未改**，仍由调用方传入。
+     *
+     * 【为什么改名】`state_audit.py` 先按函数名（EmptyState / Empty / NoData…）匹配，
+     *   函数体转发到 DhState 也不会自动出列 —— 改名才能如实计入覆盖率。
+     */
+    @Composable private fun StateNote(text: String) {
+        com.dollhouse.app.ui.kit.DhState(
+            title = text,
+            iconRes = Icons.IC_INFO
+        )
+    }
     private fun level(s: DiagnosticsStore.Severity) = when (s) { DiagnosticsStore.Severity.INFO -> "信息"; DiagnosticsStore.Severity.WARNING -> "警告"; DiagnosticsStore.Severity.ERROR -> "错误"; DiagnosticsStore.Severity.CRASH -> "崩溃" }
     private fun time(t: Long): String = if (t <= 0) "未采集" else SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(t))
     private fun findActivity(ctx: Context): Activity? { var c: Context? = ctx; repeat(8) { if (c is Activity) return c; c = (c as? ContextWrapper)?.baseContext }; return null }
