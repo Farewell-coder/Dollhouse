@@ -40,6 +40,45 @@ import java.util.WeakHashMap
  * 因此**新页入栈的同一帧**旧层即被屏蔽，不等进场动画结束
  * （对应需求文档「不得出现新页面尚未建立完整交互状态时，下层页面仍接收意外点击」）。
  */
+/**
+ * 【交互闸门的抽象】「这一层现在能不能接待触摸」。
+ *
+ * ## 为什么需要它（而不是到处写 LayerShield）
+ * [LayerGate.Layers] 原先四个字段的类型是 View 子类 [LayerShield]。于是只有 View 层
+ * 能登记进闸门 —— 一旦某一层改成 Compose 实现（[ComposeLayerShield]），
+ * 它就**无法进入这套统一判定**，只能各自为政。那正是本类头注释批评过的
+ * 「四层各自判断、谁最后写谁赢」的老问题。
+ *
+ * 本接口把「闸门真正需要的那一件事」抽出来：**一个可读写布尔**。
+ * 闸门不关心这个布尔背后是 `dispatchTouchEvent` 还是 `pointerInput`。
+ *
+ * ## 实现方
+ * · [LayerShield] —— View 版，`dispatchTouchEvent` 里屏蔽（已有 `var blocking`，直接实现）；
+ * · Compose 侧用一个极小的 holder 持有 `mutableStateOf<Boolean>`，
+ *   由 [ComposeLayerShield] 读取。
+ *
+ * ## 语义约定（两种实现必须一致）
+ * `blocking = true` 表示**本层不接待交互**，且**不消费事件**（让它继续往下一层走）。
+ * 这是原实现的刻意取舍：消费会产生「点哪都被吃掉」，不消费才是「这层等于不存在」。
+ */
+interface Blockable {
+    /** 本层当前是否暂停接收触摸。由 [LayerGate] 统一写（单一真源）。 */
+    var blocking: Boolean
+
+    /**
+     * 回前台时终止可能跨生命周期残留的旧手势。
+     *
+     * 【为什么必须有默认实现】两种实现的收尾手段不同：
+     *   · View 版 [LayerShield] 要**手工**清 `gestureOwner` / `tracking` 并补发 CANCEL；
+     *   · Compose 版靠 `pointerInput` 作用域取消，没有可清的句柄，**无需做事**。
+     * 给一个空默认实现，Compose 侧就不必写一个空方法；View 侧覆写成真实收尾。
+     *
+     * 【为什么不能只在 settleTouches 里判类型】那会把 `when (l) { is LayerShield -> ... }`
+     * 这种类型判断漏回闸门里 —— 正是本接口要消除的耦合。
+     */
+    fun cancelPendingTouch() {}
+}
+
 object LayerGate {
 
     /** 三个交互态。 */
@@ -76,16 +115,16 @@ object LayerGate {
     /** 某个 Activity 的各层闸门。全部可空：宿主可能只装了其中几层。 */
     class Layers {
         /** 底座（三 Tab 的容器）。 */
-        var base: LayerShield? = null
+        var base: Blockable? = null
 
         /** 底栏。 */
-        var bar: LayerShield? = null
+        var bar: Blockable? = null
 
         /** 抽屉。 */
-        var drawer: LayerShield? = null
+        var drawer: Blockable? = null
 
         /** 覆盖页栈。 */
-        var nav: LayerShield? = null
+        var nav: Blockable? = null
     }
 
     private val LAYERS = WeakHashMap<Activity, Layers>()

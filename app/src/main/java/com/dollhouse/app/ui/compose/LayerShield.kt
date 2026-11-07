@@ -52,7 +52,7 @@ import kotlin.math.abs
  *    底座层随即被屏蔽 —— 但那一串事件是闸门自己在处理的，必须让它走完 UP，
  *    否则「滑到一半卡住」。用 [tracking] 区分。
  */
-class LayerShield(context: Context) : FrameLayout(context) {
+class LayerShield(context: Context) : FrameLayout(context), LayerGate.Blockable {
 
     /**
      * 本层当前是否暂停交互。
@@ -60,7 +60,7 @@ class LayerShield(context: Context) : FrameLayout(context) {
      * 【由谁写】只由 [LayerGate] 写（单一真源）。**禁止**页面或业务代码直接改它 ——
      *   这正是上一轮「每层各自判断能不能收触摸」导致混乱的原因。
      */
-    var blocking: Boolean = false
+    override var blocking: Boolean = false
         set(value) {
             if (field == value) {
                 return
@@ -238,7 +238,7 @@ class LayerShield(context: Context) : FrameLayout(context) {
     }
 
     /** 回前台时终止可能跨 Activity 生命周期的旧手势，避免 DOWN/UP 落到不同层。 */
-    fun cancelPendingTouch() {
+    override fun cancelPendingTouch() {
         gestureOwner = false
         tracking = false
         maybeSwipe = false

@@ -163,9 +163,17 @@ def scan():
                             break
                     j += 1
                 arg = body[i:j + 1]
-                if EMPTY_WORDS.search(arg):
-                    drawn = True
-                    break
+                if not EMPTY_WORDS.search(arg):
+                    continue
+                # 【排除"字段占位"】`text = bio.ifEmpty { "还没有个性签名" }`、
+                #   `name.ifBlank { "还没有取名字" }`、`x ?: "暂无"` 这类是**默认值**，
+                #   不是空态骨架。注释里早就写了这条规则，但代码一直没实现 ——
+                #   结果 ProfileDrawer.Header（头像+昵称+签名）被误判成"自建空态"。
+                #   判断方式：文案若出现在这些"兜底表达式"里，就不是空态。
+                if re.search(r"\.ifBlank\s*\{|\.ifEmpty\s*\{|\?:", arg):
+                    continue
+                drawn = True
+                break
             if drawn:
                 inventory["selfbuilt"].append((r, start, name, "内联空态文案 + 动作"))
 
@@ -174,12 +182,18 @@ def scan():
             ln = src[:m.start()].count("\n") + 1
             # 取该 Box 之后的 400 字符看有没有任何可绘制内容
             tail = src[m.end():m.end() + 400]
-            # 【白名单必须覆盖所有"真的会画出东西"的容器】
-            #   曾漏掉 `Layout`（自定义 measure/layout 的三页叠放就是用它），
-            #   导致 HomeUiContent 被误判成"纯空白态"——那是假阳性。
-            has_content = re.search(
-                r"\b(Text|Row|Column|LazyColumn|LazyRow|Layout|BoxWithConstraints|"
-                r"DhKit\.|DhState|Image|Canvas|Spacer|AndroidView)\s*\(", tail)
+            # 【判据改为通用规则，不再枚举白名单】
+            #   历史上这里两次漏项：先漏 `Layout`（三页叠放），后漏 `ComposeLayerShield`
+            #   （闸门包裹层）——每次都把正确代码判成"纯空白 Box"。
+            #   枚举白名单的维护成本太高：只要有人新写一个容器/包装组件就会误报。
+            #
+            #   现在改成：**任何大写字母开头的函数调用都算"有内容"**
+            #   （Compose 的 Composable 命名约定就是大驼峰）；
+            #   另外保留小写的已知内容函数（text/print 之类目前用不到，列出防漏）。
+            #   空白态的真实语义是"这个 Box 里什么都没画"，
+            #   而任何 Composable 调用都意味着画了东西。
+            has_content = re.search(r"\b[A-Z][A-Za-z0-9_]*\s*\(", tail) or re.search(
+                r"\b(?:text|print)\s*\(", tail)
             if not has_content:
                 inventory["blank"].append((r, ln))
 

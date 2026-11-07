@@ -36,15 +36,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.dollhouse.app.ui.compose.ComposeLayerShield
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.theme.Fonts
 import com.dollhouse.app.ui.theme.GlobalBackground
@@ -52,6 +47,13 @@ import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.ThemeRefresh
 import com.dollhouse.app.ui.theme.UiKit
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.dollhouse.app.ui.compose.Blockable
+import com.dollhouse.app.ui.compose.ComposeLayerShield
+import com.dollhouse.app.ui.compose.LayerGate
 
 /**
  * 【职责】首页与设置页的**纯逻辑**：权限查询与申请、Intent 跳转、偏好读写、服务状态、
@@ -112,6 +114,9 @@ object HomeUi {
      */
     const val TAG_PROFILE = "feiyu_profile_drawer"
 
+    /** 底座唯一 Compose 根的 tag（去 View 化后只剩这一个，供上层定位整块底座）。 */
+    const val TAG_ROOT = "feiyu_home_root"
+
     /** 通知权限的运行时申请回调码。 */
     private const val REQ_NOTIF = 102
     /** Shizuku 授权请求码（结果经 ShizukuBridge 的 listener 回来）。 */
@@ -151,142 +156,51 @@ object HomeUi {
         try {
             val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content) ?: return
             content.removeAllViews()
-            // 【r21·框架级】底座三层（Tab）+ 底栏 + 抽屉全部包进 [LayerShield]。
-            //   【为什么必须在层根包一层】触摸屏蔽只能在 ViewGroup 的 dispatchTouchEvent 上做；
-            //   给层根改 isClickable / 挂 OnTouchListener 是无效做法
-            //   （ViewGroup 先把事件发给子 View，子按钮命中就消费了，根本轮不到自己）。
-            //   详见 [com.dollhouse.app.ui.compose.LayerShield] 的类注释。
-            //   【为什么这层是「三 Tab 的公共外壳」】三个 Tab 同属 BASE 态，
-            //   共用一个闸门即可，不必各包一层。
-            val host = com.dollhouse.app.ui.compose.LayerShield(activity)
-            // 【顺序即层级】聊天 → 人偶 → 主页 → 底栏：后加的盖在上面。
-            val chat = ChatListScreen.buildPage(activity)
-            chat.tag = TAG_CHAT
-            val contact = ContactScreen.buildPage(activity)
-            contact.tag = TAG_CONTACT
-            val home = HomeScreen.build(activity)
-            home.tag = TAG_HOME
-            host.addView(chat)
-            host.addView(contact)
-            host.addView(home)
-            // 【底座层的边缘右滑】只在这一层启用：主页右滑打开抽屉。
-            //   · 起手区左边界 = 系统手势区右缘 + 呼吸间距 → 不与系统「返回」手势抢；
-            //   · 起手区右边界 = 左边界 + 32dp → 只在屏幕左侧起手才算，页面中间横滑不受影响。
-            //   【为什么在底座而不是整个 content】覆盖页有自己的左边缘返回手势，
-            //   两处同时开必然互相抢。
-            host.edgeSwipeEnabled = true
-            host.edgeMargin = dp(activity, 8f)
-            host.edgeWidth = dp(activity, 32f)
-            host.onSwipeStart = {
-                // 手势认主的瞬间就让抽屉参与渲染（progress 从 0 起，跟手推进）。
-                ProfileDrawer.beginDrag()
-            }
-            host.onSwipeMove = { dx ->
-                ProfileDrawer.dragTo(dx / dp(activity, 300f))
-            }
-            host.onSwipeEnd = { dx, _ ->
-                // 位移超过面板 1/3 就打开，否则收起（与点遮罩 / 点头像同一收尾逻辑）。
-                ProfileDrawer.dragTo(dx / dp(activity, 300f))
-                ProfileDrawer.settleByPosition()
-            }
-            content.addView(host)
-            // 【底栏】必须最后加：它是 content 的直接子（不放进 host），
-            //   这样它盖在整块页面区之上，且自身的 navigationBarsPadding 能正确取到 insets。
-            //   【为什么不放进 host】host 里三个页面会做 translateX 转场，底栏跟着位移会很怪。
-            val bar = buildBar(activity)
-            bar.tag = TAG_BAR
-            // 【底栏也包一层闸门】它属于 BASE 态：抽屉/覆盖页出来时必须一起暂停，
-            //   否则「点抽屉空白处」会落到它身上（旧 bug 的另一半）。
-            //   【为什么闸门高度用 wrap_content + 底对齐】底栏是「浮在内容之上且不占布局高度」的，
-            //   只有这样才保持「只有那条胶囊挡触摸、其余区域让给下面页面」的原有手感。
-            val barShield = com.dollhouse.app.ui.compose.LayerShield(activity)
-            barShield.addView(bar, android.widget.FrameLayout.LayoutParams(-1, -2))
-            val barLp = android.widget.FrameLayout.LayoutParams(-1, -2)
-            barLp.gravity = android.view.Gravity.BOTTOM
-            content.addView(barShield, barLp)
-            // 【r14·我的资料抽屉】必须**最后**加：它要盖住三页与底栏。
-            //   为什么常驻：抽屉自身 `if (!opened) return` 空转，代价只是一个空 ComposeView；
-            //   换来的好处是点头像时零挂载延迟（现挂会有一帧空白）。
-            val drawer = com.dollhouse.app.ui.compose.ComposeHost.createView(activity) {
-                ProfileDrawer.Host(activity)
-            }
-            drawer.tag = TAG_PROFILE
-            // 【r21·框架级】抽屉这层也包一层闸门。
-            //   改造前这里是「把宿主 View 的 isClickable 交给 ProfileDrawer 自己镜像」，
-            //   那是派生状态，重挂或某条路径漏同步就会脱节（用户报过的「看得见点不动」）。
-            //   现在由 [LayerGate] 单点判定：抽屉关闭时整层屏蔽、打开时整层放行。
-            val drawerShield = com.dollhouse.app.ui.compose.LayerShield(activity)
-            drawerShield.addView(
-                drawer,
-                android.view.ViewGroup.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            // 【去 View 化·阶段 2】整个底座现在只有 **一个** ComposeView。
+            //
+            // 【改造前是什么样】1 个 FrameLayout 壳 + 5 个 ComposeView（三 Tab / 底栏 / 抽屉）
+            //   + 4 层 LayerShield，靠 visibility 互切、靠 tag 查找（findViewWithTag）。
+            // 【现在】三页 + 底栏 + 抽屉全部在**同一棵组合**里（见 [HomeUiContent]），
+            //   叠放顺序由 Layout 的绘制顺序决定，显隐由 `AppNav.current` 驱动 ——
+            //   不再有「用 tag 去 View 树里找回某一页」这种间接寻址。
+            //
+            // 【为什么这是安全的】Tag 只被本文件的 showTab / settleTabs / barReady 用到
+            //   （实测 `grep -rn "TAG_CHAT|TAG_BAR"` 全仓仅本文件），它们已同步改成读状态。
+            ComposeHost.installForActivity(activity)
+            val root = ComposeHost.createView(activity) {
+                // 【订阅当前 Tab】AppNav.current 是 mutableStateOf —— 切页即重组。
+                val tab = AppNav.current
+                HomeUiContent(
+                    act = activity,
+                    tab = tab,
+                    onPickTab = { picked ->
+                        // 【切页收尾】与原 buildBar 里的回调语义完全一致：
+                        //   先弹掉覆盖层，再切 Tab（切 Tab 即回栈底，符合主流 App 直觉）。
+                        clearLayers(activity)
+                        showTab(activity, picked)
+                    }
                 )
-            )
-            drawerShield.isClickable = false
-            drawerShield.isFocusable = false
-            drawerShield.blocking = true
-            // 登记宿主，供 [ProfileDrawer] 开合后通知 gate 重算。
-            ProfileDrawer.bindHost(activity)
+            }
+            root.tag = TAG_ROOT
             content.addView(
-                drawerShield,
+                root,
                 android.view.ViewGroup.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
-            // 【r17·导航迁移】装上 Navigation 3 渲染层（覆盖层页面栈）。
-            //   【层级】必须放在底座与抽屉**之后** —— 后加的盖在上面，故覆盖层在最顶。
-            //   这符合预期语义「覆盖页独占屏幕」：栈非空时它盖住三个 Tab、底栏与抽屉。
-            //   【栈空时零影响】`NavHost` 内部在「只有底座」时什么都不画
-            //   （见 `NavHost.install` 的 `stack.size > 1` 守卫），
-            //   此时它是一层不消费触摸的空 ComposeView，抽屉与底栏照常工作。
-            //   【抽屉不需要盖在覆盖层之上】抽屉的唤出入口是聊天列表页左上角头像，
-            //   而聊天列表页属于底座；覆盖页开着时用户根本看不到那个入口，
-            //   两者不会同时需要交互，无需把抽屉提到最顶。
+            // 【导航覆盖层】仍由 NavHost 独立安装（它自己管一层 ComposeView + 闸门），
+            //   层级在底座之上 —— 与原实现「后加的在上面」一致。
             com.dollhouse.app.ui.nav.NavHost.install(activity)
-            // 【r21】登记四层到 [LayerGate] 并立刻判定一次。
-            //   必须在 NavHost.install 之后：它自己会创建 NAV 层的外壳并登记。
-            val layers = com.dollhouse.app.ui.compose.LayerGate.layersOf(activity)
-            layers.base = host
-            layers.bar = barShield
-            layers.drawer = drawerShield
-            com.dollhouse.app.ui.compose.LayerGate.refresh(activity)
+            // 【抽屉宿主绑定】ProfileDrawer.Host 现在是组合的一部分，仍需知道宿主 Activity。
+            ProfileDrawer.bindHost(activity)
             sync(activity)
-            // 【路由恢复】冷启动进「上次停留的 Tab」；第一次启动时偏好里没有记录，
-            //   [AppNav] 会落到默认值（聊天），即需求要求的「默认页面改为聊天列表」。
+            // 【路由恢复】冷启动进「上次停留的 Tab」。
             AppNav.restore(activity)
             showTab(activity, AppNav.current)
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
-    }
-
-    /**
-     * 造底栏。
-     *
-     * 【为什么用 FrameLayout 包一层 ComposeView】底栏要「浮在内容之上且不占布局高度」，
-     *   所以外层必须是内容高度包裹（wrap_content）+ 底对齐，
-     *   这样只有真正的那一条胶囊挡触摸，其余区域点击穿透到下面的页面。
-     */
-    private fun buildBar(act: MainActivity): View {
-        val wrap = android.widget.FrameLayout(act)
-        val lp = android.widget.FrameLayout.LayoutParams(-1, -2)
-        lp.gravity = android.view.Gravity.BOTTOM
-        wrap.layoutParams = lp
-        wrap.isClickable = false
-        val cv = com.dollhouse.app.ui.compose.ComposeHost.createView(act) {
-            BottomNav.Bar(act) { tab ->
-                // 【切页收尾】切 Tab 时把覆盖层全弹掉。
-                //   理由：覆盖层（人偶列表 / 编辑页 / 设置页）是从某个 Tab 里点进去的，
-                //   用户切到另一个 Tab 说明他换了意图，把旧页留在栈里会让返回键
-                //   把他送回「上一个 Tab 的子页」，与直觉相反（主流 App 都是切 Tab 即回栈底）。
-                clearLayers(act)
-                showTab(act, tab)
-            }
-        }
-        wrap.addView(cv, android.widget.FrameLayout.LayoutParams(-1, -2))
-        return wrap
     }
 
     /** dp → px 的局部换算（装配期用，避免每处都写 UiKit.dp）。 */
@@ -562,128 +476,45 @@ object HomeUi {
     @JvmStatic
     fun showTab(activity: Activity, tab: Int) {
         try {
-            val content = activity.findViewById<View>(android.R.id.content) ?: return
-            val chat = content.findViewWithTag<View>(TAG_CHAT)
-            val contact = content.findViewWithTag<View>(TAG_CONTACT)
-            val home = content.findViewWithTag<View>(TAG_HOME)
-            // 【兜底】三页缺任何一个就直接按可见性硬切（不播动画）。
-            if (chat == null || contact == null || home == null) {
-                return
-            }
-            // 【返回同步】切到主页（或聊天）时刷新「打开聊天」入口：
-            //   供应商 / 模型增删启停后返回即生效。
-            if (tab == AppNav.TAB_HOME || tab == AppNav.TAB_CHAT) {
-                HomeState.chatAvailable = hasChatTarget(activity)
-            }
-            val target = when (tab) {
-                AppNav.TAB_CONTACT -> contact
-                AppNav.TAB_HOME -> home
-                else -> chat
-            }
-            // 【短路径】换主题重建 / 冷启动：直接落到目标页，不重播动画，免得又闪一次。
-            if (PetPrefs.themeRestore(activity) || !barReady(activity)) {
-                for (v in arrayOf(chat, contact, home)) {
-                    v.visibility = if (v === target) View.VISIBLE else View.GONE
-                    v.alpha = 1f
-                }
-                return
-            }
-            // 【修 bug·三页同时可见】必须**逐个**处理全部非目标页，不能找到一个就收工。
+            // 【去 View 化·阶段 2】切页现在只是**写一个状态**。
             //
-            // 【曾经的 bug】原实现是：
-            //   ```
-            //   for (v in 三页) {
-            //       if (v !== target && v.visibility == VISIBLE) {
-            //           showDiff(target, v); return      ← 只处理了第一个就返回
-            //       }
-            //   }
-            //   ```
-            //   于是「聊天 + 主页」同时可见时切到人偶，只会把聊天淡出，
-            //   **主页还留在屏幕上** —— 三页叠在一起（用户截图里那个样子）。
-            //   触发条件正是「切后台再回来」：`onResume` 的 `reconcile` 会把曾被打断的
-            //   淡出动画补回终态，导致多于一个页面处于 VISIBLE。
+            // 【改造前】按 tag 在 View 树里找回三页，再手工设 visibility / 播 alpha 交叉淡出，
+            //   还要处理「三页同时可见」这种被中断动画留下的坏状态（那段几十行的修复逻辑
+            //   见 git 历史）。**这些都不需要了**：现在三页在同一棵组合里、常驻参与组合，
+            //   显隐由 `AppNav.current` 单一真源驱动，重组时不会出现「多于一个可见」的
+            //   中间态 —— 状态只有一个，就不存在多份状态互相打架。
             //
-            // 【正确做法】淡出用「第一个找到的非目标页」（它承载交叉动画），
-            //   其余非目标页**立即 GONE**（它们本来就该是不可见的，没有动画可言）。
-            var fading: View? = null
-            for (v in arrayOf(chat, contact, home)) {
-                if (v === target) {
-                    continue
-                }
-                if (v.visibility != View.VISIBLE) {
-                    continue
-                }
-                if (fading == null) {
-                    fading = v
-                } else {
-                    // 【兜底硬收】多于一个非目标页可见 = 上一次切页的淡出被打断。
-                    //   直接置 GONE，不留动画 —— 否则又会出现「看不见却还挡着」的幽灵页。
-                    v.animate().cancel()
-                    v.visibility = View.GONE
-                    v.alpha = 1f
-                }
-            }
-            if (fading != null) {
-                showDiff(target, fading)
-            } else {
-                // 目标页本来就是唯一可见的（重复点同一个 Tab）：什么都不做。
-                target.visibility = View.VISIBLE
-                target.alpha = 1f
-            }
+            // 【保住的能力】`AppNav.select` 会写 PetPrefs（冷启动恢复上次 Tab），
+            //   并且三页状态（搜索词、滚动位置）因常驻组合而完整保留。
+            AppNav.select(activity, tab)
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
     }
 
     /**
-     * 【r13·修 bug·三页同时可见】把三个 Tab 页强行收成「只有目标页可见」。
+     * 【回前台状态归位】把当前 Tab 落回唯一真源。
      *
-     * 【为什么单独抽一个方法】`showTab` 依赖「当前只有一个页面可见」这个前提来决定
-     *   该淡出谁；而这个前提会被下面几条路径打破：
-     *   ① 切页动画正播到一半被切到后台（`withEndAction` 不执行，旧页停在 alpha≈0 但 VISIBLE）；
-     *   ② 厂商 ROM「清理后台」只摘任务不销毁进程，回来时 View 树原样保留；
-     *   `PageStack.reconcile` 的规则 C 会把「栈顶那层」补回可见终态，
-     *   但它只管**覆盖层**，管不到底座这三个 Tab 页 —— 于是多页同时可见。
+     * 【去 View 化后的语义变化·重要】改造前它是「把三页 View 的 visibility 强行摆正」——
+     *   因为旧实现用 visibility 手工切页，动画被打断（切后台 / 厂商清后台）会留下
+     *   「多页同时可见」的坏状态，必须靠这个方法在 onResume 时纠正。
      *
-     * 【为什么不直接调 showTab】那会播一次交叉淡入动画；回前台应该「静止在终点」。
-     *   这里只做**状态归位**，零动画、零副作用，可在 `onResume` 无条件调用（幂等）。
+     * 现在三页在同一棵组合里常驻、显隐由 `AppNav.current` 单一真源驱动，
+     *   **不存在「多页可见」这种中间态** —— 单一状态推不出一致性以外的结果。
+     *   因此本方法退化为「把 Tab 同步给偏好」的幂等动作（`AppNav.select` 内部对
+     *   相同值直接 return），保留它只为不动 `MainActivity.onResume` 的调用点。
+     *
+     * 【为什么保留而不是删】`MainActivity.kt:388` 在 onResume 无条件调用它；
+     *   删掉要么改调用点（引入无谓改动），要么让方法消失后编译失败。
+     *   留一个语义清晰的幂等壳更稳。
      */
     @JvmStatic
     fun settleTabs(activity: Activity) {
         try {
-            val content = activity.findViewById<View>(android.R.id.content) ?: return
-            val chat = content.findViewWithTag<View>(TAG_CHAT) ?: return
-            val contact = content.findViewWithTag<View>(TAG_CONTACT) ?: return
-            val home = content.findViewWithTag<View>(TAG_HOME) ?: return
-            val target = when (AppNav.current) {
-                AppNav.TAB_CONTACT -> contact
-                AppNav.TAB_HOME -> home
-                else -> chat
-            }
-            for (v in arrayOf(chat, contact, home)) {
-                v.animate().cancel()
-                if (v === target) {
-                    v.visibility = View.VISIBLE
-                    v.alpha = 1f
-                } else {
-                    v.visibility = View.GONE
-                    v.alpha = 1f
-                }
-            }
+            AppNav.select(activity, AppNav.current)
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
-    }
-
-    /**
-     * 底栏是否已经装配好。
-     *
-     * 【用途】冷启动首帧里 [apply] 会调 [showTab]，那时三个页面刚 addView 完、还没布局；
-     *   此判据让首帧走「直接设可见性」的快路径，不播动画（首帧播动画会闪一下）。
-     */
-    private fun barReady(activity: Activity): Boolean {
-        val content = activity.findViewById<View>(android.R.id.content) ?: return false
-        return content.findViewWithTag<View>(TAG_BAR) != null
     }
 
     /**
@@ -703,47 +534,6 @@ object HomeUi {
         if (!home && activity is MainActivity) {
             SettingsScreen.open(activity)
         }
-    }
-
-    /**
-     * 目标页淡入 + 旧页同步淡出。
-     *
-     * 【r10 加固·旧页必须真的收掉】原实现把「置 GONE」挂在入页动画的 `withEndAction` 上，
-     *   而 `withEndAction` 在动画被 `cancel()`（切后台、被系统掐帧、又切了一次页）时
-     *   **不会执行**：旧页就停在 `alpha ≈ 0` 却仍 `VISIBLE` 的状态，看不见却照旧拦触摸 ——
-     *   正是「视觉停在主页、触摸仍落二级页」的成因之一。
-     *   现在改为：旧页自己的动画结束回调 + 一个延时兜底，两条路都调 [hideOut]。
-     */
-    private fun showDiff(inView: View, out: View) {
-        inView.visibility = View.VISIBLE
-        inView.alpha = 0f
-        out.alpha = 1f
-        val duration = UiKit.pageTransitionDuration()
-        inView.animate().alpha(1f).setDuration(duration)
-            .setInterpolator(UiKit.EASE_STD).start()
-        out.animate().alpha(0f).setDuration(duration)
-            .setInterpolator(UiKit.EASE_STD)
-            .withEndAction { hideOut(out) }.start()
-        // 动画被取消时也要收掉旧页；重复隐藏由 hideOut 幂等处理。
-        out.postDelayed({ hideOut(out) }, duration + 120L)
-    }
-
-    /**
-     * 把淡出的旧页真正收起来。
-     * 【幂等】已经 GONE 直接返回。
-     * 【防误伤】只收「已经淡到看不见」的页：若这期间它又被切回来（`alpha` 被重新拉到 1），
-     *   说明它现在是当前页，绝不能收。收掉时把 `alpha` 归位成 1，
-     *   免得它下次作为入页时带着 0 显示不出来。
-     */
-    private fun hideOut(out: View) {
-        if (out.visibility == View.GONE) {
-            return
-        }
-        if (out.alpha > 0.05f) {
-            return
-        }
-        out.visibility = View.GONE
-        out.alpha = 1f
     }
 
     /**
@@ -1600,18 +1390,96 @@ object HomeUi {
      * @param tab      当前 Tab（[AppNav.TAB_CHAT] / [AppNav.TAB_CONTACT] / [AppNav.TAB_HOME]）
      * @param onPickTab 底栏点击回调；由调用方决定「是否先清覆盖层」
      */
+    /**
+     * Compose 侧的层闸门句柄。
+     *
+     * 【为什么需要它】[LayerGate] 原本只认 `LayerShield`（View 子类），因为旧的底座装配是
+     *   `FrameLayout + 4 层 LayerShield`。现在底座收成一个 ComposeView，闸门也必须能在
+     *   Compose 侧表达 —— 所以抽出 [Blockable]，这个类就是它在 Compose 侧的实现。
+     *
+     * 【为什么 blocking 是 state】`LayerGate.refresh()` 在任意线程/任意时机改它，
+     *   而 Compose 只有在读到被观察的状态时才会重组。普通 `var` 改完界面不会变，
+     *   闸门就等于没接。用 `mutableStateOf` 才能「改了就生效」。
+     */
+    private class ComposeBlockable : Blockable {
+        override var blocking by mutableStateOf(false)
+        // cancelPendingTouch 用接口默认实现（空）：
+        //   View 侧要靠它给子树补发 ACTION_CANCEL；Compose 侧由 pointerInput 的
+        //   key 变化取消协程作用域自动完成，无需额外动作。
+    }
+
     @Composable
     fun HomeUiContent(act: MainActivity, tab: Int, onPickTab: (Int) -> Unit) {
         // 【抽屉进度】直接复用 ProfileDrawer 已有的状态机，不另建一份真源。
         val drawerProgress by ProfileDrawer.progress
+
+        // ---------- 交互闸门（Compose 侧）----------
+        // 【为什么必须有这一层】旧装配把三页 / 底栏 / 抽屉各包一个 LayerShield，
+        //   由 LayerGate 统一判定「谁独占触摸」。收成单一 ComposeView 后，如果只是
+        //   删掉那 4 层 shield，就会丢掉「抽屉打开时底座被屏蔽」这条 ——
+        //   表现为点抽屉空白处会穿透到底下的页面（用户报过的「点错层」）。
+        //   这里用 ComposeLayerShield + ComposeBlockable 等价替代。
+        val baseGate = remember { ComposeBlockable() }
+        val barGate = remember { ComposeBlockable() }
+        val drawerGate = remember { ComposeBlockable() }
+        DisposableEffect(act) {
+            val layers = LayerGate.layersOf(act)
+            layers.base = baseGate
+            layers.bar = barGate
+            layers.drawer = drawerGate
+            // 立刻判定一次：新装配完时抽屉通常是关的，底座应放行。
+            LayerGate.refresh(act)
+            onDispose {
+                // 【必须解绑】否则旧 Activity 的 holder 会一直挂在单例表里，
+                //   下次 refresh 会去改组已经被销毁的界面。
+                if (layers.base === baseGate) layers.base = null
+                if (layers.bar === barGate) layers.bar = null
+                if (layers.drawer === drawerGate) layers.drawer = null
+            }
+        }
+
         // 【可见性】只有当前 Tab 的页 alpha=1；其余保持 0（仍在组合内，状态不丢）。
         Box(modifier = Modifier.fillMaxSize()) {
             // 【三页常驻】用 Layout 显式控制绘制顺序：当前 Tab 最后画（压在最上）。
+            //   【必须 alpha=0 隐藏非当前页】只调绘制顺序是不够的 —— 三页都是不透明铺满，
+            //   叠在一起会互相盖住、且非当前页仍会响应自己的内部滚动与点击（Compose 的
+            //   命中测试不看 alpha）。原实现用 visibility=GONE，这里等价地用 alpha。
+            //   【为什么不用 if (tab == X) 直接条件渲染】那样非当前页会离开组合，
+            //   `remember` 里的状态（如 ChatListScreen 的搜索词 query）被销毁 ——
+            //   切回来搜索框就空了，属于功能退化。用 alpha 才能「不显示但状态仍在」。
+            //
+            // 【闸门包裹】三页属 BASE 态，共用一个闸门（与旧装配的 host 等价）。
+            //   边缘右滑只在这一层启用：覆盖页有自己的左缘返回手势，两处同时开会互相抢。
+            ComposeLayerShield(
+                blocking = baseGate.blocking,
+                modifier = Modifier.fillMaxSize(),
+                edgeSwipeEnabled = true,
+                edgeMargin = 8.dp,
+                edgeWidth = 32.dp,
+                onSwipeStart = { ProfileDrawer.beginDrag() },
+                onSwipeMove = { p -> ProfileDrawer.dragTo(p) },
+                onSwipeEnd = { _, p ->
+                    ProfileDrawer.dragTo(p)
+                    ProfileDrawer.settleByPosition()
+                }
+            ) {
             Layout(
                 content = {
-                    key(AppNav.TAB_CHAT) { ChatListScreen.Content(act) }
-                    key(AppNav.TAB_CONTACT) { ContactScreen.ContentForHost(act) }
-                    key(AppNav.TAB_HOME) { HomeScreen.HomeContentForHost(act) }
+                    key(AppNav.TAB_CHAT) {
+                        Box(modifier = Modifier.alpha(if (tab == AppNav.TAB_CHAT) 1f else 0f)) {
+                            ChatListScreen.Content(act)
+                        }
+                    }
+                    key(AppNav.TAB_CONTACT) {
+                        Box(modifier = Modifier.alpha(if (tab == AppNav.TAB_CONTACT) 1f else 0f)) {
+                            ContactScreen.ContentForHost(act)
+                        }
+                    }
+                    key(AppNav.TAB_HOME) {
+                        Box(modifier = Modifier.alpha(if (tab == AppNav.TAB_HOME) 1f else 0f)) {
+                            HomeScreen.HomeContentForHost(act)
+                        }
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             ) { measurables, constraints ->
@@ -1626,10 +1494,14 @@ object HomeUi {
                     }
                 }
             }
+            }
             // 【底栏】浮在最上、不占布局高度：底对齐 + 内容包裹。
             //   与旧装配（buildBar 里那个 FrameLayout + wrap_content）等价：
             //   只有那条胶囊挡触摸，其余区域让给下面的页面。
-            Box(
+            // 【底栏也走闸门】它属 BASE 态：抽屉或覆盖页出来时必须一起暂停，
+            //   否则「点抽屉空白处」会落到它身上。
+            ComposeLayerShield(
+                blocking = barGate.blocking,
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(androidx.compose.ui.Alignment.BottomCenter)
@@ -1639,7 +1511,12 @@ object HomeUi {
             // 【抽屉】必须最后画：它要盖住三页与底栏。
             //   ProfileDrawer.Host 内部在未打开时 `if (!opened) return` 空转，
             //   常驻代价只是一个空组合；换来点头像时零挂载延迟。
-            ProfileDrawer.Host(act)
+            // 【抽屉闸门】关闭时整层屏蔽（不能点到底下的页），打开时放行。
+            //   由 LayerGate 单点判定，不再让抽屉自己镜像 isClickable（那是派生状态，
+            //   重挂或某条路径漏同步就会脱节 —— 用户报过的「看得见点不动」）。
+            ComposeLayerShield(blocking = drawerGate.blocking) {
+                ProfileDrawer.Host(act)
+            }
         }
     }
 
