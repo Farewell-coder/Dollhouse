@@ -89,7 +89,13 @@ class BackgroundCropActivity : Activity() {
         window.statusBarColor = Color.BLACK
         setContentView(buildUi())
         UiKit.applyEdgeToEdge(this)
-        pick()
+        // 【修·「裁剪页一弹出来就消失」】原来在这里直接 `pick()`，
+        //   而此刻窗口还没 attach 完成（本页是 Theme.Translucent，attach 更靠后）。
+        //   部分 ROM / 系统版本上，此时 `startActivityForResult` 会**立刻以 CANCELED 回调**，
+        //   于是 onActivityResult 走「没选图」分支 → finish() → 用户看到的就是「一闪就没了」。
+        //   改到 decorView.post：等第一帧消息队列跑完（窗口已 attach）再拉起相册。
+        //   `post` 在 View 未 attach 时仍会排队执行，故不会因为窗口没就绪而丢失。
+        window.decorView.post { pick() }
     }
 
     private fun buildUi(): View {
@@ -207,8 +213,12 @@ class BackgroundCropActivity : Activity() {
 
     /* ------------------------------- 选图与落盘 ------------------------------- */
 
+    /** 拉起相册的时刻（uptimeMillis），用于区分「用户取消」与「系统秒回 CANCELED」。 */
+    private var openedAt = 0L
+
     private fun pick() {
         try {
+            openedAt = android.os.SystemClock.uptimeMillis()
             startActivityForResult(pickImageIntent(), REQ_PICK)
         } catch (anf: ActivityNotFoundException) {
             Logs.w(TAG, "照片选择器不可用，降级", anf)
@@ -241,7 +251,18 @@ class BackgroundCropActivity : Activity() {
             return
         }
         if (result != RESULT_OK || data == null || data.data == null) {
-            Logs.i(TAG, "[取消] 没选图，直接收尾")
+            // 【区分两种情况】用户主动取消 vs 系统异常返回 CANCELED。
+            //   后者会在「裁剪页刚弹出」时发生 —— 那时用户根本没来得及操作，
+            //   静默退出会让人以为是「功能坏了」。给一句可见提示，至少能自证发生了什么。
+            val askedAt = openedAt
+            val elapsed = android.os.SystemClock.uptimeMillis() - askedAt
+            Logs.i(TAG, "[取消] result=$result 耗时=${elapsed}ms")
+            if (elapsed < 800L) {
+                android.widget.Toast.makeText(
+                    this, "没打开相册，请重试或检查系统相册是否可用",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
             finish()
             return
         }
