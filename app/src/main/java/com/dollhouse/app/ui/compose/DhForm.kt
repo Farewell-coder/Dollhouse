@@ -658,15 +658,23 @@ object DhForm {
             SubmitState.SUCCESS -> c.acc
             else -> c.acc
         }
+        // 【形态对齐设计稿】设计稿 §3「Buttons — one height, 44dp」+ 12 圆角。
+        //   改造前这里是「内边距撑高 + 999 全圆角」——那是 **chip** 的形态
+        //   （设计稿把 999 明确留给 chip/switch/badge/avatar），而不是按钮。
+        //   【为什么四态逻辑一行没动】它的价值在「同位置反馈」：转圈/对勾/警告原位变化，
+        //   避免用户连点。这是行为设计，不该被形态调整牵连。
+        //   【高度为什么定死 44】与 DhButton 同档；文字单行 + 图标 14dp 都放得下。
+        val btnShape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
         Row(
             modifier = modifier
-                .clip(RoundedCornerShape(999.dp))
+                .height(44.dp)
+                .clip(btnShape)
                 .background(bg)
                 .then(
                     if (state == SubmitState.LOADING) Modifier
                     else Modifier.pressable(onClick)
                 )
-                .padding(horizontal = 16.dp, vertical = 9.dp),
+                .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             when (state) {
@@ -706,10 +714,11 @@ object DhForm {
                     SubmitState.IDLE -> text
                 },
                 color = c.onAcc,
-                fontSize = UiKit.FS_CHIP.sp,
-                fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold,
-                // 【不加行高】药丸高度由 padding 定，单行文字加行高会顶偏。
+                // 【字号对齐设计稿】原 12sp/Bold（chip 档）→ 15sp/SemiBold（按钮正文档）。
+                //   按钮文字比 chip 大一档是应有的层级；12sp 在高 44 的按钮里显得空。
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
+                fontFamily = DhTokens.fonts,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
         }
