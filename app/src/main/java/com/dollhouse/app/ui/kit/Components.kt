@@ -54,6 +54,8 @@ import com.dollhouse.app.ui.compose.pressScaleClick
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Icons
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 /**
  * 【职责】全 App **唯一**的 Compose 组件库入口。
@@ -418,12 +420,56 @@ fun DhDivider(modifier: Modifier = Modifier) {
 fun DhGroup(
     modifier: Modifier = Modifier,
     title: String? = null,
+    /**
+     * 标题下方是否显示一条发丝线（组内标题与内容之间）。
+     *
+     * 【为什么需要】设置页的「折叠组」把标题做成可点的展开箭头，
+     *   标题与内容之间需要一条线把两者分开；而普通分组（标题在卡片外）不需要。
+     */
+    modifierTitleDivider: Boolean = false,
+    /**
+     * 【折叠能力】非 null 时标题变成可点区域（带展开箭头），内容随状态显示/隐藏。
+     *
+     * 【为什么补在 DhGroup 而不是新建组件】本 App 的 `DhKit.Card` 有 53 处调用、
+     *   其中 **47 处用了折叠标题**（collapsibleTitle）。要让 Card 转发到规范实现，
+     *   规范实现就必须具备折叠能力 —— 否则「统一」只能停在 56% 的调用点上，
+     *   而剩余 47 处会继续用旧样式，等于把「同一语义两处实现」原样保留。
+     *
+     * @param collapsibleTitle 折叠时显示的标题；null = 不折叠
+     * @param titleIcon        标题左侧图标（0 = 不显示）
+     * @param expandState      外部提供的「当前是否展开」；null = 组件内部自管状态
+     * @param onToggle         用户点标题时回调（宿主据此落盘）
+     *
+     * 【为什么展开态要能从外部传入】`DhKit.Card` 有一个既有能力：
+     *   用户的展开/收起会写进 `PetPrefs.setCardOpen`，下次进页面保持原样。
+     *   要让 Card 转发到本组件而**不丢这个行为**，展开态就不能只由内部 remember 掌握 ——
+     *   必须允许宿主（Card）把读到的持久化值传进来、把变化回调出去。
+     */
+    collapsibleTitle: String? = null,
+    titleIcon: Int = 0,
+    expandState: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val p = DhTokens.palette
     val t = DhTokens.type
+    val collapseName = collapsibleTitle ?: title
+    // 内部状态：宿主没传 expandState 时自己管；传了就以宿主的为准。
+    var innerOpen by remember(collapseName) { mutableStateOf(true) }
+    val open = expandState ?: innerOpen
+    fun setOpen(v: Boolean) {
+        if (expandState == null) innerOpen = v
+        onToggle?.invoke(v)
+    }
+    val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
+
     Column(modifier = modifier.fillMaxWidth()) {
-        if (!title.isNullOrEmpty()) {
+        // 【两种标题形态】
+        //   ① 普通分组（collapsibleTitle == null）：标题在卡片**外面**，label 档小字；
+        //   ② 折叠分组（collapsibleTitle != null）：标题在卡片**里面**、可点、带箭头，
+        //      与内容之间加一条发丝线 —— 这是 Card 的既有形态，语义上"标题属于这张卡"。
+        val collapsible = collapsibleTitle != null
+        if (!collapsible && !title.isNullOrEmpty()) {
             Text(
                 text = title,
                 modifier = Modifier.padding(
@@ -437,16 +483,56 @@ fun DhGroup(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(DhDesign.Radius.lg.dp))
+                .clip(shape)
                 .background(p.card)
-                .border(
-                    DhDesign.Size.hairline,
-                    p.line,
-                    RoundedCornerShape(DhDesign.Radius.lg.dp)
+                .border(DhDesign.Size.hairline, p.line, shape)
+        ) {
+            if (collapsible) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressable { setOpen(!open) }
+                        .padding(
+                            horizontal = DhDesign.Space.lg.dp,
+                            vertical = DhDesign.Space.md.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (titleIcon != 0) {
+                        DhKit.Icon(titleIcon, DhDesign.Size.iconMd.value, p.sub)
+                        Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
+                    }
+                    Text(
+                        text = collapseName ?: "",
+                        modifier = Modifier.weight(1f),
+                        color = p.title,
+                        style = t.section
+                    )
+                    // 箭头：收起指下、展开指上（与旧版语义一致）
+                    Text(
+                        text = if (open) "︿" else "﹀",
+                        color = p.sub,
+                        style = t.body
+                    )
+                }
+                if (modifierTitleDivider) {
+                    DhDivider(
+                        modifier = Modifier.padding(horizontal = DhDesign.Space.lg.dp)
+                    )
+                }
+            }
+            if (!collapsible || open) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = DhDesign.Space.lg.dp,
+                            vertical = DhDesign.Space.xs.dp
+                        ),
+                    content = content
                 )
-                .padding(horizontal = DhDesign.Space.lg.dp, vertical = DhDesign.Space.xs.dp),
-            content = content
-        )
+            }
+        }
     }
 }
 
