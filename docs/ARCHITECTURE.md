@@ -80,7 +80,7 @@ M4–M7 逐页替换后逐步迁入，M9 删除重复处。
 | `ui/compose/LayerShield.kt` | 272 | 触摸闸门：在层根的 `dispatchTouchEvent` 上做屏蔽，需真 View 才能拦子树 |
 | `ui/theme/UiKit.kt` | 2305 | 颜色字段 + 少量 View 工具（`press`/`dp`/`round`），是历史依赖的目标而非页面 |
 | `ui/theme/Icons.kt` | 642 | 图标 tint 工具（View 侧），与 Compose 侧共用 |
-| `ui/home/HomeUi.kt` | 1565 | 底座装配：三 Tab 用 FrameLayout + 3×ComposeView + 悬浮底栏（不改会动到 `LayerGate`） |
+| `ui/home/HomeUi.kt` | 1565 | 底座装配。**经分析确认当前不可迁移**：它只有 1 个 FrameLayout，但持有 5 个 ComposeView（三 Tab + 底栏 + 抽屉），且这 4 层各自包在 `LayerShield`（`FrameLayout` 子类）里。`LayerGate` 正是靠这 4 个 shield 引用（base/bar/drawer/nav）来判定「谁独占触摸」——全 App 的触摸正确性都建立在这套机制上（穿透、旧页残留、看得见点不动，都是它修的）。要迁 Compose 必须先把触摸闸门重做成 Compose 手势系统，那是独立课题，风险远大于收益。 |
 | `ui/chat/ChatPanel.kt` | 2281 | `LinearLayout` 壳 + 内嵌 `ChatUi`(Compose)；承载全部聊天业务契约 |
 | `ui/chat/MessageMenu.kt` | 257 | 长按菜单 + 输入框（原生 Dialog），桌宠与聊天页共用 |
 | `ui/widget/SheetPanel.kt` | 521 | 自建底部面板（模型选择 / 思考过程），依赖 View 层序 |
