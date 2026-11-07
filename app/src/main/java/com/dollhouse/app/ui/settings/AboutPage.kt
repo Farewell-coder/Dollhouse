@@ -180,6 +180,16 @@ object AboutPage {
     @Composable
     private fun UpdateEntry(act: Activity) {
         var checking by remember { mutableStateOf(false) }
+        // 【防抖反馈】`manualCheck` 在短时间内的第二次点击会回调 null（防抖），
+        //   那时界面不能毫无变化 —— 用这个临时提示告诉用户「刚才检查过了」。
+        //   3 秒后自动消失，避免一直挂着。
+        var notice by remember { mutableStateOf<String?>(null) }
+        androidx.compose.runtime.LaunchedEffect(notice) {
+            if (notice != null) {
+                kotlinx.coroutines.delay(3000)
+                notice = null
+            }
+        }
         var result by remember { mutableStateOf<UpdateCheckResult?>(null) }
         var channel by remember { mutableStateOf(UpdatePrefs.channel(act)) }
 
@@ -264,7 +274,7 @@ object AboutPage {
         DhKit.ActionRow(
             label = if (checking) "正在检查…" else "检测更新",
             iconRes = Icons.IC_REFRESH,
-            desc = channel.label + " · 需要联网",
+            desc = notice ?: (channel.label + " · 需要联网"),
             enabled = !checking,
             onClick = {
                 checking = true
@@ -280,6 +290,13 @@ object AboutPage {
                         // 「已是最新」「检查失败」仍走弹窗 —— 那两种是需要用户读一句话的状态，
                         //   用 Toast 一闪而过反而看不清。
                         else -> result = res
+                        // 【修·点了没反应】`manualCheck` 有防抖：距上次检查不足阈值时
+                        //   直接回调 **null**，而上面 `else -> result = res` 会把它写成 null，
+                        //   界面毫无变化 —— 用户看到的就是「点了没反应」。
+                        //   这里给一个会自己消失的行内提示（不用 Toast，一闪而过更看不见）。
+                        null -> {
+                            notice = "刚检查过，稍后再试"
+                        }
                     }
                 }
             }
@@ -314,6 +331,10 @@ object AboutPage {
     private fun ChannelChip(text: String, selected: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
         Box(
+            // 【修·文字不在中心】`Box` 的 `contentAlignment` 默认是 **TopStart**，
+            //   这里只设了 padding 没设对齐 —— 药丸里文字会贴在左上角。
+            //   「稳定版」「公测版」这两个按钮就是这么偏的。
+            contentAlignment = Alignment.Center,
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(if (selected) c.acc else c.cardUp)
