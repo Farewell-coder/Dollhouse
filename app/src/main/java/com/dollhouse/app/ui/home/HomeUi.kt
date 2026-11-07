@@ -887,8 +887,16 @@ object HomeUi {
             com.dollhouse.app.PageTransitions.start(
                 act, Intent(act, BackgroundCropActivity::class.java)
             )
-        } catch (ignored: Throwable) {
-            Logs.w(LOG_TAG, "ignored", ignored)
+        } catch (t: Throwable) {
+            // 【改造前是静默 catch】用户点「更换图片」什么都不会发生，
+            //   也不知道是崩了还是没响应 —— 这正是「功能失效」的体感来源。
+            //   现在把原因显示出来，至少能自证是哪一环坏了。
+            Logs.w(LOG_TAG, "启动背景裁剪页失败", t)
+            android.widget.Toast.makeText(
+                act,
+                "打不开裁剪页：" + (t.message ?: t.javaClass.simpleName),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
         }
     }
 

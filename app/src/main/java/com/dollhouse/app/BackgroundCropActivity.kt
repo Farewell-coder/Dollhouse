@@ -349,6 +349,10 @@ class BackgroundCropActivity : Activity() {
 
     private fun fail(msg: String) {
         Logs.w(TAG, msg)
+        // 【必须给可见反馈】改造前这里只 log 然后 finish —— 用户看到的是
+        // 「裁剪页一闪就没了」，完全不知道是相册打不开。这类静默失败最难排查，
+        // 也最容易被当成功失效。
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
         finish()
     }
 
