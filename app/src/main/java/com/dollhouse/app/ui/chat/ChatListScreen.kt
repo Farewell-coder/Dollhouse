@@ -314,7 +314,12 @@ object ChatListScreen {
                         //   列表从"一堆分开的小卡片"变成"一条连续的列表"。
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        items(shown, key = { it.id }) { row ->
+                        // 【contentType：滚动复用槽位的关键】
+                        //   只有 key 没有 contentType 时，Compose 不知道「这一项和那一项是同一种布局」，
+                        //   滚动回收的槽位无法交给同类项复用 → 反复重建 → 体感发涩。
+                        //   本列表全是同一种「会话行」，单一常量即可。
+                        //   参考 Compose 性能规范「Always specify both primitive keys and contentType」。
+                        items(shown, key = { it.id }, contentType = { "conv" }) { row ->
                             /* 【v0.2.4·条目动画】新会话进来、删除会话、清空未读导致列表重排时，
                                条目平滑让位，而不是整列瞬间跳一下。动画由 LazyColumn 托管，零依赖。 */
                             Box(Modifier.animateItem()) {
@@ -581,7 +586,9 @@ object ChatListScreen {
                 // 字号 10sp 不在任何一档上；徽标是 label 语义，归 11/600。
                 fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                // 【等宽数字】未读数变化时避免徽标横向抖动（与底栏 Badge 同一口径）。
+                fontFeatureSettings = "tnum"
             )
         }
     }

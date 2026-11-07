@@ -64,6 +64,7 @@ import kotlinx.coroutines.withContext
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -353,7 +354,11 @@ object ChatUi {
                 text = "${(ratio * 100f).roundToInt()}",
                 color = c.title,
                 fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
-                fontFamily = DhTokens.fontsBold
+                fontFamily = DhTokens.fontsBold,
+                // 【等宽数字】环里的百分比会随上下文实时变化（0→100），
+                //   比例数字下「1」比「0」窄，每跳一次环心数字就左右晃一下。
+                //   等宽后数字位置稳定，环看起来才「稳」。
+                fontFeatureSettings = "tnum"
             )
         }
     }
@@ -371,7 +376,8 @@ object ChatUi {
         ) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
+                    // 【圆角收敛】原 10dp -> Radius.md(12)：提示条与卡片同族。
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                     .background(c.hintBg)
                     .pressable { host.openMain() }
                     .padding(horizontal = 14.dp, vertical = 7.dp)

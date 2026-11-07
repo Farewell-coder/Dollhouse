@@ -185,7 +185,10 @@ object BottomNav {
                 color = DhTokens.palette.onErr,
                 fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                // 【等宽数字】未读数会 1 → 10 → 99 地变，比例数字的「1」比「9」窄，
+                //   每加一位徽标就横向抖一下。等宽（tnum）让所有数字同宽，宽度只随位数变一次。
+                fontFeatureSettings = "tnum"
             )
         }
     }
