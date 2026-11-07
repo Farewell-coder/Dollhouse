@@ -62,6 +62,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Icons
@@ -183,8 +184,8 @@ object DollListScreen {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),
                 modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),
+                verticalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp)
             ) {
                 items(dolls, key = { it.id }) { doll ->
                     /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
@@ -512,7 +513,7 @@ onCover = {
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(top = 10.dp * k)
+                    .padding(top = DhDesign.Space.md.dp * k)
                     .clip(RoundedCornerShape(12.dp))
                     .background(c.soft)
                     // 【r13·实测封面框比例】布局完成后把这块区域的真实宽高比写回偏好，
@@ -557,7 +558,7 @@ onCover = {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
+                    .padding(top = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -677,7 +678,7 @@ onCover = {
             ) { v, _ ->
                 specDraft = specDraft.copy(oy = DollSizeSpec.Spec.clampOffset((v - 50) / 100f))
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             // ---------- 恢复自动适配 ----------
             DhForm.Note(
                 "「恢复自动适配」= 大小回到 100%、位置回到居中。" +
@@ -1044,7 +1045,7 @@ onCover = {
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.card)
                 .border(1.dp, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
-                .padding(vertical = 6.dp)
+                .padding(vertical = DhDesign.Space.sm.dp)
         ) {
             content()
         }
@@ -1061,7 +1062,7 @@ onCover = {
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onClick() }
-                .padding(horizontal = 18.dp, vertical = 10.dp),
+                .padding(horizontal = 18.dp, vertical = DhDesign.Space.md.dp),
             color = if (selected) c.acc else c.title,
             fontSize = UiKit.FS_BTN.sp,
             fontFamily = DhTokens.fontsBold,

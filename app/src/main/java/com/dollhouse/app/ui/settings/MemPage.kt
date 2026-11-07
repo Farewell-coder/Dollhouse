@@ -49,6 +49,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -326,7 +327,7 @@ object MemPage {
             //   【为什么与图谱互斥而不是并列】两者都要占满剩余高度，并列会各剩一半、都看不清。
             //   默认显示图谱，点顶栏「列表」切过来；切回去不丢筛选与关键词。
             if (listMode) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 if (shownMems.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -360,7 +361,7 @@ object MemPage {
                 }
             } else {
             // ---- 图谱画布 ----
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -449,14 +450,14 @@ object MemPage {
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             DhKit.Icon(Icons.IC_WAYPOINTS, Design.SZ_XL, c.line)
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.height(DhDesign.Space.iconGap.dp))
                             Text(
                                 text = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
                                 color = c.sub,
                                 fontSize = UiKit.FS_BTN.sp,
                                 fontFamily = DhTokens.fonts
                             )
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(DhDesign.Space.xs.dp))
                             Text(
                                 text = if (all.isEmpty()) {
                                     "聊天时她会自己写进来；也可以手动加一条"
@@ -497,11 +498,11 @@ object MemPage {
                 ToolAction(Icons.IC_MAXIMIZE, "适配") {
                     viewRef.value?.fitToView()
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 ToolAction(Icons.IC_ZOOM_IN, "放大") {
                     zoomBy(viewRef.value, 1.25f)
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 ToolAction(Icons.IC_ZOOM_OUT, "缩小") {
                     zoomBy(viewRef.value, 0.8f)
                 }
@@ -526,7 +527,7 @@ object MemPage {
             // ---- 资料文档（关于主人的印象）----
             val doc = remember(refresh, dollId) { Mem.profile(act, dollId) }
             if (doc.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhKit.Card(collapsibleTitle = "关于主人的印象") {
                     Text(
                         text = doc,
@@ -644,7 +645,7 @@ object MemPage {
                 .fillMaxWidth()
                 .fillMaxHeight(0.6f)
                 .background(c.card)
-                .padding(10.dp)
+                .padding(DhDesign.Space.md.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -667,7 +668,7 @@ object MemPage {
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                             .pressable { onPick(m) }
-                            .padding(horizontal = 10.dp, vertical = 9.dp)
+                            .padding(horizontal = DhDesign.Space.md.dp, vertical = 9.dp)
                     ) {
                         Text(
                             text = m.title.ifEmpty { "（无标题）" },
@@ -740,7 +741,7 @@ object MemPage {
                 Spacer(Modifier.height(8.dp))
             }
             DetailLine("强度", pct(link.weight))
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
             DhKit.OutlineChip("删除这条关系") { onDelete() }
         }
     }
@@ -800,14 +801,14 @@ object MemPage {
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Row(modifier = Modifier.padding(top = 6.dp)) {
+                    Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                         DhForm.Badge(
                             text = sourceLabel(m.source),
                             fg = c.sub,
                             bg = c.soft
                         )
                         if (m.folderPath.isNotBlank()) {
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(DhDesign.Space.sm.dp))
                             DhForm.Badge(
                                 text = shortFolder(m.folderPath),
                                 fg = c.chatChipFg,
@@ -864,7 +865,7 @@ object MemPage {
             modifier = Modifier
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .pressable(onClick)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = DhDesign.Space.sm.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
@@ -987,7 +988,7 @@ object MemPage {
             // 【已有的文件夹直接点】用输入框 + 快捷 chip 的双通道：既支持新建任意路径，
             //   也支持一键复用已有分类（避免手打错字产生「生活」和「生活 」两个文件夹）。
             if (knownFolders.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     knownFolders.take(3).forEach { f ->
                         FilterChip(shortFolder(f), folder == f) { folder = f }
@@ -1001,7 +1002,7 @@ object MemPage {
                 hint = "空格分隔，如「饮食 偏好」"
             )
             if (knownTags.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     knownTags.take(3).forEach { t ->
                         FilterChip("#" + t, false) {
@@ -1014,7 +1015,7 @@ object MemPage {
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
             DhKit.StepperRow(
                 name = "重要度",
                 value = pct(importance),
@@ -1026,10 +1027,10 @@ object MemPage {
             DhForm.Note("重要度越高，聊天时越容易被优先想起。")
             // ---------- 【r14】关联（手动连线）----------
             if (!isNew) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DhKit.Icon(iconRes = Icons.IC_LINK_2, sizeDp = Design.SZ_XS, color = c.sub)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                     Text(
                         text = "关联到其它记忆",
                         modifier = Modifier.weight(1f),
@@ -1044,7 +1045,7 @@ object MemPage {
                 } else {
                     // 【已选的关联直接列出】让用户一眼看到「这条连到了谁」，
                     //   不用再点开选择器确认。点它即可移除。
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     linked.toList().forEach { t ->
                         DhKit.CheckRow(text = t, selected = true) {
                             linked = linked - t
@@ -1145,7 +1146,7 @@ object MemPage {
                         label = null,
                         hint = "新名字"
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip("确定", true) {
                             if (renameFolder(act, dollId, f, renameText.trim())) {
@@ -1207,7 +1208,7 @@ object MemPage {
                 label = "新建文件夹",
                 hint = "用 / 分层，如「生活/饮食」"
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhKit.ActionRow(label = "创建", iconRes = Icons.IC_PLUS) {
                 val name = draft.trim().trim('/')
                 if (name.isNotEmpty() && !folders.contains(name)) {
@@ -1236,7 +1237,7 @@ object MemPage {
                 fontFamily = DhTokens.fonts,
                 lineHeight = (UiKit.FS_BTN + 6f).sp
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(DhDesign.Space.md.dp))
             DetailLine("文件夹", m.folderPath.ifEmpty { "未分类" })
             DetailLine("标签", if (m.tags.isEmpty()) "无" else m.tags.joinToString(" "))
             DetailLine("来源", sourceName(m.source))
