@@ -40,6 +40,7 @@ __pycache__/
 !tools/input_audit.py
 !tools/state_audit.py
 !tools/design_parity.py
+!tools/kit_usage_audit.py
 /rstub/
 
 # 回归测试日志

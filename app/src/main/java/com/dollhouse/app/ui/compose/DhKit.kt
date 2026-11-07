@@ -777,11 +777,37 @@ object DhKit {
                 .background(c.line)
         )
     }
-    /* ============================ 开关行 / 权限行 / 步进器 ============================ */
+    /* ============================ 开关行 / 权限行 / 步进器 ============================
+     * 【转发链现状：5 条，全部由本类转发出去】
+     *   Card → DhGroup、ValueRow → DhRow、ActionRow → DhRow、
+     *   SwitchRow → DhRow、PermRow → DhRow。
+     *
+     *   【记一段纠错】此前有一个说法是「SwitchRow / PermRow 各转发 2 次
+     *   （注释里的路径算一次、真调用算一次）」—— 那是把注释里提到的路径
+     *   `ui/kit.DhRow` 当成了调用点。**实测两个都是 0 次**：转发前这两个函数体里
+     *   没有任何 `ui/kit.` 调用，行、标题、开关 / 状态图标全是自己画的。
+     *   这就是「同一张卡里开关行比信息行矮 2~3dp」那条观感问题的来源。
+     *   本轮已把两者真正转发，38 处调用点（SwitchRow 34 + PermRow 4）一次性对齐。
+     *
+     *   仍未转发的是下方的 [StepperRow]：它的右尾是「减号 / 数值 / 加号」三件套，
+     *   需要两个方向各自的回调与可用性，与 DhRow「单个 onClick + 单个 trailing」的语义
+     *   对不上，硬转发会把两个按钮塞进一个 trailing 槽里假装成一件东西。
+     */
 
     /**
-     * 开关行：左名称 + 右开关，SOFT 底 + 圆角 10 ← `HomeCards.switchRow`。
+     * 开关行：左名称 + 右开关 ← `HomeCards.switchRow`。
      * 点整行与点开关等价（与 View 版一致）。
+     *
+     * 【M-收口·转发到规范实现】本函数有 34 处调用点，内部已改为调用 `ui/kit` 的 `DhRow`，
+     *   `Switch` 放进它的 `trailing` 插槽。
+     *   【为什么必须转发】转发前这里自带 `padding(horizontal = PAD_ROW, vertical = 10)`，
+     *   而 ValueRow / ActionRow 早已转发、行高与内边距由 `DhRow` 决定 ——
+     *   同一张卡里开关行比相邻的信息行矮 2~3dp，看上去"缩了一号"。
+     *   转发后 38 处（34 + 4）行与其余行同口径，这条差异从结构上消失。
+     *   【两处随之对齐的观感差异，按规范取值、不再手写数字】
+     *     · 行首图标与标题的间距：旧值 GAP_ICON(8) → `DhRow` 的 Space.md(12)；
+     *     · 行左右内边距：旧值 PAD_ROW(12) → `DhRow` 自己不加横向内边距，由所在卡片给
+     *       Space.lg(16)，与已转发的 ValueRow / ActionRow 同口径。
      */
     @Composable
     fun SwitchRow(
@@ -796,54 +822,52 @@ object DhKit {
         enabled: Boolean = true,
         onCheckedChange: (Boolean) -> Unit
     ) {
-        val c = DhTokens.colors
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                // 【M3】同 ValueRow：去掉逐行 soft 底与圆角，改为卡片内发丝线行。
-                .then(if (enabled) Modifier.pressable { onCheckedChange(!checked) } else Modifier)
-                .then(if (enabled) Modifier else Modifier.alpha(0.35f))
-                // 【v0.1.4·行高对齐】原来开关行用 10/9 dp 垂直内边距，而 ValueRow 用 12 dp，
-                //   同一张卡里两者相邻时，开关行会比信息行矮 2~3dp，看上去像缩了一号。
-                //   这里与 ValueRow 统一取 PAD_ROW；开关本身高 32dp，不影响 MIN_ROW_H。
-                .padding(horizontal = PAD_ROW.dp, vertical = 10.dp)
-                .defaultMinSize(minHeight = MIN_ROW_H.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (iconRes != 0) {
-                RowIcon(iconRes)
-                Spacer(Modifier.width(GAP_ICON.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    color = c.title,
-                    fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
+        // 【参数适配】name→title、desc→desc、iconRes→iconRes（旧实现的 0 与 `DhRow` 的
+        //   "不占位"是同一个约定，不需要归一）。
+        //
+        // 【enabled = false 如何原样保住】旧实现是
+        //   `if (enabled) pressable { toggle } else Modifier.alpha(0.35f)`，
+        //   即「降透明度 + 修饰符层面压根没有点击」。`DhRow` 把 modifier 应用在 pressable
+        //   **之前**，所以这里能完全等价地表达：
+        //     · onClick 传 null → `DhRow` 内部不挂 pressable（不是挂了再吞，而是根本不存在）；
+        //     · modifier 叠 alpha(0.35f) → 与旧值同值。
+        //
+        // 【整行点按 = 切开关】onClick 里传 `!checked`，取反语义与旧实现逐字一致。
+        //
+        // 【点开关不会"切两次"】`Switch` 自带 clickable，会消费掉按下事件，
+        //   外层行的 pressable 收不到这次点击 —— 旧实现同样是"外层可点 + 内层可点"两层结构，
+        //   这里只是把外层换成了 `DhRow` 的 pressable，防双触发机制不变。
+        //   内层仍保留 `if (enabled)` 判断：禁用时开关点击也必须无效（旧实现就是这样）。
+        val rowModifier = if (enabled) modifier else modifier.alpha(0.35f)
+        // 先把取反动作存成有类型的局部值，再按 enabled 挑 null —— 不用
+        // `if (…) { { … } }` 这种"块里套 lambda"的写法，避免可空函数类型的推断歧义。
+        val toggle: () -> Unit = { onCheckedChange(!checked) }
+        val onRowClick: (() -> Unit)? = if (enabled) toggle else null
+        com.dollhouse.app.ui.kit.DhRow(
+            title = name,
+            modifier = rowModifier,
+            desc = desc,
+            iconRes = iconRes,
+            showChevron = false,
+            onClick = onRowClick,
+            trailing = {
+                Switch(
+                    checked = checked,
+                    onCheckedChange = { if (enabled) onCheckedChange(it) }
                 )
-                if (!desc.isNullOrEmpty()) {
-                    Text(
-                        text = desc,
-                        modifier = Modifier.padding(top = 2.dp),
-                        color = c.sub,
-                        fontSize = FS_ROW_DESC.sp,
-                        fontFamily = DhTokens.fonts
-                    )
-                }
             }
-            Spacer(Modifier.width(12.dp))
-            // 【v0.1.4·防误触】开关自带 clickable，会消费掉按下事件 ——
-            //   点它只切开关，不会顺带触发外层整行的 pressable（否则会「切了又弹回去」）。
-            Switch(
-                checked = checked,
-                onCheckedChange = { if (enabled) onCheckedChange(it) }
-            )
-        }
+        )
     }
 
     /**
      * 权限行：左名称 + 右状态（带勾 / 叉 / 警告图标 + 语义色）← `HomeCards.permRow`。
      * 已授权时整行不可点。
+     *
+     * 【M-收口·转发到规范实现】本函数有 4 处调用点，内部已改为调用 `ui/kit` 的 `DhRow`，
+     *   状态文字 + 状态图标一起放进它的 `trailing` 插槽。
+     *   【为什么必须转发】转发前这里自带 `padding(horizontal = PAD_ROW, vertical = …)`，
+     *   与已转发的 ValueRow / ActionRow 在行高与内边距上不是同一个来源 ——
+     *   同一张卡里（PermissionPage 就是混排的）权限行会比相邻行矮一点。
      *
      * @param state  0=已授权（绿勾）1=未授权（红叉）2=待处理（红警告）
      */
@@ -866,49 +890,35 @@ object DhKit {
             2 -> Icons.IC_WARNING
             else -> Icons.IC_X_CIRCLE
         }
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                // 【M3】同 ValueRow：去掉逐行 soft 底与圆角，改为卡片内发丝线行。
-                .then(if (granted) Modifier else Modifier.pressable(onClick))
-                .padding(horizontal = PAD_ROW.dp, vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp)
-                .defaultMinSize(minHeight = MIN_ROW_H.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (iconRes != 0) {
-                RowIcon(iconRes)
-                Spacer(Modifier.width(GAP_ICON.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
+        // 【"已授权不可点"如何原样保住】旧实现是
+        //   `if (granted) Modifier else Modifier.pressable(onClick)` —— 已授权时压根不挂点击。
+        //   `DhRow` 的 onClick 传 null 就是"不挂 pressable"（不是挂了再吞掉），
+        //   所以 onClick = if (granted) null else onClick 与旧语义逐字等价。
+        //   注意这里只降"可点性"，**不降透明度**：旧实现也没有 alpha，
+        //   已授权的行仍要能正常读出"已授权"三个字。
+        com.dollhouse.app.ui.kit.DhRow(
+            title = name,
+            modifier = modifier,
+            desc = desc,
+            iconRes = iconRes,
+            showChevron = false,
+            onClick = if (granted) null else onClick,
+            trailing = {
+                // 状态文字：旧实现的字号 / 字重 / 颜色 / 单行截断全部保留在这里，
+                // 不借用 DhRow 的 value 参数 —— value 固定用 sub 色，会丢掉语义色。
                 Text(
-                    text = name,
-                    color = c.title,
+                    text = if (granted) "已授权" else if (state == 2) "待处理" else "未授权",
+                    color = tint,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBold,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
                 )
-                if (!desc.isNullOrEmpty()) {
-                    Text(
-                        text = desc,
-                        modifier = Modifier.padding(top = 2.dp),
-                        color = c.sub,
-                        fontSize = FS_ROW_DESC.sp,
-                        fontFamily = DhTokens.fonts
-                    )
-                }
+                Spacer(Modifier.width(4.dp))
+                // 【r12】13f 不在 [Design] 的图标五档内 → 归到 SZ_XS(14)。
+                Icon(iconRes = icon, sizeDp = Design.SZ_XS, color = tint)
             }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = if (granted) "已授权" else if (state == 2) "待处理" else "未授权",
-                color = tint,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-            Spacer(Modifier.width(4.dp))
-            // 【r12】13f 不在 [Design] 的图标五档内 → 归到 SZ_XS(14)。
-            Icon(iconRes = icon, sizeDp = Design.SZ_XS, color = tint)
-        }
+        )
     }
 
     /**
