@@ -30,6 +30,15 @@ __pycache__/
 #   否则 clone 下来的人无法重跑、docs/ICONS.md 也就没法再生成。
 !tools/make_icons.py
 !tools/gen_icons_md.py
+# 【例外·质量门禁】tools/ 下的静态审计脚本是**工程资产**，必须随代码版本化：
+#   否则 clone 下来的人跑不了、CI 里也调不到 —— 门禁等于只在作者那台机器上有效。
+#   这些脚本不改产物、只读源码做检查，与上面「本地临时脚本」的意图不同。
+!tools/kotlin_precheck.py
+!tools/comment_balance.py
+!tools/palette_contrast.py
+!tools/symbol_refs.py
+!tools/input_audit.py
+!tools/state_audit.py
 /rstub/
 
 # 回归测试日志
