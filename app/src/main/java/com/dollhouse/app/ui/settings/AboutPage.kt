@@ -42,6 +42,7 @@ import com.dollhouse.app.update.UpdateChannel
 import com.dollhouse.app.update.UpdateCheckResult
 import com.dollhouse.app.update.UpdateChecker
 import com.dollhouse.app.update.UpdatePrefs
+import android.content.Intent
 
 /**
  * 【职责】「关于」独立页：软件介绍 + 关于本软件（作者 / 反馈群 / 版本）。
@@ -270,10 +271,37 @@ object AboutPage {
                 // 【回调必回主线程】UpdateChecker 内部已 post 到 MAIN，这里直接改状态即可。
                 UpdateChecker.manualCheck(act) { res ->
                     checking = false
-                    result = res
+                    when (res) {
+                        // 【改·检测到新版本直接去发行版页】用户明确要求：
+                        //   「检测到最新版本就弹到那个最新的发行版那里」。
+                        //   原来弹一个对话框再让用户点「下载」，多一步、而且直链 APK 容易失效；
+                        //   现在直接打开那条 Release 的页面，更新说明 / 资产 / 校验值都在那里。
+                        is UpdateCheckResult.Available -> openReleasePage(act, res.candidate.releaseUrl)
+                        // 「已是最新」「检查失败」仍走弹窗 —— 那两种是需要用户读一句话的状态，
+                        //   用 Toast 一闪而过反而看不清。
+                        else -> result = res
+                    }
                 }
             }
         )
+    }
+
+    /**
+     * 打开某条 Release 的网页。
+     *
+     * 【为什么用浏览器而不是应用内 WebView】更新说明里有外链、有附件，
+     *   WebView 要处理一堆权限与返回栈，且用户可能想「在浏览器里留个标签页」。
+     *   【为什么不是 apkUrl 直链】直链会随资产改名失效；发布页永远有效，
+     *   而且用户能看到发布说明与校验值。
+     */
+    private fun openReleasePage(act: android.app.Activity, url: String) {
+        val target = url.ifBlank { com.dollhouse.app.update.UpdateRepo.RELEASES_PAGE }
+        try {
+            act.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target)))
+        } catch (t: Throwable) {
+            // 没有浏览器 / 无法解析链接：退化成 Toast，至少让用户知道该去哪。
+            android.widget.Toast.makeText(act, "打不开链接：" + target, android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     /**

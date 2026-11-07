@@ -17,6 +17,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.*
+import androidx.compose.ui.Alignment
 
 /** 只增强卡片；普通段落由 ChatUi 的原文渲染路径显示。 */
 @Composable fun BlockRenderer(text: String, enhanced: Boolean) {
@@ -34,7 +35,13 @@ import com.dollhouse.app.ui.theme.*
     }
 }
 @Composable private fun CardBlock(block: Block.Card) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        // 【修·图标与文字错位】Row 默认 Top 对齐，而文字有行高 —— 图标会浮在上面、
+        //   文字沉在下面，看起来就是「符号错位」。图标座与文字必须 CenterVertically。
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         // 【圆角收敛】原 14dp 不在阶梯上；这是图标座，与 IconSeatShape.ROUNDED 同为 12。
         Box(Modifier.size(52.dp).background(DhTokens.colors.soft, RoundedCornerShape(DhDesign.Radius.md.dp)), contentAlignment = androidx.compose.ui.Alignment.Center) {
             DhKit.Icon(Icons.IC_PACKAGE_CHECK, Design.SZ_MD, DhTokens.colors.acc)

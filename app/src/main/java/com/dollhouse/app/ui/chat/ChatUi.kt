@@ -1014,7 +1014,12 @@ object ChatUi {
     @Composable
     private fun ThinkingPlaceholder(label: String) {
         val c = DhTokens.colors
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
+            // 【修·图标/占位符与文字错位】默认 Top 对齐会让圆点浮在文字上方。
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
