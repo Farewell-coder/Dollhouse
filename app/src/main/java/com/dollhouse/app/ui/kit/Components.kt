@@ -449,6 +449,13 @@ fun DhGroup(
     titleIcon: Int = 0,
     expandState: Boolean? = null,
     onToggle: ((Boolean) -> Unit)? = null,
+    /**
+     * 卡片下方是否留组间距（默认 true）。
+     *
+     * 【为什么需要】`DhKit.Card` 有 6 处传 `spacingBottom = false`（连排的最后一张不要留白，
+     *   否则底部会多出一条空隙）。要让它转发到本组件，这个能力必须存在。
+     */
+    spacingBottom: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val p = DhTokens.palette
@@ -463,7 +470,11 @@ fun DhGroup(
     }
     val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = if (spacingBottom) DhDesign.Space.cardGap.dp else 0.dp)
+    ) {
         // 【两种标题形态】
         //   ① 普通分组（collapsibleTitle == null）：标题在卡片**外面**，label 档小字；
         //   ② 折叠分组（collapsibleTitle != null）：标题在卡片**里面**、可点、带箭头，
