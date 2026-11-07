@@ -360,21 +360,23 @@ object DhKit {
     }
 
     /**
-     * 旧版 Card 实现：保留给转发表达不了的两种形态。
+     * 旧版 Card 实现：**只剩 `flat = true` 这一种形态**在用。
      *
-     * 【谁在用】`flat = true`（5 处，LamdaPage 嵌入卡片内的子分区）
-     *   与 `collapsibleTitle != null`（47 处折叠卡，需要 AnimatedVisibility 高度过渡）。
+     * 【谁在用】`flat = true`（5 处，全在 `LamdaPage` 的"嵌入卡片内"子分区，
+     *   经 `Embedded()` → `LamdaCards(act, state, true)` 真实可达）。
+     *   DhGroup 没有"不画卡片底 / 描边"的形态，直接转发会出现**卡片套卡片**的双层圆角，
+     *   故这类调用继续走这里。
      *
-     * 【为什么折叠卡不转发】DhGroup 已具备折叠能力（collapsibleTitle / titleIcon /
-     *   expandState / onToggle），但它是**直接显隐**，没有展开动画。要保留动画就得在
-     *   DhGroup 里加 AnimatedVisibility —— 那会改到规范源 Components.kt，超出本任务范围，
-     *   且 anim_audit C06 要求 CARD_EXPAND/CARD_COLLAPSE 仍被真实使用。
-     *   【后续】若产品确认"折叠不需要动画"，把本段折叠分支改为 DhGroup + expandState 即可，
-     *   届时需同步删除 DhAnim 的四个 CARD_* 常量与 C06 断言。
+     * 【折叠卡已经转发走了】`collapsibleTitle != null` 的 47 处现在转发到
+     *   `ui/kit.DhGroup`（它已补 AnimatedVisibility + 外部展开态）。
+     *   **不要在注释里把折叠卡算成本函数的调用方** —— 那是上一版的状态，已过期。
      *
-     * 【持久化】折叠态读写 PetPrefs.cardOpen / setCardOpen（用户收起后下次进来仍收起）。
-     *   DhGroup 的 expandState 正是为此准备的，但当前折叠分支仍在旧实现里，
-     *   持久化逻辑因此原样保留在这里 —— 这是"不丢功能"的直接证据。
+     * 【所以本函数的语义】"平铺卡"。它与 DhGroup 的差别只有两点：
+     *   ① 不画卡片底 / 描边（由调用方保证自己已经在一张卡里）；
+     *   ② 仍支持折叠（`LamdaPage` 的 flat 卡传了 `collapsibleTitle`），
+     *      折叠态同样读写 `PetPrefs.cardOpen / setCardOpen`。
+     *   【若将来要删掉这个分支】需要先让 DhGroup 支持"无卡片壳"形态（例如加一个
+     *   `flat: Boolean`），否则这 5 处会层级错乱。
      */
     @Composable
     private fun LegacyCard(

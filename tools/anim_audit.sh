@@ -86,7 +86,17 @@ chk C02 "pressable 松手阶段用回弹" "test \$(grep -c 'DhAnim.BOUNCY' $COMP
 chk C03 "pressable 两个重载口径一致" "test \$(grep -c 'val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY' $COMPOSE/DhKit.kt) -ge 2"
 chk C04 "Switch 颜色动画无过冲（ζ=1.0）" "grep -q 'dampingRatio = 1f' $COMPOSE/DhAnim.kt"
 chk C05 "Switch 位移/颜色分别取自词汇表" "grep -q 'DhAnim.SW_SPRING' $COMPOSE/DhKit.kt && grep -q 'DhAnim.COLOR_SPRING' $COMPOSE/DhKit.kt"
-chk C06 "Card 展开有显式 enter/exit spec" "grep -q 'CARD_EXPAND' $COMPOSE/DhKit.kt && grep -q 'CARD_COLLAPSE' $COMPOSE/DhKit.kt"
+# 【C06 曾指向错误的文件】原断言是 `grep -q 'CARD_EXPAND' $COMPOSE/DhKit.kt`——
+#   但四个 CARD_* 常量一直定义在 DhAnim.kt，DhKit.kt 只是「使用方」。
+#   Card 转发到 DhGroup 后，动画实现搬到了 ui/kit/Components.kt，旧断言会 FAIL
+#   却又与「动画是否真的存在」无关。已改为断言**真正使用处**：
+#     ① Components.kt 里有 CARD_EXPAND / CARD_COLLAPSE 的 animationSpec 实参
+#        （排除注释行，避免像 C07 那次靠注释假绿）；
+#     ② expandFrom / shrinkTowards 都是 Top（收起残留一帧高度的坑）；
+#     ③ 反向断言：Card 的折叠分支必须转发到 DhGroup（collapsibleTitle 透传），
+#        否则「动画存在」与「折叠卡用上了」是两件事。
+chk C06 "Card 展开有显式 enter/exit spec（真的在用，非注释）" \
+  "grep -nE 'animationSpec = DhAnim\.CARD_EXPAND' $UI/kit/Components.kt | grep -vE '^[0-9]+: *//' | grep -q . && grep -nE 'animationSpec = DhAnim\.CARD_COLLAPSE' $UI/kit/Components.kt | grep -vE '^[0-9]+: *//' | grep -q . && grep -q 'expandFrom = Alignment.Top' $UI/kit/Components.kt && grep -q 'shrinkTowards = Alignment.Top' $UI/kit/Components.kt && grep -q 'collapsibleTitle = collapsibleTitle' $COMPOSE/DhKit.kt"
 # 【C07 曾是假绿】原断言只查 `grep -q 'UiKit.D_LAYER' DhAnim.kt`——只验字符串存在。
 #   把时长收敛到设计令牌后，旧值残留在注释里，它就靠注释通过了，而代码根本不用它。
 #   已改为断言「Compose 侧真的用设计令牌」：要求出现 DhDesign.Motion.enter 与
