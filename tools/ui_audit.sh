@@ -108,8 +108,14 @@ chk C01 "常规页面走 Compose（buildPage 返回 ComposeView 的页面占比 
 chk C02 "不存在 XML 布局目录（新页面禁止 View/XML）" "test ! -d app/src/main/res/layout"
 chk C03 "View 实例化只出现在白名单文件" \
   "test \$(grep -rlE 'LinearLayout\(|FrameLayout\(|TextView\(|EditText\(' $UI --include=*.kt | grep -vE '/(widget|theme)/|/compose/DhForm.kt|/compose/ComposeHost.kt|/compose/LayerShield.kt|/chat/(ChatPanel|MessageMenu).kt|/home/HomeUi.kt|/provider/ProviderDetailPage.kt|/interop/' | wc -l) -eq 0"
-chk C04 "AndroidView 只出现在 NavHost/Details/Appearance/Mem/DhKit 等已知桥接点" \
-  "test \$(grep -rl 'viewinterop.AndroidView' $UI --include=*.kt | grep -vE '/(nav/NavHost|settings/(MemPage|AppearancePage)|compose/DhKit)\.kt' | wc -l) -eq 0"
+# 【r22·新增白名单：provider/ProviderDetailPage】该文件已去 View 化（壳层是纯 Compose），
+#   但它的内容区必须承载两个**既有页面 View**（ProviderEditPage / ProviderModelsPage）。
+#   这与 NavHost 承载页面 View 是**同一种桥接**：用 AndroidView 把既有 View 嵌进组合，
+#   而不是用它偷懒画控件。AppearancePage/MemPage 是「桥接自绘控件」，这里是
+#   「桥接整页」—— 目的不同，但「必须经过 AndroidView」这一点完全相同。
+#   若不加进白名单，这个页面就只能在「保留 FrameLayout」与「C04 变红」之间二选一。
+chk C04 "AndroidView 只出现在已知桥接点（NavHost/页面承载/自绘控件）" \
+  "test \$(grep -rl 'viewinterop.AndroidView' $UI --include=*.kt | grep -vE '/(nav/NavHost|settings/(MemPage|AppearancePage)|compose/DhKit|provider/ProviderDetailPage)\.kt' | wc -l) -eq 0"
 chk C05 "MaterialTheme 只在主题外壳里提供（无第二处）" \
   "test \$(grep -rn 'MaterialTheme(' $UI --include=*.kt | grep -v 'compose/DhTheme.kt' | grep -v 'MaterialTheme.colorScheme' | grep -v 'MaterialTheme.typography' | wc -l) -eq 0"
 chk C06 "主题外壳提供 MaterialTheme 投影" \
