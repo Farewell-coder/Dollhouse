@@ -412,7 +412,7 @@ object ContactScreen {
                     Text(
                         text = l,
                         color = c.sub,
-                        fontSize = 11.sp,
+                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )

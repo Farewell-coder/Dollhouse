@@ -845,10 +845,17 @@ fun IconSeat(
     }
     // 【图标尺寸随座大小走】三档对应 16/20/24，正好落在既有图标阶梯上。
     //   调用方显式传 iconSizeDp 时以传入为准（少数特例需要）。
-    val icoDp = if (iconSizeDp > 0) iconSizeDp else when {
-        sizeDp <= IconSeatSize.SM -> DhDesign.Size.iconSm.value
-        sizeDp <= IconSeatSize.MD -> DhDesign.Size.iconMd.value
-        else -> DhDesign.Size.iconLg.value
+    // 【必须显式 Float】DhKit.Icon 的 sizeDp 是 Float，而三个分支的 `.value`
+    //   被推断成 `Number & Comparable<*>`（Dp.value 的泛型形态），
+    //   不统一成 Float 会报 "Argument type mismatch"。CI 抓到过。
+    val icoDp: Float = if (iconSizeDp > 0) {
+        iconSizeDp.toFloat()
+    } else {
+        when {
+            sizeDp <= IconSeatSize.SM -> DhDesign.Size.iconSm.value.toFloat()
+            sizeDp <= IconSeatSize.MD -> DhDesign.Size.iconMd.value.toFloat()
+            else -> DhDesign.Size.iconLg.value.toFloat()
+        }
     }
     Box(
         modifier = modifier

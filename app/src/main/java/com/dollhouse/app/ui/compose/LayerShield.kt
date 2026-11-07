@@ -52,7 +52,7 @@ import kotlin.math.abs
  *    底座层随即被屏蔽 —— 但那一串事件是闸门自己在处理的，必须让它走完 UP，
  *    否则「滑到一半卡住」。用 [tracking] 区分。
  */
-class LayerShield(context: Context) : FrameLayout(context), LayerGate.Blockable {
+class LayerShield(context: Context) : FrameLayout(context), Blockable {
 
     /**
      * 本层当前是否暂停交互。
