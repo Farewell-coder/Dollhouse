@@ -20,12 +20,36 @@ import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.ChatSettingsPage
 import com.dollhouse.app.ui.settings.AppearancePage
 import com.dollhouse.app.ui.settings.MemSettingsPage
+import com.dollhouse.app.ui.settings.MyProfilePage
 import com.dollhouse.app.ui.settings.SleepSettingsPage
 import com.dollhouse.app.ui.settings.VisionModelPage
 import com.dollhouse.app.ui.settings.WanderSettingsPage
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.dollhouse.app.data.MyProfile
+import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
  * 【职责】设置页（Compose）：权限 / 聊天 / 人偶 / 外观 四张卡片。
@@ -89,6 +113,14 @@ object SettingsScreen {
                 com.dollhouse.app.ui.compose.PageStack.pop(act)
             }
         ) {
+            // 【本轮·补设计稿要求的资料卡】设计稿 §4.6 的设置页是「资料卡 + 分组导航行」结构：
+            //   顶部一张 Profile card（头像 56 + 我的资料 + 说明 + 箭头），下面是分组入口。
+            //   现状是 6 张折叠卡，完全没有这张资料卡 —— 而「我的资料」的唯一入口
+            //   藏在聊天列表左上角的头像抽屉里。设置页里找不到「我自己」是反直觉的：
+            //   用户想改昵称/头像时，第一反应是进设置。
+            //   【为什么这只是一张入口卡，不是把编辑搬进来】编辑仍走 MyProfilePage，
+            //   这里只提供「看得见、点得到」的入口，避免一个页面承担两种职责。
+            ProfileCard(act)
             PermissionCard(act)
             ChatCard(act)
             DollCard(act)
@@ -98,6 +130,90 @@ object SettingsScreen {
             //   用户定案：**排在最后一张**，且是**展开式**（卡片内直接展开，不跳页）——
             //   与上面四张卡片的展开方式一致。
             ExperimentCard(act)
+        }
+    }
+
+    /* ============================ 我的资料 ============================ */
+
+    /**
+     * 资料卡：头像 56 + 昵称 + 签名摘要 + 箭头，点击进「我的资料」页。
+     *
+     * 【为什么需要它】设计稿 §4.6 把它列为设置页的第一块。本 App 此前把「我的资料」
+     *   只放在聊天列表左上角的头像抽屉里 —— 用户想改昵称/头像时第一反应是进设置，
+     *   而设置页里找不到「我自己」，只能靠试。
+     *
+     * 【为什么头像 56】设计稿的 avatar-lg 档；它是本页唯一的「人」的元素，
+     *   比行图标（20）明显大，才能在一屏设置项里被认出来。
+     *
+     * 【为什么读 ProfileState.tick】昵称/头像存在 SharedPreferences 里，
+     *   在「我的资料」页改完返回时本卡不会自己更新；tick 是既有的重读信号。
+     */
+    @Composable
+    private fun ProfileCard(act: MainActivity) {
+        val c = DhTokens.colors
+        val tick = ProfileState.tick
+        val name = remember(tick) { MyProfile.name(act).ifBlank { "还没有取名字" } }
+        val bio = remember(tick) { MyProfile.bio(act) }
+        val bmp = remember(tick) { MyProfile.avatarBitmap(act, 128) }
+        val showPlaceholder = bio.isBlank()
+
+        DhKit.Card {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pressable { MyProfilePage.open(act) }
+                    .padding(vertical = DhDesign.Space.xs.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(DhDesign.Size.avatarLg)
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
+                        .background(c.soft),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val avatar = bmp
+                    if (avatar != null && !avatar.isRecycled) {
+                        Image(
+                            bitmap = avatar.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        DhKit.Icon(
+                            Icons.IC_CIRCLE_USER,
+                            DhDesign.Size.iconXl.value,
+                            c.sub
+                        )
+                    }
+                }
+                Spacer(Modifier.width(DhDesign.Space.md.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = name,
+                        color = c.title,
+                        style = DhTokens.type.section,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        // 没填签名时给一句用途说明，而不是留空 —— 空行会让卡片显得没长好。
+                        text = if (showPlaceholder) "昵称、头像与签名" else bio,
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = c.sub,
+                        style = DhTokens.type.sub,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                DhKit.Icon(
+                    Icons.IC_CHEVRON_RIGHT,
+                    DhDesign.Size.iconSm.value,
+                    c.sub.copy(alpha = 0.62f)
+                )
+            }
         }
     }
 
