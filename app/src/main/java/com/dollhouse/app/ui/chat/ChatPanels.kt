@@ -36,6 +36,8 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.kit.IconSeat
+import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhDialogHost
@@ -313,15 +315,17 @@ object ChatPanels {
 
             // 灯泡 + 当前档位名
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
-                        .background(p.capsuleSel),
-                    contentAlignment = Alignment.Center
-                ) {
-                    DhKit.Icon(Icons.IC_BRAIN, DhDesign.Size.iconLg.value, p.accent)
-                }
+                // 【收编·IconSeat】底座 46dp / 圆角 12 / capsuleSel 底 / accent 图标，语义就是"一块图标底板"。
+                //   【46dp 不是标准档位】IconSeatSize 只有 32/40/56；这里显式传 46 保持视觉不变。
+                //   图标尺寸：sizeDp(46) > MD(40) 会落到 else 分支 → iconLg(24)，与改造前
+                //   `DhDesign.Size.iconLg` **完全一致**，所以这次替换是逐像素等价的。
+                IconSeat(
+                    iconRes = Icons.IC_BRAIN,
+                    sizeDp = 46,
+                    shape = IconSeatShape.ROUNDED,
+                    bg = p.capsuleSel,
+                    tint = p.accent
+                )
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
                 Text(
                     text = names.getOrElse(level) { "" },

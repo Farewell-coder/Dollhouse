@@ -30,10 +30,12 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.kit.IconSeat
+import com.dollhouse.app.ui.kit.IconSeatShape
+import com.dollhouse.app.ui.kit.IconSeatSize
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
-import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.update.UpdateChannel
@@ -404,16 +406,16 @@ object AboutPage {
                 .padding(bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.card),
-                contentAlignment = Alignment.Center
-            ) {
-                // 【r12】22f 不在 [Design] 的图标五档内 → 归到 SZ_LG(24)。
-                DhKit.Icon(iconRes = Icons.IC_WHALE, sizeDp = Design.SZ_LG, color = c.acc)
-            }
+            // 【收编·IconSeat】40dp + 圆角 12 + 自定义底/图标色，与 IconSeatSize.MD(40)
+            //   + IconSeatShape.ROUNDED(12) 完全吻合，图标 24dp 也正好是 iconLg 档。
+            //   改造前是手拼 Box(clip+background)，与其它页的"图标座"各写各的。
+            IconSeat(
+                iconRes = Icons.IC_WHALE,
+                sizeDp = IconSeatSize.MD,
+                shape = IconSeatShape.ROUNDED,
+                bg = c.card,
+                tint = c.acc
+            )
             Spacer(Modifier.width(12.dp))
             Text(
                 text = title,

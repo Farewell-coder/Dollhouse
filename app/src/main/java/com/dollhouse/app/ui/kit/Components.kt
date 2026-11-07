@@ -118,6 +118,8 @@ private val StateSeat = 56.dp
 private val LoadingSpinner = 16.dp
 private val LoadingStroke = 2.dp
 private val DescGap = 2.dp
+// 【不收敛·D6】下面三个是**控件自身几何**（决定 chip/tag 宽度与 DhRow 两行行高），
+//   不是元素之间的间距；改动会放大到 169 处转发调用点。按 §7.4 须单独立项验证。
 private val ChipPadH = 10.dp
 private val TagPadH = 6.dp
 private val RowPadV = 10.dp
@@ -732,7 +734,7 @@ fun DhSkeletonRow(modifier: Modifier = Modifier, lines: Int = 2) {
                 .background(p.skeleton)
         )
         if (lines > 1) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(DhDesign.Space.xs.dp))
             Box(
                 Modifier
                     .fillMaxWidth(0.72f)
