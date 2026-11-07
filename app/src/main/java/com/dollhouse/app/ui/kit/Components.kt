@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -38,6 +39,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -840,7 +843,8 @@ fun IconSeat(
     tint: Color? = null
 ) {
     val p = DhTokens.palette
-    val sh = if (shape == IconSeatShape.CIRCLE) {
+    val circle = shape == IconSeatShape.CIRCLE
+    val sh = if (circle) {
         RoundedCornerShape(DhDesign.Radius.pill.dp)
     } else {
         RoundedCornerShape(DhDesign.Radius.md.dp)
@@ -859,11 +863,71 @@ fun IconSeat(
             else -> DhDesign.Size.iconLg.value.toFloat()
         }
     }
+
+    /* ================= 【v3·清透轻拟物】圆形浅底配方 =================
+     *
+     * 用户定案：「图标统一使用精致的线性图标，合理搭配浅色圆形背景」。
+     *
+     * 【配方四层，缺一层就变成"扁色块"】
+     *   ① **圆**：`Radius.pill`（999），不是圆角方块 —— 这是本轮语义改变的核心。
+     *   ② **底**：比所在卡片**亮一档**。浅色下 `cardUp` 比 `card` 亮；
+     *      深色下 `cardUp` 同样比 `card` 亮（`UiKit.cardUp()` 是 CARD 叠白透明度）。
+     *      调用方显式传 `bg` 时尊重调用方（用于 accent 底等特例）。
+     *   ③ **柔和阴影**：`e1(6dp)`。轻拟物的"浮起小球"感靠它，不是靠描边。
+     *      阴影必须先于 clip —— 先裁后投影会把阴影一起裁没（与 DhDialogHost 同一坑）。
+     *   ④ **顶部内高光**：一道极淡的白色垂直渐变（顶部 34% 不透明度），
+     *      模拟光源在上方；**深色模式下更强**，因为深色底自身对比低，
+     *      不加高光就只是一个"亮一点的圆"，没有体积。
+     *
+     * 【为什么用亮度自适应而不是读 ThemeManager】组件层不应依赖 Context / 主题模式；
+     *   而"底够不够亮"本身可以从底色亮度推断 —— 深色底必然亮度低。
+     *   这样浅色 / 深色 / 纯黑 / 莫奈取色四种情况都自动成立，不需要各写一遍。
+     */
+    val base: Color = bg ?: if (circle) p.cardUp else p.soft
+    // 判定"当前是深底"：用感知亮度（0.2126R + 0.7152G + 0.0722B），阈值 0.42。
+    val lum = 0.2126f * base.red + 0.7152f * base.green + 0.0722f * base.blue
+    val onDark = lum < 0.42f
+    // 高光强度：浅色克制（0.34），深色加强（0.55）—— 深色没有这道光就失去体积。
+    val hiAlpha = if (onDark) 0.55f else 0.34f
+    // 深色下再叠一点极淡的白（compositeOver 是 Compose 官方的 alpha 合成，
+    //   等价于"把 10% 白压在底色上"）。这样圆比卡片亮一档、"浮"起来而不是"糊"在卡片里。
+    //   【为什么不用自定义混色函数】工程里没有这个辅助函数（我一开始凭空写了一个
+    //   `blendWhite`，是错的）；直接用手上的官方 API 更稳。
+    val lifted = if (onDark) Color.White.copy(alpha = 0.10f).compositeOver(base) else base
+
     Box(
         modifier = modifier
             .size(sizeDp.dp)
+            // ③ 阴影先于 clip（顺序不可换）
+            .then(
+                if (circle) {
+                    Modifier.shadow(
+                        elevation = DhDesign.Elevation.e1,
+                        shape = sh,
+                        clip = false,
+                        ambientColor = p.line,
+                        spotColor = p.line
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .clip(sh)
-            .background(bg ?: p.soft),
+            .background(lifted)
+            // ④ 顶部内高光：垂直渐变，只在圆形形态、且有底色时叠加
+            .then(
+                if (circle) {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = hiAlpha),
+                            0.34f to Color.White.copy(alpha = hiAlpha * 0.28f),
+                            0.6f to Color.Transparent
+                        )
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         if (iconRes != 0) {
