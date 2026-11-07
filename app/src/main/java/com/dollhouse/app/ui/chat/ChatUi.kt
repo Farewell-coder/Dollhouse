@@ -70,6 +70,8 @@ import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import kotlin.math.roundToInt
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 
 /**
  * 【职责】聊天面板的 Compose 渲染层：顶栏 / 提示条 / 消息列表 / 附件条 / 工具条 / 输入行。
@@ -1214,6 +1216,26 @@ object ChatUi {
                 .padding(start = 10.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 【本轮·补聚焦态】这是聊天页的主输入框 —— 全 App 最常用的输入位置，
+            //   却绕过了 DhForm.Input / DhField 两个入口、自己建 BasicTextField，
+            //   于是它是全工程**唯一**没有聚焦反馈的输入框（tools/input_audit.py 的 I6 项抓到）。
+            //   聚焦时内框底色 field→card + 1dp accent 描边，与其余 53 处输入框同口径。
+            val inputFocus = remember { MutableInteractionSource() }
+            val inputFocused by inputFocus.collectIsFocusedAsState()
+            val inputFill by androidx.compose.animation.animateColorAsState(
+                targetValue = if (inputFocused) c.card else c.field,
+                animationSpec = androidx.compose.animation.core.tween(
+                    com.dollhouse.app.ui.design.DhDesign.Motion.micro
+                ),
+                label = "chatInputFill"
+            )
+            val inputStroke by androidx.compose.animation.animateColorAsState(
+                targetValue = if (inputFocused) c.acc else androidx.compose.ui.graphics.Color.Transparent,
+                animationSpec = androidx.compose.animation.core.tween(
+                    com.dollhouse.app.ui.design.DhDesign.Motion.micro
+                ),
+                label = "chatInputStroke"
+            )
             BasicTextField(
                 value = ChatState.input,
                 onValueChange = { host.onInputChange(it) },
@@ -1224,12 +1246,26 @@ object ChatUi {
                     fontFamily = DhTokens.fonts
                 ),
                 maxLines = 4,
+                // 【关键】不传 interactionSource 的话，上面的 focused 恒为 false，
+                //   聚焦态等于没加 —— 这个坑本轮已经踩过一次。
+                interactionSource = inputFocus,
                 cursorBrush = SolidColor(c.acc),
                 decorationBox = { inner ->
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(c.field)
+                            .background(inputFill)
+                            .then(
+                                if (inputStroke.alpha > 0f) {
+                                    Modifier.border(
+                                        1.dp,
+                                        inputStroke,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
                             .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         if (ChatState.input.isEmpty()) {

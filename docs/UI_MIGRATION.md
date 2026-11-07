@@ -170,11 +170,19 @@ python3 tools/input_audit.py --quiet    # 只打结论（CI 用）
 **当前基线（如实记录，未修）**：
 
 ```
-输入框审计：PASS 21 / FAIL 1（共 22 项）
-FAIL I6  ui/chat/ChatUi.kt — 聊天页输入框自建 BasicTextField，未传 interactionSource
+输入框审计：PASS 22 / FAIL 0（共 22 项）
 ```
 
-（快照：2026-11-07。`ChatUi.kt` 的行号请以脚本实时输出为准；该文件仍在被并行修改。）
+三个入口（`DhField` / `DhForm.Input` 的 `LegacyInput` / `DhForm.InputMultiline`）全部满足
+I1–I5，全仓也**没有**绕过入口且缺聚焦态的 `BasicTextField`。
+
+**这项门禁已经抓到过一次真缺陷**：脚本首次运行时 I6 报出
+`ui/chat/ChatUi.kt` 的聊天页输入框自建 `BasicTextField` 且未传 `interactionSource`
+（聚焦时界面毫无变化，53 处规范输入框之外唯一漏网的一处）。
+该问题随后被并行修复（现该文件已有 `inputFocus` + `collectIsFocusedAsState` + 传参三件套），
+**脚本在修复后自动转为全绿** —— 这是门禁真正有效、而不是恒绿的直接证据。
+
+> 快照：2026-11-07。`ChatUi.kt` 仍在被并行修改，行号以脚本实时输出为准。
 
 这一处是**真实缺陷**（聊天输入框聚焦时无任何变化），修它需要改 `ChatUi.kt`，
 不属于本脚本任务的范围，留待后续。

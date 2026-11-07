@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -525,10 +526,15 @@ fun DhGroup(
                         style = t.section
                     )
                     // 箭头：收起指下、展开指上（与旧版语义一致）
-                    Text(
-                        text = if (open) "︿" else "﹀",
+                    // 【与旧 DhKit.Card 一致】原先是文字字形「︿ / ﹀」，与 Card 的矢量
+                    //   IC_CHEVRON_DOWN + 180° 旋转不是同一种视觉。Card 转发到本组件后，
+                    //   47 处折叠卡的箭头会一起换形状 —— 统一改成矢量箭头 + 旋转，
+                    //   保证转发前后逐像素一致（DhGroup 此前无外部调用方，改动无副作用）。
+                    DhKit.Icon(
+                        iconRes = Icons.IC_CHEVRON_DOWN,
+                        sizeDp = DhDesign.Size.iconSm.value,
                         color = p.sub,
-                        style = t.body
+                        modifier = Modifier.rotate(if (open) 180f else 0f)
                     )
                 }
                 if (modifierTitleDivider) {
@@ -570,13 +576,21 @@ fun DhGroup(
                         shrinkTowards = Alignment.Top
                     ) + fadeOut(animationSpec = DhAnim.CARD_FADE_OUT)
                 ) {
+                    // 【内边距沿用旧 DhKit.Card 的折叠形态】旧实现是
+                    //   `padding(horizontal = PAD_CARD).padding(bottom = PAD_CARD)`，
+                    //   即「左右 16 / 下 16 / 上 0」—— 上方不留白，是因为标题行自己带了
+                    //   `bottom = 12dp` 的内边距，两者相接刚好。
+                    //   DhGroup 原先给的是 `vertical = xs(4)`（上下各 4），转发后内容会
+                    //   上移 4、下缩 12，47 处折叠卡的观感会变。这里显式对齐旧值，
+                    //   保证转发前后逐像素一致。
+                    //   【注意】这是继承自旧实现的排版，不是"理想值"；若将来要把
+                    //   `vertical = xs` 这套规范真正推行到折叠卡，应作为独立的设计决策，
+                    //   而不是夹在转发里顺手改掉。
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(
-                                horizontal = DhDesign.Space.lg.dp,
-                                vertical = DhDesign.Space.xs.dp
-                            ),
+                            .padding(horizontal = DhDesign.Space.lg.dp)
+                            .padding(bottom = DhDesign.Space.lg.dp),
                         content = content
                     )
                 }

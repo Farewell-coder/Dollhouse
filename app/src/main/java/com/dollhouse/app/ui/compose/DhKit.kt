@@ -298,18 +298,47 @@ object DhKit {
         //   改造它等于一次性让全部卡片对齐设计规范（弱卡：card 底 + 1dp line 描边 + 圆角 16）。
         //   【为什么用转发而不是复制样式】`ui/kit.DhGroup` 是规范源。
         //
-        //   【两条必须走旧实现的路径】转发无法表达，硬转就是功能回归：
-        //     ① flat = true（5 处，全在 LamdaPage 的"嵌入卡片内"子分区）：
-        //        DhGroup 没有"不画卡片底/描边"的形态，直转会出现**卡片套卡片**的双层圆角。
-        //        该参数并非如任务描述所说"0 处调用" —— 实测 5 处，且是 Embedded 路径的真实入参。
-        //     ② 展开/收起动画：DhGroup 是直接显隐，而本组件用 AnimatedVisibility +
-        //        DhAnim.CARD_EXPAND/COLLAPSE 做高度过渡。丢掉它等于让 47 处折叠卡
-        //        "啪"一下跳变。anim_audit 的 C06 也断言这两个常量必须存在于本文件。
-        //        → 折叠卡继续走旧实现，保证动画与观感逐帧不变。
+        //   【唯一必须走旧实现的路径】flat = true（5 处，全在 LamdaPage 的
+        //   "嵌入卡片内"子分区）：DhGroup 没有"不画卡片底/描边"的形态，直转会
+        //   出现**卡片套卡片**的双层圆角。
+        //   该参数并非如任务描述所说"0 处调用" —— 实测 5 处，且是 Embedded 路径的真实入参。
         //
-        //   【因此转发范围】非折叠且非 flat 的卡片（ProviderModelsPage 的模型卡等）。
-        if (flat || collapsibleTitle != null) {
+        //   【折叠卡为什么现在可以转发了】`DhGroup` 已补 AnimatedVisibility
+        //   （CARD_EXPAND / CARD_COLLAPSE / CARD_FADE_IN / CARD_FADE_OUT，
+        //   expandFrom / shrinkTowards 均为 Top），与旧实现逐参数一致。
+        //   47 处折叠卡的展开/收起手感因此不变。
+        //
+        //   【持久化】展开态仍由本类读写 `PetPrefs.cardOpen / setCardOpen`：
+        //   读到的值经 `expandState` 传入，点击经 `onToggle` 回写 ——
+        //   "用户收起后下次进来仍收起"的行为原样保住。
+        if (flat) {
             LegacyCard(modifier, spacingBottom, collapsibleTitle, titleIcon, flat, content)
+            return
+        }
+        if (collapsibleTitle != null) {
+            // 折叠卡：持久化展开态 → 外部状态驱动 DhGroup。
+            val ctx = LocalContext.current
+            var open by remember(collapsibleTitle) {
+                mutableStateOf(
+                    if (PetPrefs.hasCardOpen(ctx, collapsibleTitle)) {
+                        PetPrefs.cardOpen(ctx, collapsibleTitle)
+                    } else {
+                        true
+                    }
+                )
+            }
+            com.dollhouse.app.ui.kit.DhGroup(
+                modifier = modifier,
+                spacingBottom = spacingBottom,
+                collapsibleTitle = collapsibleTitle,
+                titleIcon = titleIcon,
+                expandState = open,
+                onToggle = { next ->
+                    open = next
+                    PetPrefs.setCardOpen(ctx, collapsibleTitle, next)
+                },
+                content = content
+            )
             return
         }
         com.dollhouse.app.ui.kit.DhGroup(
