@@ -36,7 +36,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.annotation.LooperMode
 import java.io.File
 
 /**
@@ -59,7 +58,6 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-480dpi")
-@LooperMode(LooperMode.Mode.PAUSED)
 class DesignScreenshotTest {
 
     @get:Rule
@@ -92,7 +90,7 @@ class DesignScreenshotTest {
                     Text("设计系统 · 浅色", color = p.title, fontSize = 15.sp)
                     Spacer(Modifier.height(DhDesign.Space.md.dp))
 
-                    DhKit.Card(collapsibleTitle = "分组卡片") {
+                    DhKit.Card {
                         DhKit.ActionRow(
                             label = "设置项",
                             iconRes = Icons.IC_SETTINGS,
@@ -123,6 +121,10 @@ class DesignScreenshotTest {
                 }
             }
         }
+        // 【为什么手动推进时钟】Compose 的动画/重组要跑完才是"最终画面"；
+        //   直接 capture 可能抓到中间帧。advanceTimeBy 让所有 tween/spring 走完。
+        rule.mainClock.advanceTimeBy(1_000)
+        rule.waitForIdle()
         save(rule.onRoot().captureToImage().asAndroidBitmap(), "01-light")
     }
 
