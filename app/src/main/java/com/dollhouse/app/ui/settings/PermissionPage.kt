@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import androidx.compose.runtime.Composable
-import com.dollhouse.app.MainActivity
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
@@ -83,7 +82,7 @@ object PermissionPage {
      *   混在一起时用户要读完 8 行描述才知道各自属于什么（与设置页「实验」卡此前的问题同型）。
      */
     @Composable
-    private fun Content(act: MainActivity) {
+    private fun Content(act: Activity) {
         DhKit.Page(
             title = "权限与保活",
             sub = "系统授权、后台存活与启停通道",
