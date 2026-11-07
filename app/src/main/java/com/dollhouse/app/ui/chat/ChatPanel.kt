@@ -54,13 +54,34 @@ class ChatPanel(
         context: Context,
         internal val controller: Controller?,
         z: Boolean
-) : LinearLayout(context), PickFileActivity.Listener {
+) : LinearLayout(context), PickFileActivity.Listener, com.dollhouse.app.data.ChatHost {
 
-    /** 整段对话上下文；由 [ChatHistoryStore] 读写（跨包契约，勿改可见性）。 */
-    internal var history: JSONArray = JSONArray()
+    /**
+     * 整段对话上下文；由 [ChatHistoryStore] 读写（跨包契约）。
+     *
+     * 【r26·可见性从 internal 放宽到 public】不是随意放宽，是**实现 [ChatHost] 的硬要求**：
+     *   Kotlin 接口成员一律 public，而覆写**不允许收窄可见性**，所以 `internal var` 无法
+     *   实现接口里的 `var history`。本项目只有 `:app` 一个模块，"internal" 与 "public"
+     *   在可访问范围上完全等价（都是全 App 可见），因此放宽不引入任何新的跨包依赖。
+     *   原先那句「勿改可见性」的本意是「别改成 private」，那条约束仍然成立。
+     */
+    public override var history: JSONArray = JSONArray()
 
-    /** 【v2.8】最近一次补回的「更早历史」条数；0 = 当前不是展开态。跨包契约。 */
-    internal var prevCount = 0
+    /**
+     * 【v2.8】最近一次补回的「更早历史」条数；0 = 当前不是展开态。跨包契约。
+     *
+     * 【为什么是 public】同 [history]：要实现 [ChatHost] 的同名属性，不能收窄可见性。
+     */
+    public override var prevCount: Int = 0
+
+    /**
+     * 【ChatHost】取 Context 供数据层落盘 / 读会话 id。
+     *
+     * 【为什么叫 ctx 而不是 context】`View.getContext()` 是 **final**，无法覆写；
+     *   接口用 `ctx` 这个名字，这里桥接一下即可。
+     */
+    override val ctx: android.content.Context
+        get() = context
 
     private var pendingImage: String? = null
     private var pendingText: String? = null
@@ -1344,13 +1365,16 @@ class ChatPanel(
     }
 
     /**
-     * 【r13·一人偶一对话】当前会话绑定的人偶 id（拿不到就退回默认配置）。
+     * 【ChatHost】当前会话绑定的人偶 id（拿不到就退回默认配置）。
      *
      * 【为什么每次现算而不缓存】用户在聊天页里可能切会话（抽屉切换 → [reloadHistory]），
      *   缓存会带着上一只人偶的人设去发消息。这里只是一次 SharedPreferences 读 + 字符串前缀，
      *   相对一次网络请求可忽略。
+     *
+     * 【可见性】从 internal 放宽到 public —— 实现 [ChatHost] 的接口成员不能收窄可见性；
+     *   单模块工程里两者可访问范围等价。
      */
-    internal fun boundDollId(): String {
+    public override fun boundDollId(): String {
         return try {
             val id = ChatSessions.currentId(context)
             val d = ChatSessions.dollOfConv(context, id)

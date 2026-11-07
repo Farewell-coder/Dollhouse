@@ -10,10 +10,65 @@ import com.dollhouse.app.core.ImageEncoder
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.device.LamdaManager
 import com.dollhouse.app.device.OcrEngine
-import com.dollhouse.app.ui.chat.ChatPanel
 import com.dollhouse.app.ui.chat.ChatSessions
 import org.json.JSONArray
 import org.json.JSONObject
+
+/**
+ * 【职责】聊天历史的**宿主契约**：本类（[ChatHistoryStore]）只认这份接口，不认具体载体。
+ *
+ * 【为什么需要它】历史数组一直由宿主持有（`host.history`），而本类有 9 个函数以
+ *   `ChatPanel` 为形参。这带来两个问题：
+ *   ① 数据层反向依赖 UI 层（`data` 包 import `ui.chat.ChatPanel`）；
+ *   ② `ChatPanel` 是 `LinearLayout` 的子类，只要契约里出现它，HistoryStore 就永远
+ *      **无法脱离 View 复用** —— 将来把聊天页改成 Compose 宿主 / ViewModel 时，
+ *      这 9 个函数都得跟着重写。
+ *   抽出本接口后，宿主只需实现「怎么存历史、怎么给 Context、绑定哪只人偶」，
+ *   载体是 View、Compose 还是 ViewModel 与本类无关。
+ *
+ * 【为什么是这 4 个成员】不是拍脑袋，是按本类**实际用到的全部依赖**倒推出来的。
+ *   全文件 grep `host.` 的统计结果（实测）：
+ *     · `host.history`   30 处（读写历史数组本身）
+ *     · `host.ctx` 7 处（落盘 / 取会话 id 时需要 Context）
+ *     · `host.prevCount`  2 处（「更早历史」展开态，决定保存时是否裁剪）
+ *     · `host.boundDollId()` 1 处（自动抽取记忆时定位人偶库）
+ *   除此之外**没有**用到 `ChatPanel` 的任何其它方法 —— 这是本重构能成立的关键前提。
+ *
+ * 【为什么把 `getContext()` 包成 `ctx` 而不是叫 `context`】
+ *   `ChatPanel` 继承自 `android.view.View`，而 `View.getContext()` 是 **final** 的，
+ *   在 Kotlin 里无法 `override val context` 去实现一个同名接口属性。
+ *   所以接口这里叫 `ctx`，实现方写 `override val ctx get() = context` —
+ *   既满足接口，又不对 `View` 做非法覆写。
+ *
+ * 【为什么 history 用 var 而不是 getter/setter 方法】
+ *   本类现有代码是 `host.history = ...` / `host.history.optJSONObject(i)` 这种字段式写法，
+ *   30 处。用 `var` 可以让这 30 处**一字不改**，把改动面压到「只改 9 个函数签名」。
+ *   换成 `fun history()` / `fun setHistory()` 会把 30 处全变成方法调用，风险与收益不成正比。
+ *
+ * 【可见性】成员一律 public：Kotlin 的接口成员默认就是 public，
+ *   而 `ChatPanel.history` 当前是 `internal`。实现方可以把 `internal` 的属性
+ *   实现为接口的 public 成员吗？—— 不能直接改可见性（会放大跨包契约），
+ *   所以实现方用 `override var history` 显式声明为 public，或在 ChatPanel 里
+ *   保留 `internal` 的同名字段并让接口属性单向桥接。见 docs/CHATHOST_DESIGN.md 的取舍说明。
+ */
+interface ChatHost {
+    /** 整段对话上下文。读写都按字段语义，宿主自己决定是否落盘。 */
+    var history: JSONArray
+
+    /** 「更早历史」已补回的条数；0 = 当前不在展开态。 */
+    var prevCount: Int
+
+    /** 当前会话绑定的那只人偶 id（拿不到时由宿主退回默认）。 */
+    fun boundDollId(): String
+
+    /**
+     * 取 Context 用于落盘 / 读会话 id。
+     *
+     * 【为什么不用 `context` 这个名字】见类注释：`View.getContext()` 是 final，
+     *   实现方（ChatPanel）无法覆写同名属性。
+     */
+    val ctx: Context
+}
 
 /**
  * 【职责】聊天历史的读写与请求体组装：本地档位读写、追加消息、构建上下文请求。
@@ -99,8 +154,8 @@ object ChatHistoryStore {
     // 【坑】多会话改造后不再读 chat_history，改读 conv_<当前会话 id>；
     //        ChatSessions.ensure 负责旧档迁移与兜底建会话。
     @JvmStatic
-    fun loadHistory(host: ChatPanel) {
-        val ctx = host.getContext()
+    fun loadHistory(host: ChatHost) {
+        val ctx = host.ctx
         val id = ChatSessions.ensure(ctx)
         try {
             host.history = JSONArray(PetPrefs.convHistory(ctx, id))
@@ -343,8 +398,8 @@ object ChatHistoryStore {
     }
     // 落盘当前会话历史（裁剪后写回）。
     @JvmStatic
-    fun saveHistory(host: ChatPanel) {
-        val ctx = host.getContext()
+    fun saveHistory(host: ChatHost) {
+        val ctx = host.ctx
         val id = ChatSessions.currentId(ctx)
         // 【v2.8】展开态（prevCount>0）下不裁剪也不回填 conv_prev：
         //  · 若走 trimForSave，此时暂存位已被 prependPrev 清空，被裁的段会被重新写回 conv_prev，
@@ -488,8 +543,8 @@ object ChatHistoryStore {
      * 【返回】补回的条数（0 = 没得补），供宿主记录展开态（见 collapsePrev）。
      */
     @JvmStatic
-    fun prependPrev(host: ChatPanel): Int {
-        val ctx = host.getContext()
+    fun prependPrev(host: ChatHost): Int {
+        val ctx = host.ctx
         val id = ChatSessions.currentId(ctx)
         val prev: JSONArray
         try {
@@ -517,11 +572,11 @@ object ChatHistoryStore {
      *         期间新消息只会追加到尾部，不影响前面的下标。
      */
     @JvmStatic
-    fun collapsePrev(host: ChatPanel, count: Int): Boolean {
+    fun collapsePrev(host: ChatHost, count: Int): Boolean {
         if (count <= 0) {
             return false
         }
-        val ctx = host.getContext()
+        val ctx = host.ctx
         var from = 0
         while (from < host.history.length()) {
             val o = host.history.optJSONObject(from)
@@ -696,11 +751,11 @@ object ChatHistoryStore {
     }
     // 向历史数组追加一条消息。
     @JvmStatic
-    fun push(host: ChatPanel, str: String, str2: String) {
+    fun push(host: ChatHost, str: String, str2: String) {
         push(host, str, str2, null)
     }
     @JvmStatic
-    fun push(host: ChatPanel, str: String, str2: String, str3: String?) {
+    fun push(host: ChatHost, str: String, str2: String, str3: String?) {
         push(host, str, str2, str3, null, 0L)
     }
 
@@ -722,7 +777,7 @@ object ChatHistoryStore {
      * @param thinkMs 「思考了 X 毫秒」，流式下是真实思考段耗时；0 表示未知
      */
     @JvmStatic
-    fun push(host: ChatPanel, str: String, str2: String, str3: String?, think: String?, thinkMs: Long) {
+    fun push(host: ChatHost, str: String, str2: String, str3: String?, think: String?, thinkMs: Long) {
         try {
             val jSONObject = JSONObject()
             jSONObject.put("role", str)
@@ -745,7 +800,7 @@ object ChatHistoryStore {
         }
         ChatHistoryStore.saveHistory(host)
         // 多会话：刷新最后活动时间；首条用户消息顺便给会话命名。
-        val ctx = host.getContext()
+        val ctx = host.ctx
         val id = ChatSessions.currentId(ctx)
         ChatSessions.touch(ctx, id)
         // 【r13·列表删除=隐藏】有新消息进来，条目就重新出现在列表里（QQ 语义）。
@@ -783,12 +838,12 @@ object ChatHistoryStore {
      *   保证「手动 remember 工具」与「自动抽取」写的是同一个库。
      */
     @JvmStatic
-    fun autoExtract(host: ChatPanel?, role: String?) {
+    fun autoExtract(host: ChatHost?, role: String?) {
         if (host == null || "assistant" != role) {
             return
         }
         try {
-            val ctx = host.getContext()
+            val ctx = host.ctx
             if (!PetPrefs.mem2Auto(ctx)) {
                 return
             }
@@ -1054,9 +1109,9 @@ object ChatHistoryStore {
         return byPool(ctx, id, history) ?: history ?: JSONArray()
     }
     @JvmStatic
-    fun buildRequest(host: ChatPanel): JSONArray {
+    fun buildRequest(host: ChatHost): JSONArray {
         // 兼容入口：保留给仍按 host 调用的旧位置。
-        return buildRequest(host.getContext(), host.history)
+        return buildRequest(host.ctx, host.history)
     }
 
     /**
