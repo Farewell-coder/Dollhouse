@@ -283,20 +283,45 @@ object DhForm {
                     fontFamily = DhTokens.fonts
                 )
             }
+            // 【本轮·补聚焦态，与单行 Input 同口径】改造前多行输入框聚焦时同样什么都不变，
+            //   而它承载的是「人偶人格 / 系统提示词 / 记忆内容」这类**要长期编辑的长文本** ——
+            //   用户在多行框里打字时更需要「当前在编辑谁」的确认感。
+            //   视觉规则与单行完全一致：底 field→card、描边 Transparent→accent(1dp)、160ms。
+            val focusSource = remember { MutableInteractionSource() }
+            val focused by focusSource.collectIsFocusedAsState()
+            val fill by animateColorAsState(
+                targetValue = if (focused) c.card else c.field,
+                animationSpec = tween(DhDesign.Motion.micro),
+                label = "multiline-fill"
+            )
+            val stroke by animateColorAsState(
+                targetValue = if (focused) c.acc else Color.Transparent,
+                animationSpec = tween(DhDesign.Motion.micro),
+                label = "multiline-stroke"
+            )
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(minHeight.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.field)
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                    .background(fill)
+                    .then(
+                        if (stroke.alpha > 0f) {
+                            Modifier.border(DhDesign.Size.hairline, stroke, RoundedCornerShape(DhDesign.Radius.md.dp))
+                        } else {
+                            Modifier
+                        }
+                    )
                     .padding(12.dp),
                 textStyle = TextStyle(
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fonts
                 ),
+                // 同单行：不传 interactionSource 的话聚焦态恒为 false。
+                interactionSource = focusSource,
                 cursorBrush = SolidColor(c.acc),
                 decorationBox = { inner ->
                     Box {
