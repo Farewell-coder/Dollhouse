@@ -55,6 +55,7 @@ import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhField
+import com.dollhouse.app.ui.kit.dhFieldInset
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Design
 
@@ -267,17 +268,15 @@ object DhForm {
                     )
                     .clip(fieldShape)
                     .background(fill)
-                    // 【描边按需加，与 DhField 同口径】`Modifier.border` 不参与测量
-                    //   （它在组件边界内绘制，不改变尺寸），所以这里不是「为了防止框宽跳动」。
-                    //   条件加的真正理由是：维持与规范实现 DhField 完全一致的写法与绘制路径，
-                    //   未聚焦时（颜色为 Transparent）根本不必挂一层描边节点。
-                    .then(
-                        if (stroke.alpha > 0f) {
-                            Modifier.border(DhDesign.Size.hairline, stroke, fieldShape)
-                        } else {
-                            Modifier
-                        }
-                    )
+                    // 【v3·清透轻拟物·内凹】与规范实现 `DhField` 用**同一个** modifier。
+                    //   【改造前是什么】原件在这里挂 `Modifier.border(1dp, stroke, shape)` ——
+                    //   聚焦时画一圈 accent 描边。那是**扁平风格**的语言（一条明确的线）；
+                    //   轻拟物里"被激活"应表现为**内部发光 + 坑更深**，不是加粗描边。
+                    //   现在改为内阴影（上左暗、下右亮）+ 聚焦时的 accent 光晕，见
+                    //   `ui/kit/FieldInset.kt` 的完整配方说明（含深色档的差异处理）。
+                    //   【为什么与 DhField 用同一个函数】两处若各写一套，很快就分叉 ——
+                    //   这正是上一轮「同一表单里两种输入框」的成因。
+                    .dhFieldInset(shape = fieldShape, focused = focused, glowColor = stroke)
                     .padding(horizontal = DhDesign.Space.md.dp, vertical = verticalPad),
                 // 【必须把 interactionSource 交给 BasicTextField】否则它永远收不到 Focus 事件，
                 //   collectIsFocusedAsState 会恒为 false —— 聚焦态等于没加。
@@ -390,21 +389,20 @@ object DhForm {
                 animationSpec = tween(DhDesign.Motion.micro),
                 label = "multiline-stroke"
             )
+            val multiShape = RoundedCornerShape(DhDesign.Radius.md.dp)
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(minHeight.dp)
-                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                    .clip(multiShape)
                     .background(fill)
-                    .then(
-                        if (stroke.alpha > 0f) {
-                            Modifier.border(DhDesign.Size.hairline, stroke, RoundedCornerShape(DhDesign.Radius.md.dp))
-                        } else {
-                            Modifier
-                        }
-                    )
+                    // 【v3·清透轻拟物·内凹】与单行输入框同一套配方（同一函数、同一圆角），
+                    //   保证「单行 / 多行」并排时质感一致 —— 否则多行框会显得是另一个控件。
+                    //   【注意】多行框高度由 minHeight 撑开，内阴影按实际绘制尺寸算，
+                    //   所以框变高时内凹会自然拉长（`drawBehind` 用的是实时 size，不是常量）。
+                    .dhFieldInset(shape = multiShape, focused = focused, glowColor = stroke)
                     .padding(12.dp),
                 textStyle = TextStyle(
                     color = c.title,
@@ -764,7 +762,6 @@ object DhForm {
      *   所以迁调用点时不能一律用主按钮 —— 弹窗里的「取消 / 留在此页」必须走次按钮，
      *   否则同一个弹窗会出现两个实心主按钮，反而违反设计稿。
      */
-    @Composable
     /**
      * 【v3·清透轻拟物】按钮/芯片的共用形态层。
      *
@@ -820,10 +817,43 @@ object DhForm {
                         // 底部：略暗，制造下沿厚度
                         blend(base, Color.Black, shadeAlpha * k)
                     ),
-                    startY = 0f,
-                    endY = androidx.compose.ui.geometry.Offset.Infinite.y
+                    // 【startY/endY 省略】verticalGradient 默认 0 → Float.POSITIVE_INFINITY，
+                    //   即"按可用高度铺满"。原先我写了 `Offset.Infinite.y` 取这个值，
+                    //   虽等价但绕了一圈，还多引一个 Offset 类型；省略更清楚。
                 )
             )
+    }
+
+    /**
+     * 【v3·轻拟物】[com.dollhouse.app.ui.compose.pressScaleClick] 的可注入 source 版本。
+     *
+     * 【与原件逐参数一致】缩放目标 0.98、按下 `DhAnim.PRESS_DOWN`、松手 `DhAnim.BOUNCY`、
+     *   `clickable(indication = null)` —— 手感完全相同，只是把 interactionSource
+     *   交给调用方持有，这样按钮才能同时拿到 `pressed` 去收小阴影。
+     *
+     * 【为什么不去改 DhKit.pressScaleClick】它全工程有几十处调用、且当前不在本次
+     *   改动范围内。加一个默认为 null 的参数虽然源码兼容，但会让那条被广泛使用的
+     *   路径多一个分支判断；在 DhForm 内部私有化，影响面最小。
+     */
+    @Composable
+    private fun Modifier.pressScaleClickWith(
+        source: MutableInteractionSource,
+        onClick: () -> Unit
+    ): Modifier {
+        val callback = {
+            com.dollhouse.app.core.OperationRecorder.event("Action", "Compose click")
+            onClick()
+        }
+        val pressed by source.collectIsPressedAsState()
+        val spec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY
+        val scale by androidx.compose.animation.core.animateFloatAsState(
+            targetValue = if (pressed) 0.98f else 1f,
+            animationSpec = spec,
+            label = "press"
+        )
+        return this
+            .androidx.compose.ui.draw.scale(scale)
+            .clickable(interactionSource = source, indication = null, onClick = callback)
     }
 
     /** 把 [overlay] 按 [t] 混到 [base] 上（t=0 返回 base，t=1 返回 overlay）。 */
@@ -837,6 +867,7 @@ object DhForm {
         )
     }
 
+    @Composable
     fun Button(
         text: String,
         modifier: Modifier = Modifier,
@@ -855,6 +886,17 @@ object DhForm {
         // 【禁用态为什么用 alpha 而不是换色】与 kit.DhButton 一致：整体降透明度
         //   能同时作用到底色与文字，不必维护第二套「禁用配色」。
         val alpha = if (enabled) 1f else 0.38f
+        // 【轻拟物·按压态】按下时阴影/高光收小，与 0.98 缩放叠加成"压入"。
+        //   【为什么这里自己实现按压而不复用 DhKit.pressScaleClick】
+        //   那个函数把 `MutableInteractionSource` 藏在内部，外部拿不到 `pressed` 状态，
+        //   于是"按下时阴影收小"无法实现（只能缩、不能变阴影）。
+        //   本工程 DhKit.kt 当前不在我的改动范围内，故在 DhForm 内做一个**行为等价**
+        //   的私有重载：同一份 PRESS_SCALE(0.98) / DhAnim.PRESS_DOWN / DhAnim.BOUNCY 口径，
+        //   唯一区别是把 source 暴露给调用方自己持有。
+        val ctx = LocalContext.current
+        val dark = ThemeManager.isDark(ctx)
+        val pressSource = remember { MutableInteractionSource() }
+        val pressed by pressSource.collectIsPressedAsState()
         Box(
             modifier = modifier
                 // 【命中区 48 / 视觉 44】用 defaultMinSize 给下限而不是再叠一层 height：
@@ -864,25 +906,36 @@ object DhForm {
                 //   于是圆角 999 被拉成细长椭圆（详见 DhKit.OutlineChip 的注释）。
                 //   这里视觉与命中分开，两边都不牺牲。
                 .defaultMinSize(minHeight = 48.dp)
-                .then(if (enabled) Modifier.pressScaleClick(onClick) else Modifier),
+                .then(
+                    if (enabled) {
+                        Modifier.pressScaleClickWith(pressSource, onClick)
+                    } else {
+                        Modifier
+                    }
+                ),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
                     .height(44.dp)
-                    .clip(shape)
-                    .then(
-                        if (primary) {
-                            Modifier.background(c.acc.copy(alpha = c.acc.alpha * alpha))
-                        } else {
-                            // 【次按钮为什么用 card 而不是 sheetUp】设计稿写的是 card fill。
-                            //   弹窗场景下 card 可能与面板同色，这时描边承担轮廓职责 ——
-                            //   line 是发丝线，正是设计稿「Secondary = card fill + line border」。
-                            Modifier
-                                .background(c.card.copy(alpha = c.card.alpha * alpha))
-                                .border(1.dp, c.line.copy(alpha = alpha), shape)
-                        }
+                    // 【v3·清透轻拟物】主/次两档都改成「有厚度的一块」：
+                    //   浅色下主按钮=acc 底+顶部高光，次按钮=card 底（比 bg 亮）+顶部高光；
+                    //   深色下次按钮底抬到 cardUp 并加强高光。
+                    //   原先主按钮是纯色实心、次按钮是 card+1dp 硬描边 —— 那是扁平形态。
+                    .softRaised(
+                        base = when {
+                            primary -> c.acc
+                            dark -> c.cardUp
+                            else -> c.card
+                        }.copy(alpha = alpha),
+                        shape = shape,
+                        pressed = pressed,
+                        alpha = alpha,
+                        dark = dark
                     )
+                    // 【次按钮的硬描边已去掉】旧形态是 `card fill + 1dp line border`（扁平、显薄）。
+                    //   轻拟物下轮廓不靠描边、靠**上亮下暗的体积**承担 —— 见 softRaised。
+                    //   若保留描边，它会把渐变盖掉、又退回"贴纸"观感。
                     .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.Center
             ) {

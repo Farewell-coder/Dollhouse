@@ -79,6 +79,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.ui.kit.IconSeat
+import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -160,6 +162,18 @@ object DhKit {
      *   反而让「行图标」与「行内小图标」混在一起。
      */
     const val ICON_ROW_DP = 20f
+    /**
+     * 行首图标**圆底**的直径（dp）。
+     *
+     * 【为什么是 28 而不是 IconSeatSize.SM(32)】见 [RowIcon] 的注释：
+     *   32dp 正好顶满 56dp 单行行高的内容区（56 - 12×2 = 32），
+     *   而本图标被 169 处转发行共用 —— 顶满会让任何 +1dp 的行内内边距把行撑高。
+     *   28dp 留 4dp 余量（28 + 24 = 52 < 56），两行形态更宽松。
+     *
+     * 【不与 IconSeatSize 三档对齐是有意的】三档是"独立图标座"的尺寸（列表外、空态、Hero），
+     *   行首图标是"嵌在行里的小座"，预算受行高约束，属另一套几何。
+     */
+    const val ROW_ICON_SEAT_DP = 28
 
     /** 图标与文字的间距（dp）← [DhDesign.Space.iconGap]。改造前 8 与 10 并存，统一取 8。 */
     const val GAP_ICON = com.dollhouse.app.ui.design.DhDesign.Space.iconGap
@@ -773,7 +787,40 @@ object DhKit {
      */
     @Composable
     private fun RowIcon(iconRes: Int, tint: Color = DhTokens.colors.sub) {
-        Icon(iconRes = iconRes, sizeDp = ICON_ROW_DP, color = tint)
+        /*
+         * 【v3·清透轻拟物·行首图标配浅色圆底】
+         *
+         * 用户定案「图标统一使用精致的线性图标，合理搭配浅色圆形背景」。
+         * 改造前这里只有一个**裸图标**（20dp、无底），与页面上其它"图标 + 浅圆"不是一套语言。
+         *
+         * 【为什么圆底是 28dp 而不是 IconSeatSize.SM(32)】
+         *   本函数的图标被 **169 处转发行**（ActionRow 87 / ValueRow 38 / SwitchRow 34 /
+         *   PermRow 4 / StepperRow 5，外加 Card 内的行）共用，而这些行的高是
+         *   `DhDesign.Size.rowOneLine = 56`、两行 64，且行内已经带了垂直内边距
+         *   （单行 PAD_ROW=12 上下各 12、两行 Space.sm=8 上下各 8）。
+         *   实测预算：
+         *     单行 56 - 12×2 = **32**（留给图标的最大高度）
+         *     两行 64 -  8×2 = **48**
+         *   所以：
+         *     · 32dp 圆底 = 56 - 24，**正好顶满单行**，任何一处行内 padding 调整（哪怕 +1dp）
+         *       都会把行撑高、同页行距突然不一致 —— 这是 169 处共用的地雷，不能踩。
+         *     · **28dp 圆底 + 12×2 = 52 < 56**，留 4dp 余量；两行形态更宽松。
+         *   故取 28（比图标 20 大 8，视觉上是"图标四周留了一圈浅底"，正是要的效果）。
+         *
+         * 【图标本体仍是 20dp】`ICON_ROW_DP` 不变 —— 圆底放大的是"座"，不是图标，
+         *   所以行的信息密度与改造前完全一致。
+         *
+         * 【浅底怎么做】直接复用 IconSeat 的圆形配方（圆形 / cardUp 比卡片亮一档 /
+         *   e1 柔和阴影 / 顶部内高光 / 深色自适应），保证与空态、AboutPage、模型面板
+         *   的图标底是**同一个配方**，不在这里再维护第二份。
+         */
+        IconSeat(
+            iconRes = iconRes,
+            sizeDp = ROW_ICON_SEAT_DP,
+            shape = IconSeatShape.CIRCLE,
+            iconSizeDp = ICON_ROW_DP.toInt(),
+            tint = tint
+        )
     }
 
     /**

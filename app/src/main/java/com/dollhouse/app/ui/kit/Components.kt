@@ -117,7 +117,8 @@ private val ButtonHeightSm = 34.dp
 private val FieldHeight = DhDesign.Size.fieldH
 private val ChipHeight = 26.dp
 private val TagHeight = 20.dp
-private val StateSeat = 56.dp
+// 【已删除 StateSeat】空态图标座改用 IconSeat(sizeDp = IconSeatSize.LG, shape = CIRCLE)，
+//   尺寸 56dp 由 IconSeatSize.LG 承担，不再需要本文件里的第二份常量。
 private val LoadingSpinner = 16.dp
 private val LoadingStroke = 2.dp
 private val DescGap = 2.dp
@@ -247,11 +248,21 @@ fun DhField(
     val t = DhTokens.type
     val source = remember { MutableInteractionSource() }
     val focused by source.collectIsFocusedAsState()
+    // 【v3·清透轻拟物】聚焦态不再靠「加粗描边」，而是靠**内凹加深 + accent 光晕**。
+    //   扁平风格用描边表示激活（一条明确的线）；轻拟物里"被点亮"表现为内部发光 ——
+    //   所以这里的 fill 与光晕都由 [dhFieldInset] 一并处理，不再单独画 border。
+    //
+    //   【底色语义保持不变】未聚焦 = `field`（本来就比 `card` 暗一档 → 天然内凹），
+    //   聚焦 = `card`（略微抬起，配合加深的内阴影与光晕 → "被激活"）。
+    //   这两个色值都没改，只是"聚焦时加不加描边"这件事被换成了内阴影 + 光晕。
     val fill by animateColorAsState(
         targetValue = if (focused) p.card else p.field,
         animationSpec = androidx.compose.animation.core.tween(DhDesign.Motion.micro),
         label = "field-fill"
     )
+    // 【保留 stroke 变量】它仍被用于「聚焦时的 accent 光晕」着色基础。
+    //   【为什么还要 animateColorAsState】光晕随聚焦渐变（160ms），与 fill 同步；
+    //   若直接读 p.accent，聚焦瞬间会出现"光晕突然亮起"的跳变。
     val stroke by animateColorAsState(
         targetValue = if (focused) p.accent else Color.Transparent,
         animationSpec = androidx.compose.animation.core.tween(DhDesign.Motion.micro),
@@ -270,9 +281,9 @@ fun DhField(
             )
             .clip(shape)
             .background(fill)
-            .then(
-                if (stroke.alpha > 0f) Modifier.border(DhDesign.Size.hairline, stroke, shape) else Modifier
-            )
+            // 【内凹】必须排在 background 之后（画在底色之上），且已被上一步 clip 裁进圆角。
+            //   它是替代原件里 `Modifier.border(...)` 的那一环：不再是外描边，而是内阴影。
+            .dhFieldInset(shape = shape, focused = focused, glowColor = stroke)
             .padding(horizontal = DhDesign.Space.md.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -362,7 +373,30 @@ fun DhRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (iconRes != 0) {
-            DhKit.Icon(iconRes, DhDesign.Size.rowIcon.value, iconTint ?: p.sub)
+            /*
+             * 【v3·清透轻拟物】行首图标：裸图标 → **圆形浅底**。
+             *
+             * 用户定案「图标统一使用精致的线性图标，合理搭配浅色圆形背景」。
+             * 本行是全 App 服务面最广的一处图标位（169 处转发调用点最终都落到这里）。
+             *
+             * 【为什么 32dp 安全】本行的几何是：
+             *   · 单行：`defaultMinSize(minHeight = 56)`、**无垂直 padding** → 内容区整整 56
+             *   · 两行：`padding(vertical = RowPadV = 10)` → 64 - 20 = 44 给内容
+             *   32dp 圆底在单行占 56 里的 32，两行占 44 里的 32 —— 都不撑高。
+             *   （对比 `DhKit.RowIcon`：那里调用的行自带 12dp 垂直内边距，
+             *   内容区只有 32，所以那边必须用 28dp。两处的座尺寸**故意不同**，
+             *   因为约束不同；共用同一个值会撑破其中一边。）
+             *
+             * 【图标本体不变】仍取 `DhDesign.Size.rowIcon`(20dp)，只是多了一圈浅底 ——
+             * 行的信息密度、文字基线、图标视觉重量都不变。
+             */
+            IconSeat(
+                iconRes = iconRes,
+                sizeDp = IconSeatSize.SM,
+                shape = IconSeatShape.CIRCLE,
+                iconSizeDp = DhDesign.Size.rowIcon.value.toInt(),
+                tint = iconTint ?: p.sub
+            )
             Spacer(Modifier.width(DhDesign.Space.md.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -685,15 +719,17 @@ fun DhState(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (iconRes != 0) {
-            Box(
-                modifier = Modifier
-                    .size(StateSeat)
-                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
-                    .background(p.soft),
-                contentAlignment = Alignment.Center
-            ) {
-                DhKit.Icon(iconRes, DhDesign.Size.iconLg.value, tone ?: p.sub)
-            }
+            // 【v3·清透轻拟物】空态图标座改为 **IconSeat 的圆形浅底**：
+            //   与页面里其它"图标 + 浅色圆"同一配方（圆形 / 比卡片亮一档 / e1 柔和阴影 / 顶部高光）。
+            //   改造前是手拼的 `Box + 圆角 lg/16 + soft 底`，形状是方块 —— 与用户定案的
+            //   "图标配浅色圆形背景"不一致，且空态是全 App 最显眼的一处图标。
+            //   56dp 对应 IconSeatSize.LG，图标走 iconLg(24)，尺寸与原实现一致。
+            IconSeat(
+                iconRes = iconRes,
+                sizeDp = IconSeatSize.LG,
+                shape = IconSeatShape.CIRCLE,
+                tint = tone ?: p.sub
+            )
             Spacer(Modifier.height(DhDesign.Space.md.dp))
         }
         Text(
