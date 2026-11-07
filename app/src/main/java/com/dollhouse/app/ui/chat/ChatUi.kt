@@ -86,13 +86,13 @@ object ChatUi {
 
     /** 搭出聊天面板根视图。 */
     @JvmStatic
-    fun build(host: ChatPanel): View {
+    fun build(host: ChatHostUi): View {
         ComposeHost.installForActivity(host.activity)
-        return ComposeHost.createView(host.context) { ChatContent(host) }
+        return ComposeHost.createView(host.ctx) { ChatContent(host) }
     }
 
     @Composable
-    private fun ChatContent(host: ChatPanel) {
+    private fun ChatContent(host: ChatHostUi) {
         val c = DhTokens.colors
         // 【r21·去掉整屏 1dp 描边】改造前这里是：
         //     Column(... .clip(RoundedCornerShape(16.dp)).border(1.dp, c.chatBorder, shape))
@@ -130,7 +130,7 @@ object ChatUi {
      *   需求书 19.9 只要求「不得覆盖返回按钮」，不是要取消拖拽。
      */
     @Composable
-    private fun TopBarRow(host: ChatPanel) {
+    private fun TopBarRow(host: ChatHostUi) {
         val c = DhTokens.colors
         val topCtx = androidx.compose.ui.platform.LocalContext.current
         // 【v0.1.5·K-01】拖拽手势——只交给下面的「标题区」，不交给整条 Row。
@@ -261,11 +261,12 @@ object ChatUi {
 
     /**
      * 上下文占用环：环形 = 已用 / 阈值，中心 = 整数百分比；点开令牌消耗统计页。
-     * 【为什么用 Compose 重绘】原 [com.dollhouse.app.ui.theme.CtxRing] 是自绘 View，
+     * 【为什么用 Compose 重绘】原先是 `ui/theme/CtxRing.kt` 里的自绘 View，
      *   在 Compose 树里要靠 AndroidView 桥接；环本身只是两条弧 + 一行字，直接画更省一层。
+     *   那个 View 类已于 M9 死代码清理中删除（本函数是它唯一的替代实现）。
      */
     @Composable
-    private fun CtxRingView(host: ChatPanel) {
+    private fun CtxRingView(host: ChatHostUi) {
         val c = DhTokens.colors
         val ratio = ChatState.ctxRatio.coerceIn(0f, 1f)
         Box(
@@ -310,7 +311,7 @@ object ChatUi {
 
     /** 顶部提示条：圆角色块、左右留边，点击跳主界面。 */
     @Composable
-    private fun HintBar(host: ChatPanel) {
+    private fun HintBar(host: ChatHostUi) {
         val c = DhTokens.colors
         val text = ChatState.hint ?: return
         Box(
@@ -345,7 +346,7 @@ object ChatUi {
      *   Compose 侧改为「状态里排一次滚动请求 → 列表消费一次」与「首个可见项变化 → 回调收回判据」。
      */
     @Composable
-    private fun Messages(host: ChatPanel, modifier: Modifier) {
+    private fun Messages(host: ChatHostUi, modifier: Modifier) {
         val listState = rememberLazyListState()
         val items = ChatState.items
         val tick = ChatState.scrollTick
@@ -559,7 +560,7 @@ object ChatUi {
 
     /** 一条气泡：用户靠右（用户色底 + 反白字），助手靠左（卡片底 + 正文色）。 */
     @Composable
-    private fun Bubble(host: ChatPanel, item: ChatItem) {
+    private fun Bubble(host: ChatHostUi, item: ChatItem) {
         val c = DhTokens.colors
         val mine = item.role == "user"
         val ctx = LocalContext.current
@@ -693,7 +694,7 @@ object ChatUi {
      *   长按她的消息时给这两项语义上讲不通（改的是她的发言？删掉她说过的再重发？）；
      *   「单条重新生成」「回复」则是针对**她说的话**才成立的动作。
      */
-    private fun showMessageMenu(ctx: android.content.Context, host: ChatPanel, item: ChatItem) {
+    private fun showMessageMenu(ctx: android.content.Context, host: ChatHostUi, item: ChatItem) {
         val act = com.dollhouse.app.ui.theme.UiKit.findActivity(ctx) ?: return
         // 消息在 history 里的下标；摘要 / 占位条（index < 0）不参与。
         val idx = item.index
@@ -905,7 +906,7 @@ object ChatUi {
 
     /** 聊天记录顶部的「点击加载更早的历史记录」入口。 */
     @Composable
-    private fun LoadEarlierRow(host: ChatPanel) {
+    private fun LoadEarlierRow(host: ChatHostUi) {
         val c = DhTokens.colors
         Row(
             modifier = Modifier
@@ -1015,7 +1016,7 @@ object ChatUi {
 
     /** 气泡操作条：重新生成 / 复制（药丸样式 ← `ChatBubbles.actionChip`）。 */
     @Composable
-    private fun ActionRow(host: ChatPanel) {
+    private fun ActionRow(host: ChatHostUi) {
         val c = DhTokens.colors
         Row(
             modifier = Modifier
@@ -1069,7 +1070,7 @@ object ChatUi {
 
     /** 附件预览条：缩略图 + 说明 + 移除按钮；无附件时整条不占位。 */
     @Composable
-    private fun AttachStrip(host: ChatPanel) {
+    private fun AttachStrip(host: ChatHostUi) {
         val c = DhTokens.colors
         val img = ChatState.attachImage
         val txt = ChatState.attachText
@@ -1128,7 +1129,7 @@ object ChatUi {
 
     /** 工具条：模型配置 / 思考程度 / 记忆 三图标 + 右侧「记忆总结中」提示。 */
     @Composable
-    private fun ToolRow(host: ChatPanel) {
+    private fun ToolRow(host: ChatHostUi) {
         val c = DhTokens.colors
         Row(
             modifier = Modifier
@@ -1204,7 +1205,7 @@ object ChatUi {
 
     /** 输入行：输入框 + 圆形发送键（等待回复时同一按钮变「停止」）。 */
     @Composable
-    private fun InputRow(host: ChatPanel) {
+    private fun InputRow(host: ChatHostUi) {
         val c = DhTokens.colors
         Row(
             modifier = Modifier

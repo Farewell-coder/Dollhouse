@@ -52,9 +52,9 @@ import org.json.JSONObject
  */
 class ChatPanel(
         context: Context,
-        internal val controller: Controller?,
+        public override val controller: Controller?,
         z: Boolean
-) : LinearLayout(context), PickFileActivity.Listener, com.dollhouse.app.data.ChatHost {
+) : LinearLayout(context), PickFileActivity.Listener, com.dollhouse.app.data.ChatHost, ChatHostUi {
 
     /**
      * 整段对话上下文；由 [ChatHistoryStore] 读写（跨包契约）。
@@ -145,7 +145,7 @@ class ChatPanel(
     }
 
     /** 宿主 Activity（Compose 侧安装 owner 用）；非 Activity 宿主时为 null。 */
-    internal val activity: android.app.Activity?
+    public override val activity: android.app.Activity?
         get() = context as? android.app.Activity
 
     // 构造：铺 Compose 面板 → 载入历史 → 刷新输入行 → 套用聊天背景。
@@ -241,7 +241,7 @@ class ChatPanel(
      *   旧实例的页面栈可能还留着别的覆盖页；由它自己在 onCreate/onNewIntent 里按参数
      *   统一处理，语义比外部隔空操作它的栈更可靠。
      */
-    internal fun openMain() {
+    public override fun openMain() {
         val act = context as? MainActivity
         if (act != null) {
             // 已经在主界面里（聊天 Tab）：直接开供应商页，不重复启动。
@@ -258,7 +258,7 @@ class ChatPanel(
     }
 
     /** 点「加载更早的历史记录」。 */
-    internal fun loadEarlier() {
+    public override fun loadEarlier() {
         // 【v2.8】记下补回的条数：这是「展开态」的唯一凭据，滑过分割线时按它收回去。
         val n = ChatHistoryStore.prependPrev(this)
         if (n <= 0) {
@@ -284,7 +284,7 @@ class ChatPanel(
     }
 
     /** 输入框内容变化（Compose 侧单向数据流）。 */
-    internal fun onInputChange(text: String) {
+    public override fun onInputChange(text: String) {
         ChatState.input = text
         val d = com.dollhouse.app.data.ChatDraft()
         d.text = text
@@ -292,7 +292,7 @@ class ChatPanel(
     }
 
     /** 工具条：模型配置面板。 */
-    internal fun showModels() {
+    public override fun showModels() {
         // 【M8·改走 Compose 面板】原 SheetPanel 是 521 行手写 View 弹层，
         //   之所以必须手写只是因为"调用点在命令式代码里、不能直接写 @Composable"；
         //   现在 ui/kit/DhDialogHost 承接了这个能力，面板本身用 Compose 重写（ChatPanels）。
@@ -302,7 +302,7 @@ class ChatPanel(
     }
 
     /** 工具条：思考程度面板。 */
-    internal fun showThink() {
+    public override fun showThink() {
         ChatPanels.showThink(UiKit.findActivity(context))
     }
 
@@ -336,7 +336,7 @@ class ChatPanel(
     }
 
     /** 【v2.9.1】在工具条右侧短暂显示一条提示（总结失败 / 被拒等），3 秒后自动收起。 */
-    internal fun flashMemo(msg: String?) {
+    public override fun flashMemo(msg: String?) {
         if (msg == null || msg.trim().isEmpty()) {
             return
         }
@@ -416,7 +416,7 @@ class ChatPanel(
         PetPrefs.setChatBgRatio(context, f)
     }
 
-    fun openPicker() {
+    public override fun openPicker() {
         PickFileActivity.setListener(this)
         PickFileActivity.setPurpose(ImageStore.DIR)
         PickFileActivity.start(context)
@@ -437,7 +437,7 @@ class ChatPanel(
         // 读文件失败静默：不产生任何浮层反馈。
     }
 
-    fun clearAttachment() {
+    public override fun clearAttachment() {
         pendingImage = null
         pendingText = null
         refreshAttachStrip()
@@ -561,7 +561,7 @@ class ChatPanel(
      */
 
     /** 复制最后一条助手回复（气泡操作条的「⧉ 复制」）。 */
-    fun copyLastReply() {
+    public override fun copyLastReply() {
         for (i in history.length() - 1 downTo 0) {
             val o = history.optJSONObject(i)
             if (o != null && "assistant" == o.optString("role")) {
@@ -589,7 +589,7 @@ class ChatPanel(
      * 复制指定下标的消息（长按菜单「复制」）。
      * @param index [history] 里的下标；越界/非消息条目直接忽略。
      */
-    fun copyAt(index: Int) {
+    public override fun copyAt(index: Int) {
         val o = itemAt(index) ?: return
         val text = o.optString("content", "")
         if (text.isEmpty()) {
@@ -603,7 +603,7 @@ class ChatPanel(
      * 多选批量复制（长按菜单「多选」→ 选中若干 → 复制）。
      * 【为什么不直接复制** 多选的价值在于一次拿多条，所以拼接后一次入剪贴板。
      */
-    fun copyMany(indexes: List<Int>) {
+    public override fun copyMany(indexes: List<Int>) {
         if (indexes.isEmpty()) {
             return
         }
@@ -632,7 +632,7 @@ class ChatPanel(
      * 【语义】相当于「从这里重新开始」：该条及之前保留，之后的消息不再存在。
      *   与「编辑并重发」的区别是它**不改内容、不自动重发**，只把上下文收短。
      */
-    fun rollbackTo(index: Int) {
+    public override fun rollbackTo(index: Int) {
         val o = itemAt(index) ?: return
         if (index < 0 || index >= history.length()) {
             return
@@ -667,7 +667,7 @@ class ChatPanel(
      *   历史用 `ChatHistoryStore.saveHistory(ctx, arr, newId)` 写入，然后切过去。
      *   原会话不动 —— 用户随时可以切回去。
      */
-    fun branchAt(index: Int) {
+    public override fun branchAt(index: Int) {
         if (index < 0 || index >= history.length()) {
             return
         }
@@ -697,7 +697,7 @@ class ChatPanel(
      *   且要带输入框 + 结果列表 —— 原生 Dialog 与既有确认框同一套壳，零额外依赖。
      * 【命中后】滚动到该条并闪烁高亮（由 renderHistory 的 highlightIndex 控制）。
      */
-    fun showSearchDialog() {
+    public override fun showSearchDialog() {
         val act = UiKit.findActivity(context) ?: return
         val input = android.widget.EditText(act)
         input.hint = "搜索聊天内容"
@@ -744,7 +744,7 @@ class ChatPanel(
      * 【为什么截断到它之前】重发等价于「重新说一遍」：原消息本身会由发送动作重新产生，
      *   若把它留在历史里就会重复（模型会看到同一句话两遍）。
      */
-    fun editAndResend(index: Int) {
+    public override fun editAndResend(index: Int) {
         val o = itemAt(index) ?: return
         if (waiting) {
             flashMemo("等这轮回复完了再操作")
@@ -775,7 +775,7 @@ class ChatPanel(
      * 【为什么不复用 regenerate()】那个只处理「最后一条」，长按的是中间某条时用不了。
      *   这里先截断到该条之前，再走同一套发送链路，等价于「让她重说这条」。
      */
-    fun regenerateAt(index: Int) {
+    public override fun regenerateAt(index: Int) {
         val o = itemAt(index) ?: return
         if (waiting) {
             flashMemo("等这轮回复完了再操作")
@@ -832,7 +832,7 @@ class ChatPanel(
      *
      * @param index 长按的那条消息在 [history] 里的下标。
      */
-    fun insertSummaryAt(index: Int) {
+    public override fun insertSummaryAt(index: Int) {
         if (waiting) {
             flashMemo("等这轮回复完了再操作")
             return
@@ -1128,7 +1128,7 @@ class ChatPanel(
     }
 
     /** 【信息】弹出这条消息的详情（角色 / 时间 / 字数 / 模型）。 */
-    fun showItemInfo(index: Int) {
+    public override fun showItemInfo(index: Int) {
         val o = itemAt(index) ?: return
         val act = com.dollhouse.app.ui.theme.UiKit.findActivity(context) ?: return
         val role = o.optString("role", "")
@@ -1167,7 +1167,7 @@ class ChatPanel(
      *   而用户的实际诉求是「接着她这句话说」，把原话前置成一个引用块写进输入框，
      *   语义达成、改动最小，也不影响历史数据的兼容性。
      */
-    fun replyTo(index: Int) {
+    public override fun replyTo(index: Int) {
         val o = itemAt(index) ?: return
         val t = o.optString("content", "").trim()
         if (t.isEmpty()) {
@@ -1181,7 +1181,7 @@ class ChatPanel(
     }
 
     /** 【删除】删掉这条消息（只动这一条，不影响其它）。 */
-    fun deleteAt(index: Int) {
+    public override fun deleteAt(index: Int) {
         if (waiting) {
             flashMemo("等这轮回复完了再操作")
             return
@@ -1217,7 +1217,7 @@ class ChatPanel(
     }
 
     /** 【修改记忆】把这条消息存进**当前人偶**的记忆库（供后续对话注入）。 */
-    fun saveToMemory(index: Int) {
+    public override fun saveToMemory(index: Int) {
         val o = itemAt(index) ?: return
         val t = o.optString("content", "").trim()
         if (t.isEmpty()) {
@@ -1256,7 +1256,7 @@ class ChatPanel(
      * @param index 该条 assistant 消息在 [history] 里的小标
      * @return 是否成功入库
      */
-    fun learnFromAt(index: Int): Boolean {
+    public override fun learnFromAt(index: Int): Boolean {
         val o = itemAt(index) ?: return false
         if ("assistant" != o.optString("role")) {
             return false
@@ -1335,7 +1335,7 @@ class ChatPanel(
      * 【文案为什么强调「记忆不会删」】这是用户最容易误解的一点：清空对话 ≠ 清空记忆。
      *   摘要与总记忆库是两份独立数据，这里必须说清楚，否则用户不敢点。
      */
-    fun confirmClearChat() {
+    public override fun confirmClearChat() {
         val act = UiKit.findActivity(context) ?: return
         com.dollhouse.app.ui.kit.DhDialogHost.confirm(
             act,
@@ -1432,7 +1432,7 @@ class ChatPanel(
         ChatState.ctxRatio = (history.length() / cap.toFloat()).coerceIn(0f, 1f)
     }
 
-    fun regenerate() {
+    public override fun regenerate() {
         if (waiting) {
             return
         }
@@ -1456,7 +1456,7 @@ class ChatPanel(
         askModelBuildingRequest()
     }
 
-    fun onSend() {
+    public override fun onSend() {
         if (waiting) {
             return
         }
@@ -1991,7 +1991,7 @@ class ChatPanel(
      * 【为什么不直接重发 askModel】那会把错误提示又追加一遍、且历史里多出一条错误回复。
      *   [regenerate] 的语义是「删掉最后一条助手消息并重答」，正好对应「这次没答成」。
      */
-    fun retryAfterError() {
+    public override fun retryAfterError() {
         if (waiting) {
             flashMemo("等这轮回复完了再操作")
             return
@@ -2122,7 +2122,7 @@ class ChatPanel(
     }
 
     /** 用户点「停止」：断掉在途连接，静默收尾（不报网络错误）。 */
-    fun stopGenerating() {
+    public override fun stopGenerating() {
         activeGeneration?.let { com.dollhouse.app.data.GenerationTasks.finish(it.generationId) }
         activeGeneration = null
         // 【OCR】若还在等 OCR 扫图，撕掉闸门，扫描回来直接作废（不再发请求）。
@@ -2243,7 +2243,7 @@ class ChatPanel(
      * 【v2.8】滚动回调：展开态下补回批整批滑出视口上沿（看不到上面那批消息了），就自动收回。
      * 【Compose】改由「首个可见项下标」判定：越过补回批尾节点即视为滑出；已滚到底也算。
      */
-    internal fun onScrolled(firstVisibleIndex: Int, atBottom: Boolean) {
+    public override fun onScrolled(firstVisibleIndex: Int, atBottom: Boolean) {
         if (collapsing || ChatState.holdScroll || prevCount <= 0) {
             return
         }
