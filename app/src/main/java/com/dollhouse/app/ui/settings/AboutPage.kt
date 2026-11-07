@@ -287,16 +287,14 @@ object AboutPage {
                         //   原来弹一个对话框再让用户点「下载」，多一步、而且直链 APK 容易失效；
                         //   现在直接打开那条 Release 的页面，更新说明 / 资产 / 校验值都在那里。
                         is UpdateCheckResult.Available -> openReleasePage(act, res.candidate.releaseUrl)
-                        // 「已是最新」「检查失败」仍走弹窗 —— 那两种是需要用户读一句话的状态，
+                        // 【修·点了没反应】`manualCheck` 有防抖：距上次检查不足阈值时
+                        //   直接回调 **null**，界面毫无变化 —— 用户看到的就是「点击无反应」。
+                        //   给一个会自己消失的行内提示（不用 Toast，一闪而过更看不见）。
+                        // 【顺序要求】`else` 必须放最后，Kotlin 不允许它后面还有分支。
+                        null -> notice = "刚检查过，稍后再试"
+                        // 「已是最新」「检查失败」仍走弹窗 —— 那两种需要用户读一句话，
                         //   用 Toast 一闪而过反而看不清。
                         else -> result = res
-                        // 【修·点了没反应】`manualCheck` 有防抖：距上次检查不足阈值时
-                        //   直接回调 **null**，而上面 `else -> result = res` 会把它写成 null，
-                        //   界面毫无变化 —— 用户看到的就是「点了没反应」。
-                        //   这里给一个会自己消失的行内提示（不用 Toast，一闪而过更看不见）。
-                        null -> {
-                            notice = "刚检查过，稍后再试"
-                        }
                     }
                 }
             }
