@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -197,13 +198,21 @@ class DesignScreenshotTest {
         val cv = ComposeView(activity).apply {
             setContent {
                 DollhouseTheme {
-                    Box(Modifier.size(48.dp).background(DhTokens.colors.bg)) {
-                        DhKit.IconButton(
-                            iconRes = Icons.IC_ARROW_LEFT,
-                            sizeDp = 20f,
-                            color = DhTokens.colors.title,
-                            onClick = {}
-                        )
+                    // 【必须让容器居中】否则 48dp 的按钮会落在画布左上角，
+                    //   而下面按「画布中心」比对就会得出"偏了几百像素"的假结论。
+                    //   第一版就是这么写错的 —— 测试本身错了，比没有测试更误导。
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(DhTokens.colors.bg),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(Modifier.size(48.dp)) {
+                            DhKit.IconButton(
+                                iconRes = Icons.IC_ARROW_LEFT,
+                                sizeDp = 20f,
+                                color = DhTokens.colors.title,
+                                onClick = {}
+                            )
+                        }
                     }
                 }
             }
