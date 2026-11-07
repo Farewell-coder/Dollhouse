@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -411,6 +412,17 @@ object DhKit {
                         Modifier
                     } else {
                         Modifier
+                            // 【e1 轻浮起】这是全 App 唯一「卡片有没有立体感」的地方 ——
+                            //   15 个文件约 50 张卡片都走这里，改这一行就是全局生效。
+                            //   【为什么 2dp 而不是更大】用户取向是「安静居所」：层级主要由
+                            //   留白与发丝线承担，阴影只做「几乎看不出、但大脑能感到」的纵深。
+                            //   2dp 在浅色档几乎不可见，只在暗色档边缘有极淡的一圈 —— 这正是要的效果。
+                            //   【clip = false】阴影必须画在形状**外侧**；先 clip 再 shadow 会被裁掉。
+                            .shadow(
+                                elevation = com.dollhouse.app.ui.design.DhDesign.Elevation.e1,
+                                shape = RoundedCornerShape(R_CARD.dp),
+                                clip = false
+                            )
                             .clip(RoundedCornerShape(R_CARD.dp))
                             .background(c.card)
                             // 【M3】描边改 `line`（1dp 发丝线）。改造前用 `stroke`（一种更实的
@@ -526,7 +538,7 @@ object DhKit {
                 // 【v0.1.0·修·图标偏小】挨着 15sp 粗体标题却用 14dp 图标，视觉上是「标题旁边一颗小点」。
                 //   按 [Design] 自己的口径，行首主图标是 SZ_SM(16)，SZ_XS 只留给备注/次级标记。
                 Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.sub)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                 Text(
                     text = text,
                     modifier = Modifier.weight(1f),
@@ -571,7 +583,7 @@ object DhKit {
         ) {
             if (onBack != null) {
                 IconButton(iconRes = Icons.IC_ARROW_LEFT, sizeDp = 20f, color = DhTokens.colors.title, onClick = onBack)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -628,7 +640,7 @@ object DhKit {
         ) {
             if (left != null) {
                 left()
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Text(
                 text = title,
@@ -704,7 +716,7 @@ object DhKit {
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
                 .padding(
                     horizontal = PAD_ROW.dp,
-                    vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else 10.dp
+                    vertical = if (desc.isNullOrEmpty()) PAD_ROW.dp else DhDesign.Space.sm.dp
                 )
                 .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1094,7 +1106,7 @@ object DhKit {
             ) {
                 if (iconRes != 0) {
                     Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                 }
                 Text(
                     text = title,
@@ -1136,11 +1148,11 @@ object DhKit {
     fun InfoRow(iconRes: Int, text: String, modifier: Modifier = Modifier) {
         val c = DhTokens.colors
         Row(
-            modifier = modifier.fillMaxWidth().padding(top = 10.dp),
+            modifier = modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.line)
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             Text(
                 text = text,
                 color = c.line,
@@ -1382,7 +1394,7 @@ object DhKit {
                 .background(c.soft)
                 .then(if (clickable) Modifier.pressable(onClick!!) else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f))
-                .padding(horizontal = PAD_ROW.dp, vertical = if (hasDesc) 10.dp else PAD_ROW.dp)
+                .padding(horizontal = PAD_ROW.dp, vertical = if (hasDesc) DhDesign.Space.sm.dp else PAD_ROW.dp)
                 .defaultMinSize(minHeight = MIN_ROW_H.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1483,7 +1495,7 @@ object DhKit {
                 .clip(RoundedCornerShape(999.dp))
                 .background(if (selected) c.option else Color.Transparent)
                 .pressable(onClick)
-                .padding(horizontal = NAV_ITEM_PAD_H.dp, vertical = 6.dp),
+                .padding(horizontal = NAV_ITEM_PAD_H.dp, vertical = 6.dp /* 不收敛·D4：与 NAV_ITEM_H(54) 配套，决定底栏总高 */),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -1581,7 +1593,7 @@ object DhKit {
                 .fillMaxWidth()
                 // 【高度固定】项本身是 heightIn(NAV_ITEM_H)，胶囊内边距是常量，
                 //   两者相加是定值 —— 切页时底栏不会上下抖。
-                .padding(top = 6.dp, bottom = 10.dp)
+                .padding(top = 6.dp, bottom = 10.dp) /* 不收敛·D4：胶囊上下留白，与项高配套成定值 */
                 .onSizeChanged { viewport = it.width },
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
@@ -1596,7 +1608,7 @@ object DhKit {
                     //   这里不再叠任何实色底板，否则又退回「实心色块」。
                     .background(c.capsule)
                     .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .padding(horizontal = 6.dp, vertical = 4.dp) /* 不收敛·D4：胶囊内边距，决定胶囊总高 */
                     // 【滚动只作用于导航条】滚的是这个 Row 自己的内容，页面内容不受影响。
                     .horizontalScroll(scroll),
                 verticalAlignment = Alignment.CenterVertically
@@ -1752,7 +1764,7 @@ object DhKit {
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .pressable(onClick)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 6.dp, vertical = 4.dp), /* 不收敛·D4：BarButton 自身几何 */
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = tint)
@@ -1890,7 +1902,7 @@ object DhKit {
                 .clip(RoundedCornerShape(R_ROW.dp))
                 .background(bg)
                 .pressable(onClick)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (item.iconRes != 0) {
