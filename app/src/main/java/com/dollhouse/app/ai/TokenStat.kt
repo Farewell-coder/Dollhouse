@@ -458,7 +458,7 @@ object TokenStat {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Normal
                 )
             }
             if (canBack) {
@@ -504,7 +504,7 @@ object TokenStat {
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Normal
             )
             Text(
                 text = fmt(inTok + outTok) + " Token",
@@ -512,7 +512,7 @@ object TokenStat {
                 color = c.title,
                 fontSize = 30.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Normal
             )
             Text(
                 text = "输入 " + fmt(inTok) + "　·　输出 " + fmt(outTok),
@@ -527,7 +527,7 @@ object TokenStat {
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Normal
             )
             Row(
                 modifier = Modifier.padding(top = 8.dp),
@@ -597,7 +597,7 @@ object TokenStat {
                 color = c.title,
                 fontSize = 18.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Normal
             )
         }
     }

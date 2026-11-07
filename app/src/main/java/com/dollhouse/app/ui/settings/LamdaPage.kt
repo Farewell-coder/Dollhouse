@@ -263,7 +263,7 @@ object LamdaPage {
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.SemiBold
             )
         }
     }

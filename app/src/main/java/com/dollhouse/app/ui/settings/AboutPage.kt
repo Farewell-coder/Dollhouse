@@ -336,7 +336,7 @@ object AboutPage {
                     color = c.acc,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
                 )
                 val notes = available.candidate.notes
                 if (notes.isNotEmpty()) {
@@ -422,7 +422,7 @@ object AboutPage {
                 color = c.title,
                 fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
         }
     }

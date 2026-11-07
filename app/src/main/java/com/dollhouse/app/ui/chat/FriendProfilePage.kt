@@ -368,7 +368,7 @@ object FriendProfilePage {
                         color = c.title,
                         fontSize = DhTokens.type.title.fontSize, lineHeight = DhTokens.type.title.lineHeight,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
