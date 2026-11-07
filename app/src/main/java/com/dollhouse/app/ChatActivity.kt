@@ -53,7 +53,9 @@ class ChatActivity : Activity() {
         }, android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
         // 【状态栏嵌入】聊天页同样铺满 + 状态栏透明；ChatPanel 顶栏自己让出高度。
         UiKit.applyEdgeToEdge(this)
-        this.panel!!.refreshHint()
+        // 【表 B·状态驱动】原 `panel.refreshHint()`：判据已搬到顶层 `chatHintText`，
+        //   这里自己写一次状态即可（与原先调方法的可见效果相同，且不依赖 ChatPanel 实例）。
+        com.dollhouse.app.ui.chat.ChatState.hint = com.dollhouse.app.ui.chat.chatHintText(this)
         // 【状态恢复】系统日夜切换触发的重建：把滚动位置回填回去（本类未登记任何输入框，
         //   Bundle 通道不含任何明文文本）。滚动仍走既有对齐机制，行为不变。
         ThemeRefresh.restoreState(window?.decorView, bundle)
@@ -100,7 +102,8 @@ class ChatActivity : Activity() {
         super.onResume()
         val chatPanel = this.panel
         if (chatPanel != null) {
-            chatPanel.refreshHint()
+            // 【表 B·状态驱动】同 onCreate：直接写状态，不再回调 ChatPanel 的方法。
+            com.dollhouse.app.ui.chat.ChatState.hint = com.dollhouse.app.ui.chat.chatHintText(this)
             // 【修·聊天背景不生效】用户去设置页选完背景图再回来时，本 Activity 可能没销毁、
             //   直接复用旧的 ChatPanel（singleTop），只在构造时调过一次 applyBackground()，
             //   于是「选完图聊天页背景没变化」。每次回前台重套一次即可（幂等）。

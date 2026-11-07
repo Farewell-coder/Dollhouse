@@ -171,9 +171,9 @@ class ChatPanel(
         ChatHistoryStore.loadHistory(this)
         ChatState.input = com.dollhouse.app.data.ChatDraftStore.load(context, boundDollId(), ChatSessions.currentId(context)).text
         renderHistory()
-        refreshInputRow()
+        refreshAttachStrip()
         refreshCtxRing()
-        refreshHint()
+        ChatState.hint = chatHintText(context)
         applyBackground()
     }
 
@@ -365,21 +365,17 @@ class ChatPanel(
         postDelayed(r, 3000L)
     }
 
-    /**
-     * 【v2.8】总结完成后把视图滚到「ⓘ 历史对话摘要」那条分割线，让「已收起」一眼可见。
-     * 【Compose】原实现要等布局完成才能算坐标（getTop 会拿到 0），现在直接按下标滚动，
-     *   列表自己会在布局就绪后落到目标项，重入与「节点已摘」两类崩溃一并消失。
+    /* 【表 B·状态驱动】原 `scrollToSummary()` 已内联到它唯一的调用点（onScrolled 的收回分支）。
+     * 【为什么能删】它只是「把 summaryIndex 翻译成一次滚动请求」，本身不持有状态：
+     *   判据 `summaryIndex < 0`（无摘要头）与 `ChatState.requestScrollTo(...)` 都是状态动作。
+     *   唯一调用点就在同文件内，且紧跟在 `reloadHistory()` 之后 —— 那一跳已经重铺过列表，
+     *   然后才需要「落到摘要分割条」。内联后行为逐字节相同，少一层转发。
+     * 【注意】`summaryIndex` 本身仍是 ChatPanel 的私有字段（由 renderHistory 计算），
+     *   它未来随 renderHistory 一起搬进 ChatState 时，这段内联代码一并跟着走即可。
      */
-    internal fun scrollToSummary() {
-        if (summaryIndex < 0) {
-            return
-        }
-        ChatState.requestScrollTo(summaryIndex)
-    }
-
-    fun refreshInputRow() {
-        refreshAttachStrip()
-    }
+    // 【表 B·状态驱动】原 `refreshInputRow()` 已删除：它退化成 `refreshAttachStrip()`
+    //   的单行别名（`browsingArchives` 那条已在 31e4dfb 随死分支清理掉）。
+    //   3 处调用点直接改调那个私有刷新函数 —— 行为逐字节相同，少一层无意义转发。
 
     /**
      * 套用用户选的聊天背景图与透明度。
@@ -769,7 +765,7 @@ class ChatPanel(
         }
         // 回填输入框，用户可改完再发（不自动发 —— 避免误触直接产生一条新消息）。
         ChatState.input = text
-        refreshInputRow()
+        refreshAttachStrip()
         flashMemo("已回填，改完点发送")
     }
 
@@ -1180,7 +1176,7 @@ class ChatPanel(
         }
         val quoted = if (t.length > 60) t.substring(0, 60) + "…" else t
         ChatState.input = "> " + quoted + "\n" + ChatState.input
-        refreshInputRow()
+        refreshAttachStrip()
         flashMemo("已引用，接着说")
     }
 
@@ -2141,14 +2137,11 @@ class ChatPanel(
         removeThinking()
     }
 
-    /** 按有无 API key 决定顶部提示条显隐。 */
-    fun refreshHint() {
-        ChatState.hint = if (com.dollhouse.app.ui.home.HomeUi.hasChatTarget(context)) {
-            null
-        } else {
-            "还没有可用的供应商模型，点这里去设置 →"
-        }
-    }
+    // 【表 B·状态驱动】原 `refreshHint()` 已删除，判据搬到顶层 [chatHintText]。
+    //   两处外部调用者（ChatActivity.kt 的 onCreate 末 / onResume）改为自己写
+    //   `ChatState.hint = chatHintText(this)` —— 与原先调本方法的可见效果完全相同。
+    //   这样 ChatPanel 少一个「宿主必须回来调我」的对外方法，去 View 时不用再安排它。
+
 
     // 能否发消息：必须有配置。
     private fun canChat(): Boolean {
@@ -2272,7 +2265,10 @@ class ChatPanel(
         prevCount = 0
         if (ok) {
             reloadHistory()
-            scrollToSummary()
+            // 原 scrollToSummary()：滚到「历史对话摘要」分割条（无摘要头则不滚）。
+            if (summaryIndex >= 0) {
+                ChatState.requestScrollTo(summaryIndex)
+            }
         }
         post {
             collapsing = false
@@ -2294,5 +2290,28 @@ class ChatPanel(
          *   再多只是让 SharedPreferences 里的一个 JSON 越来越长、每次读都要全量解析。
          */
         private const val LEARN_MAX = 12
+    }
+}
+
+/**
+ * 【表 B·状态驱动】顶部提示条的判据本体，从 [ChatPanel.refreshHint] 里抽出来。
+ *
+ * 【为什么抽成顶层函数】判据只看「有没有可用模型」这一件事，**与 View 无关**：
+ *   · 输入只有 `Context`（读 ProviderStore / PetPrefs）；
+ *   · 输出只有「要显示的文案」或 null。
+ *   留在 ChatPanel 里，它就被绑死在一个 `LinearLayout` 子类的实例上；
+ *   抽出来之后，任何宿主（Compose 组合体、ViewModel）都能直接算，无需 ChatPanel 实例。
+ *
+ * 【为什么不直接把 `ChatState.hint = ...` 搬进组合体】
+ *   `ChatState` 是全局单例，组合体里直接赋值会变成「组合期写状态」——
+ *   那既违反 Compose 的单向数据流，也会在重组时反复触发。
+ *   正确做法是由宿主在**事件时**（onCreate / onResume / 设置页返回）算一次写进去；
+ *   本函数就是给那个「事件时」用的纯函数。
+ */
+internal fun chatHintText(ctx: Context): String? {
+    return if (com.dollhouse.app.ui.home.HomeUi.hasChatTarget(ctx)) {
+        null
+    } else {
+        "还没有可用的供应商模型，点这里去设置 →"
     }
 }
