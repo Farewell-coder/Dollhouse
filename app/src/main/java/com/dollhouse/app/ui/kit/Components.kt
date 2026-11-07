@@ -175,7 +175,7 @@ fun DhButton(
     }
     val padH = if (small) 12.dp else 20.dp
     val alpha = if (active) 1f else 0.38f
-    val shape = RoundedCornerShape(DhDesign.Radius.md.dp)
+    val shape = RoundedCornerShape(DhDesign.Radius.btn.dp)
     Row(
         modifier = modifier
             .height(height)
@@ -268,7 +268,7 @@ fun DhField(
         animationSpec = androidx.compose.animation.core.tween(DhDesign.Motion.micro),
         label = "field-stroke"
     )
-    val shape = RoundedCornerShape(DhDesign.Radius.md.dp)
+    val shape = RoundedCornerShape(DhDesign.Radius.btn.dp)
     Row(
         modifier = modifier
             .fillMaxWidth()

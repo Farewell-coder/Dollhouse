@@ -244,7 +244,7 @@ object DhForm {
             animationSpec = tween(DhDesign.Motion.micro),
             label = "dhform-input-stroke"
         )
-        val fieldShape = RoundedCornerShape(DhDesign.Radius.md.dp)
+        val fieldShape = RoundedCornerShape(DhDesign.Radius.btn.dp)
         // 【定高规则·本分支只有一个值】本函数只服务「带 trailing」的调用点，
         //   所以这里**恒为 false**：一律只给 40dp 下限、不定高，让
         //   [DhKit.IconButton] 的 48dp 命中区完整保留。
@@ -393,7 +393,7 @@ object DhForm {
                 animationSpec = tween(DhDesign.Motion.micro),
                 label = "multiline-stroke"
             )
-            val multiShape = RoundedCornerShape(DhDesign.Radius.md.dp)
+            val multiShape = RoundedCornerShape(DhDesign.Radius.btn.dp)
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -686,7 +686,7 @@ object DhForm {
         //   【为什么四态逻辑一行没动】它的价值在「同位置反馈」：转圈/对勾/警告原位变化，
         //   避免用户连点。这是行为设计，不该被形态调整牵连。
         //   【高度为什么定死 44】与 DhButton 同档；文字单行 + 图标 14dp 都放得下。
-        val btnShape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        val btnShape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.btn.dp)
         // 【v3·清透轻拟物】与 [Button] 同一套形态（上亮下暗渐变 + 按下收小阴影）。
         //   忙态（LOADING）不挂按压手势，但仍保留体积底 —— 否则转圈时按钮会"塌"成一块平面。
         val dark = ThemeManager.isDark(LocalContext.current)
@@ -910,7 +910,7 @@ object DhForm {
         onClick: () -> Unit
     ) {
         val c = DhTokens.colors
-        val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.btn.dp)
         // 【禁用态为什么用 alpha 而不是换色】与 kit.DhButton 一致：整体降透明度
         //   能同时作用到底色与文字，不必维护第二套「禁用配色」。
         val alpha = if (enabled) 1f else 0.38f
@@ -1104,7 +1104,7 @@ object DhForm {
         //   于是「44dp 统一高度」名存实亡 —— 这正是 DhKit.OutlineChip 注释里记过的同一个坑。
         //   kit.DhButton 的做法也是 pressScaleClick；这里与它保持完全一致。
         //   弹窗按钮自带可见轮廓且高 44dp，命中区足够，不需要额外的 48dp 透明补丁。
-        val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.btn.dp)
         // 【v3·清透轻拟物】主/次同形态；次按钮底色保持 sheetUp（弹窗里必须浮得出来）。
         val dark = ThemeManager.isDark(LocalContext.current)
         val pressSource = remember { MutableInteractionSource() }

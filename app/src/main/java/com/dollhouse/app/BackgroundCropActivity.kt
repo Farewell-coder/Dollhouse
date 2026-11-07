@@ -235,6 +235,10 @@ class BackgroundCropActivity : Activity() {
     private fun pickImageIntent(): Intent {
         val intent = Intent("android.provider.action.PICK_IMAGES")
         intent.type = IMAGE_TYPE
+        // 【修·读不到选中的图】Photo Picker 返回的是 content:// URI，
+        //   没有这个 flag 时 openInputStream 会抛 SecurityException，
+        //   被 catch 成 null → 用户看到「这张图解不开」。
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         return intent
     }
 
@@ -242,6 +246,7 @@ class BackgroundCropActivity : Activity() {
         val intent = Intent(Intent.ACTION_GET_CONTENT)
         intent.addCategory(Intent.CATEGORY_OPENABLE)
         intent.type = IMAGE_TYPE
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         return intent
     }
 
@@ -287,7 +292,53 @@ class BackgroundCropActivity : Activity() {
     }
 
     /** 解码成位图：先读尺寸再按需降采样，原始尺寸供裁剪切图用。 */
+    /**
+     * 解码成位图。
+     *
+     * 【为什么有两层】`contentResolver.openInputStream(uri)` 对某些来源会失败：
+     *   · Photo Picker / 云盘 / 某些 ROM 的文件管理器返回的 URI，
+     *     即使带了 `FLAG_GRANT_READ_URI_PERMISSION`，直读也可能抛 SecurityException；
+     *   · 用户看到的就是「这张图解不开」，但相册和图片本身都没问题。
+     *   第二层降级：先把内容 copy 到应用缓存目录（走同一套 resolver，但用 FileOutputStream，
+     *   绕开 provider 的流式读取限制），再从**本地文件**解码 —— 这条路几乎必成。
+     */
     private fun decode(uri: Uri): Bitmap? {
+        directDecode(uri)?.let { return it }
+        return cachedDecode(uri)
+    }
+
+    /** 第二层：先落一份到缓存，再从文件解码。 */
+    private fun cachedDecode(uri: Uri): Bitmap? {
+        return try {
+            val tmp = java.io.File(cacheDir, "crop_src.tmp")
+            val ok = runCatching {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    tmp.outputStream().use { out -> input.copyTo(out) }
+                    true
+                } ?: false
+            }.getOrDefault(false)
+            if (!ok || !tmp.exists() || tmp.length() == 0L) {
+                Logs.w(TAG, "降级解码：无法读取内容 uri=$uri")
+                return null
+            }
+            val opts = BitmapFactory.Options()
+            val b = BitmapFactory.Options()
+            b.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(tmp.absolutePath, b)
+            if (b.outWidth <= 0 || b.outHeight <= 0) return null
+            var sample = 1
+            while (Math.max(b.outWidth, b.outHeight) / sample > 2048) sample *= 2
+            opts.inSampleSize = sample
+            val bmp = BitmapFactory.decodeFile(tmp.absolutePath, opts)
+            Logs.i(TAG, "降级解码成功：" + (bmp?.width ?: 0) + "x" + (bmp?.height ?: 0))
+            bmp
+        } catch (t: Throwable) {
+            Logs.w(TAG, "降级解码也失败", t)
+            null
+        }
+    }
+
+    private fun directDecode(uri: Uri): Bitmap? {
         try {
             val bounds = BitmapFactory.Options()
             bounds.inJustDecodeBounds = true
