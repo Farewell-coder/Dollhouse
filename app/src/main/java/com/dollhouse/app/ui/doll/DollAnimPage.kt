@@ -622,7 +622,7 @@ object DollAnimPage {
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Normal
                     )
                 }
 
@@ -1301,7 +1301,7 @@ object DollAnimPage {
                         color = c.title,
                         fontSize = UiKit.FS_BTN.sp,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Normal,
                         textAlign = TextAlign.Center
                     )
                     DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, c.title) {
@@ -1446,7 +1446,7 @@ object DollAnimPage {
                 color = if (selected) c.acc else c.sub,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Normal
             )
         }
     }

@@ -300,7 +300,7 @@ object ProviderListPage {
                         color = c.acc,
                         fontSize = UiKit.FS_BTN.sp,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Normal
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -310,7 +310,7 @@ object ProviderListPage {
                         color = c.title,
                         fontSize = UiKit.FS_BTN.sp,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

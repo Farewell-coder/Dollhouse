@@ -227,7 +227,7 @@ object ContactScreen {
                 color = c.sub,
                 fontSize = DhTokens.type.sub.fontSize, lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Normal
             )
             Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
@@ -306,7 +306,7 @@ object ContactScreen {
                         color = c.title,
                         fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -420,7 +420,7 @@ object ContactScreen {
                         //   套 label 档的 11sp 会连带行高，把字母压偏/裁掉半截（原注释已记录）。
                         fontSize = 11.sp,
                         fontFamily = DhTokens.fontsBold,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Normal
                     )
                 }
             }

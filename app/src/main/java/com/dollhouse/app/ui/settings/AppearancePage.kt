@@ -189,7 +189,7 @@ object AppearancePage {
                 color = tint,
                 fontSize = UiKit.FS_CHIP.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
         }
     }

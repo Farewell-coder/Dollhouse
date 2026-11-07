@@ -1066,7 +1066,7 @@ onCover = {
             color = if (selected) c.acc else c.title,
             fontSize = UiKit.FS_BTN.sp,
             fontFamily = DhTokens.fontsBold,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
         )
     }
 
