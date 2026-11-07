@@ -345,7 +345,7 @@ object MemPage {
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(shownMems, key = { it.id }) { m ->
+                        items(shownMems, key = { it.id }, contentType = { "mem" }) { m ->
                             Box(Modifier.animateItem()) {
                                 MemListRow(
                                     m = m,
@@ -662,7 +662,8 @@ object MemPage {
 //   它的 `items` 参数名与本函数参数冲突，且扩展必须靠 import 才能解析（全限定名无效）。
 //   改用 `item {}` 逐个铺：命中列表最多几十条，性能差异可忽略，代码更直白。
             for (m in hitList) {
-                item(key = m.id) {
+                // 【contentType】本列表全是同一种「命中行」；补上后滚动时槽位可跨项复用。
+                item(key = m.id, contentType = "hit") {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()

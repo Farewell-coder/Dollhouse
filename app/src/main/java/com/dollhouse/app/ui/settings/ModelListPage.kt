@@ -162,7 +162,7 @@ object ModelListPage {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
             ) {
-                items(shown, key = { it }) { name ->
+                items(shown, key = { it }, contentType = { "model" }) { name ->
                     androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
                         ModelRow(
                             name = name,

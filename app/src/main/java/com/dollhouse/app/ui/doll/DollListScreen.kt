@@ -187,7 +187,7 @@ object DollListScreen {
                 horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),
                 verticalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp)
             ) {
-                items(dolls, key = { it.id }) { doll ->
+                items(dolls, key = { it.id }, contentType = { "doll" }) { doll ->
                     /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
                     Box(Modifier.animateItem()) {
                     DollCard(
@@ -958,9 +958,9 @@ onCover = {
             modifier = Modifier
                 .padding(end = 8.dp)
                 .size(72.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(10.dp))
+                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
                 .pressable(onClick),
             contentAlignment = Alignment.Center
         ) {
@@ -1095,6 +1095,11 @@ onCover = {
                 .padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
                 .width(32.dp)
                 .height(4.dp)
+                // 【圆角·刻意保留 2dp，不进 Radius 阶梯】
+                //   这是 32×4dp 的**拖动把手**：高度只有 4dp，圆角 2dp 刚好等于半高
+                //   → 视觉上是纯半圆胶囊。若改成 Radius.sm(8)/md(12)，圆角会**大于**
+                //   控件半高，Compose 会退化成"两端全圆"的同样观感但读代码的人会以为
+                //   有人忘了改。保留 2dp 并写清"= height/2"，比套一个语义不符的令牌更准确。
                 .clip(RoundedCornerShape(2.dp))
                 .background(DhTokens.colors.line)
         )

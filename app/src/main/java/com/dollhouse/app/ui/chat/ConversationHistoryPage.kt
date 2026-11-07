@@ -71,7 +71,7 @@ object ConversationHistoryPage {
                 rev++
             }
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(entries, key = { it.first }) { entry ->
+                items(entries, key = { it.first }, contentType = { "history" }) { entry ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         DhKit.ActionRow(entry.second, modifier = Modifier, iconRes = Icons.IC_MESSAGE_SQUARE, onClick = {
                             ChatSessions.switchTo(act, entry.first)

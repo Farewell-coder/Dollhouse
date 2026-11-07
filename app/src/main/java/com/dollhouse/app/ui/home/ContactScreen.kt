@@ -156,7 +156,10 @@ object ContactScreen {
                 ) {
                     for ((groupName, dolls) in groups) {
                         // ---------- 分组标题（可点击折叠）----------
-                        item(key = "h_" + groupName) {
+                        // 【contentType：两种形态分开】本列表有「分组头」与「联系人行」两类条目，
+                        //   给它们不同的 contentType，Compose 才会各自复用各自的槽位，
+                        //   而不是滚动一次就把整个槽位重建。
+                        item(key = "h_" + groupName, contentType = "header") {
                             GroupHeader(
                                 name = groupName,
                                 count = dolls.size,
@@ -171,7 +174,7 @@ object ContactScreen {
                             }
                         }
                         if (!collapsed.value.contains(groupName)) {
-                            items(dolls, key = { "d_" + it.id }) { doll ->
+                            items(dolls, key = { "d_" + it.id }, contentType = { "contact" }) { doll ->
                                 ContactRow(act, doll) { openChatWith(act, doll.id) }
                             }
                         }
