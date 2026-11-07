@@ -91,10 +91,10 @@ object ChatListScreen {
     /** 页面 key（进 [com.dollhouse.app.ui.compose.PageStack] 用；本页也可作为 Tab 直接渲染）。 */
     const val KEY = "chat:list"
 
-    /** 头像边长（dp）。 */
-    private const val AVATAR_DP = 52
-    /** 【r14·需求 3】顶栏左上角「我」的头像边长（dp）—— 比列表头像小一圈，不抢标题视觉重心。 */
-    private const val HEAD_AVATAR_DP = 36
+    /** 头像边长（dp）← 统一到设计系统阶梯（原为各页自写的 52）。 */
+    private val AVATAR_DP = com.dollhouse.app.ui.design.DhDesign.Size.avatarRow.value.toInt()
+    /** 顶栏左上角「我」的头像边长（dp）← 统一到设计系统阶梯（原为自写的 36）。 */
+    private val HEAD_AVATAR_DP = com.dollhouse.app.ui.design.DhDesign.Size.avatarTopBar.value.toInt()
 
     /** 列表顶部 / 底部内边距（底部要避开悬浮底栏，由宿主用 [contentPadding] 传进来）。 */
     private val PAD_H = 16.dp
@@ -270,8 +270,22 @@ object ChatListScreen {
             }
             when {
                 !loaded -> {
-                    // 首帧：数据还没回来。不显示「空」以免闪一下「没有会话」的文案。
-                    Box(Modifier.fillMaxSize())
+                    // 【本轮·修「纯空白页」】改造前这里是一个空 Box：数据读盘期间整屏什么都没有。
+                    //   设计稿明确禁止这种形态（"加载超过 1.2s 才出骨架，以下直接出内容"），
+                    //   而实测这个页面在冷启动时要读会话表 + 解码头像，常见情况下确实会超过 1.2s。
+                    //   现在给 3 条骨架行：既避免了「闪一下『没有会话』」的误判（原写法担心的正是这个），
+                    //   也不再让用户面对一片空白而不知道 App 是否在动。
+                    //   【为什么是 3 条】会话列表首屏通常可见 5–7 条，3 条足以表达「有内容正在来」，
+                    //   又不会因为骨架太长而在数据到达时造成明显的跳动。
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = PAD_H)
+                    ) {
+                        repeat(3) {
+                            com.dollhouse.app.ui.kit.DhSkeletonRow(lines = 2)
+                        }
+                    }
                 }
 
                 shown.isEmpty() -> {

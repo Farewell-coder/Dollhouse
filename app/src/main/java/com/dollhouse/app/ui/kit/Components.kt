@@ -561,7 +561,11 @@ fun DhState(
         }
         if (!actionText.isNullOrEmpty() && onAction != null) {
             Spacer(Modifier.height(DhDesign.Space.lg.dp))
-            DhButton(text = actionText, onClick = onAction, style = DhButtonStyle.SECONDARY)
+            // 【本轮·改为 PRIMARY】设计稿 §3：空/错/无权限态「恰好一个动作」，
+            //   而「每屏只允许一个主按钮」的前提是那个唯一动作就该是主按钮。
+            //   改造前这里用 SECONDARY（card 底 + 描边），在整屏只有它一个可点元素的情况下，
+            //   它看起来像"次要选项"，用户不确定该不该点 —— 这是空态最常被抱怨的地方。
+            DhButton(text = actionText, onClick = onAction, style = DhButtonStyle.PRIMARY)
         }
     }
 }

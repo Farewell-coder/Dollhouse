@@ -479,8 +479,8 @@ object ChatUi {
         }
     }
 
-    /** 气泡旁头像边长（dp）—— 与列表头像同口径（[ChatListData] 的 52dp 略小一号）。 */
-    private const val BUBBLE_AVATAR_DP = 34
+    /** 气泡旁头像边长（dp）← 统一到设计系统阶梯（原为自写的 34）。 */
+    private val BUBBLE_AVATAR_DP = com.dollhouse.app.ui.design.DhDesign.Size.avatarBubble.value.toInt()
 
     /**
      * 气泡旁的小头像。
