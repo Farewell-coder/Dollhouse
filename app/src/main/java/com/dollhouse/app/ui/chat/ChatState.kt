@@ -29,8 +29,11 @@ object ChatState {
     /** 请求在途：发送键切「停止」。 */
     var waiting by mutableStateOf(false)
 
-    /** 浏览归档：收起输入行与工具条。 */
-    var browsingArchives by mutableStateOf(false)
+    // 【M-清理】原 `browsingArchives` 字段已删除。
+    //   它声称「浏览归档时收起输入行与工具条」，但全仓**没有任何一处置 true**
+    //   （唯一写值是 init 里的 false），于是 ChatUi 的 ToolRow / InputRow 两个
+    //   early-return 分支永远不会执行 —— 是死分支。
+    //   归档能力若将来要做，应连同「置 true 的入口」一起加，而不是留一个永远为假的开关。
 
     /** 顶栏上下文环比例（0~1）。 */
     var ctxRatio by mutableStateOf(0f)

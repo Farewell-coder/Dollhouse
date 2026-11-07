@@ -62,7 +62,6 @@ class ChatPanel(
     /** 【v2.8】最近一次补回的「更早历史」条数；0 = 当前不是展开态。跨包契约。 */
     internal var prevCount = 0
 
-    private var browsingArchives = false
     private var pendingImage: String? = null
     private var pendingText: String? = null
     /** 【OCR】「等 OCR 扫完再发」的闸门是否仍然有效（用户中途停止 / 新一轮发送会置假）。 */
@@ -131,7 +130,6 @@ class ChatPanel(
     // 构造：铺 Compose 面板 → 载入历史 → 刷新输入行 → 套用聊天背景。
     init {
         this.waiting = false
-        this.browsingArchives = false
         this.thinkDegraded = false
         orientation = LinearLayout.VERTICAL
         // 【圆角】面板整体 16dp 圆角：背景（含背景图）由 GlobalBackground 画在本视图上，
@@ -359,7 +357,6 @@ class ChatPanel(
     }
 
     fun refreshInputRow() {
-        ChatState.browsingArchives = browsingArchives
         refreshAttachStrip()
     }
 
@@ -403,9 +400,6 @@ class ChatPanel(
     }
 
     fun openPicker() {
-        if (browsingArchives) {
-            return
-        }
         PickFileActivity.setListener(this)
         PickFileActivity.setPurpose(ImageStore.DIR)
         PickFileActivity.start(context)
@@ -698,7 +692,12 @@ class ChatPanel(
             }
             val idx = searchHistory(kw)
             if (idx >= 0) {
+                // 【M-修断链】原写法只写字段、Compose 侧从不读它，
+                //   「搜索命中高亮」实际是断的（用户只看到一句「找到第 N 条」，看不到是哪条）。
+                //   现在写入跨气泡的 SearchHighlight（ChatItem 没有高亮属性，
+                //   且它属瞬时 UI 状态、不该塞进消息模型）。
                 highlightIndex = idx
+                SearchHighlight.set(idx)
                 renderHistory()
                 flashMemo("找到第 " + (idx + 1) + " 条")
             } else {
@@ -1400,9 +1399,6 @@ class ChatPanel(
 
     fun onSend() {
         if (waiting) {
-            return
-        }
-        if (browsingArchives) {
             return
         }
         // 【坑】上一轮的「等 OCR」闸门可能还挂着（请求已回、闸门未清），先作废，避免串到这一轮。

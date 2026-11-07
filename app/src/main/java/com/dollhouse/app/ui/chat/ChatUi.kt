@@ -4,6 +4,7 @@ import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -358,6 +359,18 @@ object ChatUi {
         val offset = if (ChatState.hasPrev) 1 else 0
         val tailExtra = if (ChatState.thinking != null) 1 else 0
 
+        // 【M-修断链】搜索高亮的自动消除。
+        //   高亮是「瞬时提示」：用户看到哪一条被找到就够了，不该一直挂着。
+        //   这里在设置高亮后 2.4 秒自动清掉（足够读完一句、又不至于让它变成常驻装饰）。
+        //   【为什么 key 用 index】同一位置重复搜索（搜同一个词两次）也能重置计时。
+        val hi = com.dollhouse.app.ui.chat.SearchHighlight.index
+        LaunchedEffect(hi) {
+            if (hi >= 0) {
+                kotlinx.coroutines.delay(2400)
+                com.dollhouse.app.ui.chat.SearchHighlight.clear()
+            }
+        }
+
         // 滚动请求：每自增一次消费一次。
         LaunchedEffect(tick) {
             if (tick == 0 || items.isEmpty()) {
@@ -583,6 +596,27 @@ object ChatUi {
                             RoundedCornerShape(16.dp, 16.dp, 6.dp, 16.dp)
                         } else {
                             RoundedCornerShape(16.dp, 16.dp, 16.dp, 6.dp)
+                        }
+                    )
+                    // 【M-修断链】搜索命中时给这条气泡加一圈强调色描边（2dp），
+                    //   让用户一眼看到「找到的是哪一条」。
+                    //   改造前 ChatPanel 会写 highlightIndex 但 Compose 侧从不读，
+                    //   所以这个功能一直是断的。
+                    //   【为什么用描边而不是改底色】底色承载「我/对方」的语义（暖灰/卡片白），
+                    //   改底色会让这两条语义混淆；描边是叠加层，不破坏原有编码。
+                    .then(
+                        if (com.dollhouse.app.ui.chat.SearchHighlight.index == item.index) {
+                            Modifier.border(
+                                2.dp,
+                                c.acc,
+                                if (mine) {
+                                    RoundedCornerShape(16.dp, 16.dp, 6.dp, 16.dp)
+                                } else {
+                                    RoundedCornerShape(16.dp, 16.dp, 16.dp, 6.dp)
+                                }
+                            )
+                        } else {
+                            Modifier
                         }
                     )
                     .background(if (mine) c.chatBubbleUser else c.card)
@@ -1094,9 +1128,6 @@ object ChatUi {
     @Composable
     private fun ToolRow(host: ChatPanel) {
         val c = DhTokens.colors
-        if (ChatState.browsingArchives) {
-            return
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1173,9 +1204,6 @@ object ChatUi {
     @Composable
     private fun InputRow(host: ChatPanel) {
         val c = DhTokens.colors
-        if (ChatState.browsingArchives) {
-            return
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

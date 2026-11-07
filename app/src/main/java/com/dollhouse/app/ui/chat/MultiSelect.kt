@@ -57,3 +57,38 @@ object MultiSelect {
         picked.clear()
     }
 }
+
+/**
+ * 【职责】搜索命中的**高亮下标**（M-修复断链）。
+ *
+ * 【为什么需要它】`ChatPanel` 的搜索功能一直会写 `highlightIndex = idx`，
+ *   并注释说「滚动到该条并闪烁高亮（由 renderHistory 的 highlightIndex 控制）」——
+ *   但 Compose 侧 `ChatUi` **从未读取过这个字段**，`ChatItem` 里也没有高亮属性。
+ *   也就是说「搜索命中后高亮那条消息」这个功能实际是**断的**：
+ *   用户搜到结果，只看到一句「找到第 N 条」，看不到是哪一条被找到。
+ *
+ * 【为什么用全局对象而不是给 ChatItem 加字段】
+ *   给 `ChatItem` 加 `highlight: Boolean` 需要改 5 处构造点，且它是「当前搜索态」——
+ *   属于**瞬时 UI 状态**，不是消息内容本身，塞进消息模型会让缓存/序列化语义变脏。
+ *   与 [MultiSelect] 同型：跨气泡共享、由命令式代码写入、Compose 读取。
+ *
+ * 【怎么消除】高亮是短时的：写入后由 UI 侧在若干秒后自动清掉
+ *   （见 ChatUi 里的 LaunchedEffect），避免它一直挂在某条消息上。
+ */
+object SearchHighlight {
+    /** 当前高亮的消息下标（-1 = 无）。 */
+    @JvmField
+    var index: Int = -1
+
+    /** 设置高亮；-1 表示清除。 */
+    @JvmStatic
+    fun set(i: Int) {
+        index = i
+    }
+
+    /** 清除高亮。 */
+    @JvmStatic
+    fun clear() {
+        index = -1
+    }
+}
