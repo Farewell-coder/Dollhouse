@@ -26,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.dollhouse.app.ui.compose.DhTokens
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -881,7 +882,7 @@ object DhForm {
                 Text(
                     text = title,
                     color = c.title,
-                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
+                    fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = FontWeight.Bold
                 )
@@ -1037,7 +1038,7 @@ object DhForm {
                     Text(
                         text = title,
                         color = c.title,
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
+                        fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold
                     )

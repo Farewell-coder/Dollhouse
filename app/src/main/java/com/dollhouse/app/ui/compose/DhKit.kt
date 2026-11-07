@@ -47,6 +47,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.dollhouse.app.ui.compose.DhTokens
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -161,7 +162,7 @@ object DhKit {
     /** 图标与文字的间距（dp）← [DhDesign.Space.iconGap]。改造前 8 与 10 并存，统一取 8。 */
     const val GAP_ICON = com.dollhouse.app.ui.design.DhDesign.Space.iconGap
 
-    /** 行内说明文字字号（sp）。M1 起跟随 [DhDesign.Type.sub]（13sp），不再用 12。 */
+    /** 行内说明文字字号（sp）。M1 起跟随 [DhTokens.type.sub]（13sp），不再用 12。 */
     const val FS_ROW_DESC = 13f
 
     /** 行最小高度（dp）：保证无说明项与有说明项的可点区域都不低于 Android 建议的 48dp。 */
@@ -451,7 +452,7 @@ object DhKit {
                         color = c.title,
                         // 【M3·层级】卡片标题走 section 档（16sp/600），与行标题（15sp/500）形成
                         //   明确的一级差异；改造前标题 15sp/Bold、行标题 15sp，几乎分不出谁是分组。
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize,
+                        fontSize = DhTokens.type.section.fontSize,
                         lineHeight = 22.sp,
                         fontFamily = DhTokens.fonts,
                         fontWeight = FontWeight.SemiBold
@@ -1022,7 +1023,7 @@ object DhKit {
                 // 【M3】分组小标题走 label 档（11sp/600 + 0.44 字距）。
                 //   改造前用 FS_SUB（13sp 常规字重），与行内说明文字同字号同字重 ——
                 //   「分组名」和「说明文字」长得一样，用户分不清哪一行是标题。
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
+                fontSize = DhTokens.type.label.fontSize,
                 lineHeight = 16.sp,
                 fontFamily = DhTokens.fonts,
                 fontWeight = FontWeight.SemiBold,
@@ -1045,7 +1046,7 @@ object DhKit {
                     text = text,
                     modifier = Modifier.weight(1f),
                     color = c.sub,
-                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize,
+                    fontSize = DhTokens.type.label.fontSize,
                     lineHeight = 16.sp,
                     fontFamily = DhTokens.fonts,
                     fontWeight = FontWeight.SemiBold,

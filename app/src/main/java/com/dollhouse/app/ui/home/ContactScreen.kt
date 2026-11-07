@@ -222,7 +222,7 @@ object ContactScreen {
             Text(
                 text = name,
                 color = c.sub,
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight,
+                fontSize = DhTokens.type.sub.fontSize, lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Bold
             )
@@ -230,7 +230,7 @@ object ContactScreen {
             Text(
                 text = count.toString(),
                 color = c.line,
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
+                fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             if (isNone) {
@@ -239,7 +239,7 @@ object ContactScreen {
                 Text(
                     text = "· 没归组的人偶",
                     color = c.line,
-                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
+                    fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -300,7 +300,7 @@ object ContactScreen {
                         text = doll.name,
                         modifier = Modifier.weight(1f, fill = false),
                         color = c.title,
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
+                        fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -323,7 +323,7 @@ object ContactScreen {
                     Text(
                         text = brief,
                         color = c.sub,
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
+                        fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                         fontFamily = DhTokens.fonts,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

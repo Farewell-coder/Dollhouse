@@ -492,7 +492,7 @@ object ChatListScreen {
                         // 【M4·字号对齐阶梯】16sp/Bold → 15sp/500。
                         //   行标题在阶梯里是 body@500；16sp 既不在任何一档上，
                         //   又与会话内气泡正文（15sp）不一致，进出会话时标题会"缩一下"。
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.body.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.body.lineHeight,
+                        fontSize = DhTokens.type.body.fontSize, lineHeight = DhTokens.type.body.lineHeight,
                         fontFamily = DhTokens.fonts,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -507,7 +507,7 @@ object ChatListScreen {
                 Text(
                     text = row.preview,
                     color = c.sub,
-                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight,
+                    fontSize = DhTokens.type.sub.fontSize, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -518,7 +518,7 @@ object ChatListScreen {
                 Text(
                     text = timeText(row.time),
                     color = c.sub,
-                    fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
+                    fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 if (row.unread > 0) {
@@ -579,7 +579,7 @@ object ChatListScreen {
                 //   数字几乎看不见。改用派生色 onErr（按底色明暗自动选黑/白）。
                 color = DhTokens.palette.onErr,
                 // 字号 10sp 不在任何一档上；徽标是 label 语义，归 11/600。
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.label.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.label.lineHeight,
+                fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.SemiBold
             )

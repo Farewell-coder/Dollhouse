@@ -702,13 +702,13 @@ object MemPage {
             Text(
                 text = "连线 = 关系",
                 color = c.line,
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
+                fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             Text(
                 text = "大圈 = 关联多",
                 color = c.line,
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
+                fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }

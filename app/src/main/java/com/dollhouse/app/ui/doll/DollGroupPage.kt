@@ -121,14 +121,14 @@ object DollGroupPage {
                         Text(
                             text = if (allNames.isEmpty()) "还没有分组" else "分组还是空的",
                             color = c.sub,
-                            fontSize = com.dollhouse.app.ui.design.DhDesign.Type.body.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.body.lineHeight,
+                            fontSize = DhTokens.type.body.fontSize, lineHeight = DhTokens.type.body.lineHeight,
                             fontFamily = DhTokens.fonts
                         )
                         Spacer(Modifier.height(DhDesign.Space.xs.dp))
                         Text(
                             text = "点右上角的文件夹图标新建一个",
                             color = c.line,
-                            fontSize = com.dollhouse.app.ui.design.DhDesign.Type.caption.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.caption.lineHeight,
+                            fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                             fontFamily = DhTokens.fonts
                         )
                     }

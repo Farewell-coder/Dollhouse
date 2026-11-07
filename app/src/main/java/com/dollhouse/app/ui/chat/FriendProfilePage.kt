@@ -366,7 +366,7 @@ object FriendProfilePage {
                     Text(
                         text = name,
                         color = c.title,
-                        fontSize = com.dollhouse.app.ui.design.DhDesign.Type.title.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.title.lineHeight,
+                        fontSize = DhTokens.type.title.fontSize, lineHeight = DhTokens.type.title.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,

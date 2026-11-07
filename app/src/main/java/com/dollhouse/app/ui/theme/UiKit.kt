@@ -1729,21 +1729,21 @@ object UiKit {
      *   于是「说明文字」和「注脚」一样大，全 App 都偏小偏淡。
      */
 
-    /** 页面标题字号 ← [DhDesign.Type.title]。 */
+    /** 页面标题字号 ← [DhTokens.type.title]。 */
     const val FS_TITLE = 20.0f
 
-    /** 副标题 / 注脚字号 ← [DhDesign.Type.sub]。 */
+    /** 副标题 / 注脚字号 ← [DhTokens.type.sub]。 */
     const val FS_SUB = 13.0f
 
-    /** 底部说明文字号 ← [DhDesign.Type.sub]。
+    /** 底部说明文字号 ← [DhTokens.type.sub]。
      *  【需求】11sp 在浅底上偏小偏淡（用户实测反馈「底部小字看不清」），
      *   M1 再上调到 13sp，与 [FS_SUB] 同档 —— 两者本来就是「说明文字」这一种语义。 */
     const val FS_TINY = 13.0f
 
-    /** 标准按钮字号 ← [DhDesign.Type.body]。 */
+    /** 标准按钮字号 ← [DhTokens.type.body]。 */
     const val FS_BTN = 15.0f
 
-    /** 小药丸 / 状态标签字号 ← [DhDesign.Type.caption]。 */
+    /** 小药丸 / 状态标签字号 ← [DhTokens.type.caption]。 */
     const val FS_CHIP = 12.0f
 
     /** 顶栏图标字号 ← [DhDesign.Size.iconMd]。 */

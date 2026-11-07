@@ -55,7 +55,7 @@ fun MiniChart(
                 text = "暂无消耗",
                 modifier = Modifier.align(Alignment.Center),
                 color = c.sub,
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.sub.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.sub.lineHeight,
+                fontSize = DhTokens.type.sub.fontSize, lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             return@Box

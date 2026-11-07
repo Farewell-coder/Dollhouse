@@ -152,7 +152,7 @@ object DeveloperOptionsPage {
 
     @Composable private fun Stat(label: String, value: Int?, color: Color, modifier: Modifier, click: () -> Unit) {
         Column(modifier.clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
-            Text(value?.toString() ?: "—", color = color, fontSize = com.dollhouse.app.ui.design.DhDesign.Type.display.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.display.lineHeight, fontFamily = DhTokens.fontsBold)
+            Text(value?.toString() ?: "—", color = color, fontSize = DhTokens.type.display.fontSize, lineHeight = DhTokens.type.display.lineHeight, fontFamily = DhTokens.fontsBold)
             Text(label, color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
         }
     }
@@ -234,7 +234,7 @@ object DeveloperOptionsPage {
         DhKit.Card {
             DhForm.Badge(level(e.severity), DhTokens.colors.err, DhForm.semanticBg(DhTokens.colors.err))
             // 【间距收敛】徽标行 → 详情主消息：与事件卡同构，Space.md(12)。
-            Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight, fontFamily = DhTokens.fontsBold)
+            Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight, fontFamily = DhTokens.fontsBold)
             DhKit.ValueRow("错误编号", e.code, iconRes = Icons.IC_CIRCLE_ALERT); DhKit.ValueRow("事件 ID", e.eventId, iconRes = Icons.IC_TAGS)
             DhKit.ValueRow("所属模块", e.module, iconRes = Icons.IC_BLOCKS); DhKit.ValueRow("发生时间", time(e.timestamp), iconRes = Icons.IC_CLOCK_3)
             DhKit.ValueRow("线程", e.thread.ifEmpty { "未采集" }, iconRes = Icons.IC_ACTIVITY); DhKit.ValueRow("异常类型", e.exceptionType.ifEmpty { "未采集" }, iconRes = Icons.IC_WARNING)

@@ -418,7 +418,7 @@ object AboutPage {
             Text(
                 text = title,
                 color = c.title,
-                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.section.fontSize, lineHeight = com.dollhouse.app.ui.design.DhDesign.Type.section.lineHeight,
+                fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
