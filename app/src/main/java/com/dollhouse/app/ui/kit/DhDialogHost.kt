@@ -253,6 +253,15 @@ object DhDialogHost {
                 android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
             )
             dlg.setCanceledOnTouchOutside(true)
+            // 【浮层遮罩】改造前没设 dimAmount，弹窗与背后内容完全同亮 ——
+            //   视觉上"糊在一起"，没有「浮起一层」的纵深感。
+            //   【为什么只改窗口属性、不动布局】用户明确要求「不改原有功能和业务逻辑」；
+            //   dim 由 WindowManager 画在窗口**下方**，与窗口背景是否透明无关，
+            //   因此不会影响 62 处弹窗的任何布局与命中区。
+            //   【取值 0.32】比系统默认的 0.6 轻 —— 用户要的是「轻量化、精致」，
+            //   太重会像传统安卓弹窗；同时与抽屉的 scrim（title@42%）同一量级，
+            //   全 App 浮层遮罩口径一致。
+            runCatching { dlg.window?.setDimAmount(0.32f) }
             val dm = act.resources.displayMetrics
             val insetPx = act.resources.displayMetrics.density.toInt() * widthInsetDp * 2
             val roomPx = (act.resources.displayMetrics.density * shadowRoom.value).toInt() * 2

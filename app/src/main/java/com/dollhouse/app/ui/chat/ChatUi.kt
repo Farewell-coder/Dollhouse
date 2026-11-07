@@ -467,7 +467,20 @@ object ChatUi {
             //   规则抽在 [ChatKeys]（纯函数），由 `ChatKeysTest` 钉住。
             itemsIndexed(
                 items,
-                key = { _, it -> ChatKeys.of(it) }
+                key = { _, it -> ChatKeys.of(it) },
+                // 【contentType：滚动复用槽位的关键】
+                //   只有 key 而没有 contentType 时，Compose 不知道「这一项和那一项是同一种布局」，
+                //   滚动复用时无法把回收的槽位交给同类型项 —— 长会话来回滚动会反复重建
+                //   （用户体感就是"滑动有点涩"）。
+                //   这里按三种真实形态分：摘要分割线 / 我方气泡 / 她方气泡。
+                //   参考：Compose 性能规范「Mandatory contentType and Primitive key」。
+                contentType = { _, it ->
+                    when {
+                        it.isSummary -> "summary"
+                        it.role == "user" -> "user"
+                        else -> "assistant"
+                    }
+                }
             ) { idx, item ->
                 // 【消息间距】改造前相邻气泡之间**没有间距**，连续几条像一整块；
                 //   这里统一给 6dp（与列表页卡片间距 10、行间距 8 同族但更紧，
