@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhField
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Design
 
@@ -86,6 +87,18 @@ object DhForm {
     /**
      * 单行输入框（自带标签 + 提示）。← `ApiPageKit.labeledInput`。
      *
+     * 【本轮·转发到规范实现】本函数现在只是**分派器**：不带尾部内容时直接委托
+     *   `ui/kit` 的 [DhField]（规范源），框体样式一律不再自己画 ——
+     *   聚焦态、40dp 高度、12 圆角、field 底、1dp accent 描边全部由 DhField 一处决定。
+     *   这样「改规范」只需改 DhField，53 个调用点跟着变，不会再有第二套输入框。
+     *
+     * 【为什么带 trailing 的 6 处仍走旧实现】DhField 对 `singleLine = true` **强制**
+     *   `Modifier.height(40.dp)`，而这几处的尾部是 [DhKit.IconButton]，命中区 48dp
+     *   （见 [DhKit.HIT] 与 `minTouchTarget`）。若也走 DhField，48dp 会被裁到 40dp，
+     *   无障碍可点区退化成不达标 —— 这是「对齐不变量」与「不破坏无障碍」的冲突，
+     *   取后者。故这 6 处保留 [LegacyInput]（它只给 40dp 下限，不定高）。
+     *   待 DhField 支持「下限而非定高」后，这 6 处可一并并入，届时删掉 LegacyInput。
+     *
      * @param label    左上角小标签；null / 空则不占位
      * @param hint     占位提示（输入为空时显示）
      * @param password true 时做密码遮罩（密钥字段用）
@@ -94,6 +107,86 @@ object DhForm {
      */
     @Composable
     fun Input(
+        value: String,
+        onValueChange: (String) -> Unit,
+        modifier: Modifier = Modifier,
+        label: String? = null,
+        hint: String = "",
+        password: Boolean = false,
+        singleLine: Boolean = true,
+        keyboard: KeyboardType = KeyboardType.Text,
+        imeAction: ImeAction = ImeAction.Done,
+        trailing: (@Composable () -> Unit)? = null,
+        compactTrailing: Boolean = false
+    ) {
+        // 【分派条件】只有「带尾部内容」这一种情况必须走旧实现（理由见 KDoc）。
+        //   其余 47 处一律委托 DhField —— 这正是本任务要的「规范真正落地」。
+        //   `compactTrailing` 只影响 trailing 那条分支，无 trailing 时传什么都不参与渲染，
+        //   故它不参与分派判定（与旧实现的分支语义一致）。
+        if (trailing != null) {
+            LegacyInput(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = modifier,
+                label = label,
+                hint = hint,
+                password = password,
+                singleLine = singleLine,
+                keyboard = keyboard,
+                imeAction = imeAction,
+                trailing = trailing,
+                compactTrailing = compactTrailing
+            )
+            return
+        }
+        Column(modifier = modifier.fillMaxWidth()) {
+            // 【标签留在这一层】DhField 没有 label 参数，规范库也没有独立的标签构件
+            //   （见 Components.kt 的导出清单）。40 处调用点靠 label 表达字段名，
+            //   删掉就等于丢功能，故由本层原样补上，措辞与字号沿用既有口径。
+            if (!label.isNullOrEmpty()) {
+                FieldLabel(label)
+            }
+            DhField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = hint,
+                singleLine = singleLine,
+                keyboard = keyboard,
+                imeAction = imeAction,
+                password = password
+            )
+        }
+    }
+
+    /**
+     * 输入框左上角的小标签。
+     *
+     * 【为什么抽出来】分派器（委托 DhField）与 [LegacyInput]（带 trailing）都要画它，
+     *   两处必须逐像素一致 —— 否则同一个表单里「有尾部图标的框」与「没有的框」
+     *   标签位置会差几 dp，正是本轮要消除的分叉。
+     */
+    @Composable
+    private fun FieldLabel(label: String) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 4.dp),
+            color = DhTokens.colors.sub,
+            fontSize = UiKit.FS_SUB.sp,
+            fontFamily = DhTokens.fonts
+        )
+    }
+
+    /**
+     * 输入框旧实现（仅 `trailing != null` 的 6 处使用）。
+     *
+     * 【为什么保留整套而不是删掉】它的高度是「40dp 下限、不定高」，正好容纳
+     *   [DhKit.IconButton] 的 48dp 命中区；DhField 定高 40，用不了。详见 [Input] 的 KDoc。
+     *   【聚焦态】与本轮上一版完全一致（底 field→card、描边 accent、160ms），
+     *   不因为改成分派器而退化。
+     */
+    @Composable
+    private fun LegacyInput(
         value: String,
         onValueChange: (String) -> Unit,
         modifier: Modifier = Modifier,
@@ -120,16 +213,14 @@ object DhForm {
         compactTrailing: Boolean = false
     ) {
         val c = DhTokens.colors
-        // 【聚焦态·本轮补】改造前本框**聚焦时什么都不变**：底恒为 field、无描边。
-        //   于是多框表单里用户看不出「现在激活的是哪一个」，这是设计稿明令要求的一环。
-        //   规范实现（聚焦 → 底 field→card、描边 Transparent→accent、160ms）本来只存在于
-        //   `ui/kit` 的 DhField 里，而它库外 0 调用 —— 等于规范没落地。
-        //   这里把同一套行为补进**真正被 53 处调用的** DhForm.Input，参数与签名零改动。
+        // 【聚焦态·必须保住】这一版不走 DhField，所以聚焦态得自己画 ——
+        //   与本轮上一版**逐值相同**（底 field→card、描边 Transparent→accent、160ms），
+        //   不因为本函数改名为 LegacyInput 而退化。
         //
-        // 【token 口径】颜色取规范名 `DhTokens.palette`，与 DhField 完全同源
+        // 【token 口径】颜色取 `DhTokens.palette`，与 DhField 同源
         //   （Palette.fromUiKit 与 DhColors.fromUiKit 读同一批 UiKit 字段，值相等）。
-        //   时长取 `DhDesign.Motion.micro`（160），描边粗取 `DhDesign.Size.hairline`（1dp），
-        //   圆角取 `DhDesign.Radius.md`（12）—— 不写裸值。
+        //   时长 `DhDesign.Motion.micro`（160）、描边 `DhDesign.Size.hairline`（1dp）、
+        //   圆角 `DhDesign.Radius.md`（12）—— 不写裸值。
         val p = DhTokens.palette
         val focusSource = remember { MutableInteractionSource() }
         val focused by focusSource.collectIsFocusedAsState()
@@ -144,25 +235,18 @@ object DhForm {
             label = "dhform-input-stroke"
         )
         val fieldShape = RoundedCornerShape(DhDesign.Radius.md.dp)
-        // 【高度对齐设计稿 40dp】原来高度全靠上下各 12dp 内边距把文字撑出来（≈44dp）。
-        //   这里改成：单行且无尾部内容时**定高 40**；其余情况只给 40 的下限。
-        //   【为什么不一律定高】带 trailing 的 6 处里，IconButton 的命中区是 48dp，
-        //   定高 40 会把它裁掉（无障碍与可点性双退化）。用 defaultMinSize 让 48dp 的
-        //   那几处维持原高度，其余 47 处收敛到 40 —— 既对齐设计稿，又不碰命中区。
-        val fixedHeight = singleLine && trailing == null
-        // 【定高时上下不留内边距】40dp 已经由 Modifier.height 定死，再叠 8dp 上下内边距
-        //   会把文字挤进 24dp 的窄条里（大字号时可读性退化）。留 0、改由 Box 居中承担，
-        //   与 DhField 的口径一致（它也是定高 + 只有水平内边距）。
-        val verticalPad = if (fixedHeight) 0.dp else DhDesign.Space.md.dp
+        // 【定高规则·本分支只有一个值】本函数只服务「带 trailing」的调用点，
+        //   所以这里**恒为 false**：一律只给 40dp 下限、不定高，让
+        //   [DhKit.IconButton] 的 48dp 命中区完整保留。
+        //   原先那句 `singleLine && trailing == null` 在此分支恒假，已简化为字面 false，
+        //   避免读代码的人以为这里还有定高路径。
+        val fixedHeight = false
+        // 【不定高时按 12dp 垂直内边距】由内边距把行撑到约 44dp，仍然容纳 48dp 的尾部图标。
+        val verticalPad = DhDesign.Space.md.dp
         Column(modifier = modifier.fillMaxWidth()) {
             if (!label.isNullOrEmpty()) {
-                Text(
-                    text = label,
-                    modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 4.dp),
-                    color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
-                )
+                // 与分派器共用同一个标签构件，保证「有 / 无尾部图标」两种框的标签位置一致。
+                FieldLabel(label)
             }
             BasicTextField(
                 value = value,
@@ -193,11 +277,13 @@ object DhForm {
                 // 【必须把 interactionSource 交给 BasicTextField】否则它永远收不到 Focus 事件，
                 //   collectIsFocusedAsState 会恒为 false —— 聚焦态等于没加。
                 interactionSource = focusSource,
-                textStyle = TextStyle(
-                    color = c.title,
-                    fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
-                ),
+                // 【字体口径·改为与 DhField 同源】原来这里写 `DhTokens.fonts`（文楷品牌字，
+                //   FS_BTN 15sp）。委托给 DhField 的那 47 处用的是 `DhTokens.type.body`
+                //   （系统无衬线）。若这里不改，同一个表单里会出现「有尾部图标的框是文楷、
+                //   没有的是黑体」—— 这正是本轮要消除的分叉。
+                //   设计稿 §1 明确：品牌字只用于 App 名 / 人偶名 / 头像首字，输入内容属正文。
+                //   取 `type.body` 后字号仍是 15sp（body 与 FS_BTN 同档），视觉只变字族。
+                textStyle = DhTokens.type.body.copy(color = c.title),
                 singleLine = singleLine,
                 visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(

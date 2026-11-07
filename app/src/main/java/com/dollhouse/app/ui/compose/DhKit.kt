@@ -1181,6 +1181,73 @@ object DhKit {
         tooltip: String? = null,
         onClick: (() -> Unit)? = null
     ) {
+        // 【M-收口·转发到规范实现】本函数有 87 处调用点（全 App 用得最多的行组件），
+        //   改造它等于一次性让 87 个页面的"可点行"对齐设计规范。
+        //   【为什么用转发而不是复制样式】`ui/kit.DhRow` 是规范源。改造前这里自带
+        //   soft 底 + 圆角 10，于是每一行都是独立小卡片 —— 一页十行就是十个圆角矩形，
+        //   正是设计稿要收敛掉的"逐行卡片"。转发后行直接铺在卡片面上。
+        //   【参数适配】label→title、trailing→value（都是"右侧文字"，语义一致）、
+        //     iconRes 的 Int? → DhRow 的 Int（null 归一为 0 = 不占位）、
+        //     enabled→modifier（见下）。
+        //   【为什么 showChevron = false】旧调用从不画箭头，转发后若默认画上会平白多一个符号。
+        //
+        //   【行距】旧实现给每行 padding(top = GAP_ROW)；但那 8dp 是为了把"小卡片"彼此
+        //     分开。现在行铺在同一张卡上，行与行已由 DhRow 的行高（64/56dp）+ 垂直内边距
+        //     自然分隔，再叠 8dp 会让同一页的行距忽大忽小。故转发时不再加 GAP_ROW ——
+        //     与 ValueRow 转发后的口径一致（两处必须同口径，否则同页两种行距）。
+        //
+        //   【enabled 用 modifier 表达，不必走旧实现】DhRow 把 modifier 应用在 pressable
+        //     **之前**，所以这里能同时做到「降透明度」+「吞掉点击」：
+        //     传 onClick = null 让它不挂点击，再叠 alpha(0.35)。两者都与旧实现同值。
+        //
+        //   【唯一走旧实现的情况：tooltip】DhRow 里没有悬浮提示的位置，直接转发会让
+        //     用户再也看不到那句说明。当前 87 处调用里**没有任何一处**传 tooltip，
+        //     但签名保留着，所以分支必须留着，否则将来有人用就是静默丢功能。
+        val rowModifier = if (enabled) {
+            modifier
+        } else {
+            modifier.alpha(0.35f)
+        }
+        if (!tooltip.isNullOrBlank()) {
+            LegacyActionRow(label, modifier, iconRes, desc, trailing, enabled, tooltip, onClick)
+            return
+        }
+        com.dollhouse.app.ui.kit.DhRow(
+            title = label,
+            modifier = rowModifier,
+            desc = desc,
+            value = trailing,
+            iconRes = iconRes ?: 0,
+            showChevron = false,
+            onClick = if (enabled) onClick else null
+        )
+    }
+
+    /**
+     * 旧版 ActionRow 实现：仅保留给 [DhRow] 表达不了的参数组合。
+     *
+     * 【谁在用】只有 `tooltip != null` 的调用点（当前全仓 0 处，分支为兼容而留）。
+     *   tooltip 是"悬浮才出现的说明文字"，DhRow 只描述静态的一行，没有位置安放它。
+     *
+     * 【为什么 enabled 不在这里】上一版把这个分支用于 `enabled = false`，但那 6 处
+     *   忙态闸门因此仍显示成 soft 底小卡片，与同一页里已转发的行观感分叉。
+     *   改由 [DhRow] 的 modifier（alpha + onClick=null）表达后，禁用行也统一为规范行。
+     *
+     * 【为什么整段样式原样保留】一旦把这里的样式也改成规范行，tooltip 行就与普通行
+     *   长得一样、只差一个悬浮提示 —— 那时更该做的是给 DhRow 加 tooltip 参数，
+     *   而不是在 DhKit 里维护第二份样式。等 DhRow 支持 tooltip 后，这个分支应整个删除。
+     */
+    @Composable
+    private fun LegacyActionRow(
+        label: String,
+        modifier: Modifier,
+        iconRes: Int?,
+        desc: String?,
+        trailing: String?,
+        enabled: Boolean,
+        tooltip: String?,
+        onClick: (() -> Unit)?
+    ) {
         val c = DhTokens.colors
         val clickable = enabled && onClick != null
         val hasDesc = !desc.isNullOrEmpty()
