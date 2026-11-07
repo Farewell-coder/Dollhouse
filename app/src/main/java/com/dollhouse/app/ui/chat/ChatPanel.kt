@@ -228,7 +228,6 @@ class ChatPanel(
         ChatState.input = com.dollhouse.app.data.ChatDraftStore.load(context, boundDollId(), ChatSessions.currentId(context)).text
         renderHistory()
         refreshAttachStrip()
-        refreshCtxRing()
         ChatState.hint = chatHintText(context)
         applyBackground()
     }
@@ -566,7 +565,6 @@ class ChatPanel(
         prevCount = 0
         ChatHistoryStore.loadHistory(this)
         renderHistory()
-        refreshCtxRing()
         // 【附录D-5】换会话时重新载入草稿与附件。
         //
         // 【原来的 bug】草稿只在构造函数里灌过一次，而 `reloadHistory()` 换掉了消息列表
@@ -714,7 +712,6 @@ class ChatPanel(
             prevCount = 0
             ChatHistoryStore.saveHistory(this)
             renderHistory()
-            refreshCtxRing()
             flashMemo("已回滚到这条")
         } catch (unused: Throwable) {
         }
@@ -758,7 +755,7 @@ class ChatPanel(
             //
             //   【为什么用 reloadHistory() 而不是自己拼 loadHistory + renderHistory】
             //   它已做全换会话该做的事：prevCount=0 → loadHistory → renderHistory
-            //   → refreshCtxRing → reloadDraft（重灌草稿与附件）.
+            //   → syncCtxRatio（经 renderHistory）→ reloadDraft（重灌草稿与附件）. 
             //   最后那步是必需的：否则新会话里会显示上一个会话的草稿/附件，
             //   正是附录D-5 修过的 bug；自己拼会漏掉它.
             //
@@ -840,7 +837,6 @@ class ChatPanel(
             prevCount = 0
             ChatHistoryStore.saveHistory(this)
             renderHistory()
-            refreshCtxRing()
         } catch (unused: Throwable) {
         }
         // 回填输入框，用户可改完再发（不自动发 —— 避免误触直接产生一条新消息）。
@@ -883,7 +879,6 @@ class ChatPanel(
             prevCount = 0
             ChatHistoryStore.saveHistory(this)
             renderHistory()
-            refreshCtxRing()
         } catch (unused: Throwable) {
         }
         if (!canChat()) {
@@ -1167,7 +1162,6 @@ class ChatPanel(
             prevCount = 0
             ChatHistoryStore.saveHistory(this)
             renderHistory()
-            refreshCtxRing()
             flashMemo(
                 if (stashed && covered.length() > 0) {
                     "已插入总结，" + covered.length() + " 条原文收进了「加载更早」"
@@ -1280,7 +1274,6 @@ class ChatPanel(
             prevCount = 0
             ChatHistoryStore.saveHistory(this)
             renderHistory()
-            refreshCtxRing()
             flashMemo("已删除")
         } catch (t: Throwable) {
             flashMemo("删除失败")
@@ -1437,7 +1430,6 @@ class ChatPanel(
         // 【新增】连「更早的历史」暂存位一起清掉，否则清空后记录顶上还挂着「加载更早」。
         PetPrefs.removeConvPrev(context, ChatSessions.currentId(context))
         renderHistory()
-        refreshCtxRing()
     }
 
     /**
@@ -1500,17 +1492,6 @@ class ChatPanel(
         }
     }
 
-    /**
-     * 刷新顶栏的进度环。
-     *
-     * 【口径 v0.0.7】当前聊天条数 ÷ 记忆库容量，表示「这个库用到多满」。
-     * 【为什么不再用阈值】旧系统按「条数到阈值触发归档」，阈值随旧系统一起删了；
-     *   新系统是「每轮自动抽取」，没有阈值这个概念，环改为反映库容量占用。
-     */
-    fun refreshCtxRing() {
-        val cap = Math.max(1, Mem.MAX_ENTRIES)
-        ChatState.ctxRatio = (history.length() / cap.toFloat()).coerceIn(0f, 1f)
-    }
 
     /**
      * 【修·进度环陈旧值】把「当前条数 ÷ 记忆库容量」同步到 [ChatState.ctxRatio]。
@@ -1590,6 +1571,9 @@ class ChatPanel(
         //   长按菜单才定位得到（见 appendBubble 的说明）。
         ChatHistoryStore.push(this, "user", text, str2)
         appendBubble(text, true, str2, history.length() - 1)
+        // 【修·进度环陈旧值】本路径走 appendBubble 增量追加、不重铺整屏，
+        //   所以环必须在这里单独同步（否则发完消息环一点不动）。
+        syncCtxRatio()
         if (ChatSessions.isPet(context)) {
             PetBus.say(if (str2 != null) "让我看看…" else "让我想想…", 2500L)
         }
@@ -2157,6 +2141,8 @@ class ChatPanel(
                 setWaiting(false)
                 removeThinking()
                 ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
+                // 【修·进度环陈旧值】增量路径，环单独同步。
+                syncCtxRatio()
                 if (attached) appendBubble("", false, null, history.length() - 1)
                 finishWithError("模型本次只返回了思考过程，没有生成回答，请重试")
                 return
@@ -2168,6 +2154,8 @@ class ChatPanel(
                 setWaiting(false)
                 removeThinking()
                 ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
+                // 【修·进度环陈旧值】增量路径，环单独同步。
+                syncCtxRatio()
                 if (attached) {
                     appendBubble("", false, null, history.length() - 1)
                 }
@@ -2202,13 +2190,19 @@ class ChatPanel(
             return
         }
         if (!attached) {
-            // 离屏：没有气泡可加，收掉等待态即可（回来由 reloadHistory 重铺）。
+            // 离屏：没有气泡可加，收掉等待态即可（回来由 [reloadHistory] 重铺）。
             setWaiting(false)
             removeThinking()
+            // 【修·进度环陈旧值】离屏也要同步：环是纯状态、与是否在屏无关。
+            //   依据：本分支紧邻的 setWaiting/removeThinking 本身就在写 ChatState，
+            //   说明「离屏不更新」只约束**气泡**，不约束状态位。
+            syncCtxRatio()
             return
         }
         setWaiting(false)
         removeThinking()
+        // 【修·进度环陈旧值】在屏路径同样同步（与离屏分支对称，两条都覆盖）。
+        syncCtxRatio()
         // 【r13·思考过程】不再往「内存思考框」写：推理已随消息落盘（见上面的 push），
         //   本条气泡经 appendBubble 落到 [ChatState.items] 后，思考框由 [ChatUi] 按 think 渲染。
         appendBubble(trim, false, null, history.length() - 1)
