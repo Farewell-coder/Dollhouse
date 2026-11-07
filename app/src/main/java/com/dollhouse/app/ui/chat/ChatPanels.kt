@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -232,14 +233,25 @@ object ChatPanels {
                 )
             }
             // 【箭头】与原实现同语义：收起指下、展开指上。
+            //
+            // 【r-统一·文字字形改矢量】原先是文字字形「︿ / ﹀」，靠字体的宽窄决定形状 ——
+            //   不同字族下粗细/角度都不一样，且它与设置页 47 处折叠卡的箭头
+            //   （`IC_CHEVRON_DOWN` + 180° 旋转）不是同一种视觉。
+            //   `d21c267` 统一那 47 处时漏了这一处（它在聊天页面板里、不在设置页批次内）。
+            //   现在改用与 `DhGroup` / 旧 `DhKit.Card` **完全相同**的写法：
+            //   同一个图标 + 同一个旋转角度 + 同一个 sub 色，从此三处箭头必然一致。
+            //
+            //   【尺寸仍取 iconLg(24)】旧代码的外层 Box 就是 `size(iconLg)`，
+            //   保持它才能让标题行的高度与右端对齐一分不差；只把里面的字形换成矢量图标。
             Box(
                 modifier = Modifier.size(DhDesign.Size.iconLg),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (open) "︿" else "﹀",
+                DhKit.Icon(
+                    iconRes = Icons.IC_CHEVRON_DOWN,
+                    sizeDp = DhDesign.Size.iconSm.value,
                     color = p.sub,
-                    style = t.body
+                    modifier = Modifier.rotate(if (open) 180f else 0f)
                 )
             }
         }

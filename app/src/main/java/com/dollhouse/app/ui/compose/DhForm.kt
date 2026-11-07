@@ -724,6 +724,68 @@ object DhForm {
         }
     }
 
+    /* ============================ 语义化按钮（44dp / 12 圆角） ============================ */
+
+    /**
+     * 主按钮 —— 设计稿 §3「Buttons — one height, 44dp」的唯一落地入口。
+     *
+     * 【为什么需要这个工厂】改造前全 App 的「按钮」都是由 [PrimaryChip] /
+     *   [OutlineChip] / [DhKit.OutlineChip] 这几个 **chip 工厂**兼职画出来的：
+     *   999 全圆角 + 内边距撑高 + 12sp，那是设计稿明确留给 chip 的形态。
+     *   设计稿把 999 的用途写死为「chip, switch, badge, avatar-round」，
+     *   而按钮= 44dp 定高 + 12 圆角 —— 两者不是同一种东西。
+     *
+     * 【为什么不在原来那几个工厂上改】它们的函数体内部**同时**装着真 chip 调用点
+     *   （页面筛选器、分段选择器、纯状态标签），而签名里没有任何语义参数，
+     *   工厂内部无法区分「这次是筛选还是提交」。在那几个工厂上改成 44dp，
+     *   会把真 chip 一起误伤成按钮，反而违反设计稿「Chip (26dp, pill)」。
+     *   所以正确做法是**新开一个语义明确的按钮工厂**，让调用点自己说明意图。
+     *
+     * 【为什么用 pressScaleClick 而不是 pressable】[pressable] 从 v0.2.0 起内置
+     *   `minTouchTarget()`（48dp 下限，为孤立小图标准备）。它会用 `sizeIn` 把
+     *   `.height(44.dp)` 的**布局高度撑到 48** —— 于是「统一 44dp」名存实亡。
+     *   这正是 [DhKit.OutlineChip] 注释里记过的同一个坑（v0.2.5 修过一次）。
+     *   `kit.DhButton` 用的也是 `pressScaleClick`，本工厂与它保持完全一致。
+     *
+     * 【形态与 [DialogButton] / [SubmitButton] 同源】三者都是 44dp 定高 +
+     *   [com.dollhouse.app.ui.design.DhDesign.Radius.md] + 15sp SemiBold，
+     *   区别只在各自的额外职责（弹窗主次、四态反馈、无状态）。
+     *
+     * @param text    按钮文案（单行；过长时按 maxLines=1 省略，不会撑破 44dp）
+     * @param enabled false 时视觉降到 38% 且不接收点击（与 kit.DhButton 同口径）
+     */
+    @Composable
+    fun Button(
+        text: String,
+        modifier: Modifier = Modifier,
+        enabled: Boolean = true,
+        onClick: () -> Unit
+    ) {
+        val c = DhTokens.colors
+        val shape = RoundedCornerShape(com.dollhouse.app.ui.design.DhDesign.Radius.md.dp)
+        // 【禁用态为什么用 alpha 而不是换色】与 kit.DhButton 一致：整体降透明度
+        //   能同时作用到底色与文字，不必维护第二套「禁用配色」。
+        val alpha = if (enabled) 1f else 0.38f
+        Box(
+            modifier = modifier
+                .height(44.dp)
+                .clip(shape)
+                .background(c.acc.copy(alpha = c.acc.alpha * alpha))
+                .then(if (enabled) Modifier.pressScaleClick(onClick) else Modifier)
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = c.onAcc.copy(alpha = alpha),
+                fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
+                fontFamily = DhTokens.fonts,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
+    }
+
     /** 分组间距（卡片之间 / 区块之间）。 */
     @Composable
     fun Gap(dpValue: Int = DhKit.GAP_CARD) {
