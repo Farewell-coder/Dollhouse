@@ -84,7 +84,7 @@ M4–M7 逐页替换后逐步迁入，M9 删除重复处。
 | `ui/chat/ChatPanel.kt` | 2281 | `LinearLayout` 壳 + 内嵌 `ChatUi`(Compose)；承载全部聊天业务契约 |
 | `ui/chat/MessageMenu.kt` | 257 | 长按菜单 + 输入框（原生 Dialog），桌宠与聊天页共用 |
 | `ui/widget/SheetPanel.kt` | 521 | 自建底部面板（模型选择 / 思考过程），依赖 View 层序 |
-| `ui/provider/ProviderDetailPage.kt` | 293 | 供应商详情壳（FrameLayout 叠悬浮底栏），内容页已是 Compose |
+| `ui/provider/ProviderDetailPage.kt` | 293 | 供应商详情壳。**经分析确认不可安全迁移**：它用 `slot.removeAllViews + addView` 保留两个内容页的 **View 实例**——「切 tab 后表单内容不丢」完全依赖这一点（配置页全程复用同一实例）。若把 slot 换成 Compose，页面会被重组，用户填到一半的供应商表单在切「模型」再切回来时清空。要迁移必须先重构 `ProviderEditPage/ProviderModelsPage` 的返回类型与状态持有方式，属独立课题。 |
 
 **已删除（本轮）**：`SwipeRow`(185)、`GlassCapsule`(303)、`LamdaUiKit`(154)、
 `ApiPageKit`(253)、`UpdatePrompt` 的 View 实现（107 行改 Compose）。
