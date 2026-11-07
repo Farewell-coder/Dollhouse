@@ -56,16 +56,21 @@ object ConversationHistoryPage {
         var renaming by remember { mutableStateOf<String?>(null) }
         var draftName by remember { mutableStateOf("") }
         var deleting by remember { mutableStateOf<String?>(null) }
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                DhKit.IconButton(Icons.IC_ARROW_LEFT, 20f, c.title) { PageStack.pop(act) }
-                Text("历史会话", color = c.title, fontSize = 20.sp, lineHeight = 29.sp)
-            }
+        // 【布局统一】原来这里手写「返回箭头 + 20sp 标题」的顶栏 + 自带 16dp 外距，
+        //   与其它二级页（ProviderEdit / Mem / About …）的顶栏不是同一段代码，
+        //   页与页之间会出现标题基线、左右边距的细微不同。
+        //   改走 DhKit.Page：title/onBack 由脚手架统一绘制，水平边距由 PAD_CARD 统一。
+        //   scrollable = false 保持原语义 —— 内部已有 LazyColumn 自己滚。
+        DhKit.Page(
+            title = "历史会话",
+            onBack = { PageStack.pop(act) },
+            scrollable = false
+        ) {
             DhKit.OutlineChip(text = "新建会话", iconRes = Icons.IC_PLUS) {
                 ChatSessions.createForDoll(act, personaId)
                 rev++
             }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(entries, key = { it.first }) { entry ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         DhKit.ActionRow(entry.second, modifier = Modifier, iconRes = Icons.IC_MESSAGE_SQUARE, onClick = {

@@ -57,11 +57,13 @@ object FriendModelConfigPage {
         var error by remember { mutableStateOf<String?>(null) }
         val providers = remember { ProviderStore.providers(act).filter { it.enabled } }
         val models = remember(providerId) { ModelStore.models(act).filter { it.providerId == providerId && it.enabled } }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                DhKit.IconButton(Icons.IC_ARROW_LEFT, 20f, c.title) { PageStack.pop(act) }
-                Text("模型与生成", color = c.title, fontSize = 20.sp, lineHeight = 29.sp)
-            }
+        // 【布局统一】同 ConversationHistoryPage：手写顶栏 → DhKit.Page。
+        //   原来自己画「返回箭头 + 20sp 标题」+ padding(16.dp)，与其它二级页不是同一段代码。
+        //   scrollable 保持 true（原实现用 verticalScroll），滚动行为不变。
+        DhKit.Page(
+            title = "模型与生成",
+            onBack = { PageStack.pop(act) }
+        ) {
             DhForm.Note("未开启独立模型时继承全局；Provider 凭据只按引用使用。")
             DhKit.SwitchRow(name = "独立模型", desc = "只修改当前好友，不改变其他好友", checked = overrideModel) { overrideModel = it }
             if (overrideModel) {

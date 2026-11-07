@@ -1,6 +1,5 @@
 package com.dollhouse.app.ui.chat
 
-import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,6 +30,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +61,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.ImageStore
 import kotlinx.coroutines.withContext
-import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
@@ -84,12 +83,62 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
  */
 object ChatUi {
 
-    /** 搭出聊天面板根视图。 */
-    @JvmStatic
-    fun build(host: ChatHostUi): View {
-        ComposeHost.installForActivity(host.activity)
-        return ComposeHost.createView(host.ctx) { ChatContent(host) }
+    // 【阶段 2/3·已删除 [build]】原 `fun build(host): View` 是「给我一个 View」的入口，
+    //   由 ChatPanel 的 init 里 `addView(ChatUi.build(this), ...)` 调用。
+    //   去 View 化后 ChatPanel 自己持有 [ChatPanel.root]（ComposeView）并直接调 [ChatScreen]，
+    //   该入口**降到 0 引用**（实测 `grep -rn "ChatUi.build" app/src/main/java` 无代码调用）。
+    //   保留一个返回 View 的入口会让 ChatUi 继续 import `android.view.View`，
+    //   与「界面层不认识 View」的目标相悖，故一并删除。
+
+    /**
+     * 【阶段 2/3·去 View 化】聊天面板的**组合入口**。宿主直接在自己建立的 ComposeView 里调用它。
+     *
+     * 【与 [build] 的分工】[build] 是「给我一个 View」的旧入口（仍保留，供仍需 View 的地方用）；
+     *   本函数是「我已在组合里，直接画」的新入口 —— 去 View 化之后 ChatPanel 不再是 View，
+     *   它通过 `root` 自己建 ComposeView 并调用本函数（见 ChatPanel.root）。
+     *
+     * 【16dp 圆角】改造前由宿主的 `clipToOutline` + `outlineProvider` 裁切。
+     *   现在改为这里的 `Modifier.clip(RoundedCornerShape(16.dp))` —— 圆角值与原实现
+     *   完全一致（`UiKit.dp(context, 16f)`），只是改用 Compose 画，不再需要 View 的 outline。
+     *
+     * 【attached 状态】用 `DisposableEffect` 在进入 / 离开组合时同步给宿主。
+     *   这是 `isAttachedToWindow` 的替代：`onDispose` 在页面销毁与进程重建时都必定执行，
+     *   比原 View 状态更可靠（原实现要等 `removeView` 之后才翻 false，中间有一帧窗口期）。
+     */
+    @Composable
+    fun ChatScreen(
+        host: ChatHostUi,
+        /**
+         * 组合进入 / 离开窗口时的通知（用于替代 `isAttachedToWindow`）。
+         *
+         * 【为什么不放进 [ChatHostUi]】attach 是**生命周期信号**，不是交互动作；
+         *   塞进接口会逼着任何 UI 宿主都实现一个它可能不需要的回调。
+         *   作为可选参数，只有真正需要「离屏就不更新气泡」的宿主（ChatPanel）才传。
+         */
+        onAttachChanged: ((Boolean) -> Unit)? = null
+    ) {
+        // 【attached 同步】只在组合进入 / 离开时各改一次，不参与重组。
+        DisposableEffect(host, onAttachChanged) {
+            onAttachChanged?.invoke(true)
+            onDispose { onAttachChanged?.invoke(false) }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // 【圆角】与原 clipToOutline 同为 16dp；裁的是整幅界面（含背景图）。
+                .clip(RoundedCornerShape(CHAT_CORNER_DP.dp))
+        ) {
+            ChatContent(host)
+        }
     }
+
+    /**
+     * 聊天面板圆角（dp）。
+     *
+     * 【为什么是常量而不是读 UiKit】原实现是 `UiKit.dp(context, 16f)` —— 一个**固定值 16**，
+     *   不是主题令牌，也不会随主题变化。这里保持同一个字面值，避免「迁移顺手改观感」。
+     */
+    private const val CHAT_CORNER_DP = 16
 
     @Composable
     private fun ChatContent(host: ChatHostUi) {

@@ -4,10 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Outline
+import android.os.Handler
+import android.os.Looper
 import android.view.View
-import android.view.ViewOutlineProvider
-import android.widget.LinearLayout
+import androidx.compose.ui.platform.ComposeView
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.agent.ChatToolRegistry
@@ -51,10 +51,19 @@ import org.json.JSONObject
  *        防止 AI 反复查资料不收敛。改这里要小心 token 统计（TokenStat）的联动。
  */
 class ChatPanel(
-        context: Context,
+        /**
+         * 宿主 Context。
+         *
+         * 【阶段 2/3·去 View 化】改造前本类继承 LinearLayout，`context` 是
+         *   `View.getContext()` 的入参（非属性）。去掉基类后 `context` 不再有任何来源，
+         *   故在此显式持有为私有属性。**命名保持 `context` 不变** ——
+         *   类内有 94 处裸用 `context`，改名会放大改动面且没有收益。
+         *   `Val ctx`（ChatHost 契约要求）继续桥接到它。
+         */
+        private val context: Context,
         public override val controller: Controller?,
         z: Boolean
-) : LinearLayout(context), PickFileActivity.Listener, com.dollhouse.app.data.ChatHost, ChatHostUi {
+) : PickFileActivity.Listener, com.dollhouse.app.data.ChatHost, ChatHostUi {
 
     /**
      * 整段对话上下文；由 [ChatHistoryStore] 读写（跨包契约）。
@@ -148,20 +157,66 @@ class ChatPanel(
     public override val activity: android.app.Activity?
         get() = context as? android.app.Activity
 
+    /**
+     * 【阶段 2/3·去 View 化】本类不再是 View，界面改由这个 ComposeView 承载。
+     *
+     * 【为什么仍要持有它】三个 View 语义必须留在**视图对象**上执行，而这些语义
+     *   在 View 世界里由 ChatPanel 自己免费继承：
+     *     ① `post` / `postDelayed` / `removeCallbacks`（主线程投递与撤销）；
+     *     ② `isAttachedToWindow`（是否挂在窗口上）；
+     *   改由 `root`（真正的 ComposeView）承担，语义与改造前**逐字等价** ——
+     *   因为改造前这些调用落在的正是这个 ComposeView 的**父容器**，两者
+     *   附着 / 尺寸生命周期完全一致。
+     *   另一个可选做法是改用 `Handler(Looper.getMainLooper())`，但那会让
+     *   「post 一个尚未 attach 的任务」语义变化（Handler 立即执行，View.post 会等 attach）。
+     *   保持走 `root` 是**零语义漂移**的选择。
+     */
+    val root: ComposeView = ComposeHost.createView(context) {
+        // 【attached 同步】用组合生命周期替代 `isAttachedToWindow`：
+        //   进入组合 = 挂上窗口，离开组合（onDispose）= 摘离。
+        ChatScreen(this, onAttachChanged = { setAttached(it) })
+    }
+
+    /**
+     * 面板是否挂在窗口上。
+     *
+     * 【替代 `isAttachedToWindow`】原实现直接读 View 状态。现在由 [ChatScreen] 用
+     *   `DisposableEffect` 在进入 / 离开组合时同步它 —— 与 View 的 attach 时机一致，
+     *   且更可靠（`onDispose` 在页面销毁与进程重建时都必定执行）。
+     */
+    @Volatile
+    private var attached: Boolean = false
+
+    /** 由 [ChatScreen] 的组合生命周期驱动；**不要**在业务代码里直接调。 */
+    internal fun setAttached(v: Boolean) {
+        attached = v
+    }
+
+    /** 主线程投递（转交 [root]，语义同原 `View.post`）。 */
+    private fun post(action: Runnable) {
+        root.post(action)
+    }
+
+    /** 主线程延时投递（同原 `View.postDelayed`）。 */
+    private fun postDelayed(action: Runnable, delayMs: Long) {
+        root.postDelayed(action, delayMs)
+    }
+
+    /** 撤销投递（同原 `View.removeCallbacks`）。 */
+    private fun removeCallbacks(action: Runnable) {
+        root.removeCallbacks(action)
+    }
+
     // 构造：铺 Compose 面板 → 载入历史 → 刷新输入行 → 套用聊天背景。
     init {
         this.waiting = false
         this.thinkDegraded = false
-        orientation = LinearLayout.VERTICAL
-        // 【圆角】面板整体 16dp 圆角：背景（含背景图）由 GlobalBackground 画在本视图上，
-        //   故必须由本视图自己把绘制裁进圆角，否则四角会溢出。
-        clipToOutline = true
-        outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height, UiKit.dp(context, 16f).toFloat())
-            }
-        }
-        addView(ChatUi.build(this), LinearLayout.LayoutParams(-1, -1))
+        // 【阶段 2/3·去 View 化】原来这里做三件 View 专属的事：
+        //   ① `orientation = LinearLayout.VERTICAL` —— 已无基类，删除；
+        //   ② `clipToOutline = true` + `outlineProvider`（16dp 圆角裁切）——
+        //      改由 Compose 侧 `Modifier.clip(RoundedCornerShape(16.dp))` 承担，见 [root]；
+        //   ③ `addView(ChatUi.build(this), ...)` —— 改由 [root] 产出的 ComposeView 承载。
+        //   三者合起来的净效果不变：整块界面仍是 16dp 圆角、仍是整幅 Compose。
         // 【交互】记忆工具需要 Context，在这里登记一次（幂等）；联网工具是否下发看用户开关。
         ChatToolRegistry.ensure(context.applicationContext)
         // 【r13·角色设定】开场白：这条会话一条消息都没有时，把她写的第一句铺进去。
@@ -385,7 +440,11 @@ class ChatPanel(
     fun applyBackground() {
         recordChatBgRatio()
         // fallback=OPTION：未设置背景时铺面板原底色；有图时铺「不透明底 + 图 + 可读性遮罩」。
-        GlobalBackground.install(this, UiKit.option(), false)
+        // 【阶段 2/3】背景改铺到 [root] 上 —— `GlobalBackground.install` 的契约就是
+        //   「把 drawable 挂到传入 View 的 background 上」，它需要一个真正参与绘制的 View。
+        //   root 覆盖整幅界面（与原 ChatPanel 自身同尺寸、同位置），所以绘制结果等价；
+        //   16dp 圆角仍由 root 的 Compose 侧 `Modifier.clip` 负责裁切（见 [ChatScreen]）。
+        GlobalBackground.install(root, UiKit.option(), false)
     }
 
     /**
@@ -393,13 +452,16 @@ class ChatPanel(
      * 【坑】构造期还没量到尺寸，首帧要 post 一次；比例没变就不再写盘。
      */
     private fun recordChatBgRatio() {
-        if (width > 0 && height > 0) {
-            writeChatBgRatio(width, height)
+        // 【阶段 2/3】原来的 `width` / `height` 是 View 属性。现在尺寸由 [root]（真正的
+        //   ComposeView）持有 —— 它就是改造前承载整幅界面的那个 View，尺寸来源等价。
+        if (root.width > 0 && root.height > 0) {
+            writeChatBgRatio(root.width, root.height)
             return
         }
+        // 构造期尚未量到尺寸：post 一次等首帧布局完成（与原实现同款兜底）。
         post {
-            if (width > 0 && height > 0) {
-                writeChatBgRatio(width, height)
+            if (root.width > 0 && root.height > 0) {
+                writeChatBgRatio(root.width, root.height)
             }
         }
     }
@@ -1917,7 +1979,7 @@ class ChatPanel(
                 }
             }
             post {
-                if (isAttachedToWindow) {
+                if (attached) {
                     askModel(jSONArray, i + 1, true)
                 }
             }
@@ -1954,7 +2016,7 @@ class ChatPanel(
         //   明确说出来：重试走既有的 [regenerate]（删掉最后一条助手回复再请求），
         //   所以不会重复累加错误消息、也不会有两份回复并存。
         val canRetry = lastUserBeforeError() != null
-        if (isAttachedToWindow) {
+        if (attached) {
             appendBubble(
                 "（出错了：" + str + "）" + if (canRetry) "\n点这条可重试" else "",
                 false, null
@@ -2044,7 +2106,7 @@ class ChatPanel(
         val pet = ChatSessions.isPet(context)
         if (body.trim().isEmpty()) {
             if (think.isEmpty()) {
-                if (isAttachedToWindow) {
+                if (attached) {
                     setWaiting(false)
                     removeThinking()
                     finishWithError("模型返回了空内容")
@@ -2061,7 +2123,7 @@ class ChatPanel(
                 setWaiting(false)
                 removeThinking()
                 ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
-                if (isAttachedToWindow) appendBubble("", false, null, history.length() - 1)
+                if (attached) appendBubble("", false, null, history.length() - 1)
                 finishWithError("模型本次只返回了思考过程，没有生成回答，请重试")
                 return
             } else {
@@ -2072,7 +2134,7 @@ class ChatPanel(
                 setWaiting(false)
                 removeThinking()
                 ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
-                if (isAttachedToWindow) {
+                if (attached) {
                     appendBubble("", false, null, history.length() - 1)
                 }
                 return
@@ -2096,7 +2158,7 @@ class ChatPanel(
         //   这一句直接把整条回复**丢弃**（不落盘、不进历史）。
         //   用户再进聊天页只能看到自己那句、AI 那边永远没回应，表现就是「中断了」。
         //
-        // 【修法】落盘与视图无关，先落；界面更新才判 `isAttachedToWindow`。
+        // 【修法】落盘与视图无关，先落；界面更新才判 attach 状态（现已改为 [attached]）。
         //   离屏期间照常写历史，回来时 [reloadHistory] 重铺即可看到完整一轮。
         val saved = ChatHistoryStore.appendAssistantToConversation(context, ownerConversation, trim,
             if (think.isEmpty()) null else think, costMs)
@@ -2105,7 +2167,7 @@ class ChatPanel(
             // 数据已写回原会话；不触碰正在显示其他会话的全局 ChatState。
             return
         }
-        if (!isAttachedToWindow) {
+        if (!attached) {
             // 离屏：没有气泡可加，收掉等待态即可（回来由 reloadHistory 重铺）。
             setWaiting(false)
             removeThinking()

@@ -26,6 +26,15 @@ class ChatActivity : Activity() {
         super.onCreate(bundle)
         // 先按当前主题档位把配色刷进 UiKit，再建界面。
         ThemeManager.apply(this)
+        // 【阶段 2/3·必须最先执行】Compose 运行所需的三个 owner 要装到 decorView 上，
+        //   否则任何 ComposeView 一 attach 就抛
+        //   `ViewTreeLifecycleOwner not found from DecorView`（原生 Activity 不会自动装）。
+        //   【为什么现在必须挪到这里】改造前这条安装藏在 `ChatUi.build()` 里（它在
+        //   `addView` 之前调 `installForActivity`）。去 View 化后 ComposeView 改由
+        //   `ChatPanel.root` 在**构造期**创建，即早于 `setContentView` ——
+        //   若仍依赖原来的位置，owner 在 ComposeView 创建之后才装，attach 时就会崩。
+        //   本方法幂等（已装过则直接返回既有 owner），重复调用无害。
+        com.dollhouse.app.ui.compose.ComposeHost.installForActivity(this)
         // 【接收处夹紧】apply 后立刻夹紧正文/副标题/提示对比度，并记基线供就地换主题重映射。
         UiKit.clampPaletteContrast()
         ThemeRefresh.rememberPalette()
@@ -47,7 +56,13 @@ class ChatActivity : Activity() {
             }
         }, true)
         this.panel = chatPanel
-        setContentView(chatPanel)
+        // 【阶段 2/3·去 View 化】ChatPanel 已不再是 View，不能再直接交给 setContentView。
+        //   ComposeHost.createView 产出一个承载 [ChatPanel.root] 的 ComposeView ——
+        //   与全仓其它页面同一条路径（`ComposeHost.createView(act) { Content(act) }`）。
+        //   注意：不能改用 `setContent`，因为它是 ComponentActivity 的扩展，
+        //   而本类是原生 android.app.Activity（且 onRetainNonConfigurationInstance 为 final，
+        //   ComponentActivity 里该方法被标 final，改基类会编译失败并丢失「在途输入纯内存草稿」）。
+        setContentView(chatPanel.root)
         addContentView(com.dollhouse.app.ui.compose.ComposeHost.createView(this) {
             com.dollhouse.app.ui.compose.OperationRecorderButton()
         }, android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
@@ -66,7 +81,7 @@ class ChatActivity : Activity() {
                 lastNonConfigurationInstance as? ThemeRefresh.InputDraft)
         // 从悬浮窗带 extra 跳进来时，落地就顺手把统计页叠上（延后一拍，等内容视图量完）。
         if (PAGE_TOKEN == pageExtra()) {
-            chatPanel.post {
+            chatPanel.root.post {
                 TokenStat.open(this@ChatActivity)
             }
         }
