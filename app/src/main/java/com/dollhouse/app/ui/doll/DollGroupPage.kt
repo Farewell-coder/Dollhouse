@@ -202,7 +202,9 @@ object DollGroupPage {
                             text = input.length.toString() + "/" + DollGroups.NAME_MAX,
                             color = DhTokens.colors.line,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fonts,
+                            // 【等宽数字】每敲一个字计数就变，tnum 避免 "9/16" → "10/16" 时宽度跳变。
+                            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
                         )
                     }
                 )

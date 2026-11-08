@@ -88,17 +88,17 @@ object DhDesign {
         val rowTitle: TextStyle
             get() = body.copy(fontWeight = FontWeight.Medium)
 
-        /** 数字 / 时间：等宽数字，避免计时与统计跳动。 */
+        /**
+         * 数字 / 时间：等宽数字，避免计时与统计跳动。
+         *
+         * 【适用范围·仅在正文档 15sp 时用它】本令牌固定为 [body] 的形状，
+         *   所以它只在「数字就是正文」的地方（如统计行）能直接用。
+         *   大号数字（30sp 总量、18sp 分项、帧率、计数）**不能**用它 ——
+         *   套上去会把字号压回 15sp。那些地方用 `style = TextStyle(fontFeatureSettings = "tnum")`
+         *   叠加在原有 fontSize 上（工程既有写法见 ChatListScreen 未读徽标、BottomNav Badge）。
+         */
         val numeric: TextStyle
             get() = body.copy(fontFeatureSettings = "tnum")
-
-        /**
-         * 长文正文：1.6 倍行高。
-         * 【用在哪】人格内容、记忆事实、模型说明这类「真要读完」的段落。
-         *   设计稿 §2.1 注：长散文用 1.6× 行高。
-         */
-        val prose: TextStyle
-            get() = body.copy(lineHeight = 24.sp, letterSpacing = 0.sp)
 
         companion object {
             /**

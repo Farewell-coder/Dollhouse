@@ -217,13 +217,13 @@ object DeveloperOptionsPage {
         DhKit.Card { Column(Modifier.fillMaxWidth().pressable(click)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DhForm.Badge(level(e.severity), if (e.severity == DiagnosticsStore.Severity.WARNING) DhTokens.colors.sub else DhTokens.colors.err, DhForm.semanticBg(if (e.severity == DiagnosticsStore.Severity.WARNING) DhTokens.colors.sub else DhTokens.colors.err))
-                Spacer(Modifier.weight(1f)); Text(time(e.timestamp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
+                Spacer(Modifier.weight(1f)); Text(time(e.timestamp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"))
             }
             // 【间距收敛】徽标行 → 主消息：卡内两个**内容块**之间的间距 → Space.md(12)。
             //   注意它下面 5dp / 9dp 两处是同一段文字的微对位，按「纯微调不动」保持原值。
             Text(e.message, Modifier.padding(top = DhDesign.Space.md.dp), color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(e.module, Modifier.padding(top = 5.dp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
-            Text("重复 ${e.count} 次 · ${e.code}", Modifier.padding(top = 9.dp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
+            Text("重复 ${e.count} 次 · ${e.code}", Modifier.padding(top = 9.dp), color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"))
         } }
     }
 

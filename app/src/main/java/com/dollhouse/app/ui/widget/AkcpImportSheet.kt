@@ -249,7 +249,7 @@ object AkcpImportSheet {
                 Text(
                     text = "正在用 Argon2id 校验并解密，大约需要一两秒…",
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -301,7 +301,7 @@ object AkcpImportSheet {
                 text = "文件：" + fileName + "\n共 " + configs.size + " 条配置" +
                     (if (conflicts > 0) "，其中 " + conflicts + " 条与本机供应商同名" else ""),
                 color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
+                fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             Column(

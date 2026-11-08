@@ -229,7 +229,7 @@ object DollImportWizardPage {
                     text = "正在检查 " + picked.size + " 个文件…",
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
+                    fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -240,7 +240,7 @@ object DollImportWizardPage {
                         text = "可用 " + okCount + " 个" + (if (badCount > 0) "，不可用 " + badCount + " 个" else ""),
                         modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                         color = c.title,
-                        fontSize = UiKit.FS_SUB.sp,
+                        fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Normal
                     )

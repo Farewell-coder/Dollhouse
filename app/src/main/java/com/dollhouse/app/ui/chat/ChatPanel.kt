@@ -2406,6 +2406,6 @@ internal fun chatHintText(ctx: Context): String? {
     return if (com.dollhouse.app.ui.home.HomeUi.hasChatTarget(ctx)) {
         null
     } else {
-        "还没有可用的供应商模型，点这里去设置 →"
+        "还没有可用的供应商模型，点这里去设置"
     }
 }

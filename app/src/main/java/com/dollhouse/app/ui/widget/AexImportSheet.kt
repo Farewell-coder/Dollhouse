@@ -498,7 +498,7 @@ object AexImportSheet {
                 if (names.size > 3) " 等 " + names.size + " 个" else "",
             modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
             color = c.sub,
-            fontSize = UiKit.FS_TINY.sp,
+            fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
             fontFamily = DhTokens.fonts
         )
         Text(
@@ -571,7 +571,7 @@ object AexImportSheet {
                 Text(
                     text = "正在解密 " + list.size + " 个文件，每个约需一秒…",
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -631,7 +631,7 @@ object AexImportSheet {
                 Text(
                     text = "正在用 PBKDF2 校验并解密，大约需要一秒…",
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }

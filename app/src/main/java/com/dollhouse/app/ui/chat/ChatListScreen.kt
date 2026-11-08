@@ -64,6 +64,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 /**
  * 【职责】聊天列表页 —— **App 的默认首页**（需求原文：「将软件启动后的默认页面改为聊天列表，
@@ -209,6 +211,11 @@ object ChatListScreen {
                             .size(HEAD_AVATAR_DP.dp)
                             .clip(RoundedCornerShape(999.dp))
                             .background(c.soft)
+                            // 【无障碍】真机 dump 里这个头像入口的 content-desc 是空的，
+                            //   读屏只会念「按钮」。给它一个动词性的名字。
+                            .semantics {
+                                contentDescription = "打开菜单"
+                            }
                             .pressable { ProfileDrawer.toggle() },
                         contentAlignment = Alignment.Center
                     ) {

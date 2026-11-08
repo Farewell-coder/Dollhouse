@@ -449,7 +449,7 @@ object AppearancePage {
                         text = "本机 Android 版本低，系统不支持弹窗背后的模糊，" +
                             "这一项不会有效果（弹窗本身仍然正常）。",
                         color = c.err,
-                        fontSize = UiKit.FS_SUB.sp,
+                        fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fonts
                     )
                 }

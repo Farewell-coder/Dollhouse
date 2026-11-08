@@ -512,20 +512,22 @@ object TokenStat {
                 color = c.title,
                 fontSize = 30.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Normal
+                fontWeight = FontWeight.Normal,
+                // 【等宽数字】总量刷新时数字逐位跳动，tnum 让「1」与「8」同宽，整块不横移。
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
             )
             Text(
                 text = "输入 " + fmt(inTok) + "　·　输出 " + fmt(outTok),
                 modifier = Modifier.padding(top = 2.dp),
                 color = c.sub,
-                fontSize = UiKit.FS_SUB.sp,
+                fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
             Text(
                 text = "费用约 ￥" + money(cost(inTok + outTok, unit)),
                 modifier = Modifier.padding(top = 8.dp),
                 color = c.title,
-                fontSize = UiKit.FS_BTN.sp,
+                fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Normal
             )
@@ -597,7 +599,9 @@ object TokenStat {
                 color = c.title,
                 fontSize = 18.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.Normal
+                fontWeight = FontWeight.Normal,
+                // 【等宽数字】同 30sp 总量：分项数值变化时不横向抖动。
+                style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
             )
         }
     }

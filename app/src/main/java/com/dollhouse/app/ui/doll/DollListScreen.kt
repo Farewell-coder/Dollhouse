@@ -165,7 +165,7 @@ object DollListScreen {
             scrollable = false,
             actions = {
                 // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
-                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "添加角色") {
+                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "添加人偶") {
                     // 【v0.1.5·R-062】加号直接进「添加角色」导入助手（第 1 屏标题就是它）。
                     //   【为什么不再弹中间那层面板】R-040 / R-056 要求导入最多三步，
                     //   再叠一个「模板 / 导入」选择面板就成了四步，且用户得先猜哪个才是「加角色」。
@@ -353,7 +353,7 @@ onCover = {
                         "· 手势、暂离、性格、聊天背景等个性化设置复位\n\n" +
                         "你**自己导入**的动作和换过的形象图会保留，不会被清掉。",
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -693,7 +693,7 @@ onCover = {
             Text(
                 text = "提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。",
                 color = c.sub,
-                fontSize = UiKit.FS_TINY.sp,
+                fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }

@@ -255,7 +255,9 @@ object FriendProfilePage {
                 DhKit.ActionRow(
                     label = "管理人偶",
                     iconRes = Icons.IC_USERS,
-                    desc = "封面、动作、启停与删除角色"
+                    // 【文案统一】原来 label 叫「人偶」、desc 同一句里叫「角色」——
+                    //   同一个控件里两个词，用户会以为是两种东西。
+                    desc = "封面、动作、启停与删除人偶"
                 ) { DollListScreen.open(act) }
                 DhKit.ActionRow(
                     label = "Token 统计",

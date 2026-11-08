@@ -628,7 +628,7 @@ object ProfileDrawer {
                 Text(
                     text = bio.ifEmpty { "还没有个性签名" },
                     color = if (bio.isEmpty()) c.line else c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
+                    fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis

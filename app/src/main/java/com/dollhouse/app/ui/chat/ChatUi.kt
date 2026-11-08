@@ -980,7 +980,7 @@ object ChatUi {
                 Text(
                     text = "这条摘要覆盖了 " + cover + " 条消息。",
                     color = c.sub,
-                    fontSize = UiKit.FS_TINY.sp,
+                    fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }

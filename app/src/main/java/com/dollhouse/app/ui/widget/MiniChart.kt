@@ -150,7 +150,9 @@ fun MiniChart(
             modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
-            fontFamily = DhTokens.fonts
+            fontFamily = DhTokens.fonts,
+            // 【等宽数字】峰值随数据变化，tnum 让这块小字不随位数左右伸缩。
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
         )
         // 首尾标签。
         val ls = labels

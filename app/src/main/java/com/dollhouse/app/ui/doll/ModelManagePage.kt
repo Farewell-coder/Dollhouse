@@ -277,7 +277,7 @@ object ModelManagePage {
                         (if (chk.code == ModelImporter.Code.DUPLICATE)
                             "\n\n⚠ 已存在同标识的模型包，导入会覆盖它。" else ""),
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 if (chk.warnings.isNotEmpty()) {
@@ -285,7 +285,7 @@ object ModelManagePage {
                     Text(
                         text = chk.warnings.joinToString("\n"),
                         color = DhTokens.colors.sub,
-                        fontSize = UiKit.FS_TINY.sp,
+                        fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fonts
                     )
                 }

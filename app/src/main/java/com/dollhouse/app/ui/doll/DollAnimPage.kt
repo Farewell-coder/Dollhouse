@@ -460,7 +460,7 @@ object DollAnimPage {
                             text = "首次打开会把这只人偶的动画逐帧渲染出来，稍等片刻。",
                             modifier = Modifier.align(Alignment.BottomCenter).padding(DhDesign.Space.md.dp),
                             color = c.sub,
-                            fontSize = UiKit.FS_TINY.sp,
+                            fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
                             fontFamily = DhTokens.fonts
                         )
                     }
@@ -580,7 +580,7 @@ object DollAnimPage {
                         "「居中」把偏移清零。当前偏移 " + pct(off[0]) + " / " + pct(off[1]),
                     modifier = Modifier.padding(top = 2.dp),
                     color = c.sub,
-                    fontSize = UiKit.FS_TINY.sp,
+                    fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
 
@@ -940,7 +940,7 @@ object DollAnimPage {
                     text = "决定这个动作的画面「对齐到窗口的哪个点」。" +
                         "真实播放时人偶的脚踩在窗口底边，所以默认是底部居中。",
                     color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
+                    fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 DhForm.Gap()
@@ -975,7 +975,7 @@ object DollAnimPage {
                 Text(
                     text = "把这个动作的画面整体挪一点。当前：" + pct(disp.ox) + " / " + pct(disp.oy),
                     color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
+                    fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 DhForm.Gap()
@@ -1076,7 +1076,7 @@ object DollAnimPage {
                     text = "勾上「这个动作允许被哪些情况唤起」。全都不勾等于只保留手动触发" +
                         "（否则它永远播不到）。",
                     color = c.sub,
-                    fontSize = UiKit.FS_SUB.sp,
+                    fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 DhForm.Gap()
@@ -1115,7 +1115,7 @@ object DollAnimPage {
                     text = "会把这一格里的动画与资源引用清空，之后你可以导入新的一组图。\n\n" +
                         "名字、描述、播放速度（以及贴边裁截线）都会保留。",
                     color = c.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -1177,7 +1177,7 @@ object DollAnimPage {
                         "状态：" + if (cur.assetPath.isNotEmpty() && File(cur.assetPath).exists())
                             "文件存在" else "文件不存在或未指定",
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_TINY.sp,
+                    fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
                 DhForm.Gap()
@@ -1302,6 +1302,8 @@ object DollAnimPage {
                         fontSize = UiKit.FS_BTN.sp,
                         fontFamily = DhTokens.fontsBold,
                         fontWeight = FontWeight.Normal,
+                        // 【等宽数字】帧率加减时 "8" ↔ "12" 位数变化，tnum 让居中文本不左右弹。
+                        style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                         textAlign = TextAlign.Center
                     )
                     DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, c.title) {

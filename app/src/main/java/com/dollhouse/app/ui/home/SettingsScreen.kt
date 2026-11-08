@@ -495,7 +495,7 @@ object SettingsScreen {
     private fun ChatCard(act: MainActivity) {
         DhKit.Card(collapsibleTitle = "聊天", titleIcon = Icons.IC_MESSAGE_SQUARE_HEART) {
             DhKit.ValueRow(
-                label = "提供商",
+                label = "供应商",
                 iconRes = Icons.IC_SERVER,
                 desc = "接口地址、密钥与模型列表",
                 showChevron = true

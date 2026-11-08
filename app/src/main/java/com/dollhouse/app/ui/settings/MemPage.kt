@@ -336,7 +336,7 @@ object MemPage {
                         Text(
                             text = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
                             color = c.sub,
-                            fontSize = UiKit.FS_BTN.sp,
+                            fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                             fontFamily = DhTokens.fonts
                         )
                     }
@@ -454,7 +454,7 @@ object MemPage {
                             Text(
                                 text = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
                                 color = c.sub,
-                                fontSize = UiKit.FS_BTN.sp,
+                                fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                                 fontFamily = DhTokens.fonts
                             )
                             Spacer(Modifier.height(DhDesign.Space.xs.dp))
@@ -608,7 +608,7 @@ object MemPage {
                 Text(
                     text = "确定删除「" + del.title + "」吗？这条记忆和它的连线会一起删掉。",
                     color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp,
+                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
             }
@@ -1061,7 +1061,9 @@ object MemPage {
                     text = "上次修改：" + fmtTime(m.updatedAt),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fonts,
+                    // 【等宽数字】时间戳在列表里上下对齐，非等宽时「1」比「2」窄一格会看着错行。
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
                 )
             }
         }
