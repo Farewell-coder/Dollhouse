@@ -245,7 +245,12 @@ object DhTokens {
         @Composable @ReadOnlyComposable
         get() = LocalDhFontFamily.current
 
-    /** 加粗字族。 */
+    /**
+     * 加粗字族。
+     *
+     * 【用之前必读】这是**合成粗体**，取它就不要再写 `fontWeight = SemiBold/Bold`（会叠成双粗体）；
+     *   要「选中才粗」时字族也要条件式。完整规则与复验命令见 [LocalDhFontFamilyBold] 的 KDoc。
+     */
     val fontsBold: FontFamily
         @Composable @ReadOnlyComposable
         get() = LocalDhFontFamilyBold.current
