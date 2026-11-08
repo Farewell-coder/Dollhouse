@@ -236,7 +236,7 @@ object LamdaPage {
                     modifier = Modifier.padding(top = 2.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -312,7 +312,7 @@ object LamdaPage {
                     text = text,
                     color = color,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
             if (busy != null) {

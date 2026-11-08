@@ -466,7 +466,7 @@ object MemPage {
                                 },
                                 color = c.line,
                                 fontSize = UiKit.FS_SUB.sp,
-                                fontFamily = DhTokens.fonts
+                                fontFamily = DhTokens.fontsBody
                             )
                         }
                     }
@@ -609,7 +609,7 @@ object MemPage {
                     text = "确定删除「" + del.title + "」吗？这条记忆和它的连线会一起删掉。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -684,7 +684,7 @@ object MemPage {
                             text = m.content.replace('\n', ' '),
                             color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -737,7 +737,7 @@ object MemPage {
                     text = link.description,
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -796,7 +796,7 @@ object MemPage {
                             modifier = Modifier.padding(top = 3.dp),
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             lineHeight = 18.sp,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
@@ -875,7 +875,7 @@ object MemPage {
                 text = text,
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
     }
@@ -1061,7 +1061,7 @@ object MemPage {
                     text = "上次修改：" + fmtTime(m.updatedAt),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     // 【等宽数字】时间戳在列表里上下对齐，非等宽时「1」比「2」窄一格会看着错行。
                     style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
                 )

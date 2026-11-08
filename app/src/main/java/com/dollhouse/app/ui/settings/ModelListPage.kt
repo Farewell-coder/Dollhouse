@@ -153,7 +153,7 @@ object ModelListPage {
                     modifier = Modifier.padding(start = 2.dp, top = DhDesign.Space.xs.dp),
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = 18.sp,
                 )
             }

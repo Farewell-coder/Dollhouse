@@ -307,7 +307,7 @@ object ProviderEditPage {
                             text = "推荐默认模型：" + pick,
                             color = c.title,
                             fontSize = UiKit.FS_BTN.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             lineHeight = 22.sp,
                         )
                         Text(
@@ -315,7 +315,7 @@ object ProviderEditPage {
                             modifier = Modifier.padding(top = 4.dp),
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             lineHeight = 18.sp,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -355,7 +355,7 @@ object ProviderEditPage {
                             text = "这家返回的模型里没有明显的对话模型（可能只有向量 / 语音 / 绘图）。",
                             color = c.err,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             lineHeight = 18.sp,
                         )
                         Spacer(Modifier.height(8.dp))
@@ -547,7 +547,7 @@ object ProviderEditPage {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }

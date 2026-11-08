@@ -81,7 +81,7 @@ object ComingSoonPage {
                             text = hint,
                             color = c.line,
                             fontSize = UiKit.FS_SUB.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             textAlign = TextAlign.Center
                         )
                     }

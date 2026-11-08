@@ -103,7 +103,7 @@ object ExportSheet {
                         modifier = Modifier.weight(1f),
                         color = c.title,
                         fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                     DhKit.Switch(checked = withKeys, onCheckedChange = { withKeys = it })
                 }

@@ -351,7 +351,7 @@ object AppearancePage {
                     text = "主题跟随：" + ThemeManager.MODE_NAMES[HomeState.themeMode],
                     color = c.line,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -450,7 +450,7 @@ object AppearancePage {
                             "这一项不会有效果（弹窗本身仍然正常）。",
                         color = c.err,
                         fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }
@@ -522,7 +522,7 @@ object AppearancePage {
             modifier = Modifier.padding(top = 4.dp),
             color = c.sub,
             fontSize = UiKit.FS_SUB.sp,
-            fontFamily = DhTokens.fonts
+            fontFamily = DhTokens.fontsBody
         )
     }
 
@@ -544,7 +544,7 @@ object AppearancePage {
             modifier = Modifier.padding(top = 4.dp),
             color = DhTokens.colors.sub,
             fontSize = UiKit.FS_SUB.sp,
-            fontFamily = DhTokens.fonts
+            fontFamily = DhTokens.fontsBody
         )
         if (open) {
             DhForm.Alert(

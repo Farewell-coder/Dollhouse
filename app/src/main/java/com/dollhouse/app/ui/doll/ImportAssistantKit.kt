@@ -102,7 +102,7 @@ internal object ImportAssistantKit {
                             text = desc,
                             color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fontsBody
                         )
                         if (extra.isNotEmpty()) {
                             // 【R-112】高手卡片的补充说明：把「高手」解释成「会画画、懂素材」，
@@ -112,7 +112,7 @@ internal object ImportAssistantKit {
                                 text = extra,
                                 color = c.sub,
                                 fontSize = UiKit.FS_TINY.sp,
-                                fontFamily = DhTokens.fonts
+                                fontFamily = DhTokens.fontsBody
                             )
                         }
                     }
@@ -175,7 +175,7 @@ internal object ImportAssistantKit {
                         text = desc,
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -351,7 +351,7 @@ internal object ImportAssistantKit {
                     text = "这里会显示她的样子",
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             } else {
                 val k = Math.max(0.1f, sizePercent / 100f)
@@ -386,7 +386,7 @@ internal object ImportAssistantKit {
                 text = text,
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
     }
@@ -416,7 +416,7 @@ internal object ImportAssistantKit {
                 modifier = Modifier.weight(1f),
                 color = c.err,
                 fontSize = UiKit.FS_SUB.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
     }
@@ -615,7 +615,7 @@ internal object ImportAssistantKit {
                     text = "这里会显示她的样子",
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             } else {
                 val k = Math.max(0.1f, sizePercent / 100f)
@@ -648,7 +648,7 @@ internal object ImportAssistantKit {
                         text = "可以拖动，拖到边缘看看",
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }

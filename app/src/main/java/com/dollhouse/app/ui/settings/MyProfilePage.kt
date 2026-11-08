@@ -205,7 +205,7 @@ object MyProfilePage {
                         text = "点击「更换头像」→ 从相册选一张",
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         modifier = Modifier.padding(top = 4.dp, start = 2.dp)
                     )
                     if (canRemove) {

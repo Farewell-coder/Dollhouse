@@ -278,7 +278,7 @@ object ModelManagePage {
                             "\n\n⚠ 已存在同标识的模型包，导入会覆盖它。" else ""),
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 if (chk.warnings.isNotEmpty()) {
                     Spacer(Modifier.height(DhDesign.Space.xs.dp))

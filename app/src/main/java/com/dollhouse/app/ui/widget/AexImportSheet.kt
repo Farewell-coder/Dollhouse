@@ -434,7 +434,7 @@ object AexImportSheet {
                 modifier = Modifier.padding(top = 8.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
         Row(
@@ -529,7 +529,7 @@ object AexImportSheet {
                 modifier = Modifier.padding(top = 8.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
         Row(
@@ -572,7 +572,7 @@ object AexImportSheet {
                     text = "正在解密 " + list.size + " 个文件，每个约需一秒…",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         )
@@ -632,7 +632,7 @@ object AexImportSheet {
                     text = "正在用 PBKDF2 校验并解密，大约需要一秒…",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         )
@@ -885,7 +885,7 @@ object AexImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
             Row(

@@ -290,7 +290,7 @@ object ModelEditPage {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }

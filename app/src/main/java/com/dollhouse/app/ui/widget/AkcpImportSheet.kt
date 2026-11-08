@@ -218,7 +218,7 @@ object AkcpImportSheet {
                 modifier = Modifier.padding(top = 8.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
         Row(
@@ -250,7 +250,7 @@ object AkcpImportSheet {
                     text = "正在用 Argon2id 校验并解密，大约需要一两秒…",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         )
@@ -302,7 +302,7 @@ object AkcpImportSheet {
                     (if (conflicts > 0) "，其中 " + conflicts + " 条与本机供应商同名" else ""),
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
             Column(
                 modifier = Modifier
@@ -359,7 +359,7 @@ object AkcpImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
             Row(

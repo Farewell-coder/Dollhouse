@@ -354,7 +354,7 @@ onCover = {
                         "你**自己导入**的动作和换过的形象图会保留，不会被清掉。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -694,7 +694,7 @@ onCover = {
                 text = "提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。",
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
     }
