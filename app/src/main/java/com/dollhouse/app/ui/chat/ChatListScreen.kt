@@ -339,7 +339,7 @@ object ChatListScreen {
 
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().then(listSheet(onPhoto)),
+                        modifier = Modifier.fillMaxSize().listSheet(onPhoto),
                         contentPadding = PaddingValues(
                             start = PAD_H,
                             end = PAD_H,

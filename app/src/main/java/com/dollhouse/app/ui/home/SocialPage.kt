@@ -148,10 +148,11 @@ object SocialPage {
     /**
      * 列表可读性面板的浓度（88%）。
      *
-     * 【为什么是 0.88】与顶栏带 [DhKit.TOP_BAND_FADE_DP] 那一套保持一致：
-     *   那个带子的填充 alpha 在 DhKit 里是 private 常量（0.88f），这里复刻同一个值，
-     *   免得「顶栏 88%、正文 70%」两块雾面浓淡不一。低于约 0.8 时照片会明显透上来，
-     *   副文本按 [UiKit.subOnPhoto] 计算出的对比度就会被打折。
+     * 【为什么是 0.88】与顶栏带的**浓度**保持一致（DhKit 里那个 alpha 是 private 常量
+     *   0.88f，这里复刻同一个值），免得「顶栏 88%、正文 70%」两块雾面浓淡不一。
+     *   注意两个带的**填充色不同**：顶栏用 BG、这里用 SOFT（正文区需要比顶栏更柔和的底），
+     *   而渐隐高度两边都用 [DhKit.TOP_BAND_FADE_DP]。
+     *   低于约 0.8 时照片会明显透上来，副文本按 [UiKit.subOnPhoto] 算出的对比度会被打折。
      */
     private const val SHEET_ALPHA = 0.88f
 
@@ -236,7 +237,7 @@ object SocialPage {
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .then(listSheet(onPhoto))
+                    .listSheet(onPhoto)
             ) {
                 if (chips.size > 1) {
                     FilterRow(chips = chips, selected = filter) { filter = it }
@@ -874,8 +875,8 @@ object SocialPage {
         val out = ArrayList<ShuoItem>()
         // 【12/24 小时制跟随系统】`DateFormat.getTimeFormat` 按用户的语言与时间制设置
         //   给出正确的格式器；写死 "HH:mm" 会在 12 小时制的手机上显示成 24 小时制。
-        //   本方法在 IO 线程串行执行，共用一个 java.text.DateFormat 实例是安全的。
-        val timeFmt = java.text.DateFormat.getTimeFormat(act)
+        //   本方法在 IO 线程串行执行，共用一个 android.text.format.DateFormat 返回的格式器实例是安全的。
+        val timeFmt = android.text.format.DateFormat.getTimeFormat(act)
         for (d in dolls) {
             val arr = try {
                 Mem.list(act, d.id)
