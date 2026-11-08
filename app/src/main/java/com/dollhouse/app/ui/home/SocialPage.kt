@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,8 +120,19 @@ import java.util.Locale
  */
 object SocialPage {
 
-    /** 每人偶只解析最近多少条记忆（内存与解析量的第一道闸）。 */
-    private const val TAIL_PER_DOLL = 12
+    /**
+     * 每人偶只解析最近多少条记忆（内存与解析量的第一道闸）。
+     *
+     * 【为什么是 30 而不是更小】解析成本主要由「把整串 JSON 解成 JSONArray」决定，
+     *   多取十几条只是多几十次 [Memory.fromJson]（微秒级），几乎不改总量。
+     *   而取小了会出两个真问题：
+     *   ① 比 [PAGE] 还小的时候，「加载更多」永远触发不了（首屏就装下了全部）；
+     *   ② 单只人偶的用户会以为她的老记忆丢了。
+     *   30 既让「加载更多」有意义（多只人偶时才会出现），也覆盖单只人偶的常见量。
+     * 【与数据层的关系】[Mem.MAX_ENTRIES] 是每条人偶 200 条上限，那是**存储**上限；
+     *   这里是**展示**上限，两者不是一回事（全量在 [MemPage] 里可看）。
+     */
+    private const val TAIL_PER_DOLL = 30
 
     /** 跨人偶聚合后的总条数上限（第二道闸）。 */
     private const val MAX_ITEMS = 240
@@ -204,7 +216,10 @@ object SocialPage {
             }
             val rows = remember(visible, shown) {
                 val base = buildRows(visible.take(shown))
-                if (visible.size > shown) base + Entry.More() else base
+                val withMore = if (visible.size > shown) base + Entry.More() else base
+                // 【不许默默截断】上限是性能要求，但用户找不到更早的记忆会以为丢了；
+                //   列表末端如实说明「这里只显示最近 N 条、全量在哪里」。
+                withMore + Entry.Foot()
             }
             val avatarOf = remember(s.items) { avatars(act, s.items) }
             val moreCount = visible.size - shown
@@ -252,6 +267,7 @@ object SocialPage {
                             }
                         )
                         is Entry.More -> MoreRow(moreCount) { shown += PAGE }
+                        is Entry.Foot -> FootNote()
                     }
                 }
             }
@@ -320,7 +336,8 @@ object SocialPage {
                         body = if (snap.hasKey) {
                             "密钥读到了但模型没配全：需要启用一个供应商 + 一个可用的对话模型"
                         } else {
-                            "自动记事要调用模型：先去配好供应商和密钥，聊完一轮她就会记下要点"
+                            "自动记事要调用模型：先去配好供应商和密钥。配好后每隔 "
+                                + snap.intervalMinutes + " 分钟，她会把最近几句对话整理成要点"
                         },
                         iconRes = Icons.IC_KEY_ROUND,
                         actionText = "去配置模型",
@@ -329,8 +346,8 @@ object SocialPage {
 
                     EmptyKind.NO_AUTO -> DhState(
                         title = "自动记事已关闭",
-                        body = "打开它，她才会在聊天后自己整理要点（当前设定：每 "
-                            + snap.intervalMinutes + " 分钟一次）",
+                        body = "打开它，她才会每隔 " + snap.intervalMinutes
+                            + " 分钟把最近几句对话整理成要点",
                         iconRes = Icons.IC_BRAIN,
                         actionText = "去打开",
                         onAction = { MemSettingsPage.open(act) }
@@ -340,7 +357,8 @@ object SocialPage {
                     //   唯一能让页面不空的动作就是「去聊」。点卡片则去记忆库（见 PostCard 调用处）。
                     else -> DhState(
                         title = "她还没记住什么",
-                        body = "陪她说几句话。聊完一轮她会把要点记下来，出现在这里",
+                        body = "陪她说几句话。每隔 " + snap.intervalMinutes
+                            + " 分钟，她会把最近几句对话整理成要点，出现在这里",
                         iconRes = Icons.IC_NEWSPAPER,
                         actionText = "去和她聊聊",
                         onAction = { openDoll(act, snap.chatDollId) }
@@ -398,8 +416,12 @@ object SocialPage {
                 .padding(horizontal = DhDesign.Space.xl.dp),
             horizontalAlignment = Alignment.Start
         ) {
+            // 【文案纪律】这三行描述的是**真实机制**（对照 ChatHistoryStore.autoExtract）：
+            //   ① 抽取入口只喂**最后 6 条消息**（ChatHistoryStore.kt:896）；
+            //   ② 距上次抽取未到设定间隔时直接跳过（MemExtractGate.allow）。
+            //   所以绝不能写「聊完一轮就记下」—— 那是两句谎：不一定立刻记、也不是整段都记。
             val lines = listOf(
-                "聊完一轮，她会自己记下要点",
+                "聊过之后，她会把最近几句对话整理成要点",
                 "每 " + intervalMinutes + " 分钟整理一次，可在记忆库设置里调整或关掉",
                 "记下的事只属于那只人偶，不会串到别人偶身上"
             )
@@ -627,6 +649,34 @@ object SocialPage {
         }
     }
 
+    /**
+     * 列表末端的说明：本页只显示每人偶最近 [TAIL_PER_DOLL] 条。
+     *
+     * 【为什么要它】展示上限是性能要求，但**不能默默截断** ——
+     *   用户往下翻到底没看到某条老记忆，会以为它被弄丢了。
+     *   这里把「上限是多少、全量在哪」一次说清（全量在她的记忆库里读，那边没有截断）。
+     */
+    @Composable
+    private fun FootNote() {
+        val p = DhTokens.palette
+        val t = DhTokens.type
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.lg.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "每人偶最多显示最近 " + TAIL_PER_DOLL + " 条 · 全部记在她的记忆库里",
+                color = p.line,
+                fontSize = t.caption.fontSize,
+                lineHeight = t.caption.lineHeight,
+                fontFamily = DhTokens.fontsBody,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+
     /* ============================ 数据（只读） ============================ */
 
     /**
@@ -700,6 +750,12 @@ object SocialPage {
         class More : Entry() {
             override val key: String get() = "more"
             override val contentType: String get() = "more"
+        }
+
+        /** 列表末端的说明（本页的展示上限）。 */
+        class Foot : Entry() {
+            override val key: String get() = "foot"
+            override val contentType: String get() = "foot"
         }
     }
 
@@ -804,7 +860,14 @@ object SocialPage {
         )
     }
 
-    /** 头像只解一次、按 96px 采样（32dp 在 3x 屏上约 96px），避免每行解码原图。 */
+    /**
+     * 头像只解一次、按 [AVATAR_PX] 采样，避免每行解码原图。
+     *
+     * 【为什么是 128 而不是 96】卡片头像 32dp：3x 屏要 96px，但 xxxhdpi（4x）要 128px。
+     *   按 3x 取值在 4x 屏上会被拉大一点、略糊。128px 的 ARGB_8888 只有 64KB，
+     *   而人偶数有限（每人偶只解一次），这点内存换「哪种屏都不糊」是划算的。
+     */
+    private const val AVATAR_PX = 128
     private fun avatars(act: MainActivity, items: List<ShuoItem>): Map<String, android.graphics.Bitmap> {
         val out = HashMap<String, android.graphics.Bitmap>()
         val seen = HashSet<String>()
@@ -821,7 +884,7 @@ object SocialPage {
                 continue
             }
             val bm = try {
-                DollStore.coverOf(act, doll, 96)
+                DollStore.coverOf(act, doll, AVATAR_PX)
             } catch (ignored: Throwable) {
                 null
             }
