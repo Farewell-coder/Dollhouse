@@ -79,7 +79,7 @@ object ImportCommit {
     fun commit(ctx: Context, session: ImportSession): Result {
         // ---------- ① 校验 ----------
         val analysis = session.analysis
-            ?: return Result(false, "还没有识别到可用的角色，请重新选择文件。")
+            ?: return Result(false, "还没有识别到可用的人偶，请重新选择文件。")
 
         // 固定状态里至少要有一个可用组（缺动作能继续，但一个都没有就没意义）。
         val fixed = LinkedHashMap<ImportPlan.Slot, ImportPlan.Group>()
@@ -91,10 +91,10 @@ object ImportCommit {
             fixed[slot] = g
         }
         if (fixed.isEmpty()) {
-            return Result(false, "没有找到能用的角色图，请换一组文件再试。")
+            return Result(false, "没有找到能用的人偶图，请换一组文件再试。")
         }
         // 名字合法性：空 → 用默认名；超长截断（21.2.1）。
-        val name = session.nameDraft.trim().ifBlank { "新角色" }.let {
+        val name = session.nameDraft.trim().ifBlank { "新人偶" }.let {
             if (it.length > 24) it.substring(0, 24) else it
         }
 
@@ -106,12 +106,12 @@ object ImportCommit {
                 AnimImport.import(ctx, group.files, dir)
             } catch (t: Throwable) {
                 Logs.w(TAG, "staging failed for " + slot, t)
-                return Result(false, "导入过程出错，原有角色没有变化。请重试。")
+                return Result(false, "导入过程出错，原有人偶没有变化。请重试。")
             }
             if (!r.ok || r.frames.isEmpty()) {
                 return Result(
                     false,
-                    "「" + ImportPlan.labelOf(slot) + "」这几张图读不出来，导入没有完成。原有角色没有变化。"
+                    "「" + ImportPlan.labelOf(slot) + "」这几张图读不出来，导入没有完成。原有人偶没有变化。"
                 )
             }
             staged[slot] = r.frames
@@ -141,14 +141,14 @@ object ImportCommit {
                 DollStore.addTemplate(ctx, name)
             } catch (t: Throwable) {
                 Logs.w(TAG, "addTemplate failed", t)
-                return Result(false, "没能保存这个角色，请重试。")
+                return Result(false, "没能保存这只人偶，请重试。")
             }
             dollId = doll.id
             createdNew = true
         } else {
             dollId = session.dollId
             if (DollStore.byId(ctx, dollId) == null) {
-                return Result(false, "这个角色已经不在了，请返回列表重新选择。")
+                return Result(false, "这只人偶已经不在了，请返回列表重新选择。")
             }
         }
 
@@ -239,11 +239,11 @@ object ImportCommit {
             // 【附录D-4】文案必须区分「新建失败（真的没变化）」与「替换失败（已回滚）」，
             //   否则用户会以为角色还好好的，实际上动作可能已是旧版本。
             val msg = if (createdNew) {
-                "导入没有完成，没有新建任何角色。可以再试一次，或换一组文件。"
+                "导入没有完成，没有新建任何人偶。可以再试一次，或换一组文件。"
             } else if (rollbackClean) {
-                "导入没有完成，这个角色已经还原成导入前的样子。可以再试一次，或换一组文件。"
+                "导入没有完成，这只人偶已经还原成导入前的样子。可以再试一次，或换一组文件。"
             } else {
-                "导入没有完成，且部分动作没能自动还原。请到角色动作页检查，必要时重新导入。"
+                "导入没有完成，且部分动作没能自动还原。请到人偶动作页检查，必要时重新导入。"
             }
             return Result(false, msg)
         }

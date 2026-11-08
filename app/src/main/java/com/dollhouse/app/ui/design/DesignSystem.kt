@@ -107,32 +107,41 @@ object DhDesign {
              * 【为什么字族是参数而不是常量】品牌档要用霞鹜文楷，正文档要回落到干净的无衬线；
              *   两者都依赖运行时加载（[com.dollhouse.app.ui.theme.Fonts]），不能在 object 里冻死。
              */
-            fun of(brandFamily: FontFamily, bodyFamily: FontFamily): Type = Type(
+            /**
+             * @param dark 深色档。深底浅字在光学上会**膨胀**（亮色字形在暗底有溢光），
+             *   同样的字重看起来比浅色下重半档。所以深色把**标题档**从 SemiBold 降到 Medium；
+             *   正文/说明保持 400 不动 —— 再降会失去层级。
+             */
+            fun of(
+                brandFamily: FontFamily,
+                bodyFamily: FontFamily,
+                dark: Boolean = false
+            ): Type = Type(
                 brand = TextStyle(
                     fontFamily = brandFamily,
                     fontSize = 22.sp,
                     lineHeight = 30.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (dark) FontWeight.Medium else FontWeight.SemiBold,
                     letterSpacing = 0.22.sp
                 ),
                 display = TextStyle(
                     fontFamily = bodyFamily,
                     fontSize = 28.sp,
                     lineHeight = 36.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (dark) FontWeight.Medium else FontWeight.SemiBold,
                     letterSpacing = (-0.28).sp
                 ),
                 title = TextStyle(
                     fontFamily = bodyFamily,
                     fontSize = 20.sp,
                     lineHeight = 28.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = if (dark) FontWeight.Medium else FontWeight.SemiBold
                 ),
                 section = TextStyle(
                     fontFamily = bodyFamily,
                     fontSize = 16.sp,
                     lineHeight = 22.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = if (dark) FontWeight.Medium else FontWeight.SemiBold
                 ),
                 body = TextStyle(
                     fontFamily = bodyFamily,
@@ -157,13 +166,23 @@ object DhDesign {
                     fontFamily = bodyFamily,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (dark) FontWeight.Medium else FontWeight.SemiBold,
                     letterSpacing = 0.44.sp
                 )
             )
 
-            /** 兜底：字体未就绪时的系统字族版本（首帧可用，缓存就绪后换回）。 */
-            fun fallback(): Type = of(FontFamily.Default, FontFamily.Default)
+            /**
+             * 兜底：字体未就绪时的系统字族版本（首帧可用，缓存就绪后换回）。
+             *
+             * @param dark 深色档，口径与 [of] 完全一致。**必须能传**：
+             *   本函数是 `Type.of` 抛异常时的兜底路径，概率低但真实存在；
+             *   若它固定按浅色字重返回，那么一旦走到兜底，深色下标题档会**比正常重半档**
+             *   —— 这种"偶发才出现的不一致"最难排查（要复现异常才看得到）。
+             *   默认 `false` 是为了不惊动既有的只读 `fontSize` 调用点
+             *   （它们只取 `.body.fontSize`，与字重无关）。
+             */
+            fun fallback(dark: Boolean = false): Type =
+                of(FontFamily.Default, FontFamily.Default, dark)
         }
     }
 

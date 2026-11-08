@@ -83,8 +83,8 @@ object ImportSource {
         Failure.CORRUPT -> "压缩包读不出来，可能没有下载完整。请重新导出后再试。"
         Failure.ILLEGAL_PATH -> "压缩包里的文件路径不合法，为了安全已经停止导入。"
         Failure.NESTED_ARCHIVE -> "压缩包里还有压缩包，暂时不支持这样导入。请先解开一层。"
-        Failure.NO_MATERIAL -> "这个文件暂时不能直接导入。里面没有找到能用的角色图。"
-        Failure.NO_SPACE -> "手机空间不够，导入没有完成。原有角色没有变化。"
+        Failure.NO_MATERIAL -> "这个文件暂时不能直接导入。里面没有找到能用的人偶图。"
+        Failure.NO_SPACE -> "手机空间不够，导入没有完成。原有人偶没有变化。"
         // 【兜底】新增枚举值但还没补文案时走这里；要有日志，否则没人发现漏了。
         else -> {
             Logs.w("DollhouseImportSource", "未配置文案的导入失败类型: " + f.name)

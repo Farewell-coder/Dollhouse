@@ -13,19 +13,36 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.view.ViewGroup
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.home.HomeUi
-import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.GlobalBackground
-import com.dollhouse.app.ui.theme.Fonts
+import com.dollhouse.app.ui.theme.UiKit
 
 /**
  * 【职责】聊天背景的「选图 → 裁剪 → 预览 → 保存」一站式页面。
@@ -98,117 +115,117 @@ class BackgroundCropActivity : Activity() {
         window.decorView.post { pick() }
     }
 
+    /* ------------------------ 外壳（Compose·本轮新增） ------------------------ */
+    //
+    // 【改造说明】改造前整页是手写 View（FrameLayout + LinearLayout + TextView）：
+    //   按钮字号写死 `FS_TINY + 2`、字色写死 `Color.WHITE`、描边用 `roundStroke(0x1AFFFFFF…)`，
+    //   既与全 App 的 Compose 组件不是一套长相，也不会跟主题 / 莫奈 / 纯黑模式。
+    //   现在外壳只有一棵 Compose 树：
+    //     · 顶栏「取消」、底部「复位 / − / + / 保存背景」→ [DhForm.Button]（次 / 主两档）
+    //     · 中间裁剪区 → [AndroidView] 包住**原封不动**的 [CropView]
+    //   引擎一行未动：选图、解码、拖拽、双指、边界夹紧、落盘坐标全部仍是原实现。
+    //
+    // 【为什么用 AndroidView 而不是重写 CropView】CropView 是位图变换引擎
+    //   （Matrix + clampOffset + 输出坐标换算），重写它等于重写整个裁剪语义，
+    //   风险远高于收益。项目里已有同模式先例（ProviderDetailPage 用 AndroidView 装整页 View）。
+    //
+    // 【坑·一个 View 只能有一个 parent】`AndroidView` 的 factory 返回一个仍有 parent 的 View 时，
+    //   会抛 `IllegalStateException: The specified child already has a parent`。
+    //   Activity 重建路径下 `crop` 可能还挂在旧树上，故先 removeView 兜一道。
+
     private fun buildUi(): View {
-        val root = FrameLayout(this)
-        root.setBackgroundColor(Color.BLACK)
-
-        val c = CropView(this)
-        crop = c
-        root.addView(c, FrameLayout.LayoutParams(-1, -1))
-
-        buildTopBar(root)
-        buildBottomBar(root)
-        return root
+        return ComposeHost.createView(this) { CropShell() }
     }
 
-    /** 顶栏：左上「取消」胶囊，量出实际占高回填 insetTop 给裁剪框让位。 */
-    private fun buildTopBar(root: FrameLayout) {
-        // 顶部：左上「取消」描边小胶囊。
-        val topBar = LinearLayout(this)
-        topBar.orientation = LinearLayout.HORIZONTAL
-        topBar.gravity = Gravity.CENTER_VERTICAL
-        val cancel = pill("取消")
-        cancel.setOnClickListener { finish() }
-        topBar.addView(cancel)
-        val topLp = FrameLayout.LayoutParams(-1, -2)
-        topLp.topMargin = UiKit.dp(this, 18.0f)
-        topLp.leftMargin = UiKit.dp(this, PAD_DP)
-        topLp.rightMargin = UiKit.dp(this, PAD_DP)
-        root.addView(topBar, topLp)
-        // 【坑】顶栏高度随字号变化，写死会把裁剪框压到「取消」下面；实测后回填。
-        topBar.addOnLayoutChangeListener { _, _, _, _, b, _, _, _, _ ->
-            insetTop = b + UiKit.dp(this, 10.0f)
-            applyInsets()
+    /**
+     * 裁剪页外壳。
+     *
+     * 【insetTop / insetBottom 的时序·最容易出错的地方】
+     *   改造前靠 `addOnLayoutChangeListener` 量出顶栏底边、底栏顶边再回填给 CropView。
+     *   Compose 里换成 [onSizeChanged]，并把「同一个公式」逐项对上：
+     *     · 顶栏 → `onSizeChanged` 写在 `padding` **之前**（在链上更外层），
+     *       于是量到的是「18dp 上边距 + 按钮高」，正好等于原实现里 `b`（顶栏底边 y）；
+     *     · 底栏 → 把 26dp 底部留白做成 Column **内部**的 Spacer，
+     *       于是 Column 自身高度 = 原实现里的 `parent.height - t`（底栏高 + 底边距），
+     *       不需要任何常数补偿；
+     *     · 两处再各自 +10dp 余量，与原实现的 `+ UiKit.dp(10f)` 一致。
+     *   两个 inset 先后到达是安全的：[CropView.setInsets] 只在值变化时才重排，
+     *   且它内部对「还没量到」有保守下限（`layout()` 里的 96dp / 150dp），
+     *   首帧不会把裁剪框排到按钮底下。
+     */
+    @Composable
+    private fun CropShell() {
+        // 引擎实例：每次搭页面建一个，并登记到 `crop` 字段 —— saveCrop / onDestroy 仍走它。
+        val engine = remember { CropView(this).also { crop = it } }
+        val insetGap = UiKit.dp(this, 10.0f)
+
+        Box(modifier = Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            // 裁剪引擎：原封不动的 CropView
+            AndroidView(
+                factory = { _ ->
+                    (engine.parent as? ViewGroup)?.removeView(engine)
+                    engine
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // ---------- 顶栏：左上「取消」 ----------
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .onSizeChanged {
+                        insetTop = it.height + insetGap
+                        applyInsets()
+                    }
+                    .padding(top = 18.dp, start = 24.dp, end = 24.dp)
+            ) {
+                DhForm.Button(text = "取消", primary = false, onClick = { finish() })
+            }
+
+            // ---------- 底栏：复位 / 缩小 / 放大 + 保存背景 ----------
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .onSizeChanged {
+                        insetBottom = it.height + insetGap
+                        applyInsets()
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DhForm.Button(
+                        text = "复位",
+                        primary = false,
+                        modifier = Modifier.widthIn(min = 84.dp),
+                        onClick = { engine.reset() }
+                    )
+                    DhForm.Button(
+                        text = "−",
+                        primary = false,
+                        modifier = Modifier.widthIn(min = 64.dp),
+                        onClick = { engine.zoomBy(1 / 1.25f) }
+                    )
+                    DhForm.Button(
+                        text = "+",
+                        primary = false,
+                        modifier = Modifier.widthIn(min = 64.dp),
+                        onClick = { engine.zoomBy(1.25f) }
+                    )
+                }
+                DhForm.Button(
+                    text = "保存背景",
+                    primary = true,
+                    modifier = Modifier.padding(top = 14.dp).width(200.dp),
+                    onClick = { saveCrop() }
+                )
+                // 26dp 底部留白放在 Column 内部：Column 实测高度即「底栏 + 底边距」。
+                Spacer(Modifier.height(26.dp))
+            }
         }
-    }
-
-    /** 底栏：复位 / 缩小 / 放大 + 主操作「保存背景」，量出实际占高回填 insetBottom。 */
-    private fun buildBottomBar(root: FrameLayout) {
-        // 底部：复位 / 缩小 / 放大 + 主操作「保存背景」。
-        val bottom = LinearLayout(this)
-        bottom.orientation = LinearLayout.VERTICAL
-        bottom.gravity = Gravity.CENTER_HORIZONTAL
-
-        val tools = LinearLayout(this)
-        tools.orientation = LinearLayout.HORIZONTAL
-        tools.gravity = Gravity.CENTER
-        tools.addView(tool("复位", View.OnClickListener { crop!!.reset() }))
-        tools.addView(tool("−", View.OnClickListener { crop!!.zoomBy(1 / 1.25f) }))
-        tools.addView(tool("+", View.OnClickListener { crop!!.zoomBy(1.25f) }))
-        bottom.addView(tools)
-
-        val save = TextView(this)
-        save.typeface = Fonts.ui(this)
-        save.text = "保存背景"
-        save.setTextSize(UiKit.FS_BTN)
-        save.setTextColor(Color.WHITE)
-        save.gravity = Gravity.CENTER
-        save.background = UiKit.round(UiKit.ACC, this, 12f)
-        UiKit.press(save)
-        save.setOnClickListener { saveCrop() }
-        val saveLp = LinearLayout.LayoutParams(
-                UiKit.dp(this, 200.0f), UiKit.dp(this, 44.0f))
-        saveLp.topMargin = UiKit.dp(this, 14.0f)
-        bottom.addView(save, saveLp)
-
-        val botLp = FrameLayout.LayoutParams(-1, -2)
-        botLp.gravity = Gravity.BOTTOM
-        botLp.bottomMargin = UiKit.dp(this, 26.0f)
-        root.addView(bottom, botLp)
-
-        // 【坑】底栏高度随字号 / 边距变化，不能写死，否则裁剪框会被「保存背景」压在下面。
-        //   这里量出底栏实际占用的高度回填给 CropView，让它把可用高度避开这一段。
-        bottom.addOnLayoutChangeListener { v, _, t, _, _, _, _, _, _ ->
-            // 【为什么不用写死的高度】从父容器（满屏 FrameLayout）总高减去底栏顶边，
-            // 得到的就是「底栏 + 底边距」实际吃掉的高度，不依赖任何常数。
-            val parent = v.parent as View
-            insetBottom = Math.max(0, parent.height - t) + UiKit.dp(this, 10.0f)
-            applyInsets()
-        }
-    }
-
-    /** 深色底上的描边小胶囊（与截图里的「取消」同款观感）。 */
-    private fun pill(text: String): TextView {
-        val t = TextView(this)
-        t.typeface = Fonts.ui(this)
-        t.text = text
-        t.setTextSize(UiKit.FS_TINY + 2.0f)
-        t.setTextColor(Color.WHITE)
-        t.gravity = Gravity.CENTER
-        t.background = UiKit.roundStroke(0x1AFFFFFF, 0x66FFFFFF, this, 999f)
-        t.setPadding(UiKit.dp(this, 16.0f), UiKit.dp(this, 7.0f),
-                UiKit.dp(this, 16.0f), UiKit.dp(this, 7.0f))
-        UiKit.press(t)
-        return t
-    }
-
-    /** 底部工具按钮：透明底 + 白描边 + 白字。 */
-    private fun tool(text: String, click: View.OnClickListener): TextView {
-        val t = TextView(this)
-        t.typeface = Fonts.ui(this)
-        t.text = text
-        t.setTextSize(UiKit.FS_BTN)
-        t.setTextColor(Color.WHITE)
-        t.gravity = Gravity.CENTER
-        t.background = UiKit.roundStroke(0x14FFFFFF, 0x59FFFFFF, this, 10f)
-        t.setOnClickListener(click)
-        UiKit.press(t)
-        val lp = LinearLayout.LayoutParams(
-                UiKit.dp(this, 84.0f), UiKit.dp(this, 40.0f))
-        lp.leftMargin = UiKit.dp(this, 5.0f)
-        lp.rightMargin = UiKit.dp(this, 5.0f)
-        t.layoutParams = lp
-        return t
     }
 
     /* ------------------------------- 选图与落盘 ------------------------------- */

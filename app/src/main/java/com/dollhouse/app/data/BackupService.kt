@@ -196,7 +196,7 @@ object BackupService {
         sb.append("\n新增模型 ").append(modelsAdded).append(" 个")
         if (dollsMissing > 0) {
             sb.append("\n备份里有 ").append(dollsMissing)
-                .append(" 只本机没有的人偶，未自动新建（缺封面与形象会变成坏角色）。")
+                .append(" 只本机没有的人偶，未自动新建（缺封面与形象会变成不完整的人偶）。")
         }
         if (memsAdded > 0) {
             sb.append("\n新增记忆 ").append(memsAdded).append(" 条")

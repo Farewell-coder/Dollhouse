@@ -157,7 +157,7 @@ object FriendProfilePage {
 
             /* ==================== 模型 ==================== */
             DhKit.Card(collapsibleTitle = "模型", titleIcon = Icons.IC_BOT) {
-                DhForm.Note("只影响这一个角色长什么样、用哪个模型回应。")
+                DhForm.Note("只影响这一个人偶长什么样、用哪个模型回应。")
                 DhKit.ActionRow(
                     label = "模型与生成参数",
                     iconRes = Icons.IC_BOT,
@@ -182,7 +182,7 @@ object FriendProfilePage {
 
             /* ==================== 记忆 ==================== */
             DhKit.Card(collapsibleTitle = "记忆", titleIcon = Icons.IC_BRAIN) {
-                DhForm.Note("记忆按角色分库，与其它人偶完全隔离。")
+                DhForm.Note("记忆按人偶分库，与其它人偶完全隔离。")
                 DhKit.ActionRow(
                     label = "记忆库",
                     iconRes = Icons.IC_BRAIN,
@@ -241,16 +241,16 @@ object FriendProfilePage {
 
             /* ==================== 数据管理 ==================== */
             DhKit.Card(collapsibleTitle = "数据管理", titleIcon = Icons.IC_LAYERS) {
-                DhForm.Note("聊天与角色、记忆分开存放：清理聊天不会动她的人设和记忆。")
+                DhForm.Note("聊天与人偶、记忆分开存放：清理聊天不会动她的人设和记忆。")
                 DhKit.ActionRow(
                     label = "清空全部会话",
                     iconRes = Icons.IC_ERASER,
-                    desc = "该好友全部会话的消息归零，角色与记忆保留"
+                    desc = "该好友全部会话的消息归零，人偶与记忆保留"
                 ) { confirmClear = true }
                 DhKit.ActionRow(
                     label = "删除聊天",
                     iconRes = Icons.IC_TRASH,
-                    desc = "删除这条对话；不会删除角色记忆"
+                    desc = "删除这条对话；不会删除人偶记忆"
                 ) { confirmDelete = true }
                 DhKit.ActionRow(
                     label = "管理人偶",
@@ -277,7 +277,7 @@ object FriendProfilePage {
                 posText = "清空",
                 onPos = {
                     clearChat(act, personaId)
-                    notice = "已清空该好友全部会话；角色人设与记忆未受影响。"
+                    notice = "已清空该好友全部会话；人偶的人设与记忆未受影响。"
                     tick++
                 },
                 negText = "取消"
@@ -293,12 +293,12 @@ object FriendProfilePage {
                 posText = "删除",
                 onPos = {
                     deleteChat(act, personaId)
-                    notice = "已删除这条聊天；角色与记忆仍在，重新进入即可开始新对话。"
+                    notice = "已删除这条聊天；人偶与记忆仍在，重新进入即可开始新对话。"
                     tick++
                 },
                 negText = "取消"
             ) {
-                DhForm.Note("会删除这条对话的聊天记录，但**不会**删除角色、人格设定与长期记忆。")
+                DhForm.Note("会删除这条对话的聊天记录，但**不会**删除人偶、人格设定与长期记忆。")
             }
         }
     }

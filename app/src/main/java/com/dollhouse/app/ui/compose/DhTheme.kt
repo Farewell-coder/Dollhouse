@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Fonts
+import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -247,9 +248,20 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
     val familyBold = remember(ctx) { safeFamily(ctx, bold = true) }
     // 【字体阶梯】品牌档用霞鹜文楷（情感载体），正文档回落系统无衬线（中文小字更清晰）。
     //   设计稿 §1 明确「品牌字体是调味料，不是主食」：文楷只出现在 App 名、人偶名、头像首字。
-    val type = remember(family, familyBold) {
-        runCatching { DhDesign.Type.of(brandFamily = family, bodyFamily = FontFamily.Default) }
-            .getOrElse { DhDesign.Type.fallback() }
+    //
+    // 【深色档 · r15】同字号同字重在深底上看着更重（亮字形在暗底有溢光/膨胀），
+    //   所以把**标题五档**（brand/display/title/section/label）的 SemiBold 降到 Medium；
+    //   正文/说明/caption 保持 400 不动 —— 再降就没有层级了。
+    //   注意 dark 必须进 remember 的 key：否则切换深浅主题时 revision 变了、字阶却还是旧字重。
+    val dark = ThemeManager.isDark(ctx)
+    val type = remember(family, familyBold, dark) {
+        runCatching {
+            DhDesign.Type.of(
+                brandFamily = family,
+                bodyFamily = FontFamily.Default,
+                dark = dark
+            )
+        }.getOrElse { DhDesign.Type.fallback(dark = dark) }
     }
     // 【r12 修 bug·蓝色水滴】文本选择把手与选中底色的主题化。
     //   改造前 M3 的 LocalTextSelectionColors 默认读到 0xFF4285F4（那个蓝），

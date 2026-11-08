@@ -185,7 +185,7 @@ object ImportAssistantPage {
                 val expanded = ImportSource.expand(act, picked, File(s.root, "expand"))
                 if (!expanded.ok) {
                     val msg = expanded.error?.let { ImportSource.textOf(it) }
-                        ?: "这个文件里没有找到能用的角色图。"
+                        ?: "这个文件里没有找到能用的人偶图。"
                     ImportSession.deleteTree(s.root)
                     act.runOnUiThread {
                         busy = false
@@ -249,12 +249,12 @@ object ImportAssistantPage {
             }
             s.committing = true
             busy = true
-            busyText = "正在把角色安顿好…"
+            busyText = "正在把人偶安顿好…"
             Thread({
                 val r = try {
                     ImportCommit.commit(act, s)
                 } catch (t: Throwable) {
-                    ImportCommit.Result(false, "导入没有完成，原有角色没有变化。请重试。")
+                    ImportCommit.Result(false, "导入没有完成，原有人偶没有变化。请重试。")
                 }
                 act.runOnUiThread {
                     busy = false
@@ -313,7 +313,7 @@ object ImportAssistantPage {
         val s = session
         when (step) {
             Step.CHOOSE -> DhKit.Page(
-                title = "添加角色",
+                title = "添加人偶",
                 // 【R-112 四节】副标题定案：不再用「她想怎么住进来？」。
                 sub = "选一种方式开始。",
                 onBack = { leave() }
@@ -333,7 +333,7 @@ object ImportAssistantPage {
                     //   「高手」指创作能力（会画画、懂素材），不是操作熟练度。
                     tag = "高手",
                     title = "亲手打造",
-                    desc = "导入你画好的角色和动作，自己做细节。",
+                    desc = "导入你画好的人偶和动作，自己做细节。",
                     iconRes = Icons.IC_BRUSH,
                     extra = "会画画、懂素材"
                 ) {
@@ -341,7 +341,7 @@ object ImportAssistantPage {
                     fromArtist = true
                     step = Step.ARTIST
                 }
-                DhForm.Note("随时可以返回。选好之前，不会动到任何已有的角色。")
+                DhForm.Note("随时可以返回。选好之前，不会动到任何已有的人偶。")
                 failure?.let { ImportAssistantKit.FailureBox(it) }
             }
 
@@ -694,8 +694,8 @@ object ImportAssistantPage {
                     val sameName = DollStore.all(act).any { it.name == s.nameDraft.trim() }
                     if (sameName) {
                         DhForm.Note(
-                            "角色库里已经有一个叫「" + s.nameDraft.trim() + "」的角色了。" +
-                                "这次会另存为一个新角色（自动加序号），原来那个不会被动。"
+                            "人偶库里已经有一个叫「" + s.nameDraft.trim() + "」的人偶了。" +
+                                "这次会另存为一个新的人偶（自动加序号），原来那个不会被动。"
                         )
                     }
                     // 【9.2.3 / TC-032】JPG 本身不带透明通道：必须明说背景会一起显示，
@@ -739,7 +739,7 @@ object ImportAssistantPage {
                 }
                 if (doneReplaced) {
                     // 8.8：替换过旧模型时要明说旧模型还在。
-                    DhForm.Note("已替换原来的模型，旧模型仍保留在角色库。")
+                    DhForm.Note("已替换原来的模型，旧模型仍保留在人偶库。")
                 }
                 DhForm.Note("以后想补动作，可以在人偶列表里找到她，进「动作」添加。")
                 Spacer(Modifier.height(12.dp))
@@ -757,7 +757,7 @@ object ImportAssistantPage {
                 DhKit.MiniChip("以后再补动作", iconRes = Icons.IC_LAYERS) {
                     PageStack.pop(act)
                 }
-                DhForm.Note("也可以直接返回，她会留在角色库里。")
+                DhForm.Note("也可以直接返回，她会留在人偶库里。")
             }
         }
 
@@ -831,12 +831,12 @@ object ImportAssistantPage {
     /** 从文件名单猜角色名（去扩展名，空则给默认名）。 */
     private fun nameFromFile(path: String?): String {
         if (path.isNullOrEmpty()) {
-            return "新角色"
+            return "新人偶"
         }
         val stem = ImportPlan.stemOf(File(path).name)
         // 选文件通道把副本命名成 `raw_<ts>_<rand>.png`，这种名字对用户没意义。
         if (stem.startsWith("raw_") || stem.isBlank()) {
-            return "新角色"
+            return "新人偶"
         }
         return if (stem.length > 24) stem.substring(0, 24) else stem
     }
