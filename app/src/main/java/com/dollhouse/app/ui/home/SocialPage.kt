@@ -49,7 +49,7 @@ import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.kit.DhState
-import com.dollhouse.app.ui.provider.ProviderListPage
+import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.settings.MemSettingsPage
 import com.dollhouse.app.ui.theme.Design
@@ -266,7 +266,7 @@ object SocialPage {
                         body = "自动记事要调用模型：先填一个能用的模型 Key，聊完一轮她就会把要点记下来",
                         iconRes = Icons.IC_KEY_ROUND,
                         actionText = "去填模型 Key",
-                        onAction = { ProviderListPage.open(act) }
+                        onAction = { ProviderNav.open(act) }
                     )
 
                     EmptyKind.NO_AUTO -> DhState(
@@ -282,7 +282,7 @@ object SocialPage {
                         body = "陪她说几句话。聊完一轮她会把要点记下来，出现在这里",
                         iconRes = Icons.IC_NEWSPAPER,
                         actionText = "去和她聊聊",
-                        onAction = { openDoll(act, snap.firstDollId, snap.firstDollName) }
+                        onAction = { openDoll(act, snap.firstDollId) }
                     )
                 }
 
