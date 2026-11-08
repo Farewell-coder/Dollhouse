@@ -90,6 +90,18 @@ jobs:
       - name: 赋权 gradlew
         run: chmod +x ./gradlew
 
+      # 【静态门禁】放在编译前跑：比等 8 分钟编译完再报错快得多。
+      #   align_audit  —— 「容器有边界但内容没居中」（Compose 里 Row/Column/Box 的默认对齐都不是居中）
+      #   radius_audit —— 「圆角 > 元素半短边会变成药丸/变形」（上一轮 Radius.md 12→16 让 30dp 元素全部变形，
+      #                   用户原话「很丑很丑」，就是缺这道门禁）
+      #   两者都做过反向验证：注入必须报、删除必须过。
+      - name: 静态门禁（居中 / 圆角比例）
+        run: |
+          python3 tools/align_audit.py --quiet
+          python3 tools/radius_audit.py --quiet
+          python3 tools/kotlin_precheck.py
+          python3 tools/comment_balance.py
+
       - name: 单元测试
         run: ./gradlew test --stacktrace
 
