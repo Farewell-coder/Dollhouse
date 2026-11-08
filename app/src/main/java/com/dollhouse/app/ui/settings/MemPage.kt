@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +58,7 @@ import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -97,6 +101,14 @@ object MemPage {
     /** 分类条里「未分类」的哨兵值。 */
     private const val FILTER_NONE = "\u0000none"
 
+    /**
+     * 定位高亮的停留时长（毫秒），到点后自动淡出。
+     *
+     * 【为什么必须有上限】永久高亮会被读成「这条被选中了 / 被标记了」；
+     *   这里只是「你要找的是这一条」的一次性提示，闪完就该消失。
+     */
+    private const val HIGHLIGHT_HOLD_MS = 1400L
+
     /** 返回键用：记忆库页在栈顶就退一层并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
@@ -133,15 +145,30 @@ object MemPage {
     /** 页面构造：供页面栈入栈与跨重建恢复共用（用上次打开时记下的 dollId）。 */
     @JvmStatic
     fun buildPage(ctx: Context): View? {
-        return buildPage(ctx, readCurrentDollId(ctx))
+        return buildPage(ctx, readCurrentDollId(ctx), null)
     }
 
     @JvmStatic
     fun buildPage(ctx: Context, dollId: String): View? {
+        return buildPage(ctx, dollId, null)
+    }
+
+    /**
+     * 【v0.2.7·定位】带 anchorId 的页面构造：打开后直接落到某条记忆。
+     *
+     * @param anchorId 要定位的条目 id；null = 与改造前完全一致（停在默认视图、不高亮）
+     *
+     * 【为什么另开一个重载而不是给上面那个加默认参数】本机没有编译器
+     *   （proot 缺 aapt2），而「同名重载 + 默认参数」会让 `buildPage(ctx)` 这类调用
+     *   在解析上出现选择题 —— 选错就是一轮 8 分钟的 CI。三个参数全显式传入，
+     *   零歧义：不需要定位的调用点自己传 null。
+     */
+    @JvmStatic
+    fun buildPage(ctx: Context, dollId: String, anchorId: String?): View? {
         val act = findActivity(ctx) ?: return null
         // Compose 运行所需 owner（原生 Activity 不自动装），幂等。
         ComposeHost.installForActivity(act)
-        return ComposeHost.createView(act) { MemContent(act, dollId) }
+        return ComposeHost.createView(act) { MemContent(act, dollId, anchorId) }
     }
 
     /** 打开某只人偶的记忆库；不传 dollId 时用默认配置（旧调用点兜底）。 */
@@ -152,11 +179,24 @@ object MemPage {
 
     @JvmStatic
     fun open(ctx: Context, dollId: String) {
+        open(ctx, dollId, null)
+    }
+
+    /**
+     * 【v0.2.7·定位】打开某只人偶的记忆库，并定位到她记下的某一条。
+     *
+     * 【anchorId = null 时】与两参版本**完全一致**：同一段落盘、同一个页面构造，
+     *   不切视图、不滚动、不高亮（改造前的所有调用点走的都是这条）。
+     * 【找不到 anchorId 时】页面照常打开、停在列表顶部，**不弹任何错误** ——
+     *   调用方拿到的可能是旧快照（那条记忆已被删），用户不该为此看到报错。
+     */
+    @JvmStatic
+    fun open(ctx: Context, dollId: String, anchorId: String?) {
         try {
             currentDollId = dollId
             // 【落盘】让进程被杀后还能回到同一只人偶（见 [currentDollId] 的注释）。
             PetPrefs.setMemPageDollId(ctx, dollId)
-            PageStack.push(ctx, TAG_PAGE) { buildPage(ctx, dollId) }
+            PageStack.push(ctx, TAG_PAGE) { buildPage(ctx, dollId, anchorId) }
         } catch (ignored: Throwable) {
             Logs.w(LOG_TAG, "ignored", ignored)
         }
@@ -181,7 +221,7 @@ object MemPage {
 
     // ============================ 页面正文 ============================
     @Composable
-    private fun MemContent(act: Activity, dollId: String) {
+    private fun MemContent(act: Activity, dollId: String, anchorId: String? = null) {
         val c = DhTokens.colors
         // 【刷新机制】任何写操作后 refresh++ 触发重组重读，不整页重建（避免闪一下）。
         var refresh by remember { mutableStateOf(0) }
@@ -205,7 +245,23 @@ object MemPage {
         //     正文得点开弹窗才看得到；记忆一多，想在图谱里找一条具体的话非常费劲。
         //     UIKit 的搜索也只能定位到节点，仍然要再点一次。
         //   列表模式把每条记忆的标题 + 正文摘要 + 来源 + 分类直接铺开，点一下即编辑。
-        var listMode by remember { mutableStateOf(false) }
+        // 【v0.2.7·定位】带 anchorId 进来时直接开列表模式：图谱节点上只有标题，
+        //   看不到正文，定位到那里等于没定位。不带 anchorId 时仍是图谱（原行为逐像素一致）。
+        var listMode by remember { mutableStateOf(anchorId != null) }
+
+        // 【v0.2.7·定位】列表滚动状态 + 一次性高亮。
+        //   原先 LazyColumn 没有 state（Compose 内部自管），要滚到指定下标就必须显式持有它。
+        val listState = rememberLazyListState()
+        var highlightId by remember { mutableStateOf(anchorId) }
+        LaunchedEffect(anchorId) {
+            if (anchorId == null) {
+                return@LaunchedEffect
+            }
+            // 停一下再清空 → 高亮强度从 1 动画到 0（见列表项的 animateFloatAsState），
+            // 用户看到的是「闪一下」，不是「被选中」。
+            delay(HIGHLIGHT_HOLD_MS)
+            highlightId = null
+        }
 
         val all = remember(refresh, dollId) { readAll(act, dollId) }
         val folders = remember(refresh, dollId) { Mem.allFolders(act, dollId) }
@@ -236,6 +292,20 @@ object MemPage {
                 okFolder && okKw
             }
         }
+        // 【v0.2.7·定位】滚到目标条目。依赖 shownMems：列表最终内容由它决定，
+        //   只有按它的下标滚才是「用户真正会看到的那一行」。
+        //   找不到（条目已被删）→ 什么都不做，停在顶部，不弹提示（见 open 的注释）。
+        LaunchedEffect(anchorId, listMode, shownMems) {
+            if (anchorId == null || !listMode) {
+                return@LaunchedEffect
+            }
+            val idx = shownMems.indexOfFirst { it.id == anchorId }
+            if (idx >= 0) {
+                // 用瞬时滚动而不是动画：用户是「来找那一条」的，等动画结束反而慢。
+                listState.scrollToItem(idx)
+            }
+        }
+
         val dollName = remember(dollId) { DollStore.byId(act, dollId)?.name }
 
         // 【关系边】读这只人偶的全部关系，交给布局。
@@ -342,10 +412,18 @@ object MemPage {
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(shownMems, key = { it.id }, contentType = { "mem" }) { m ->
+                            // 【定位高亮】只有目标那一条会从 1 淡到 0；其余条目恒为 0，
+                            //   动画不会给它们带来任何额外的绘制负担。
+                            val pulse by animateFloatAsState(
+                                targetValue = if (m.id == highlightId) 1f else 0f,
+                                animationSpec = tween(durationMillis = 320),
+                                label = "memAnchorPulse"
+                            )
                             Box(Modifier.animateItem()) {
                                 MemListRow(
                                     m = m,
@@ -355,6 +433,20 @@ object MemPage {
                                     },
                                     onLongClick = { delAskFor = m }
                                 )
+                                // 【定位高亮】必须画在卡片**之上**：卡片底是不透明的，
+                                //   画在下面等于没画。只画一圈会淡出的极淡描边 ——
+                                //   把视线带过去，又不会被读成「这条被选中了」。
+                                if (pulse > 0.01f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .border(
+                                                width = 1.5.dp,
+                                                color = c.acc.copy(alpha = 0.55f * pulse),
+                                                shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
+                                            )
+                                    )
+                                }
                             }
                         }
                     }

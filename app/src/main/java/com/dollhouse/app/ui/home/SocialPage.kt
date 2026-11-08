@@ -239,7 +239,8 @@ object SocialPage {
                             // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
                             //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
                             //   聊天是「现在」，记忆库才是这条内容的上下文。
-                            //   走 [MemPage.open] 的双参重载（带 dollId 才落到「她」那只）。
+                            //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
+                            //   anchorId（= 这条记忆的 id）决定落在哪一条上。
                             onClick = {
                                 // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
                                 //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
@@ -247,7 +248,7 @@ object SocialPage {
                                 //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
                                 //   所以每次点卡都重新登记一次。
                                 PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
-                                MemPage.open(act, row.item.dollId)
+                                MemPage.open(act, row.item.dollId, row.item.memId)
                             }
                         )
                         is Entry.More -> MoreRow(moreCount) { shown += PAGE }
@@ -673,6 +674,8 @@ object SocialPage {
         val key: String,
         val dollId: String,
         val dollName: String,
+        /** 记忆条目 id —— 点卡时交给 [MemPage.open] 的三参重载，用来定位到她记下的那一条。 */
+        val memId: String,
         val title: String,
         val body: String,
         val tags: List<String>,
@@ -747,6 +750,7 @@ object SocialPage {
                         key = d.id + "|" + m.id,
                         dollId = d.id,
                         dollName = d.name,
+                        memId = m.id,
                         title = title,
                         body = body,
                         tags = m.tags.take(3),
