@@ -268,7 +268,7 @@ object AppearancePage {
                 iconRes = Icons.IC_TRASH,
                 desc = "删掉图片并重置全部背景参数",
                 enabled = has,
-                trailing = if (has) "›" else null
+                showChevron = has
             ) {
                 PetPrefs.clearBackground(act)
                 tick++

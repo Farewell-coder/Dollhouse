@@ -244,7 +244,8 @@ object SettingsScreen {
                 label = "导出完整备份",
                 iconRes = Icons.IC_UPLOAD,
                 desc = "生成一个文件，通过系统分享保存",
-                trailing = if (busy) "处理中…" else "›"
+                trailing = if (busy) "处理中…" else null,
+                showChevron = !busy
             ) {
                 if (busy) return@ActionRow
                 busy = true
@@ -280,7 +281,7 @@ object SettingsScreen {
                 label = "从备份恢复",
                 iconRes = Icons.IC_DOWNLOAD,
                 desc = "恢复前会先给你看会还原什么",
-                trailing = "›"
+                showChevron = true
             ) {
                 com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
                     com.dollhouse.app.PickFileActivity.setFileListener(null)
@@ -497,7 +498,7 @@ object SettingsScreen {
                 label = "提供商",
                 iconRes = Icons.IC_SERVER,
                 desc = "接口地址、密钥与模型列表",
-                value = "›"
+                showChevron = true
             ) {
                 ProviderNav.open(act)
             }
@@ -505,7 +506,7 @@ object SettingsScreen {
                 label = "查看 Token",
                 iconRes = Icons.IC_GAUGE,
                 desc = "查看模型使用统计",
-                value = "›"
+                showChevron = true
             ) {
                 TokenStat.open(act)
             }
@@ -568,7 +569,7 @@ object SettingsScreen {
                 label = "外观设置",
                 iconRes = Icons.IC_PALETTE,
                 desc = "主题 · 背景 · 聊天气泡 · 弹窗",
-                trailing = "›"
+                showChevron = true
             ) { AppearancePage.open(act) }
             DhKit.ValueRow(
                 label = "当前主题",

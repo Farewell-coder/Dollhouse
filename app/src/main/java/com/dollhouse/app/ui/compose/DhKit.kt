@@ -698,6 +698,8 @@ object DhKit {
         modifier: Modifier = Modifier,
         iconRes: Int = 0,
         desc: String? = null,
+        /** 【v3.1】画真箭头，替代用字符 `›` 冒充图标的写法。 */
+        showChevron: Boolean = false,
         onClick: (() -> Unit)? = null
     ) {
         // 【M-收口·转发到规范实现】本函数有 38 处调用点，改造它等于一次性让
@@ -718,7 +720,7 @@ object DhKit {
             desc = desc,
             value = value,
             iconRes = iconRes,
-            showChevron = false,
+            showChevron = showChevron,
             onClick = onClick
         )
     }
@@ -1394,6 +1396,14 @@ object DhKit {
         trailing: String? = null,
         enabled: Boolean = true,
         tooltip: String? = null,
+        /**
+         * 【v3.1·真箭头】在 [trailing]/[value] 之后画一枚线性右箭头（`IC_CHEVRON_RIGHT`）。
+         *
+         * 【为什么要这个参数】改造前 22 处用**字符 `›`**（U+203A，是「单右引号」不是箭头）
+         * 冒充 chevron：它的字形贴基线上部、粗细偏细，和旁边的图标不是一套；
+         * 再叠上文楷，每一行的宽度与粗细都不一致 —— 这正是用户说的「符号错位」。
+         */
+        showChevron: Boolean = false,
         onClick: (() -> Unit)? = null
     ) {
         // 【M-收口·转发到规范实现】本函数有 87 处调用点（全 App 用得最多的行组件），
@@ -1433,7 +1443,9 @@ object DhKit {
             desc = desc,
             value = trailing,
             iconRes = iconRes ?: 0,
-            showChevron = false,
+            // 【v3.1】把调用方要的箭头透传下去；原来是写死 false，
+            //   于是调用方只能拿字符 `›` 冒充图标。
+            showChevron = showChevron,
             onClick = if (enabled) onClick else null
         )
     }

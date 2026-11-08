@@ -129,7 +129,7 @@ object MemSettingsPage {
                 DhKit.ActionRow(
                     label = "保存规则",
                     iconRes = Icons.IC_CHECK,
-                    trailing = "›"
+                    showChevron = true
                 ) {
                     PetPrefs.setMemExtractRule(act, rule)
                     tick++

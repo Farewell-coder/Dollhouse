@@ -241,7 +241,7 @@ object DollPersonaPage {
                         label = (if (inj.name.isEmpty()) "未命名注入" else inj.name)
                                 + "（" + InjectPos.label(inj.position) + "）",
                         iconRes = Icons.IC_PLUG,
-                        trailing = "›"
+                        showChevron = true
                     ) {
                         DollInjectDialog.show(act, id, inj.id) { tick++ }
                     }
@@ -285,7 +285,7 @@ object DollPersonaPage {
 
             /* ==================== ④ 提示词与角色卡 ==================== */
             DhKit.Card(collapsibleTitle = "提示词与角色卡", titleIcon = Icons.IC_QUOTE) {
-                DhKit.ActionRow(label = "查看实际提示词", iconRes = Icons.IC_EYE, trailing = "›") {
+                DhKit.ActionRow(label = "查看实际提示词", iconRes = Icons.IC_EYE, showChevron = true) {
                     DollPromptPreview.show(act, id)
                 }
                 DhForm.Note("会拼出这一轮真正发给模型的人设，包含命中的世界书。")
