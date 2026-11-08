@@ -373,8 +373,11 @@ object SocialPage {
                         body = if (snap.hasKey) {
                             "密钥读到了但模型没配全：需要启用一个供应商 + 一个可用的对话模型"
                         } else {
-                            "自动记事要调用模型：先去配好供应商和密钥。配好后每隔 "
-                                + snap.intervalMinutes + " 分钟，她会把最近几句对话整理成要点"
+                            // 【拼接必须把 + 放行尾】Kotlin 里行首的 + 会被解析成一元正号，
+                            //   于是「String + Int」退化成对 Int 取正 —— 编译器报
+                            //   「None of the following candidates is applicable」。
+                            "自动记事要调用模型：先去配好供应商和密钥。配好后每隔 " +
+                                snap.intervalMinutes + " 分钟，她会把最近几句对话整理成要点"
                         },
                         iconRes = Icons.IC_KEY_ROUND,
                         actionText = "去配置模型",
@@ -383,8 +386,8 @@ object SocialPage {
 
                     EmptyKind.NO_AUTO -> DhState(
                         title = "自动记事已关闭",
-                        body = "打开它，她才会每隔 " + snap.intervalMinutes
-                            + " 分钟把最近几句对话整理成要点",
+                        body = "打开它，她才会每隔 " + snap.intervalMinutes +
+                            " 分钟把最近几句对话整理成要点",
                         iconRes = Icons.IC_BRAIN,
                         actionText = "去打开",
                         onAction = { MemSettingsPage.open(act) }
@@ -394,8 +397,8 @@ object SocialPage {
                     //   唯一能让页面不空的动作就是「去聊」。点卡片则去记忆库（见 PostCard 调用处）。
                     else -> DhState(
                         title = "她还没记住什么",
-                        body = "陪她说几句话。每隔 " + snap.intervalMinutes
-                            + " 分钟，她会把最近几句对话整理成要点，出现在这里",
+                        body = "陪她说几句话。每隔 " + snap.intervalMinutes +
+                            " 分钟，她会把最近几句对话整理成要点，出现在这里",
                         iconRes = Icons.IC_NEWSPAPER,
                         actionText = "去和她聊聊",
                         onAction = { openDoll(act, snap.chatDollId) }

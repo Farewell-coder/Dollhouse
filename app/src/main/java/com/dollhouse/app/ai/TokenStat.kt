@@ -447,10 +447,13 @@ object TokenStat {
                 .padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 【无障碍】周期左右翻页：纯箭头图标，中间是周期文字。
+            //   「上一个」在左、「下一个」在右；右侧不可退时那个占位 Box 不挂语义（它不可点）。
             DhKit.IconButton(
                 iconRes = Icons.IC_CHEVRON_LEFT,
                 sizeDp = UiKit.FS_ICON,
-                color = c.title
+                color = c.title,
+                a11yName = "上一个周期"
             ) { onOffset(offset + 1) }
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Text(
@@ -465,7 +468,8 @@ object TokenStat {
                 DhKit.IconButton(
                     iconRes = Icons.IC_CHEVRON_RIGHT,
                     sizeDp = UiKit.FS_ICON,
-                    color = c.title
+                    color = c.title,
+                    a11yName = "下一个周期"
                 ) { onOffset(offset - 1) }
             } else {
                 Box(

@@ -702,7 +702,18 @@ object DhKit {
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack != null) {
-                IconButton(iconRes = Icons.IC_ARROW_LEFT, sizeDp = 20f, color = DhTokens.colors.title, onClick = onBack)
+                // 【无障碍·一处覆盖全 App】这是**所有二级页**的返回键（[Page] 走这里），
+                //   `IconButton` 内部只有一枚箭头图标、没有任何文字 —— 不给名字，
+                //   读屏在每一个二级页上念的都是「按钮」，用户无法判断它是返回。
+                //   名字只写「返回」：位置固定在最左，读屏用户靠位置与动作即可理解语义；
+                //   写「返回上一页」会让本已冗长的顶栏在朗读里再多三个字。
+                IconButton(
+                    iconRes = Icons.IC_ARROW_LEFT,
+                    sizeDp = 20f,
+                    color = DhTokens.colors.title,
+                    a11yName = "返回",
+                    onClick = onBack
+                )
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Column(modifier = Modifier.weight(1f)) {

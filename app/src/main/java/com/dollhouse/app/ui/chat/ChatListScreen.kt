@@ -278,7 +278,14 @@ object ChatListScreen {
                     compactTrailing = true,
                     trailing = if (query.isEmpty()) null else {
                         {
-                            DhKit.IconButton(Icons.IC_CLOSE, Design.SZ_SM, c.sub) {
+                            // 【无障碍】搜索框内的清空叉：只在有输入时出现，
+                            //   不给名字的话读屏用户不知道能一键清空。
+                            DhKit.IconButton(
+                                Icons.IC_CLOSE,
+                                Design.SZ_SM,
+                                c.sub,
+                                a11yName = "清空搜索"
+                            ) {
                                 query = ""
                             }
                         }

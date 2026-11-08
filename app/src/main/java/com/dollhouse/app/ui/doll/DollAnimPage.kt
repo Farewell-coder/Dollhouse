@@ -1304,7 +1304,9 @@ object DollAnimPage {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    DhKit.IconButton(Icons.IC_MINUS, Design.SZ_MD, c.title) {
+                    // 【无障碍】纯图标「−／+」，中间夹着「12 帧/秒」。
+                    //   没有名字时读屏念「按钮 12 帧/秒 按钮」，听不出谁加谁减。
+                    DhKit.IconButton(Icons.IC_MINUS, Design.SZ_MD, c.title, a11yName = "降低帧率") {
                         draft = DollAnim.clampFps(draft - 1)
                     }
                     Text(
@@ -1318,7 +1320,7 @@ object DollAnimPage {
                         style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
                         textAlign = TextAlign.Center
                     )
-                    DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, c.title) {
+                    DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, c.title, a11yName = "提高帧率") {
                         draft = DollAnim.clampFps(draft + 1)
                     }
                 }

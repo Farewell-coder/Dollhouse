@@ -52,6 +52,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.MyProfile
@@ -223,7 +225,14 @@ object ChatUi {
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DhKit.IconButton(iconRes = Icons.IC_ARROW_LEFT, sizeDp = 20f, color = c.title) {
+            // 【无障碍】纯图标返回键：不给名字读屏只念「按钮」，
+            //   而它旁边就是头像与标题，用户无法判断这个「按钮」是返回还是别的。
+            DhKit.IconButton(
+                iconRes = Icons.IC_ARROW_LEFT,
+                sizeDp = 20f,
+                color = c.title,
+                a11yName = "返回会话列表"
+            ) {
                 host.controller?.onClose()
             }
             Spacer(Modifier.width(2.dp))
@@ -329,7 +338,9 @@ object ChatUi {
                 }
             }
             CtxRingView(host)
-            DhKit.IconButton(Icons.IC_MORE, Design.SZ_MD, c.title) {
+            // 【无障碍】「⋯」进的是对话历史，不是「更多菜单」——
+            //   名字必须说清去向，否则和左侧返回键并列时两个都叫「按钮」。
+            DhKit.IconButton(Icons.IC_MORE, Design.SZ_MD, c.title, a11yName = "查看对话历史") {
                 val a = host.activity as? com.dollhouse.app.MainActivity
                 if (a != null && dollId.isNotEmpty()) ConversationHistoryPage.open(a, dollId)
             }
@@ -349,6 +360,15 @@ object ChatUi {
         Box(
             modifier = Modifier
                 .size(30.dp)
+                // 【无障碍】环身是 Canvas 画的两条弧，读屏读不到；环心只有一个「32」，
+                //   既没单位也没说这是干什么的。这里合成一句话：**数值 + 含义 + 操作**。
+                //   mergeDescendants 把环心那个纯数字并进本节点 —— 否则读屏会先念
+                //   「上下文已用 32%，查看用量详情，按钮」再单独念一遍「32」。
+                //   注意：数字随上下文实时变化，名字也跟着变，这是**期望行为**（读屏需要当前值）。
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "上下文已用 " +
+                        (ratio * 100f).roundToInt() + "%，查看用量详情"
+                }
                 .pressable { host.controller?.onOpenTokenStat() },
             contentAlignment = Alignment.Center
         ) {
@@ -1236,7 +1256,13 @@ object ChatUi {
             )
             // 【v0.1.0·修·图标偏小】全工程唯一还写着字面量 14f 的按钮图标（旁侧文字 12sp，
             //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 40dp 命中区里像个针尖）。
-            DhKit.IconButton(iconRes = Icons.IC_CLOSE, sizeDp = Design.SZ_SM, color = c.sub) {
+            // 【无障碍】附件预览卡上的叉＝移除附件（不是关闭页面）。
+            DhKit.IconButton(
+                iconRes = Icons.IC_CLOSE,
+                sizeDp = Design.SZ_SM,
+                color = c.sub,
+                a11yName = "移除附件"
+            ) {
                 host.clearAttachment()
             }
         }

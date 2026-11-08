@@ -373,7 +373,15 @@ object MemPage {
                 label = null,
                 trailing = if (keyword.isEmpty()) null else {
                     {
-                        DhKit.IconButton(Icons.IC_CLOSE, Design.SZ_SM, c.sub) {
+                        // 【无障碍】这一颗同时做三件事（清关键词、关搜索、清高亮），
+                        //   名字取用户能理解的那一件「关闭搜索」；不要叫「清空」——
+                        //   本页还有别的「关闭」（详情面板），所以名字必须带作用域。
+                        DhKit.IconButton(
+                            Icons.IC_CLOSE,
+                            Design.SZ_SM,
+                            c.sub,
+                            a11yName = "关闭记忆库搜索"
+                        ) {
                             keyword = ""
                             searchOpen = false
                             highlight.value = null
@@ -747,7 +755,14 @@ object MemPage {
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
-                DhKit.IconButton(Icons.IC_CLOSE, Design.SZ_SM, c.sub) { onClose() }
+                // 【无障碍】「关闭详情」：与上面的「关闭记忆库搜索」区分开 ——
+                //   同一页有两颗 ✕，都念「关闭」会让读屏用户不知道关的是哪一层。
+                DhKit.IconButton(
+                    Icons.IC_CLOSE,
+                    Design.SZ_SM,
+                    c.sub,
+                    a11yName = "关闭记忆详情"
+                ) { onClose() }
             }
             androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize()) {
                 // 【为什么改成 for + item】`items(list)` 是 LazyListScope 的扩展函数，
