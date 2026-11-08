@@ -746,7 +746,7 @@ object ChatUi {
                             //   实测 title/chatBubbleUser = 12.22（浅）/ 12.17（深）/ 15.44（纯黑）。
                             color = c.title,
                             fontSize = UiKit.FS_BTN.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             lineHeight = (UiKit.FS_BTN + 6f).sp
                         )
                     }
@@ -971,7 +971,7 @@ object ChatUi {
                 text = text,
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts,
+                fontFamily = DhTokens.fontsBody,
                 lineHeight = (UiKit.FS_BTN + 6f).sp
             )
             // 【覆盖条数放这里】主界面保持极简，需要细节的人点开才看到。

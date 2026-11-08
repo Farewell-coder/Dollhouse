@@ -205,6 +205,22 @@ object DhTokens {
     val fontsBold: FontFamily
         @Composable @ReadOnlyComposable
         get() = LocalDhFontFamilyBold.current
+
+    /**
+     * 【v3.1·正文字族】系统无衬线。
+     *
+     * 【为什么需要它】用户定案「按场景分工」：
+     *   · **标题 / 人偶名 / App 名** → 文楷（[fonts]/[fontsBold]），保留个性与情感
+     *   · **正文 / 说明 / 列表** → 系统字，11~15sp 的小字更清晰
+     *
+     * 【为什么之前会"字体错位"】`DhDesign.Type` 本来就是这个分工
+     *   （`of(brandFamily = 文楷, bodyFamily = Default)`），但全仓有 203 处
+     *   **绕过 Type、直接写 `fontFamily = DhTokens.fonts`**（= 文楷），
+     *   于是同一个列表行里：label 用文楷、旁边的 `type.sub` 用系统字 —— 两种字族并排。
+     */
+    val fontsBody: FontFamily
+        @Composable @ReadOnlyComposable
+        get() = FontFamily.Default
 }
 
 /**

@@ -519,7 +519,7 @@ object TokenStat {
                 modifier = Modifier.padding(top = 2.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
             Text(
                 text = "费用约 ￥" + money(cost(inTok + outTok, unit)),

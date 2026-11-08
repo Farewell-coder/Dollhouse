@@ -216,7 +216,7 @@ object AboutPage {
                         text = "当前 v" + r.currentVersion + " 已是「" + r.channel.label + "」的最新版本。",
                         color = DhTokens.colors.sub,
                         fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         lineHeight = (UiKit.FS_BTN + 8f).sp
                     )
                 }
@@ -230,7 +230,7 @@ object AboutPage {
                         text = r.error.message,
                         color = DhTokens.colors.sub,
                         fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         lineHeight = (UiKit.FS_BTN + 8f).sp
                     )
                 }
@@ -399,7 +399,7 @@ object AboutPage {
                             text = notes,
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts,
+                            fontFamily = DhTokens.fontsBody,
                             lineHeight = (UiKit.FS_TINY + 6f).sp
                         )
                     }
@@ -482,7 +482,7 @@ object AboutPage {
             modifier = Modifier.padding(vertical = 5.dp),
             color = DhTokens.colors.sub,
             fontSize = UiKit.FS_BTN.sp,
-            fontFamily = DhTokens.fonts,
+            fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_BTN + 8f).sp
         )
     }

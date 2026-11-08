@@ -89,7 +89,7 @@ object ExportSheet {
                     text = "导出全部供应商与模型（含禁用项）为 JSON 文件，写入「下载」目录。",
                     color = c.sub,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_BTN + 5f).sp
                 )
                 Row(
@@ -112,7 +112,7 @@ object ExportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.err,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_TINY + 5f).sp
                 )
                 Row(
@@ -140,7 +140,7 @@ object ExportSheet {
                     text = body,
                     color = if (failed) c.err else c.sub,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_BTN + 5f).sp
                 )
                 Row(

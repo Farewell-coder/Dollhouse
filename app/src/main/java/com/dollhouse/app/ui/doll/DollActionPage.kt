@@ -553,7 +553,7 @@ object DollActionPage {
                             text = "· " + r.label,
                             color = DhTokens.colors.sub,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fontsBody
                         )
                     }
                     Text(

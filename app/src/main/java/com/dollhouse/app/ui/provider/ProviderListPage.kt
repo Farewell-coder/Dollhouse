@@ -214,7 +214,7 @@ object ProviderListPage {
                     text = msg,
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_SUB + 5f).sp
                 )
             }
@@ -238,7 +238,7 @@ object ProviderListPage {
                     text = "「" + p.name + "」将被删除，它名下的 " + count + " 个模型会一并删除，删除后无法恢复。",
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_SUB + 5f).sp
                 )
             }

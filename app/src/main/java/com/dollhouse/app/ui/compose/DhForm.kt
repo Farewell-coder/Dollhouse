@@ -471,7 +471,7 @@ object DhForm {
             modifier = modifier.padding(start = 2.dp, top = 8.dp, end = 2.dp),
             color = color ?: DhTokens.colors.sub,
             fontSize = UiKit.FS_TINY.sp,
-            fontFamily = DhTokens.fonts,
+            fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
     }

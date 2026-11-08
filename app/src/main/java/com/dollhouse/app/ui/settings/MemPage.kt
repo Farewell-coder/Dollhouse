@@ -533,7 +533,7 @@ object MemPage {
                         text = doc,
                         color = c.title,
                         fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         lineHeight = (UiKit.FS_BTN + 6f).sp
                     )
                 }
@@ -1235,7 +1235,7 @@ object MemPage {
                 text = m.content,
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts,
+                fontFamily = DhTokens.fontsBody,
                 lineHeight = (UiKit.FS_BTN + 6f).sp
             )
             Spacer(Modifier.height(DhDesign.Space.md.dp))
@@ -1258,7 +1258,7 @@ object MemPage {
                 modifier = Modifier.width(60.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
             Text(
                 text = value,

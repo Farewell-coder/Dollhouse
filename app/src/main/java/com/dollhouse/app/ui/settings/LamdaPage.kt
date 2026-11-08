@@ -229,7 +229,7 @@ object LamdaPage {
                     text = name,
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 Text(
                     text = desc,
@@ -256,7 +256,7 @@ object LamdaPage {
                 modifier = Modifier.weight(1f),
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
             Text(
                 text = value,
@@ -419,7 +419,7 @@ object LamdaPage {
                         + "和下载的服务器包（约 204 MB）。\n这个操作不能撤销，删完想再用需要重新下载并解包。",
                     color = DhTokens.colors.title,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_TINY + 3f).sp
                 )
             }

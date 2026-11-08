@@ -168,7 +168,7 @@ internal object ImportAssistantKit {
                             text = if (required) "必需" else "可跳过",
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fontsBody
                         )
                     }
                     Text(

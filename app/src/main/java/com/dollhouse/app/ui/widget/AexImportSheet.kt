@@ -285,7 +285,7 @@ object AexImportSheet {
                     text = message,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_BTN + 5f).sp
                 )
                 Row(
@@ -412,7 +412,7 @@ object AexImportSheet {
             modifier = Modifier.padding(top = 8.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
-            fontFamily = DhTokens.fonts,
+            fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
         Column(modifier = Modifier.padding(top = 12.dp)) {
@@ -507,7 +507,7 @@ object AexImportSheet {
             modifier = Modifier.padding(top = 8.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
-            fontFamily = DhTokens.fonts,
+            fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
         Column(modifier = Modifier.padding(top = 12.dp)) {
@@ -778,7 +778,7 @@ object AexImportSheet {
                         text = sourceLabel,
                         color = c.title,
                         fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                     Text(
                         text = "共 " + profiles.size + " 条配置" +
@@ -798,7 +798,7 @@ object AexImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     lineHeight = (UiKit.FS_TINY + 5f).sp
                 )
             }
@@ -856,7 +856,7 @@ object AexImportSheet {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.err,
                         fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         lineHeight = (UiKit.FS_TINY + 5f).sp
                     )
                 }
@@ -927,7 +927,7 @@ object AexImportSheet {
                 text = summary,
                 color = c.sub,
                 fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts,
+                fontFamily = DhTokens.fontsBody,
                 lineHeight = (UiKit.FS_BTN + 5f).sp
             )
             Row(
@@ -1193,7 +1193,7 @@ object AexImportSheet {
                 text = if (checked) "☑" else "☐",
                 color = if (checked) c.acc else c.sub,
                 fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
             Spacer(Modifier.width(8.dp))
             Text(
