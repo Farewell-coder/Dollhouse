@@ -1181,7 +1181,6 @@ object DhForm {
                 //   按钮文字比 chip 大一档是应有的层级；12sp 在高 44 的按钮里显得空。
                 fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
                 fontFamily = if (primary) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1
             )
         }

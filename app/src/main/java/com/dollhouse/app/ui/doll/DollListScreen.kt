@@ -45,7 +45,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1088,8 +1087,7 @@ onCover = {
                 .padding(horizontal = 18.dp, vertical = DhDesign.Space.md.dp),
             color = if (selected) c.acc else c.title,
             fontSize = UiKit.FS_BTN.sp,
-            fontFamily = DhTokens.fontsBold,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
         )
     }
 

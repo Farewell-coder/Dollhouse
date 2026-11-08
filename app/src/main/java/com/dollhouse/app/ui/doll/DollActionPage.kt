@@ -790,7 +790,6 @@ object DollActionPage {
                 color = if (empty) c.sub else c.title,
                 fontSize = UiKit.FS_SUB.sp,
                 fontFamily = if (empty) DhTokens.fonts else DhTokens.fontsBold,
-                fontWeight = if (empty) FontWeight.Normal else FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

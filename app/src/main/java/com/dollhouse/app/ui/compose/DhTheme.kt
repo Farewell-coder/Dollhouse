@@ -163,7 +163,32 @@ val LocalDhColors = compositionLocalOf<DhColors> {
 /** Compose 侧常规字族（LXGW WenKai）。 */
 val LocalDhFontFamily = compositionLocalOf<FontFamily> { FontFamily.Default }
 
-/** Compose 侧加粗字族（单字重字体派生合成粗体）。 */
+/**
+ * Compose 侧加粗字族（单字重字体派生合成粗体）。
+ *
+ * 【合成粗体字族：用了它就不要再写 fontWeight】
+ *   `Fonts.uiBold` 是 `Typeface.create(base, BOLD)` 派生的**合成粗体**（描边加粗），
+ *   加粗已经发生在 Typeface 那一层。而 Compose 的 `fontWeight` 是**另一层**合成，
+ *   触发门槛是「**请求的字重 大于 字族里可用的最大字重**」。所以：
+ *     · `fontsBold` + 不写 / `Normal`(400)  → **一次粗**（来自 Typeface），正常
+ *     · `fontsBold` + `SemiBold`(600) / `Bold`(700) → **两次粗**，笔画糊成一团
+ *   本工程把后者叫「双粗体」，它被清过两轮（`ac1aea9` 清 `Bold`，之后清 `SemiBold`）。
+ *
+ * 【要"选中才粗、不选中常规"时，字族也必须条件式】
+ *     fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts
+ *   **只删 `fontWeight` 是不够的**：`fontsBold` 不写字重时仍然渲染为粗
+ *   （粗体来自 Typeface），非选中态会看起来还是粗的。
+ *
+ * 【怎么验这个坑已清干净】条件式的字重常写成
+ *   `fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal`，
+ *   它**不在 `fontsBold` 的下一行**（中间隔着 fontSize 等），所以窗口要给 3 行：
+ *
+ *     grep -rn "fontsBold" -A3 app/src/main/java --include=*.kt \
+ *       | grep -E "FontWeight\.(Bold|SemiBold)"
+ *
+ *   输出为空 = 清干净了。命中行若以斜杠或星号开头，那是注释里的说明文字，可忽略。
+ *   （用 `-A1` 会漏掉条件式那一批 —— 这就是它曾经被漏报的原因。）
+ */
 val LocalDhFontFamilyBold = compositionLocalOf<FontFamily> { FontFamily.Default }
 
 /**

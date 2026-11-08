@@ -284,7 +284,6 @@ internal object ImportAssistantKit {
                 color = if (enabled) c.title else c.sub.copy(alpha = 0.55f),
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

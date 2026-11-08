@@ -29,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
@@ -192,7 +191,6 @@ object AppearancePage {
                 color = tint,
                 fontSize = UiKit.FS_CHIP.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
         }
     }

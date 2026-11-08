@@ -159,7 +159,6 @@ object BottomNav {
                 fontSize = DhTokens.type.label.fontSize,
                 lineHeight = 16.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 letterSpacing = 0.44.sp,
                 maxLines = 1
             )

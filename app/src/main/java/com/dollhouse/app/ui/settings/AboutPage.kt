@@ -345,8 +345,6 @@ object AboutPage {
                 color = if (selected) c.onAcc else c.title,
                 fontSize = UiKit.FS_CHIP.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-                fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold
-                else androidx.compose.ui.text.font.FontWeight.Normal
             )
         }
     }
@@ -469,7 +467,6 @@ object AboutPage {
                 color = c.title,
                 fontSize = DhTokens.type.section.fontSize, lineHeight = DhTokens.type.section.lineHeight,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
         }
     }

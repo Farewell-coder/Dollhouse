@@ -958,7 +958,6 @@ object MemPage {
             color = if (on) c.onAcc else c.title,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = if (on) DhTokens.fontsBold else DhTokens.fonts,
-            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
