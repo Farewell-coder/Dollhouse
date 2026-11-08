@@ -927,13 +927,15 @@ object HomeUi {
     /**
      * 卡片不透明度说明文案。
      *
-     * @param onPhoto 当前是否设了用户背景图。**决定要不要挂那句事实警告**：
-     *                没图时卡片压的是页面底色，任何不透明度下副标题都达标（实测 25% 时仍有 6.7:1），
-     *                挂上去就是无中生有。
+     * @param onPhoto 当前是否真的看得到背景图（`DhKit.hasPhotoBackdrop()`）。
+     *                **决定要不要挂那句事实警告**：没图时卡片压的是页面底色，
+     *                任何不透明度下副标题都达标（实测 25% 时仍有 6.7:1），挂上去就是无中生有。
+     * @param dark    当前是否深色 / 纯黑档（`ThemeManager.isDark`）。决定阈值与"哪种照片"：
+     *                浅色档怕**深色照片**（暗底 + 暗字），深色档怕**浅色照片**（亮底 + 亮字）。
      */
     @JvmStatic
     @JvmOverloads
-    fun cardAlphaHint(percent: Int, onPhoto: Boolean = false): String {
+    fun cardAlphaHint(percent: Int, onPhoto: Boolean = false, dark: Boolean = false): String {
         val tier = if (percent >= 95) {
             "（默认，卡片最实）"
         } else if (percent >= 60) {
@@ -943,20 +945,23 @@ object HomeUi {
         } else {
             "（几乎全透，卡片里的字会压在背景上）"
         }
-        // 【r15·事实警告】副标题已换成 subOnPhoto（在页面底色上 6.5:1），但卡片半透明会
-        //   把照片渗进卡底，副标题的对比度随即被卡底亮度牵着走。实测「纯黑照片 + 遮罩 0」：
-        //   不透明度 80% 时 4.58:1（达标）、79% 时 4.45:1（跌破 AA 4.5）、60% 时 2.58:1。
-        //   所以只在 <80% 且确实有背景图时加这一句 —— 描述事实与阈值，不规劝、不说「会影响阅读」。
-        val warn = if (onPhoto && percent < CARD_SUB_SAFE_MIN) {
-            "\n卡片里的副标题在偏暗的照片上会低于 4.5:1"
+        // 【r15·事实警告】副标题已换成 subOnPhoto（在页面底色上 6.5:1），但卡片半透明会把照片
+        //   渗进卡底，副标题的对比度随即被卡底亮度牵着走。三档主题各算一遍临界点
+        //   （条件：遮罩 0 + 照片完全不透明 + 该主题最不利的明暗）：
+        //     浅色档：80% → 4.58 ✅，79% → 4.45 ❌（最坏是纯黑照片）
+        //     深色档：91% → 4.63 ✅，90% → 4.49 ❌（最坏是纯白照片）
+        //     纯黑档：87% → 4.57 ✅，86% → 4.42 ❌
+        //   深色与纯黑都按 91% 取（保守）：纯黑档会在 88~90% 多报三档，方向是"宁可早提醒"。
+        //   文案只陈述事实与阈值，不写"会影响阅读"这类规劝。
+        val safeMin = if (dark) 91 else 80
+        val photoWord = if (dark) "偏亮" else "偏暗"
+        val warn = if (onPhoto && percent < safeMin) {
+            "\n卡片里的副标题在" + photoWord + "的照片上会低于 4.5:1"
         } else {
             ""
         }
         return "卡片不透明度\u00a0\u00a0" + tier + warn
     }
-
-    /** 副标题仍能达标（4.5:1）的卡片不透明度下限；低于它才挂事实警告。见 [cardAlphaHint]。 */
-    private const val CARD_SUB_SAFE_MIN = 80
     /** 遮罩强度说明文案。 */
     @JvmStatic
     /** 【r13】自定义字体颜色的回显文案。 */

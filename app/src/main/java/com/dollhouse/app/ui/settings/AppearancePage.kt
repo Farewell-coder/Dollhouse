@@ -343,7 +343,13 @@ object AppearancePage {
             }
             SliderBlock(
                 title = "卡片不透明度",
-                hint = HomeUi.cardAlphaHint(HomeState.bgCardAlpha, hasPhoto),
+                // 【事实警告按主题给阈值】浅色档怕深色照片、深色档怕浅色照片，
+                //   临界不透明度也不同（80% / 91%，见 HomeUi.cardAlphaHint 的推导）。
+                hint = HomeUi.cardAlphaHint(
+                    HomeState.bgCardAlpha,
+                    hasPhoto,
+                    ThemeManager.isDark(act)
+                ),
                 max = 100,
                 value = HomeState.bgCardAlpha,
                 iconRes = Icons.IC_SQUARE_STACK
