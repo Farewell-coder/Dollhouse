@@ -44,6 +44,7 @@ import com.dollhouse.app.ui.chat.ChatListScreen
 import com.dollhouse.app.ui.chat.ChatSessions
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollListScreen
@@ -118,12 +119,15 @@ object SocialPage {
         val dollRev = DollState.rev
 
         var snap by remember { mutableStateOf<Snapshot?>(null) }
+        // 记忆库是可写页面（删 / 改条目），从它回来必须重读，否则时间线停在旧快照上。
+        // 计数只在「离开记忆库」时自增（见卡片点击处），不是定时器。
+        var reload by remember { mutableStateOf(0) }
         var filter by remember { mutableStateOf(FILTER_ALL) }
         var shown by remember { mutableStateOf(PAGE) }
 
         // 【只在「这一格可见」时读盘】三个 Tab 常驻组合，若在组合阶段无条件读盘，
         //   用户留在聊天页时也会白读一遍所有人的记忆库。这里用导航状态做闸门。
-        LaunchedEffect(nav, dollRev) {
+        LaunchedEffect(nav, dollRev, reload) {
             if (nav != AppNav.TAB_HOME) {
                 return@LaunchedEffect
             }
@@ -206,7 +210,19 @@ object SocialPage {
                         is Entry.Post -> PostCard(
                             item = row.item,
                             avatar = avatarOf[row.item.dollId],
-                            onClick = { openDoll(act, row.item.dollId) }
+                            // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
+                            //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
+                            //   聊天是「现在」，记忆库才是这条内容的上下文。
+                            //   走 [MemPage.open] 的双参重载（带 dollId 才落到「她」那只）。
+                            onClick = {
+                                // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
+                                //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
+                                //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
+                                //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
+                                //   所以每次点卡都重新登记一次。
+                                PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
+                                MemPage.open(act, row.item.dollId)
+                            }
                         )
                         is Entry.More -> MoreRow(moreCount) { shown += PAGE }
                     }
@@ -277,6 +293,8 @@ object SocialPage {
                         onAction = { MemSettingsPage.open(act) }
                     )
 
+                    // 空态的主按钮仍去**聊天**：此刻还没有任何入口能看到内容，
+                    //   唯一能让页面不空的动作就是「去聊」。点卡片则去记忆库（见 PostCard 调用处）。
                     else -> DhState(
                         title = "她还没记住什么",
                         body = "陪她说几句话。聊完一轮她会把要点记下来，出现在这里",
