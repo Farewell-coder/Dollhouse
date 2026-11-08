@@ -1027,7 +1027,7 @@ onCover = {
                 }
                 // 主卡片。
                 MenuCard {
-                    MenuItem(text = "列数  ›", selected = false) {
+                    MenuItem(text = "列数", selected = false) {
                         if (level == 1) onBack() else onOpenCols()
                     }
                     // 【预留位置】需求定案：菜单结构留好口子，以后再加其它项。

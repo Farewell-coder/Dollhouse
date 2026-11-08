@@ -189,6 +189,8 @@ class Symbols:
             return None
         # 去掉 .dp / .sp 后缀（逐个替换，保留表达式结构）
         e = re.sub(r"\.\s*dp\b", "", e)
+        # 【坑】本工程常量常写成 `28.0f`（Float 字面量）—— 不剥掉 f/F/L 后缀就整条解析失败
+        e = re.sub(r"(?<=\d)[fFL](?![\w.])", "", e)
         if re.fullmatch(r"-?\d+(?:\.\d+)?", e):
             return float(e)
         # 先把标识符路径替换成数字，剩下的必须是纯算术
