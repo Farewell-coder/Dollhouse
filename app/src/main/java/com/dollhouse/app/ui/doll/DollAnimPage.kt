@@ -660,7 +660,8 @@ object DollAnimPage {
                 DhKit.ValueRow(
                     label = "名称",
                     iconRes = Icons.IC_SIGNATURE,
-                    value = (action?.name ?: "") + " ›"
+                    value = (action?.name ?: "") + "",
+                    showChevron = true
                 ) {
                     renameDraft = action?.name ?: ""
                     renameOpen = true
@@ -668,7 +669,8 @@ object DollAnimPage {
                 DhKit.ValueRow(
                     label = "描述",
                     iconRes = Icons.IC_QUOTE,
-                    value = if ((action?.desc ?: "").isEmpty()) "未填写 ›" else "已填写 ›"
+                    value = if ((action?.desc ?: "").isEmpty()) "未填写" else "已填写",
+                    showChevron = true
                 ) {
                     descDraft = action?.desc ?: ""
                     descOpen = true
@@ -676,7 +678,8 @@ object DollAnimPage {
                 DhKit.ValueRow(
                     label = "播放速度",
                     iconRes = Icons.IC_GAUGE,
-                    value = (action?.fps ?: DollAnim.FPS_DEFAULT).toString() + " 帧/秒 ›"
+                    value = (action?.fps ?: DollAnim.FPS_DEFAULT).toString() + " 帧/秒",
+                    showChevron = true
                 ) { speedOpen = true }
 
                 // ---------- 属性 ----------
@@ -685,7 +688,7 @@ object DollAnimPage {
                 DhKit.ValueRow(
                     label = "属性",
                     iconRes = Icons.IC_TAGS,
-                    value = if (fixed) group + "（固定）" else group + " ›",
+                    value = if (fixed) group + "（固定）" else group + "",
                     onClick = if (fixed) null else ({ groupOpen = true })
                 )
                 if (fixed) {
@@ -708,12 +711,14 @@ object DollAnimPage {
                     DhKit.ValueRow(
                         label = "锚点",
                         iconRes = Icons.IC_CROSSHAIR,
-                        value = com.dollhouse.app.data.ActionWorkbench.anchorLabel(disp.anchor) + " ›"
+                        value = com.dollhouse.app.data.ActionWorkbench.anchorLabel(disp.anchor) + "",
+                        showChevron = true
                     ) { anchorOpen = true }
                     DhKit.ValueRow(
                         label = "适配方式",
                         iconRes = Icons.IC_MAXIMIZE,
-                        value = com.dollhouse.app.data.ActionWorkbench.fitLabel(disp.fit) + " ›"
+                        value = com.dollhouse.app.data.ActionWorkbench.fitLabel(disp.fit) + "",
+                        showChevron = true
                     ) {
                         val next = if (disp.fit == com.dollhouse.app.data.ActionWorkbench.FIT_CONTAIN)
                             com.dollhouse.app.data.ActionWorkbench.FIT_UNIFIED
@@ -730,7 +735,8 @@ object DollAnimPage {
                     DhKit.ValueRow(
                         label = "内容偏移",
                         iconRes = Icons.IC_MOVE,
-                        value = pct(disp.ox) + " / " + pct(disp.oy) + " ›"
+                        value = pct(disp.ox) + " / " + pct(disp.oy) + "",
+                        showChevron = true
                     ) { offsetOpen = true }
                     DhForm.Note(
                         "这三个只影响**这一个动作**怎么摆，不会改变人偶的整体大小 —— " +
@@ -761,7 +767,8 @@ object DollAnimPage {
                     DhKit.ValueRow(
                         label = "优先级",
                         iconRes = Icons.IC_GAUGE,
-                        value = com.dollhouse.app.data.ActionWorkbench.priorityLabel(bind.priority) + " ›"
+                        value = com.dollhouse.app.data.ActionWorkbench.priorityLabel(bind.priority) + "",
+                        showChevron = true
                     ) {
                         // 三档循环：普通 → 高 → 最高 → 普通。
                         val next = when (bind.priority) {
@@ -793,13 +800,14 @@ object DollAnimPage {
                     DhKit.ValueRow(
                         label = "入口资源",
                         iconRes = Icons.IC_CABLE,
-                        value = if (cur.assetPath.isEmpty()) "未指定 ›" else
-                            (if (exists) "已就绪 ›" else "文件缺失 ›")
+                        value = if (cur.assetPath.isEmpty()) "未指定" else
+                            (if (exists) "已就绪" else "文件缺失")
                     ) { resOpen = true }
                     DhKit.ValueRow(
                         label = "来源模型包",
                         iconRes = Icons.IC_PACKAGE,
-                        value = if (cur.sourceId.isEmpty()) "非模型包 ›" else cur.sourceId + " ›"
+                        value = if (cur.sourceId.isEmpty()) "非模型包" else cur.sourceId + "",
+                        showChevron = true
                     ) {}
                     if (cur.sourceId.isNotEmpty()) {
                         DhKit.MiniChip("卸载该模型包", iconRes = Icons.IC_TRASH) {

@@ -43,6 +43,7 @@ __pycache__/
 !tools/kit_usage_audit.py
 !tools/page_consistency_audit.py
 !tools/align_audit.py
+!tools/radius_audit.py
 /rstub/
 
 # 回归测试日志

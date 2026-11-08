@@ -170,7 +170,8 @@ object PermissionPage {
                     label = "开关指令",
                     iconRes = Icons.IC_LINK_2,
                     desc = "复制一条可粘贴到别处的指令",
-                    value = "复制 ›"
+                    value = "复制",
+                    showChevron = true
                 ) {
                     HomeUi.copyToggleLink(act)
                 }
