@@ -581,7 +581,7 @@ object SocialPage {
                 )
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Text(
-                    text = clockText(item.ts),
+                    text = item.timeText,
                     color = p.line,
                     fontSize = t.caption.fontSize,
                     lineHeight = t.caption.lineHeight,
@@ -729,7 +729,16 @@ object SocialPage {
         val title: String,
         val body: String,
         val tags: List<String>,
-        val ts: Long
+        val ts: Long,
+        /**
+         * 卡片右上角的时刻文本（已按**系统**的 12/24 小时制格式化）。
+         *
+         * 【为什么在数据层就格式化好】原先用 `SimpleDateFormat("HH:mm")` 在组合阶段逐行格式化：
+         *   一是**恒为 24 小时制**（用户设了 12 小时制也不跟），二是每行都要新建一个
+         *   SimpleDateFormat。现在在 IO 线程用一次 `DateFormat.getTimeFormat` 算完，
+         *   组合阶段只读字符串。
+         */
+        val timeText: String
     )
 
     /** 行模型：日期头 / 条目 / 加载更多。三类 contentType 分开复用槽位。 */
@@ -774,6 +783,10 @@ object SocialPage {
             return Snapshot(0, "", false, false, true, 30, emptyList())
         }
         val out = ArrayList<ShuoItem>()
+        // 【12/24 小时制跟随系统】`DateFormat.getTimeFormat` 按用户的语言与时间制设置
+        //   给出正确的格式器；写死 "HH:mm" 会在 12 小时制的手机上显示成 24 小时制。
+        //   本方法在 IO 线程串行执行，共用一个 java.text.DateFormat 实例是安全的。
+        val timeFmt = java.text.DateFormat.getTimeFormat(act)
         for (d in dolls) {
             val arr = try {
                 Mem.list(act, d.id)
@@ -810,7 +823,10 @@ object SocialPage {
                         title = title,
                         body = body,
                         tags = m.tags.take(3),
-                        ts = ts
+                        ts = ts,
+                        // 【边界】脏数据（ts<=0）不能格式化成 1970 年的时间故意显示给用户；
+                        //   原 clockText 就有这道 guard，搬过来别丢。
+                        timeText = if (ts <= 0L) "" else timeFmt.format(Date(ts))
                     )
                 )
                 took++
@@ -919,14 +935,6 @@ object SocialPage {
         val sameYear = SimpleDateFormat("yyyy", Locale.getDefault()).format(Date(ts)) == year
         return SimpleDateFormat(if (sameYear) "MM-dd" else "yyyy-MM-dd", Locale.getDefault())
             .format(Date(ts))
-    }
-
-    /** 条目上的时刻（只到分钟 —— 时间线的精度需求就到这里）。 */
-    private fun clockText(ts: Long): String {
-        if (ts <= 0L) {
-            return ""
-        }
-        return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ts))
     }
 
     /**

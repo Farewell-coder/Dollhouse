@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -480,6 +481,13 @@ object ChatListScreen {
     @Composable
     private fun Card(row: ChatListData.Row, onClick: () -> Unit, onLong: () -> Unit) {
         val c = DhTokens.colors
+        // 【时间格式跟随系统】不要把 "HH:mm" 写死在代码里：用户在系统设置里选了
+        //   12 小时制时，列表仍显示 24 小时制 —— 这就是"界面在说假话"。
+        //   这里取一次系统的时间格式器（`DateFormat.getTimeFormat` 会按用户的
+        //   语言 / 12-24 小时制设置给出正确的格式），整份列表复用同一个实例。
+        //   先取 Context 再 remember：CompositionLocal 不该在 remember 的 lambda 里读。
+        val ctx = LocalContext.current
+        val timeFmt = remember(ctx) { android.text.format.DateFormat.getTimeFormat(ctx) }
         // 【M4·改回"列表行"而不是"每行一个卡片"】
         //   改造前每一条会话是一个 card 底 + 1dp 描边 + 16 圆角的"小卡片"，
         //   一页 8 条就是 8 个圆角矩形叠在一起 —— 这正是设计稿明确禁止的
@@ -535,7 +543,7 @@ object ChatListScreen {
             Spacer(Modifier.width(DhDesign.Space.md.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = timeText(row.time),
+                    text = timeText(row.time, timeFmt),
                     color = c.sub,
                     fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                     fontFamily = DhTokens.fonts
@@ -663,8 +671,14 @@ object ChatListScreen {
         }
     }
 
-    /** 时间文案：今天给 `HH:mm`，昨天给「昨天」，同年给 `MM-dd`，跨年给 `yyyy-MM-dd`。 */
-    private fun timeText(ts: Long): String {
+    /**
+     * 时间文案：今天给「系统时间格式」（跟随用户的 12/24 小时制），
+     *   昨天给「昨天」，同年给 `MM-dd`，跨年给 `yyyy-MM-dd`。
+     *
+     * 【为什么今天这一档要用传入的 [timeFmt]】`SimpleDateFormat("HH:mm")` 恒为
+     *   24 小时制，与系统设置无关；`DateFormat.getTimeFormat` 才是用户的选择。
+     */
+    private fun timeText(ts: Long, timeFmt: java.text.DateFormat): String {
         if (ts <= 0L) {
             return ""
         }
@@ -674,7 +688,7 @@ object ChatListScreen {
             val sameYear = now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
             val sameDay = sameYear && now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR)
             if (sameDay) {
-                SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ts))
+                timeFmt.format(Date(ts))
             } else {
                 val diffDay = now.get(Calendar.DAY_OF_YEAR) - then.get(Calendar.DAY_OF_YEAR)
                 if (sameYear && diffDay == 1) {
