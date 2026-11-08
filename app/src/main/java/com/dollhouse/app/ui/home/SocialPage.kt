@@ -86,6 +86,32 @@ import java.util.Locale
  * 判据一律读真实状态（[PetPrefs.hasKey] / [PetPrefs.mem2Auto] / [DollStore.all]），
  * **绝不**用「没有记忆」反推「没填 Key」—— 那是两件不同的事。
  *
+ * ## 「有没有人偶」的判据（P0 事故后写死在这里，别再改回去）
+ * **唯一判据：`DollStore.all()` 非空。** 与「人偶页」同源 ——
+ *   · 人偶列表页读的就是 `DollStore.all(act)`（DollListScreen.kt:101）；
+ *   · 人偶 Tab（[ContactScreen]）读 `DollGroups.grouped()`，其成员来源同样是
+ *     `DollStore.all(ctx)`（DollGroups.kt:195 起），空态条件是「所有组都没有成员」。
+ *   两边口径一致，才不会出现「人偶页有一只、说说页说没有」。
+ *
+ * **绝对不要写 `!builtin` 过滤。** 那条路已经踩过 P0：用户明明有人在用的人偶，
+ * 页面却断言「还没有属于你的人偶」。`builtin` 的真实语义（全仓核对过）：
+ *   · `DollStore.Doll.builtin` 的注释写着「内置项（不可删除）」（DollStore.kt:65）——
+ *     **这条说明已经过时**：现在 `DollStore.remove` 对默认配置走的是「删了重建 /
+ *     彻底重置」（DollStore.kt:940 起），自定义人偶也可以删光。所以 builtin
+ *     **既不是权限、也不是「是否可见」**，只是「出厂自带」的标记。
+ *   · 它是**可变字段**：`DollStore.load()` 会把首位那只强制 `copy(builtin = true)`
+ *     （DollStore.kt:1413 起），存档读写也会改写。拿它当过滤条件 = 把判断建立在
+ *     会变的值上。出厂那只的**不可变真源是 `id == DollStore.DEFAULT_ID`**
+ *     （DollListScreen.isFactoryDoll，DollListScreen.kt:751 有同样结论）。
+ *   · 界面上它一直是普通的一只：人偶 Tab 给它渲染行并用鲸鱼图标
+ *     （ContactScreen.kt:294），人偶列表页对它的菜单是「恢复默认」而不是「删除」。
+ *   · 注意 `DollAnim` 里也有 `builtin`，那是**动画动作**的概念，与人偶无关，别混。
+ *
+ * 它的记忆也确实在本页时间线里：每只都走 `Mem.list(ctx, dollId)`，
+ *   默认配置的键是 `mem2_list_default`（PetPrefs.mem2Doll 对空值兜底成 "default"，
+ *   PetPrefs.kt:367），所以「默认配置说过什么」会正常出现在说说里。
+ *   筛选 chip 也是从**实际有条目的**人偶里生成的，不做任何身份过滤。
+ *
  * ## 只读 + 上限
  * · 每人偶只解析最近 [TAIL_PER_DOLL] 条（磁盘序是旧到新，取尾部即可，不用全量解析）；
  * · 跨人偶合并后再截 [MAX_ITEMS] 条，其余更旧的本轮不读；
@@ -164,7 +190,7 @@ object SocialPage {
             }
 
             if (s.items.isEmpty()) {
-                EmptyState(act = act, snap = s)
+                EmptyState(act = act, snap = s, onRetry = { reload++ })
                 return@Column
             }
 
@@ -233,15 +259,22 @@ object SocialPage {
 
     /* ============================ 空态（本页的主路径） ============================ */
 
-    /** 空态的四级。判据见 [emptyKind]。 */
+    /** 空态的四型。判据见 [emptyKind]。 */
     private enum class EmptyKind {
-        /** 一只**自己的**人偶都没有（只剩内置默认模板）。 */
+        /**
+         * 一个能读到的人偶都没有。
+         *
+         * 【这一型什么时候才会出现】只在数据层读盘失败时兜底。
+         *   [DollStore.all] 的 `load()` 保证「默认配置」永远在首位（DollStore.kt:1402 起的
+         *   补齐分支），所以正常情况下这个型**永不触发** —— 它存在的意义是
+         *   「读不到」时说「没读到」，而不是说「你没有」。
+         */
         NO_DOLL,
 
-        /** 有自己的人偶，但没填模型 Key —— 抽取根本发不出去。 */
-        NO_KEY,
+        /** 没有能真正发出请求的模型目标（供应商 + 可用 chat 模型 + 密钥）。 */
+        NO_MODEL,
 
-        /** 有 Key，但「自动保存记忆」被关掉了。 */
+        /** 模型配好了，但「自动保存记忆」被关掉了。 */
         NO_AUTO,
 
         /** 条件齐了，只是还没聊够（或刚清空）。 */
@@ -256,38 +289,47 @@ object SocialPage {
      */
     private fun emptyKind(s: Snapshot): EmptyKind {
         return when {
-            !s.hasOwnDoll -> EmptyKind.NO_DOLL
-            !s.hasKey -> EmptyKind.NO_KEY
+            s.dollCount <= 0 -> EmptyKind.NO_DOLL
+            !s.canCallModel -> EmptyKind.NO_MODEL
             !s.autoOn -> EmptyKind.NO_AUTO
             else -> EmptyKind.NO_MEM
         }
     }
 
     @Composable
-    private fun EmptyState(act: MainActivity, snap: Snapshot) {
+    private fun EmptyState(act: MainActivity, snap: Snapshot, onRetry: () -> Unit) {
         val kind = emptyKind(snap)
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 when (kind) {
+                    // 【措辞纪律】这一型只在读取失败时出现，所以**不许**说「你没有」——
+                    //   说「没读到」并给出重试，才与事实一致（P0 事故就是从这里来的：
+                    //   判据把人偶过滤掉了，文案却断言「还没有属于你的人偶」）。
                     EmptyKind.NO_DOLL -> DhState(
-                        title = "还没有属于你的人偶",
-                        body = "说说记的是她的事 —— 先捏一只，她才会开始记事",
+                        title = "没能读到你的人偶",
+                        body = "说说要读人偶列表才能开始记事，这次没读到。点一下重试",
                         iconRes = Icons.IC_USERS,
-                        actionText = "去添加人偶",
-                        onAction = { DollListScreen.open(act) }
+                        actionText = "重试",
+                        onAction = onRetry
                     )
 
-                    EmptyKind.NO_KEY -> DhState(
+                    EmptyKind.NO_MODEL -> DhState(
                         title = "她还不会记事",
-                        body = "自动记事要调用模型：先填一个能用的模型 Key，聊完一轮她就会把要点记下来",
+                        // 两种缺法给两种解释，不合并成一句含糊的「模型不可用」。
+                        body = if (snap.hasKey) {
+                            "密钥读到了但模型没配全：需要启用一个供应商 + 一个可用的对话模型"
+                        } else {
+                            "自动记事要调用模型：先去配好供应商和密钥，聊完一轮她就会记下要点"
+                        },
                         iconRes = Icons.IC_KEY_ROUND,
-                        actionText = "去填模型 Key",
+                        actionText = "去配置模型",
                         onAction = { ProviderNav.open(act) }
                     )
 
                     EmptyKind.NO_AUTO -> DhState(
                         title = "自动记事已关闭",
-                        body = "打开它，她才会在聊天后自己整理要点（默认每 30 分钟整理一次）",
+                        body = "打开它，她才会在聊天后自己整理要点（当前设定：每 "
+                            + snap.intervalMinutes + " 分钟一次）",
                         iconRes = Icons.IC_BRAIN,
                         actionText = "去打开",
                         onAction = { MemSettingsPage.open(act) }
@@ -300,15 +342,23 @@ object SocialPage {
                         body = "陪她说几句话。聊完一轮她会把要点记下来，出现在这里",
                         iconRes = Icons.IC_NEWSPAPER,
                         actionText = "去和她聊聊",
-                        onAction = { openDoll(act, snap.firstDollId) }
+                        onAction = { openDoll(act, snap.chatDollId) }
                     )
                 }
 
                 // 【第二个动作】主按钮只给一条「最能让她不空」的路；第二个动作是「查证」。
                 //   空态里给两个并列按钮反而让人犹豫，所以第二个做成极轻的轮廓芯片。
                 val secondAction: Pair<String, () -> Unit>? = when (kind) {
-                    EmptyKind.NO_KEY, EmptyKind.NO_AUTO -> Pair("记忆库设置") { MemSettingsPage.open(act) }
-                    EmptyKind.NO_MEM -> Pair("看看她的记忆库") { MemPage.open(act, snap.firstDollId) }
+                    EmptyKind.NO_MODEL, EmptyKind.NO_AUTO -> Pair("记忆库设置") { MemSettingsPage.open(act) }
+                    EmptyKind.NO_MEM -> Pair("看看她的记忆库") {
+                        // 双参重载才是「她那只」；id 取不到时走单参重载（落到默认配置），
+                        // 不把空串往下传。
+                        if (snap.chatDollId.isEmpty()) {
+                            MemPage.open(act)
+                        } else {
+                            MemPage.open(act, snap.chatDollId)
+                        }
+                    }
                     EmptyKind.NO_DOLL -> null
                 }
                 if (secondAction != null) {
@@ -318,9 +368,9 @@ object SocialPage {
                     DhKit.OutlineChip(text = label, onClick = action)
                 }
 
-                if (kind == EmptyKind.NO_MEM || kind == EmptyKind.NO_KEY) {
+                if (kind == EmptyKind.NO_MEM || kind == EmptyKind.NO_MODEL) {
                     Spacer(Modifier.height(DhDesign.Space.xl.dp))
-                    HowItWorks()
+                    HowItWorks(intervalMinutes = snap.intervalMinutes)
                 }
 
                 // 底栏避让：这一块是 Column 的直接子节点，不在 LazyColumn 的 contentPadding 里。
@@ -338,7 +388,7 @@ object SocialPage {
      *   这里只用文字与间距，保持页面清透。
      */
     @Composable
-    private fun HowItWorks() {
+    private fun HowItWorks(intervalMinutes: Int) {
         val p = DhTokens.palette
         val t = DhTokens.type
         Column(
@@ -349,7 +399,7 @@ object SocialPage {
         ) {
             val lines = listOf(
                 "聊完一轮，她会自己记下要点",
-                "默认每 30 分钟整理一次，可在记忆库设置里调整或关掉",
+                "每 " + intervalMinutes + " 分钟整理一次，可在记忆库设置里调整或关掉",
                 "记下的事只属于那只人偶，不会串到别人偶身上"
             )
             for (line in lines) {
@@ -480,8 +530,15 @@ object SocialPage {
                             contentScale = ContentScale.Crop
                         )
                     } else {
+                        // 【为什么用 id 而不是 builtin】builtin 是可变字段（见 [ShuoItem] 注释）；
+                        //   和 DollListScreen.isFactoryDoll / ContactScreen 的口径保持一致：
+                        //   出厂那只的真源是 id == DEFAULT_ID。
                         DhKit.Icon(
-                            iconRes = if (item.builtin) Icons.IC_WHALE else Icons.IC_USER_ROUND,
+                            iconRes = if (item.dollId == DollStore.DEFAULT_ID) {
+                                Icons.IC_WHALE
+                            } else {
+                                Icons.IC_USER_ROUND
+                            },
                             sizeDp = Design.SZ_SM,
                             color = p.sub
                         )
@@ -571,21 +628,51 @@ object SocialPage {
 
     /* ============================ 数据（只读） ============================ */
 
-    /** 数据快照：条目 + 决定空态的那几个真实状态。 */
+    /**
+     * 数据快照：条目 + 决定空态的那几个真实状态。
+     *
+     * 【这五个字段全是「用户视角」的】**为什么强调**：上一版用 `all().none { !builtin }`
+     *   判断「有没有人偶」，而 `builtin` 是可变字段 —— 结果把用户本来就有的人偶滤没了，
+     *   页面断言「还没有属于你的人偶」。从此这里的每个判据都必须能回答
+     *   「用户在界面上看到的是不是这样」。
+     */
     private class Snapshot(
-        val items: List<ShuoItem>,
-        val hasOwnDoll: Boolean,
-        val firstDollId: String,
+        /** 能读到的人偶数（[DollStore.all] 全集，与「人偶页」同源）。 */
+        val dollCount: Int,
+        /** 「去和她聊聊」要打开的那只人偶 id。 */
+        val chatDollId: String,
+        /** 当前生效供应商的密钥是否读到（只说明「密钥在不在」，不说明「能不能聊」）。 */
         val hasKey: Boolean,
-        val autoOn: Boolean
+        /** 是否真的能发出一次模型请求：有启用的供应商 + 有启用的对话模型 + 有密钥。 */
+        val canCallModel: Boolean,
+        /** 「自动保存记忆」是否开着。 */
+        val autoOn: Boolean,
+        /**
+         * 用户**当前设定**的自动整理间隔（分钟）。
+         *
+         * 【为什么要它】空态文案里原来写死「默认每 30 分钟」—— 但用户在
+         *   「记忆库设置」里可以改成 5~120 分钟。写死等于对用户说谎，
+         *   而这一页的整个原则是「文案必须和用户看到的一致」。
+         */
+        val intervalMinutes: Int,
+        val items: List<ShuoItem>
     )
 
-    /** 一条说说 = 一条记忆 + 它属于谁。 */
+    /**
+     * 一条说说 = 一条记忆 + 它属于谁。
+     *
+     * 【本条数据结构里**故意没有** builtin 字段】
+     *   因为「出厂那只」的真源是不可变的 `id == DollStore.DEFAULT_ID`
+     *   （见 DollListScreen.isFactoryDoll，DollListScreen.kt:751 处有同样结论），
+     *   `Doll.builtin` 是**可变字段**：`DollStore.load()` 会把首位那只强制
+     *   `copy(builtin = true)`（DollStore.kt:1413 起），存档读写也会改写它。
+     *   拿它做「过滤条件」= 把自己的判断建立在一个会变的值上 ——
+     *   P0 事故（说说页把用户已有的人偶滤没了、还断言「还没有属于你的人偶」）根因就在这。
+     */
     private class ShuoItem(
         val key: String,
         val dollId: String,
         val dollName: String,
-        val builtin: Boolean,
         val title: String,
         val body: String,
         val tags: List<String>,
@@ -623,9 +710,10 @@ object SocialPage {
         val dolls = try {
             DollStore.all(act)
         } catch (ignored: Throwable) {
-            return Snapshot(emptyList(), false, "", false, true)
+            // 这一支只在 DollStore 读取抛异常时走到；间隔取默认档（PetPrefs.MEM2_INTERVALS[3] = 30），
+            //   只是为了让字段有个正当值，页面并不会拿它做什么断言。
+            return Snapshot(0, "", false, false, true, 30, emptyList())
         }
-        val own = dolls.filter { !it.builtin }
         val out = ArrayList<ShuoItem>()
         for (d in dolls) {
             val arr = try {
@@ -659,7 +747,6 @@ object SocialPage {
                         key = d.id + "|" + m.id,
                         dollId = d.id,
                         dollName = d.name,
-                        builtin = d.builtin,
                         title = title,
                         body = body,
                         tags = m.tags.take(3),
@@ -670,13 +757,46 @@ object SocialPage {
             }
         }
         val sorted = out.sortedByDescending { it.ts }.take(MAX_ITEMS)
-        val first = own.firstOrNull()
+
+        // 【判据·人偶】用 DollStore.all() 全集，**不再过滤 builtin**：
+        //   人偶页列的就是这个集合（DollGroups.grouped 的成员来源是 DollStore.all），
+        //   内置「默认配置」在界面上是看得见、能聊天的一只
+        //   （ContactScreen.kt:294 给它渲染鲸鱼图标那一行；DollListScreen 对它显示
+        //   「恢复默认」而不是「删除」）。所以「用户有没有人偶」= all() 非空。
+        //   【为什么不能用 builtin 当判据】它是可变字段，DollStore.load() 会把首位那只
+        //   强制 copy(builtin = true)（DollStore.kt:1413 起），DollListScreen.kt:751
+        //   也把这条写死了：「靠它判断会出现两种误判」。
+        val key = PetPrefs.hasKey(act)
+
+        // 【判据·能不能记事】「有密钥」不等于「能发请求」：还需要启用的供应商 +
+        //   启用的对话模型。用 [HomeUi.hasChatTarget] —— 那是本 App 自己判断
+        //   「有没有可用聊天目标」的既有口径（HomeUi.kt:330），聊天入口也用它。
+        //   只看 PetPrefs.hasKey 会出现「密钥在、模型没启用」时错误地引导用户去聊天。
+        val hasTarget = HomeUi.hasChatTarget(act)
+
+        // 「她」= 当前常驻的那只（[DollStore.active]）；一只都没常驻时退回内置默认
+        //   （[DollStore.defaultDoll] 恒有值），而不是「列表里第一个自建人偶」——
+        //   后者会让一个从未被使用过的人偶冒充「她」。
+        var chat = try {
+            DollStore.active(act)
+        } catch (ignored: Throwable) {
+            null
+        }
+        if (chat == null) {
+            chat = try {
+                DollStore.defaultDoll(act)
+            } catch (ignored2: Throwable) {
+                null
+            }
+        }
         return Snapshot(
-            items = sorted,
-            hasOwnDoll = own.isNotEmpty(),
-            firstDollId = first?.id ?: "",
-            hasKey = PetPrefs.hasKey(act),
-            autoOn = PetPrefs.mem2Auto(act)
+            dollCount = dolls.size,
+            chatDollId = chat?.id ?: "",
+            hasKey = key,
+            canCallModel = hasTarget && key,
+            autoOn = PetPrefs.mem2Auto(act),
+            intervalMinutes = PetPrefs.mem2IntervalMinutes(act),
+            items = sorted
         )
     }
 
