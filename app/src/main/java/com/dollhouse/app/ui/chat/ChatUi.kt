@@ -933,7 +933,11 @@ object ChatUi {
         if (b != null) {
             Image(
                 bitmap = b.asImageBitmap(),
-                contentDescription = null,
+                // 【无障碍】气泡里的图片是**消息主体**：这条消息除它以外没有任何文字，
+                //   也没有同级文字承载语义（按本项目判定口诀：信息未被表达 → 必须给名字）。
+                //   工程里没有图片描述数据，只能笼统说「图片附件」——
+                //   笼统也比 null 强：null 会让这条消息对读屏用户**完全不存在**。
+                contentDescription = "图片附件",
                 modifier = Modifier
                     .widthIn(max = maxW)
                     .clip(RoundedCornerShape(12.dp)),

@@ -848,17 +848,28 @@ fun DhState(
     }
 }
 
-/** 骨架行：加载态占位（不做扫光渐变，避免"炫技"观感）。 */
+/**
+ * 骨架行：加载态占位（不做扫光渐变，避免"炫技"观感）。
+ *
+ * 【压图分流（r23）】有用户背景图时，占位条从 `skeleton`（= 调色板 SOFT）换成 `line` 一档。
+ *   【为什么必须换】骨架块通常铺在同为 SOFT@88% 的可读面板上（见
+ *   `DhKit.Modifier.readableSheet`）；SOFT 画在 SOFT 上等于隐形，
+ *   用户只看到一块空面板、读不出"这边在加载"。而 `line` 是发丝线的颜色，
+ *   在雾面上刚好读得出「这里将来有字」，又不会亮得像真内容。
+ *   【没图时为什么不变】无图时骨架铺在页面底色 BG 上，SOFT 与 BG 本来就有一档差，
+ *   换成 line 反而会让所有老用户的骨架变重。故只在 onPhoto 时切换。
+ */
 @Composable
 fun DhSkeletonRow(modifier: Modifier = Modifier, lines: Int = 2) {
     val p = DhTokens.palette
+    val bar = if (DhKit.hasPhotoBackdrop()) p.line else p.skeleton
     Column(modifier = modifier.fillMaxWidth().padding(vertical = RowPadV)) {
         Box(
             Modifier
                 .fillMaxWidth(0.42f)
                 .height(13.dp)
                 .clip(RoundedCornerShape(DhDesign.Radius.sm.dp))
-                .background(p.skeleton)
+                .background(bar)
         )
         if (lines > 1) {
             Spacer(Modifier.height(DhDesign.Space.xs.dp))
@@ -867,7 +878,7 @@ fun DhSkeletonRow(modifier: Modifier = Modifier, lines: Int = 2) {
                     .fillMaxWidth(0.72f)
                     .height(11.dp)
                     .clip(RoundedCornerShape(DhDesign.Radius.sm.dp))
-                    .background(p.skeleton)
+                    .background(bar)
             )
         }
     }

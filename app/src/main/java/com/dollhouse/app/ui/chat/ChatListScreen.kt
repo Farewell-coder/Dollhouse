@@ -30,10 +30,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -50,6 +46,7 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhDivider
@@ -105,17 +102,6 @@ object ChatListScreen {
 
     /** 列表顶部 / 底部内边距（底部要避开悬浮底栏，由宿主用 [contentPadding] 传进来）。 */
     private val PAD_H = 16.dp
-
-    /**
-     * 列表可读性面板的浓度（88%）。
-     *
-     * 【为什么要这个常量】只有设了背景图时才铺面板，浓度必须与顶栏带一致
-     *   （DhKit 里那个 alpha 是 private 常量 0.88f），否则「顶栏 88%、正文 70%」
-     *   两块雾面浓淡不一，滚动时能看出一条分界。
-     * 【为什么用品格槽 SOFT 而不是 UiKit.soft()】后者会乘上「卡片透明度」用户设置；
-     *   而可读性不该取决于用户把卡片调多透 —— 这里要的是一层与设置无关的固定底。
-     */
-    private const val SHEET_ALPHA = 0.88f
 
     /** 供宿主把「当前 Tab」直接渲染成 View（与 [com.dollhouse.app.ui.home.HomeScreen] 同构）。 */
     @Composable
@@ -306,7 +292,7 @@ object ChatListScreen {
                 DhKit.OutlineChip(if (archivedView) "返回" else "归档") { archivedView = !archivedView }
             }
             // 【背景图可读性】设了背景图时，列表整块铺一层 SOFT@88% 的雾面。
-            //   没图时 listSheet 返回 this —— 零绘制、零布局变化，老用户像素级不变。
+            //   没图时 readableSheet 返回 this —— 零绘制、零布局变化，老用户像素级不变。
             val onPhoto = DhKit.hasPhotoBackdrop()
             // 副文本在压图 / 半透明行上必须换色：SUB 在页面底色上只有 4.66:1 的余量，
             //   照片一渗进来就破 4.5。没图时仍是原来的 SUB，一个字节都不改。
@@ -324,7 +310,15 @@ object ChatListScreen {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            // 【加载态与内容态同一张面】骨架也铺这块面板：否则照片上的骨架是"裸"的，
+                            //   数据到达时面板凭空出现 —— 那一下比骨架本身更扎眼。
+                            .readableSheet(
+                                onPhoto = onPhoto,
+                                fill = Color(UiKit.SOFT),
+                                cornerDp = DhDesign.Radius.xl
+                            )
                             .padding(horizontal = PAD_H)
+                            .padding(top = if (onPhoto) DhKit.TOP_BAND_FADE_DP.dp else 0.dp)
                     ) {
                         repeat(3) {
                             com.dollhouse.app.ui.kit.DhSkeletonRow(lines = 2)
@@ -346,7 +340,11 @@ object ChatListScreen {
 
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().listSheet(onPhoto),
+                        modifier = Modifier.fillMaxSize().readableSheet(
+                            onPhoto = onPhoto,
+                            fill = Color(UiKit.SOFT),
+                            cornerDp = DhDesign.Radius.xl
+                        ),
                         contentPadding = PaddingValues(
                             start = PAD_H,
                             end = PAD_H,
@@ -591,54 +589,6 @@ object ChatListScreen {
                     Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     UnreadDot(row.unread)
                 }
-            }
-        }
-    }
-
-    /**
-     * 列表「可读性面板」：用户设了背景图时，在列表区铺一层 SOFT@88% 的雾面。
-     *
-     * 【为什么整块铺、不逐行加卡片】本列表的设计口径是「一条连续的消息流」：
-     *   行直接铺在页面底色上、行间用 1dp 发丝线分隔（见 [Card] 的注释）。
-     *   逐行加底会把它变回「一堆互不相干的小卡片」，而那正是当初专门改掉的形态。
-     *   现在页面底色从「纯 BG」变成「用户的照片」，于是把**整块**垫起来 —— 观感不变，可读性回来。
-     *
-     * 【顶边 12dp 渐隐】面板直接压照片时上沿是一条硬边，滚动内容从下面钻出来很突兀；
-     *   渐隐这 12dp 由调用方补进顶部留白（见 contentPadding），文字不会落在半透明区。
-     *   与顶栏带（[DhKit.photoTopBand] / TabTopBar）同一套口径。
-     *
-     * 【没图时为什么原样返回】没图时页面底色就是 BG，再叠一层 SOFT 会把整块列表染色 ——
-     *   没设背景图的老用户会看到「聊天列表变灰了」。这里直接返回 this：零绘制、零布局变化。
-     */
-    private fun Modifier.listSheet(onPhoto: Boolean): Modifier {
-        if (!onPhoto) {
-            return this
-        }
-        // 只圆上面两角：面板一直铺到屏幕底部（被悬浮底栏盖住），底角看不见。
-        val shape = RoundedCornerShape(
-            topStart = DhDesign.Radius.xl.dp,
-            topEnd = DhDesign.Radius.xl.dp
-        )
-        val fill = Color(UiKit.SOFT).copy(alpha = SHEET_ALPHA)
-        return this.clip(shape).drawBehind {
-            val fade = DhKit.TOP_BAND_FADE_DP.dp.toPx().coerceAtMost(size.height)
-            if (fade > 0f) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(fill.copy(alpha = 0f), fill),
-                        startY = 0f,
-                        endY = fade
-                    ),
-                    topLeft = Offset(0f, 0f),
-                    size = Size(size.width, fade)
-                )
-            }
-            if (size.height > fade) {
-                drawRect(
-                    color = fill,
-                    topLeft = Offset(0f, fade),
-                    size = Size(size.width, size.height - fade)
-                )
             }
         }
     }

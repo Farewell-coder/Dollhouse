@@ -28,9 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -48,6 +45,7 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.chat.ChatListScreen
 import com.dollhouse.app.ui.chat.ChatSessions
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
@@ -145,17 +143,6 @@ object SocialPage {
     /** 首屏条数；点「加载更多」再放一页。 */
     private const val PAGE = 30
 
-    /**
-     * 列表可读性面板的浓度（88%）。
-     *
-     * 【为什么是 0.88】与顶栏带的**浓度**保持一致（DhKit 里那个 alpha 是 private 常量
-     *   0.88f，这里复刻同一个值），免得「顶栏 88%、正文 70%」两块雾面浓淡不一。
-     *   注意两个带的**填充色不同**：顶栏用 BG、这里用 SOFT（正文区需要比顶栏更柔和的底），
-     *   而渐隐高度两边都用 [DhKit.TOP_BAND_FADE_DP]。
-     *   低于约 0.8 时照片会明显透上来，副文本按 [UiKit.subOnPhoto] 算出的对比度会被打折。
-     */
-    private const val SHEET_ALPHA = 0.88f
-
     /** 筛选条里「全部」的哨兵 id（不能用空串：人偶 id 非空，但语义上要一个显式值）。 */
     private const val FILTER_ALL = "\u0000all"
 
@@ -217,7 +204,7 @@ object SocialPage {
                 return@Column
             }
 
-            // 【背景图可读性】只在用户设了图时才铺面板；没图时 listSheet 返回 this，
+            // 【背景图可读性】只在用户设了图时才铺面板；没图时 readableSheet 返回 this，
             //   零绘制、零布局变化（老用户像素级不变）。
             val onPhoto = DhKit.hasPhotoBackdrop()
             // 压图场景的副文本必须换色：SUB 在页面底色上只有 4.66:1 的余量，
@@ -237,7 +224,11 @@ object SocialPage {
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .listSheet(onPhoto)
+                    .readableSheet(
+                        onPhoto = onPhoto,
+                        fill = Color(UiKit.SOFT),
+                        cornerDp = DhDesign.Radius.xl
+                    )
             ) {
                 if (chips.size > 1) {
                     FilterRow(chips = chips, selected = filter) { filter = it }
@@ -718,55 +709,6 @@ object SocialPage {
                 fontFamily = DhTokens.fontsBody,
                 textAlign = TextAlign.Center
             )
-        }
-    }
-
-    /* ============================ 背景图可读性 ============================ */
-
-    /**
-     * 列表「可读性面板」：用户设了背景图时，在列表区铺一层 SOFT@88% 的雾面。
-     *
-     * 【为什么是整块而不是逐行加底】说说页的语义是「一条连续的时间线」；
-     *   逐行加底会把它变成「一堆互不相干的小卡片」——正是设计稿禁止的那种碎片感。
-     *
-     * 【为什么顶边要 12dp 渐隐】面板直接压在照片上时上沿是一条硬边，滚动内容从
-     *   下面钻出来会很突兀。渐隐这 12dp 由调用方补进顶部留白（见 contentPadding），
-     *   所以文字永远不会落在半透明区里 —— 与顶栏带同一套口径。
-     *
-     * 【没图时为什么原样返回】没图时页面底色就是 BG，再叠一层 SOFT 会把整块列表
-     *   染色，老用户会看到「说说页变灰了」。这里直接返回 this：零绘制、零布局变化。
-     */
-    private fun Modifier.listSheet(onPhoto: Boolean): Modifier {
-        if (!onPhoto) {
-            return this
-        }
-        // 只圆上面两角：面板一直铺到屏幕底部（被悬浮底栏盖住），底角看不见，
-        // 圆了反而会在左右下缘露出照片的三角。
-        val shape = RoundedCornerShape(
-            topStart = DhDesign.Radius.xl.dp,
-            topEnd = DhDesign.Radius.xl.dp
-        )
-        val fill = Color(UiKit.SOFT).copy(alpha = SHEET_ALPHA)
-        return this.clip(shape).drawBehind {
-            val fade = DhKit.TOP_BAND_FADE_DP.dp.toPx().coerceAtMost(size.height)
-            if (fade > 0f) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(fill.copy(alpha = 0f), fill),
-                        startY = 0f,
-                        endY = fade
-                    ),
-                    topLeft = Offset(0f, 0f),
-                    size = Size(size.width, fade)
-                )
-            }
-            if (size.height > fade) {
-                drawRect(
-                    color = fill,
-                    topLeft = Offset(0f, fade),
-                    size = Size(size.width, size.height - fade)
-                )
-            }
         }
     }
 

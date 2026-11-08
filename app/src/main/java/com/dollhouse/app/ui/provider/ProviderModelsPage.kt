@@ -45,7 +45,8 @@ import com.dollhouse.app.ui.theme.UiKit
  *        两者不重叠，各自单一职责。
  *
  * 【交互】点一行 → 模型编辑页（改名称 / 类型 / 模态 / 能力开关）；
- *        左滑该行 → 露出垃圾桶 → 点它删除（二次确认）。
+ *        左滑该行 → 露出垃圾桶 → 点它删除（**直接删，不弹二次确认**，见下方 r13 定案）；
+ *        长按该行 → 弹确认框后删除（**无障碍等效入口**：读屏用户做不出横向拖动）。
  *
  * 【为什么删除走左滑而不是行内常驻按钮】行内按钮会让每一行看起来都是危险操作；
  *        左滑是明确的意图表达，平时不留视觉噪音。
@@ -53,7 +54,8 @@ import com.dollhouse.app.ui.theme.UiKit
  * 【本版与 View 版的差异】
  *   ① 数据流从「手写 st 结构 + removeAllViews 重绘」改成 `revision` 驱动的重组；
  *   ② 删除确认从 `UiKit.showDialog`（View 弹窗）换成 [DhForm.Alert]（Compose 弹窗）；
- *   ③ 左滑删除仍用既有 `SwipeRow`（View 侧构件，见下）。
+ *   ③ 左滑删除用 Compose 的 `SwipeToDelete`（`ui/compose/DhSwipe.kt`）。
+ *      注：那句「View 侧 SwipeRow」已过期 —— 全仓现已没有该 View 构件，只在注释里被提到。
  */
 object ProviderModelsPage {
 
@@ -94,6 +96,16 @@ object ProviderModelsPage {
         }
         val models = remember(revision, pv.id) { ModelStore.modelsOf(act, pv.id) }
 
+        // 【唯一删除实现】左滑的垃圾桶与长按确认框**都调这一个 lambda**。
+        //   本项目的教训是「同一语义两处实现」最后必然改一处漏一处 ——
+        //   所以这里把「调 ModelStore + 触发重读」收成一份，两个入口只决定"要不要先确认"。
+        val deleteModel: (AiModel) -> Unit = { m ->
+            ModelStore.deleteModel(act, m.id)
+            revision++
+        }
+        // 长按要删的那一行；null = 没有待确认的删除。
+        var deleteAsk by remember { mutableStateOf<AiModel?>(null) }
+
         DhKit.Page(
             title = pv.name,
             sub = "共 " + models.size + " 个模型",
@@ -115,13 +127,15 @@ object ProviderModelsPage {
                 models.forEach { m ->
                     DhSwipeHost(
                         onOpen = { ProviderNav.openModel(act, m.id) },
-                        onDelete = {
-                            // 【r13 用户定案】滑开 → 点垃圾桶**直接删**，不再弹二次确认窗。
-                            //   定案原文倾向：A（两步：滑开 + 点垃圾桶）+ D（不弹确认窗）+ F（只改这一处）。
-                            //   「两步」本身已经拦掉了「手滑直接删」，再弹一次窗只是多一次点击。
-                            ModelStore.deleteModel(act, m.id)
-                            revision++
-                        }
+                        // 【r13 用户定案】滑开 → 点垃圾桶**直接删**，不再弹二次确认窗。
+                        //   定案原文倾向：A（两步：滑开 + 点垃圾桶）+ D（不弹确认窗）+ F（只改这一处）。
+                        //   「两步」本身已经拦掉了「手滑直接删」，再弹一次窗只是多一次点击。
+                        // 【唯一实现】走 deleteModel，与长按入口共用同一份删除逻辑。
+                        onDelete = { deleteModel(m) },
+                        // 【无障碍】左滑是纯手势：读屏用户做不出横向拖动，删除就完全做不到。
+                        //   长按给同一条路；但长按是**一步触达**（不像左滑有"滑开"垫一步），
+                        //   所以先弹确认，再由确认框调同一个 deleteModel。
+                        onLongPress = { deleteAsk = m }
                     ) {
                         ModelRow(m)
                     }
@@ -130,6 +144,29 @@ object ProviderModelsPage {
             // 底部留白：悬浮「添加模型」按钮高 44dp + 上下各 12dp 呼吸。
             Spacer(Modifier.size(68.dp))
             AddModelButton { ProviderNav.openModels(act, pv.id) }
+        }
+
+        // 【长按删除的确认框】只有读屏/长按这条路才会走到它；左滑路径维持「不弹确认」。
+        //   删除动作用 deleteModel（同一个 lambda），不在这里重写一遍。
+        val ask = deleteAsk
+        if (ask != null) {
+            DhForm.Alert(
+                title = "删除模型「" + ask.displayName + "」？",
+                onDismiss = { deleteAsk = null },
+                posText = "删除",
+                onPos = {
+                    deleteAsk = null
+                    deleteModel(ask)
+                },
+                negText = "取消"
+            ) {
+                Text(
+                    text = "这个模型会从本机的模型列表里移除。",
+                    color = DhTokens.colors.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    fontFamily = DhTokens.fonts
+                )
+            }
         }
     }
 
@@ -168,17 +205,28 @@ object ProviderModelsPage {
     }
 
     /**
-     * 一行「可左滑删除 + 可点进编辑」的容器。
+     * 一行「可左滑删除 + 可点进编辑 + 可长按删除」的容器。
      *
      * 【点击语义】滑开状态下点内容区先收回，否则才当作「点进编辑」——
-     *   与 View 版 `SwipeRow` 的口径一致：用户想关掉删除区时不该被带进另一个页面。
+     *   用户想关掉删除区时不该被带进另一个页面。
+     *
+     * 【为什么同时有左滑和长按】左滑是给视力正常的用户的「低噪音危险操作」；
+     *   长按是给读屏用户的**等效入口** —— TalkBack 把横向拖动用于切换焦点，
+     *   "滑开露出垃圾桶"这个动作他们做不出来。两个入口最终都调同一个 `onDelete`。
      */
     @Composable
-    private fun DhSwipeHost(onOpen: () -> Unit, onDelete: () -> Unit, content: @Composable () -> Unit) {
+    private fun DhSwipeHost(
+        onOpen: () -> Unit,
+        onDelete: () -> Unit,
+        onLongPress: () -> Unit,
+        content: @Composable () -> Unit
+    ) {
         SwipeToDelete(
             onDelete = onDelete,
             modifier = Modifier.padding(top = 8.dp),
-            onContentClick = onOpen
+            onContentClick = onOpen,
+            // 长按 = 读屏用户的等效删除入口（横向拖动在 TalkBack 下做不出来）。
+            onLongPress = onLongPress
         ) {
             content()
         }

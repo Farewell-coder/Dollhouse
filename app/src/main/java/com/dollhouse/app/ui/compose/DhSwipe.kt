@@ -50,6 +50,22 @@ fun SwipeToDelete(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     onContentClick: (() -> Unit)? = null,
+    /**
+     * 【无障碍·等效入口】长按回调：给读屏用户一条**不依赖横向拖动**的删除路径。
+     *
+     * 【为什么必须由本组件提供】"左滑露出删除区"是纯手势交互：读屏用户要先探索到内容、
+     *   再做一次横向拖动才能让删除区出现 —— 而 TalkBack 下横向拖动被用来切换焦点，
+     *   这个动作基本做不出来。也就是说**名字补得再好，动作做不到就等于没有**
+     *   （见 `docs/A11Y_FINDINGS.md` §9 遗留）。
+     *
+     * 【为什么用长按而不是常驻按钮】本工程的既定取舍是「行内不放常驻危险操作」
+     *   （原生按钮会让每一行看起来都危险）；长按与既有 `pressable(onClick, onLongClick)`
+     *   同口径，聊天消息、人偶动作行都是这么做的 —— 同一语义在全 App 只有一种手势。
+     *
+     * 【传给谁】调用方自己决定长按后做什么（通常是弹确认再调 [onDelete]），
+     *   本组件**不重复实现删除**，只把事件交出去。
+     */
+    onLongPress: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     val c = DhTokens.colors
@@ -107,7 +123,20 @@ fun SwipeToDelete(
                 .then(
                     // 【点击语义】滑开状态下点内容区先收回，而不是执行 onContentClick ——
                     //   否则用户想关掉删除区，却被带进了另一个页面。
-                    if (onContentClick != null) {
+                    // 【长按】只有 `onLongPress` 非空时才挂双参重载（它没有 null 版本），
+                    //   否则保持原来的单参重载，既有调用点逐字节不变。
+                    if (onLongPress != null) {
+                        Modifier.pressable(
+                            onClick = {
+                                if (opened) {
+                                    settle(0f)
+                                } else {
+                                    onContentClick?.invoke()
+                                }
+                            },
+                            onLongClick = onLongPress
+                        )
+                    } else if (onContentClick != null) {
                         Modifier.pressable {
                             if (opened) {
                                 settle(0f)

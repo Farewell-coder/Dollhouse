@@ -670,6 +670,69 @@ object DhKit {
     }
 
     /**
+     * 正文区「可读性面板」：有背景图时，在整块列表 / 加载区下面铺一层雾面。
+     *
+     * 【和 [photoTopBand] 的分工】那个是**顶栏带**：实底在上、底边渐隐，让带子下沿
+     *   与照片自然接上。本函数铺的是正文区，与照片相接的那条边变成**上沿**，
+     *   所以渐隐在顶部 —— 内容从面板里滚出来时不会撞上一条硬边。
+     *
+     * 【为什么必须整块铺、不逐行加卡片】聊天列表与说说页的形态都是「连续的一条流」
+     *   （行直接铺在页面底色上、行间用发丝线分隔）。逐行加底会把它变回
+     *   「一堆互不相干的小卡片」，而那正是这些页面专门改掉的形态。
+     *   整块铺 = 观感不变、可读性回来。
+     *
+     * 【为什么没图时一个像素都不改】无图时页面底色就是 BG，再叠一层雾面会把整块列表
+     *   染色 —— 没设背景图的老用户会看到「页面变灰了」。所以 onPhoto=false 时原样返回 this：
+     *   零绘制、零布局变化。
+     *
+     * 【参数为什么是这些】
+     *   · [onPhoto]  传 [hasPhotoBackdrop] 的结果。别在这里自己读偏好：那一层已经按
+     *     `DhTheme.revision` 做了 remember 缓存，换图 / 改参数才会重算。
+     *   · [fill]     面板底色由调用方给：顶栏带用 BG；正文区用调色板 SOFT（比 BG 柔一档）。
+     *   · [cornerDp] **只圆上面两角**。面板一般都铺到屏幕底部、被悬浮底栏盖住，
+     *     底角看不见；圆了反而会在左右下缘漏出照片的三角。
+     *   · [fadeDp] / [alpha] 默认与顶栏带同款（12dp / 88%），保证两块雾面的
+     *     浓淡与渐隐长度一致，滚动时看不出第二条分界线。
+     *
+     * 【调用方必须做的一件事】渐隐那 [fadeDp] 要自己补进 `contentPadding`（通常是 top），
+     *   否则首行文字会落在半透明区里 —— 与顶栏带「留白由调用方补」是同一条约定。
+     */
+    fun Modifier.readableSheet(
+        onPhoto: Boolean,
+        fill: Color,
+        cornerDp: Int,
+        fadeDp: Int = TOP_BAND_FADE_DP,
+        alpha: Float = TOP_BAND_ALPHA
+    ): Modifier {
+        if (!onPhoto) {
+            return this
+        }
+        val shape = RoundedCornerShape(topStart = cornerDp.dp, topEnd = cornerDp.dp)
+        val solid = fill.copy(alpha = alpha)
+        return this.clip(shape).drawBehind {
+            val fade = fadeDp.dp.toPx().coerceAtMost(size.height)
+            if (fade > 0f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(solid.copy(alpha = 0f), solid),
+                        startY = 0f,
+                        endY = fade
+                    ),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, fade)
+                )
+            }
+            if (size.height > fade) {
+                drawRect(
+                    color = solid,
+                    topLeft = Offset(0f, fade),
+                    size = Size(size.width, size.height - fade)
+                )
+            }
+        }
+    }
+
+    /**
      * 统一顶栏：可选返回键 + 主标题 + 可选副标题。
      * 【为什么不用 Material3 TopAppBar】它的高度 / 内边距 / 字号与既有 `UiKit.topBar` 对不上，
      *   混用会让「Compose 页的顶栏比 View 页高一点」，正是规格书禁止的突兀。
