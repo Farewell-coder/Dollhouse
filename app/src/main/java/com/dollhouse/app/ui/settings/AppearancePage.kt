@@ -233,6 +233,10 @@ object AppearancePage {
         var tick by remember { mutableStateOf(0) }
         val enabled = remember(tick) { PetPrefs.bgEnabled(act) }
         val has = remember(tick) { PetPrefs.chatBackground(act).isNotEmpty() }
+        // 【和页面同一个判据】卡片滑条的事实警告只在「真的看得到背景图」时才挂：
+        //   用 DhKit.hasPhotoBackdrop()（= 已设图 且 开关打开），而不是只看「设过图」。
+        //   它自己 remember 到 DhTheme.revision，切开关 / 换图 / 清图都会 bump，所以不会停在旧值。
+        val hasPhoto = DhKit.hasPhotoBackdrop()
 
         DhKit.Card(collapsibleTitle = "全局背景", titleIcon = Icons.IC_IMAGE) {
             // ---------- 开关（关键：关闭时保留全部配置）----------
@@ -339,7 +343,7 @@ object AppearancePage {
             }
             SliderBlock(
                 title = "卡片不透明度",
-                hint = HomeUi.cardAlphaHint(HomeState.bgCardAlpha),
+                hint = HomeUi.cardAlphaHint(HomeState.bgCardAlpha, hasPhoto),
                 max = 100,
                 value = HomeState.bgCardAlpha,
                 iconRes = Icons.IC_SQUARE_STACK
@@ -351,7 +355,22 @@ object AppearancePage {
                     act.notifyPetService()
                 }
             }
-            DhForm.Note("这四项互相独立：透明度管图片、毛玻璃管图片有多糊、遮罩管压暗层、卡片管卡片底。")
+            // 【r15·重写这句】原文是「这四项互相独立：透明度管图片、毛玻璃管图片有多糊、
+            //   遮罩管压暗层、卡片管卡片底。」—— 有两个问题：
+            //   ① 「透明度」与数值方向相反（越大越实），名字本身就是上一轮改掉的参数谎；
+            //   ② 它只说明了"各管什么"，没说用户最想知道的那件事：**调这些会不会让字看不清**。
+            //
+            //   【为什么现在敢写第二句】顶栏带、列表面板、空态底板、卡片底色四类都铺完了，
+            //   实测最坏情况（纯黑照片 + 遮罩 0）下：聊天页顶栏 4.95、会话列表 5.04、
+            //   说说 5.04、空态 4.95、默认不透明卡片 5.25，全部 ≥ 4.5:1。
+            //   【刻意不写"随便调都看得清"】卡片不透明度被拉低时（79% 压深色照片，SUB 3.19）
+            //   仍会掉下去 —— 那由卡片那根滑条自己的提示语负责，这里不做跨根承诺。
+            DhForm.Note(
+                "四项互不联动：不透明度管图片多实、毛玻璃管图多糊、遮罩管整页雾白、卡片不透明度管卡片底。" +
+                    "压在图片上的文字另有兜底 —— 聊天列表、说说页、聊天页顶栏，以及全 App 统一的空态提示" +
+                    "都各自铺了可读底；按最黑的照片验算，正文与副标题仍在 4.5:1 以上。" +
+                    "所以图可以调到很实，遮罩也可以关掉。"
+            )
             Spacer(Modifier.height(2.dp))
             // 【颜色提示】滑条下方的小色块让用户一眼看到「当前主题下这些层的实际颜色」。
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -3,8 +3,33 @@
 > 审计人：`ui-impl`
 > 时间：2026-11-08
 > 方式：**纯静态扫描源码** —— 不改一行代码、不碰前台（无 `monkey` / `am start` / `input tap` / `cmd uimode` / `settings put`）
-> 范围：`app/src/main/java` 全部 `*.kt`（277 个文件）
+> 范围：`app/src/main/java` 全部 `*.kt`（审计时 277 个文件；收工时 **278** 个 —— 新增 `ui/compose/AppDialog.kt`）
 > 触发：`DEVICE_FINDINGS.md` §1 的搜索框 P2（placeholder 不进语义）暴露了一个面 —— 查了全仓，**同类问题不是 2 处，是 20+ 处**
+
+---
+
+## §00 方法论 · 写「未发现」，不写「没有」（**先读这条**）
+
+静态扫描的结论只能到「**我看到的**」这一层，到不了「**不存在**」这一层。
+
+原因很硬：grep 搜的是**文本形态**，而数据流会改名、会绕道、会由别的文件提供。
+本次审计里我自己就撞了两次墙（完整经过见 §6 第 5、6 条）：
+
+- 第一次：把 `io.github.ccch1mneyyy.dsh_app` 的 dump 当成 Dollhouse 的证据 —— **同名不同 App**；
+- 第二次：断言 `CtxRingView` 「没有任何文本节点展示百分比」，而它环心就有一个 `Text`。
+  漏掉的原因是我 grep 的是 `ChatState.ctxRatio`，那个 `Text` 用的却是**局部变量 `ratio`** ——
+  **改名后的数据流 grep 不到**。
+
+所以本报告的每条结论都按这个口径写：
+
+| 不要写 | 要写 |
+|---|---|
+| 「这里没有名字」 | 「**未发现**名字」 |
+| 「全仓只有 N 处」 | 「**本次扫描到** N 处（判据见 §0）」 |
+| 「已经改完了」 | 「代码已改，**真机尚未听验**」 |
+
+这条不是文字游戏：区别在于**下一个人是否会把它当成已排空的地板继续往上盖**。
+写成「没有」，后续改动就会假设这块是干净的；写成「未发现」，才会有人去复核判据。
 
 ---
 
@@ -35,6 +60,11 @@
 | `DhKit.IconButton(` 调用点 | 51 | **22 处**没传 `label` / `tooltip` → 无名 |
 | `contentDescription = <非空>` | **3 处** | `ChatListScreen.kt:217`（用户后加的"打开菜单"）、`Components.kt:809`（`DhIconButton` 的必需参数 `name`）、`DhKit.kt:1241` 的 KDoc 说明 |
 | `contentDescription = null` | 27 处 | 绝大多数**正确**（见 §5），**不要一刀切改** |
+
+> 上表是**审计当时**的基线（`IconButton` 22 处无名、`null` 27 处）。
+> 收工后的现状见 **§9.0 收口校验**：`IconButton` **51/51** 有名字、P0 三条已闭合、六道门禁全绿。
+> 表中 `null` 的行数在收工时复核**仍是 27 处**（另有 2 处在注释 / KDoc 里，不是代码）——
+> 口径不变、也未新增。复核命令：全仓 grep `contentDescription = null` 后按行首是否为注释分类统计。
 
 ---
 
@@ -69,8 +99,16 @@
 - **建议文案**：`"档位 ${i + 1}，共 ${names.size} 档"`；并加选中态：
   - 首选 `Modifier.selectable(selected = on, role = Role.Tab) { level = i }` + 外层 `Modifier.selectableGroup()`；
   - 退一步也要 `Modifier.semantics { contentDescription = ...; selected = on }`。
-- **影响**：触摸探索模式下读屏只报 5 个「按钮」；点完**也不知道现在第几档**。6dp 高的段落即使有 48dp 外扩，5 段并排后命中区互相重叠，读屏用户基本无法定位目标 —— **这个控件的功能对读屏用户等于不存在**。
+- **影响**：触摸探索模式下读屏只报 5 个「按钮」；点完**也不知道现在第几档**。
+  **命中区实测口径（2026-11-08 更正）**：原先这里写「即使有 48dp 外扩，5 段并排后命中区互相重叠」——**不成立**。
+  链是 `.height(6.dp)` 在**外**、`pressable` 的 `minTouchTarget` 在**内**，
+  内层的 48dp 下限会被外层约束压成 6dp（`sizeIn` 对入参约束做 coerce，maxHeight=6 时 minHeight 也变 6）。
+  所以真实情况更糟也更简单：**每段命中区只有 6dp 高**，探索触摸基本点不中。
+  —— **这个控件的功能对读屏用户等于不存在**（结论不变，论据已更正；同一结论见 §9 的三条「有意为之」第 1 条）。
 - **备注**：同一面板里 `:364` 的「档位名」列表是**有文字的行**（读屏可用），可作为**备选修补方案**：若分段条改造风险高，可直接把分段条 `clearAndSetSemantics {}` 从语义树摘掉，让读屏只走文字列表（视觉保留分段条）。
+- **已落地（2026-11-08）**：采用上面这条备选方案 —— 分段条 `clearAndSetSemantics { }` 摘出语义树，
+  同时给有文字的档位行补 `Modifier.semantics { selected = i == level }`（否则会丢「当前第几档」）。
+  视觉与触摸一字未改。
 
 ### [P0] `ui/doll/DollAnimPage.kt:553 / 558 / 563 / 568` · 帧偏移「四方向微调」按钮
 
@@ -190,9 +228,55 @@
 ## §9 施工进度（按「元素类型」归并 —— 这是实际修法）
 
 > 原则：**改定义点，不改调用点**。同一种按钮有 1~2 处定义时，一次覆盖多个页面。
-> **状态：全部闭合。** 收口校验：`51/51` 个 `DhKit.IconButton` 调用点**都有名字**
-> （脚本按 `label|tooltip|a11yName` 三项判定，0 个遗漏）。
+> **状态：全部闭合。** 收口校验见下方「§9.0 收口校验（可复现）」。
 > 注：行号会随他人改动漂移，本表的行号取自 2026-11-08 收工时的 `HEAD`。
+
+### §9.0 收口校验（可复现）
+
+**1) `IconButton` 51/51 有名字**
+
+判定方法：对每个 `IconButton(` 调用点，用**括号计数**取出完整参数区
+（不能用正则非贪婪 —— `.then(if (hasLabel) ... Modifier.size(...))` 这种嵌套括号会把参数区截断），
+再检查参数区里是否有 `label =` / `tooltip =` / `a11yName =` 三者之一。
+
+| 项 | 数量 |
+|---|---|
+| `DhKit.IconButton` 调用点 | **51** |
+| 其中有名字 | **51** |
+| 无名 | **0** |
+| 审计当时的无名数（基线） | 22 |
+
+> **踩坑记录（下次复扫别再踩）**：粗暴 grep `IconButton\s*\(` 会多出 **1** 个 —— 那是
+> `DhKit.kt` 里**函数定义** `fun IconButton(` 本身，不是调用点。按「剔除 `fun ` 前缀」后才是 51；
+> 机器扫出来 52/51 时先看这一条，别急着去找那根不存在的"漏网按钮"。
+
+**2) P0 三条的落地形态**
+
+| 位置 | 落地 |
+|---|---|
+| `ChatPanels` 档位分段条 | `clearAndSetSemantics { }` 摘出语义树（**不命名**），档位行补 `selected` 状态 |
+| `DollAnimPage` 四方向微调 | `a11yName`：左移 / 上移 / 下移 / 右移 |
+| `DollListScreen` 卡片底部三枚 | `a11yName`：`停用 <名字>` / `启用 <名字>`（**随状态变**）、`编辑 <名字>`、`更多操作 <名字>` |
+
+**3) 门禁现状（2026-11-08 收工后实测）**
+
+| 门禁 | 结果 |
+|---|---|
+| `kotlin_precheck.py` | 未发现问题（278 文件） |
+| `comment_balance.py` | 全部平衡（330 文件） |
+| `symbol_refs.py` | 0 悬空引用（含新增的 `kotlin.*` 默认导入白名单：`ReplaceWith` 等不再误报） |
+| `align_audit.py --quiet` | 0 处 |
+| `radius_audit.py --quiet` | 0 处 |
+| `ui_audit.sh` | 44/44 PASS |
+
+**4) 两道 UI 门禁的反向验证（证明它们不是"永远绿"）**
+
+- `align_audit --self-test`：注入缺 `contentAlignment` 的 `Box` → 报；补上 → 过；
+  另有一条对照用例现场演示「非贪婪正则在 `.pointerInput(Unit) { ... }` 处截断」的旧事故。
+- `radius_audit --self-test`：注入 `size(24.dp)` + 圆角 16 → 报；改 8 → 过；
+  **新增 drawBehind 用例**：`size(24.dp)` + `drawBehind { drawRoundRect(cornerRadius = CornerRadius(16.dp)) }` → 报，改 8 → 过。
+- `symbol_refs`：注入 `replaceWith = ReplaceWith("...")` → **不报**（kotlin 默认导入）；
+  注入一个全仓不存在的 `FrobnicatorXyz` → **报**（证明白名单没有把真问题一起吞掉）；清理 → 过。
 
 ### 已修清单
 
@@ -205,7 +289,7 @@
 | 顶栏图标三连 | `ProviderListPage.kt` | 3 | `"导出配置"` / `"导入配置文件"` / `"新建供应商"` | ui-impl |
 | 卡片「更多」 | `ProviderListPage.kt` | 1 | `"更多供应商操作"` | ui-impl |
 | 列表行「添加」 | `ModelListPage.kt` | 1 | `"添加该模型"` | ui-impl |
-| 左滑删除区 | `DhSwipe.kt` 删除层 | **全 App 所有 `DhSwipeRow`** | `"删除此项"` | ui-impl |
+| 左滑删除区 | `DhSwipe.kt` 删除层（`SwipeToDelete`） | **1 个调用点**（`ProviderModelsPage` 模型行）※ | `"删除此项"` | ui-impl |
 | 聊天页返回 | `ChatUi.kt:234` | 1 | `"返回会话列表"` | ui-impl |
 | 聊天页「更多」 | `ChatUi.kt:343` | 1 | `"查看对话历史"` | ui-impl |
 | 移除附件 | `ChatUi.kt:1264` | 1 | `"移除附件"` | ui-impl |
@@ -230,4 +314,36 @@
 ### 遗留（本批未做，非代码问题）
 
 - **朗读顺序、是否念废话**：静态改动无法证明，**必须真机开 TalkBack 逐页听**（`DEVICE_QA.md:225` 同口径）。
-- **滑动手势的可达性**：`DhSwipe` 已能读出「删除此项」，但读屏用户**难以完成"横向滑开"这个手势**去让它出现 —— 这是交互设计层面的缺口，不是补个名字能解决的。建议后续在长按菜单里提供等价删除入口（聊天消息、人偶动作行都已有长按菜单）。
+- ~~**滑动手势的可达性**~~ → **已闭合（仅有的 1 个调用点）**，见 §10。
+
+---
+
+## §10 手势可达性（补完·`SwipeToDelete` 的等效入口）
+
+> 背景：名字补了但**动作做不到**等于没修。本节记普查口径与修法。
+
+### 普查：全仓"删除靠手势"的地方只有 4 处，其中 3 处本来就可达
+
+| 位置 | 删的是什么 | 手势 | 长按等价 |
+|---|---|---|---|
+| `ProviderModelsPage` 模型行（`SwipeToDelete`，**唯一调用点**） | 供应商下的某个模型 | 左滑露出垃圾桶 → 点它（**直接删**） | ✗ → **本次已补** |
+| `ChatUi` 消息气泡 | 单条消息 | **长按** → 菜单「删除」 | ✓ 本身就是长按 |
+| `DollActionPage.kt:877` 动作行 | 单条动作 | **长按** → 删除确认（`pressable(onOpen, onDelete)`） | ✓ 本身就是长按 |
+| `ChatListScreen` 会话行 | —（行本身不删除） | 仅点击进聊天 | 不涉及（删人偶/会话在 `FriendProfilePage`） |
+
+**口径纠正**：我上一版写「全 App 所有 `DhSwipeRow`」是**错的** —— ① 组件实名 `SwipeToDelete`；② 全仓**只有 1 个调用点**。另外 `ProviderModelsPage` 与 `DhSwipe.kt` 里「View 版 `SwipeRow`」的注释也已过期：该 View 构件已不存在，只在注释里被提到。**"全 App 所有"这种话以后必须先用 `grep -c` 数一遍再说。**
+
+### 修法（两层，都不重复实现删除）
+
+1. **组件层** `SwipeToDelete` 增 `onLongPress: (() -> Unit)? = null`：
+   - 只有非空时才挂 `pressable(onClick, onLongClick)` 双参重载，**其余调用点逐字节不变**；
+   - 组件**自己不实现删除**，只把长按事件交出去（避免第二份删除逻辑）。
+   - 回报：`combinedClickable` 会把它暴露成无障碍"长按"动作，读屏用户可从动作菜单触发。
+2. **页面层** `ProviderModelsPage`：
+   - 把「调 `ModelStore.deleteModel` + 触发重读」收成**唯一一份** `deleteModel` lambda，左滑与长按都调它；
+   - 左滑维持 r13 定案（两步、**不弹**确认）；长按是**一步触达**，所以先 `DhForm.Alert` 确认再调同一个 lambda。
+   - 顺带修正两处撒谎的注释（"二次确认"实际不弹、`View 版 SwipeRow` 已不存在）。
+
+### 仍存在的边界
+- 长按删除**只补在模型行**。若日后 `SwipeToDelete` 新增调用点，**必须同时传 `onLongPress`**（目前靠 KDoc 约定，没有编译期强制）。
+- 语音/开关控制类辅助技术的"点击"能力也依赖语义动作，本次未单独验证。

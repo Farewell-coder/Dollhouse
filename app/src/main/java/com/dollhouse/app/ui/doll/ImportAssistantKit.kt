@@ -95,7 +95,6 @@ internal object ImportAssistantKit {
                             color = c.title,
                             fontSize = UiKit.FS_TITLE.sp,
                             fontFamily = DhTokens.fontsBold,
-                            fontWeight = FontWeight.SemiBold
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -162,7 +161,6 @@ internal object ImportAssistantKit {
                             color = c.title,
                             fontSize = UiKit.FS_BTN.sp,
                             fontFamily = DhTokens.fontsBold,
-                            fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = if (required) "必需" else "可跳过",
@@ -234,7 +232,6 @@ internal object ImportAssistantKit {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     text = if (has) frames.toString() + " 帧" else "未设置",
@@ -688,7 +685,6 @@ internal object ImportAssistantKit {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.SemiBold
                 )
                 DhKit.Icon(
                     if (open) Icons.IC_CHEVRON_UP else Icons.IC_CHEVRON_DOWN,

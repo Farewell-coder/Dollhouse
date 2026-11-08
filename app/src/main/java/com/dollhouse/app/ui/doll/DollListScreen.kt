@@ -498,7 +498,6 @@ onCover = {
                 color = c.title,
                 fontSize = (UiKit.FS_BTN * k).sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

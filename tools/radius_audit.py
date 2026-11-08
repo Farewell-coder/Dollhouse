@@ -24,6 +24,23 @@ Dollhouse 圆角比例门禁：抓「圆角 > 元素短边一半」→ 元素会
   · 圆角值解析不出来（`shape = btnShape` 这类变量）—— 同上
   · 圆角为 0 / 找不到圆角 —— 没有形状，不管
 
+【drawBehind 手绘圆角也算】（2026-11-08 补）
+  为了「没图时一个像素都不变」，`ui/kit/Components.kt` 的 `stateReadablePlate` 用
+  `Modifier.drawBehind { drawRoundRect(cornerRadius = CornerRadius(22.dp)) }` 画圆角，
+  不走 `clip` / `background` —— 只认 `RoundedCornerShape` 的判据会整段看不见。
+  现在同时解析 `CornerRadius(<可解析值>)`。
+  顺带修了链扩展里的一个真 bug：`.drawBehind { ... }` 这种**没有参数括号的尾随 lambda**
+  以前会在标识符处把链截断，导致 lambda 里的圆角读不到（自测里就是这么暴露的）。
+
+【已知不判（2026-11-08 复核，别当漏报去修）】
+  1. `DhKit.readableSheet(onPhoto, fill, cornerDp = ...)` 这类**圆角是参数**的扩展函数：
+     `RoundedCornerShape(topStart = cornerDp.dp, ...)` 里的 `cornerDp` 静态不可知 → 不判。
+     实测三个调用点全部传 `DhDesign.Radius.xl`(22)，且容器都是 `fillMaxSize()` / `weight(1f)`
+     的高面板（半短边远大于 22）→ 当前不构成风险。
+  2. 尺寸由内容决定的元素（只有 `fillMaxWidth()`、没有 `.size()/.height()`）：
+     短边不可知，宁可漏报。
+  3. 可组合函数内部的圆角（如 `DhState` 的 56dp 图标座）：判据看的是**调用点那条链**。
+
 【为什么仍然只做括号计数】
   `.size(24.dp)` 与 `RoundedCornerShape(16.dp)` 都可能嵌在
   `.background(if (x) a else b, RoundedCornerShape(16.dp))`、`.then(...)` 里；
@@ -57,6 +74,11 @@ PILL_MIN = 900.0
 
 SIZE_CALL_RE = re.compile(r"\.\s*(size|height|width|sizeIn)\s*\(")
 SHAPE_RE = re.compile(r"RoundedCornerShape\s*\(|CircleShape")
+
+# 【补判据·drawBehind 画出来的圆角】`Modifier.drawBehind { drawRoundRect(cornerRadius = CornerRadius(22.dp)) }`
+# 只是为了「没图时一个像素都不变」才不走 clip/background —— 圆角一样是真的，
+# 漏掉它就会出现「改档改到某个 drawBehind 面板上，门禁一声不吭」的盲区。
+CORNER_RADIUS_RE = re.compile(r"CornerRadius\s*\(")
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*")
 
 
@@ -334,7 +356,18 @@ def expand_chain(text, anchor):
             else:
                 end = close + 1
         else:
-            end = j
+            # 【坑·无括号的尾随 lambda】`.drawBehind { ... }` / `.clickable { ... }`
+            #   这种段没有参数括号。改造前这里直接把链截断在标识符后，于是
+            #   `drawBehind { drawRoundRect(cornerRadius = CornerRadius(16.dp)) }`
+            #   的圆角**整段看不见**（自测里就是这么暴露的）。
+            k3 = skip_ws(text, j)
+            if k3 < n and text[k3] == "{":
+                b = match_bracket(text, k3, "{", "}")
+                if b < 0:
+                    break
+                end = b + 1
+            else:
+                end = j
         # 下一个非空字符还是点号才继续
         k4 = skip_ws(text, end)
         if k4 < n and text[k4] == ".":
@@ -510,6 +543,19 @@ def shapes_in_chain(chain):
         v = max(vals)
         if best is None or v > best:
             best, src = v, ("RoundedCornerShape(%s)" % args.strip().replace("\n", " "))
+    # drawBehind 里的手绘圆角（drawRoundRect 的 cornerRadius）
+    for m in CORNER_RADIUS_RE.finditer(chain):
+        op = chain.index("(", m.start())
+        cp = match_bracket(chain, op, "(", ")")
+        if cp < 0:
+            continue
+        v = SYMS_CACHE.resolve(chain[op + 1:cp])
+        if v is None:
+            continue
+        if best is None or v > best:
+            best = v
+            src = "drawBehind CornerRadius(%g)" % v
+
     if best is None:
         if src:
             return None, False, "圆角无法解析（变量 / 未知常量）", src
@@ -716,6 +762,20 @@ fun Bar(text: String) {
 
 FIXTURE_BAR_GOOD = FIXTURE_BAR_BAD.replace("RoundedCornerShape(16.dp)", "RoundedCornerShape(12.dp)")
 
+# drawBehind 手绘圆角：固定尺寸 + CornerRadius(16) 必须报，改 8 必须过
+FIXTURE_DRAW_BAD = '''
+@Composable
+fun DrawBad() {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .drawBehind { drawRoundRect(cornerRadius = CornerRadius(16.dp)) }
+    ) { Icon(iconRes = 1) }
+}
+'''
+
+FIXTURE_DRAW_GOOD = FIXTURE_DRAW_BAD.replace("CornerRadius(16.dp)", "CornerRadius(8.dp)")
+
 FIXTURE_EXEMPT = '''
 @Composable
 fun Exempt() {
@@ -775,6 +835,14 @@ def self_test():
     fs, _ = run_on(FIXTURE_BAR_GOOD, "事故复现·改回 12dp")
     check(not fs, "事故复现：改回 12dp（=当前 md 档）后 0 命中 —— 说明拆档后的现状是干净的",
           "事故复现：12dp 仍被拦（判据过严）")
+
+    # (4b) drawBehind 手绘圆角：补判据后必须能读到
+    fs, _ = run_on(FIXTURE_DRAW_BAD, "drawBehind·CornerRadius(16) 配 24dp")
+    check(len(fs) == 1 and fs[0]["short"] == 24 and fs[0]["radius"] == 16,
+          "drawBehind 手绘圆角被读到：24dp + CornerRadius(16) 报出来了",
+          "drawBehind 圆角漏读（%r）" % [(f["short"], f["radius"]) for f in fs])
+    fs, _ = run_on(FIXTURE_DRAW_GOOD, "drawBehind·改 8dp")
+    check(not fs, "drawBehind 改小后过：CornerRadius(8) <= 12", "drawBehind 改小仍报")
 
     # (5) 放行项：CircleShape / percent=50 / 999 / 无固定尺寸
     fs, _ = run_on(FIXTURE_EXEMPT, "放行项")

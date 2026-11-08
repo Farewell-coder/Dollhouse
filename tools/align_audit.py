@@ -39,6 +39,21 @@ Dollhouse 对齐门禁：找出「容器有可见边界 + 里面只有一个文�
   【为什么不查 Row/Column 的纵向】体里只有一个叶子时它们的高/宽由内容决定，
     补不补 verticalAlignment 视觉上完全一样 —— 只查水平轴，少制造噪音。
 
+【已知盲区（2026-11-08 实测定下，别当 bug 去修）】
+
+  B1. 容器里带**条件子节点**时不判：`Row { Icon(); if (hasLabel) { Spacer(); Text() } }`
+      这种「主体一个 + 可选附加」的写法会被算成「多子节点」而跳过。
+      典型受害样本是 `DhKit.IconButton` 内部的 Row（40dp 圆底 + 图标 + 可选文字）。
+      为什么不去救：试过放宽成「1 个直接叶子 + 可选分支」，代价是 2 处误报 ——
+        · `DhKit.CheckRow`：Text 带 `weight(1f)`，横向早被占满，居中参数毫无意义；
+        · 分段 chip：`Text` + 可选 Icon + 可选角标，本来就不是「一个文字或图标」。
+      按「宁可少报，不能误报」的口径回滚。**IconButton 的居中另有守护**：
+      `app/src/test/java/com/dollhouse/app/ui/DesignScreenshotTest.kt` 的
+      `iconButton_isCentered` 用像素包围盒偏差 ≤3px 断言，属于真·回归测试。
+
+  B2. `modifier` 由调用方传入时（`modifier = modifier`），可见边界（背景/尺寸）
+      在调用点，脚本这里看不到 —— 只会漏报，不会误报。
+
 用法
   python3 tools/align_audit.py                       # 只列 miss（门禁视图）
   python3 tools/align_audit.py --all                 # 连「判为不用改」的候选一起列

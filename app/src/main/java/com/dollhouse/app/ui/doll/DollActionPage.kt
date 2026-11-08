@@ -909,7 +909,6 @@ object DollActionPage {
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
-                    fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(

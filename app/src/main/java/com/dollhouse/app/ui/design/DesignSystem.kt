@@ -109,8 +109,38 @@ object DhDesign {
              */
             /**
              * @param dark 深色档。深底浅字在光学上会**膨胀**（亮色字形在暗底有溢光），
-             *   同样的字重看起来比浅色下重半档。所以深色把**标题档**从 SemiBold 降到 Medium；
-             *   正文/说明保持 400 不动 —— 再降会失去层级。
+             *   同样的字重看起来比浅色下重半档。所以深色把**标题档**（brand/display/title/
+             *   section/label）从 SemiBold 降到 Medium；正文/说明/caption 保持 400 不动
+             *   —— 再降会失去层级。
+             *
+             * 【现状·覆盖面只有约 0.6%，别以为「深色字重已经处理好了」】
+             *   这个参数**只在调用方写 `style = DhTokens.type.xxx` 时才生效**。
+             *   2026-11 实测：全 App 344 个 `Text` 里，真正因 dark 改变字重的只有 **2 处**。
+             *
+             *   生效路径共 6 处（`style = DhTokens.type.*`），逐处结论：
+             *     · `ui/chat/ChatPanels.kt`   `type.rowTitle`  → 无效：rowTitle 恒为 Medium，没有 dark 分支
+             *     · `ui/home/SettingsScreen.kt` `type.section` → **有效**：600 → 500
+             *     · `ui/home/SettingsScreen.kt` `type.sub`     → 无效：sub 恒为 400
+             *     · `CoverCropActivity.kt`    `type.section`  → **有效**：600 → 500
+             *     · `CoverCropActivity.kt`    `type.body` ×2  → 无效：body 恒为 400
+             *   （上面的行号、以及下文的处数都会随代码漂移；以
+             *   `grep -rn "style = DhTokens.type." app/src/main/java` 与
+             *   `grep -rc "DhTokens.fontsBold" app/src/main/java` 的实测为准。
+             *   本文数字是 2026-11 的快照。）
+             *
+             *   其余 338 个 Text 全部**绕过**令牌，dark 对它们零影响：
+             *     · 77 处 `fontFamily = DhTokens.fontsBold`（合成粗体字族，不读 type）
+             *     · 279 处 `UiKit.FS_*` 写死字号（不读 type）
+             *     · 18 处「只从令牌取 fontSize/lineHeight、字重自己写死」的旁路
+             *       —— 这些地方即使看字号像在用令牌，字重也不受 dark 影响。
+             *
+             *   【要真正见效的前提】先把那 18 处旁路与 77 处 fontsBold 迁到
+             *   `style = DhTokens.type.xxx`。在那之前，本参数属于**正确但几乎没人走到**的基础设施，
+             *   保留它是为了给迁移做落点，不是因为它已经在起作用。
+             *
+             * 【另注·brand 档是「合成 vs 合成」】`brand` 用的是常规霞鹜文楷，
+             *   该字体只有 400 一个字重，所以 600 与 500 都是 Compose 从 400 合成出来的
+             *   —— 深浅差异真实存在但幅度小，且不是真字重步进（要真步进得换字体文件）。
              */
             fun of(
                 brandFamily: FontFamily,

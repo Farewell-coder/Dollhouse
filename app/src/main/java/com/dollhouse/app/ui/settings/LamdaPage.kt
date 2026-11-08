@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.PetPrefs
@@ -263,7 +262,6 @@ object LamdaPage {
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.SemiBold
             )
         }
     }

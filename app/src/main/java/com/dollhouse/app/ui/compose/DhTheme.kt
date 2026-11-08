@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Fonts
+import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
 
@@ -166,6 +167,23 @@ val LocalDhFontFamily = compositionLocalOf<FontFamily> { FontFamily.Default }
 val LocalDhFontFamilyBold = compositionLocalOf<FontFamily> { FontFamily.Default }
 
 /**
+ * 【正文字族的**唯一**定义点】`DhDesign.Type.of(bodyFamily = …)` 与 [DhTokens.fontsBody] 都取它。
+ *
+ * 【为什么要有这个常量】这两处原本各写一个 `FontFamily.Default` 字面量：
+ *   · `Type.of(bodyFamily = FontFamily.Default)` —— 字阶里所有非品牌档的字族；
+ *   · `DhTokens.fontsBody` —— 按场景分工后「正文/说明/列表」显式指定的字族。
+ *   今天两者恰好指向同一个单例，渲染完全一致。但它们**是两条独立的来源**：
+ *   只要将来谁把其中一处换成捆绑字体（例如为了统一中英文行高），另一处不会跟着变，
+ *   于是立刻出现「同一个正文，两处两种字」—— 本工程「同一语义两处实现」的教训已经够多了。
+ *   收敛成一个常量之后，改一处即两处同时生效。
+ *
+ * 【为什么不用 CompositionLocal】正文族目前不随主题/机型变化，常量就够；
+ *   若将来需要运行时可变（按语言切字族之类），再提升为 `compositionLocalOf` 即可，
+ *   调用点（`DhTokens.fontsBody` 的 getter）无需改动。
+ */
+val DhBodyFamily: FontFamily = FontFamily.Default
+
+/**
  * 【M1·统一设计系统】Compose 侧**唯一**的设计系统令牌集。
  *
  * 【与 [LocalDhColors] 的关系】两者都从 [UiKit] 现读，是同一次计算的两个视图：
@@ -221,7 +239,9 @@ object DhTokens {
      */
     val fontsBody: FontFamily
         @Composable @ReadOnlyComposable
-        get() = FontFamily.Default
+        // 【同源】与 `DhDesign.Type.of(bodyFamily = …)` 取的是同一个 [DhBodyFamily]，
+        //   不再各写一个 `FontFamily.Default` 字面量（那会让两处将来悄悄分叉）。
+        get() = DhBodyFamily
 }
 
 /**
@@ -242,8 +262,28 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
     // 订阅主题版本号：bump 后这里重跑，下面 remember 的 key 变化 → 重新取色。
     val revision = DhTheme.revision
-    val palette = remember(revision) { DhDesign.Palette.fromUiKit() }
-    val colors = remember(revision) { DhColors.fromUiKit() }
+    // 【r15·压图时的副文本色】设了用户背景图时，副文本用 UiKit.subOnPhoto()（在页面底色上 6.5:1），
+    //   否则原样 SUB。
+    //
+    // 【为什么在 token 层改，而不是逐个卡片改】副文本的对比度问题是**全局**的：
+    //   SUB 在页面底色上只有 4.66:1 的余量，卡片一旦半透明（用户把「卡片不透明度」调低），
+    //   照片就从卡底透进来，副文本随之跌破 4.5。全 App 有 240 多处读 `colors.sub`，
+    //   逐个改既做不到、也会出现「改了设置页漏了人偶页」。令牌层改一处，全部一致。
+    //
+    // 【只动副文本，不动标题】TITLE 在页面底色上有 10:1 的余量，压在卡片上也够；改它会变味。
+    //
+    // 【为什么 key 里有 revision】换图 / 清图 / 开关背景都会 `ThemeRefresh` → `DhTheme.bump()`，
+    //   所以这里能及时重算；不 bump 的话会停在旧色上（显式记住「设图后要 bump」这条约定）。
+    val onPhoto = remember(revision) { GlobalBackground.hasImage(ctx) }
+    val subOnPhoto = remember(onPhoto) {
+        if (onPhoto) Color(UiKit.subOnPhoto()) else Color(UiKit.SUB)
+    }
+    val palette = remember(revision, subOnPhoto) {
+        DhDesign.Palette.fromUiKit().copy(sub = subOnPhoto)
+    }
+    val colors = remember(revision, subOnPhoto) {
+        DhColors.fromUiKit().copy(sub = subOnPhoto)
+    }
     val family = remember(ctx) { safeFamily(ctx, bold = false) }
     val familyBold = remember(ctx) { safeFamily(ctx, bold = true) }
     // 【字体阶梯】品牌档用霞鹜文楷（情感载体），正文档回落系统无衬线（中文小字更清晰）。
@@ -258,7 +298,8 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
         runCatching {
             DhDesign.Type.of(
                 brandFamily = family,
-                bodyFamily = FontFamily.Default,
+                // 【同源】正文族唯一来源见 [DhBodyFamily]（`DhTokens.fontsBody` 也取它）。
+                bodyFamily = DhBodyFamily,
                 dark = dark
             )
         }.getOrElse { DhDesign.Type.fallback(dark = dark) }

@@ -642,10 +642,12 @@ object ChatListScreen {
                 //   而 err 在暗色/纯黑档是浅红（#E58E77/#E0866F），白字实测只有 2.48/2.69:1，
                 //   数字几乎看不见。改用派生色 onErr（按底色明暗自动选黑/白）。
                 color = DhTokens.palette.onErr,
-                // 字号 10sp 不在任何一档上；徽标是 label 语义，归 11/600。
+                // 字号 10sp 不在任何一档上；徽标是 label 语义，归 11sp。
+                // 【字重·只靠字体自带】`fontsBold` 的 Typeface 已经是合成粗体（Typeface.create(BOLD)），
+                //   再写 `fontWeight = SemiBold` 会被 Compose **再合成一次**（请求值 600 > 可用值）
+                //   —— 那就是「双粗体」，本轮清掉的就是这一类。此处不叠任何 fontWeight。
                 fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                 fontFamily = DhTokens.fontsBold,
-                fontWeight = FontWeight.SemiBold,
                 // 【等宽数字】未读数变化时避免徽标横向抖动（与底栏 Badge 同一口径）。
                 style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
             )

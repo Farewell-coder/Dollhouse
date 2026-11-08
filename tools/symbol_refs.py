@@ -29,7 +29,9 @@ import re
 import sys
 from pathlib import Path
 
-SRC = Path("app/src/main/java")
+# 【--path 的用处】反向验证：把源码拷到临时目录、注入一个假名字，确认门禁真的会红。
+#   不能反向验证的门禁等于没有（本工程反复吃过这个亏）。
+SRC = Path(sys.argv[sys.argv.index("--path") + 1]) if "--path" in sys.argv else Path("app/src/main/java")
 QUIET = "--quiet" in sys.argv
 
 # 已知的「不需要在本仓找到定义」的名字来源：JDK / Kotlin / Compose / Android / 依赖库 / 同包工具
@@ -79,6 +81,22 @@ NOISE = {
     "JvmField", "JvmOverloads", "Serializable", "Target", "Retention",
     # 本仓里以「函数名」形式出现、但定义在同文件更高层的私有扩展（正则抓不到）
     "AndroidColor", "ComposeDialog", "EdgeCutLine", "CenterMarker",
+}
+
+
+# 【kotlin.* 默认导入】这些名字在 Kotlin 里**不需要 import**（语言默认导入），
+#   所以「全仓找不到 import 行、也找不到本仓定义」是**正常形态**，不是悬空引用。
+#   【为什么单列一张表而不是塞进 NOISE】NOISE 是「JDK/Compose 短名」的大杂烩，
+#   混进去以后没人知道这些名字有特殊依据；单列 + 这条注释，下一个人一看就懂。
+#   【起因】`@Deprecated(replaceWith = ReplaceWith("..."))` 曾被误报成 UNRESOLVED，
+#   于是 UiKit 的弃用注解只好省略 replaceWith —— 门禁误报把正常写法逼走了。
+#   现在它们都在白名单里，可以放心写。
+KOTLIN_DEFAULT_IMPORTS = {
+    # 注解本身与其参数类型
+    "Deprecated", "DeprecationLevel", "ReplaceWith", "Suppress", "OptIn",
+    "SinceKotlin", "ExperimentalStdlibApi", "ExperimentalMultiplatform",
+    # 其它常用的默认导入（kotlin / kotlin.io / kotlin.text 的对象与类型）
+    "Unit", "Any", "Nothing", "Result", "LazyThreadSafetyMode",
 }
 
 
@@ -216,7 +234,8 @@ def main():
     #   JDK/Compose 的短名（Charsets / Deprecated / Class…）由 NOISE + imported 兜住。
     unresolved = {}
     for name, where in index.items():
-        if name in decls or name in imported or name in NOISE:
+        if (name in decls or name in imported or name in NOISE
+                or name in KOTLIN_DEFAULT_IMPORTS):
             continue
         # 【定义识别必须宽松】之前只认 `object|class|interface` + 顶格，
         #   于是 `private fun BlockRenderer(...)`、`@Composable private fun DetailPage`
