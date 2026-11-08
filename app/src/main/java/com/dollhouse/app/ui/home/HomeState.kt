@@ -52,12 +52,12 @@ object HomeState {
     var monet by mutableStateOf(false)
     /** 聊天背景是否已设置。 */
     var bgSet by mutableStateOf(false)
-    /** 背景图透明度（0~100）。 */
-    var bgAlpha by mutableStateOf(50)
-    /** 卡片透明度（0~100）。与背景图透明度是两个独立概念，互不联动。 */
+    /** 背景图不透明度（0~100，越大越实）。默认与 PetPrefs 对齐为 60 —— 两处不一致会让首帧先显示 50 再跳到 60。 */
+    var bgAlpha by mutableStateOf(60)
+    /** 卡片不透明度（0~100，越大越实）。与背景图不透明度是两个独立概念，互不联动。 */
     var bgCardAlpha by mutableStateOf(100)
-    /** 背景可读性遮罩强度（0~100）。 */
-    var bgScrim by mutableStateOf(100)
+    /** 背景遮罩强度（0~100，绝对不透明度：0 = 原图直出，100 = 全雾白）。默认与 PetPrefs 对齐为 40。 */
+    var bgScrim by mutableStateOf(40)
     /** 【r13】弹窗 / 面板磨砂程度（0~100）。0 = 无虚化，100 = 虚化最强。 */
     var bgFrost by mutableStateOf(60)
     /** 【r13】自定义字体颜色（0 = 跟随主题）。 */

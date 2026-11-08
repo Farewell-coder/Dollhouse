@@ -55,16 +55,25 @@ object GlobalBackground {
 
     private var cachedPath: String? = null
     private var cachedBmp: Bitmap? = null
+    /**
+     * 解码时采样的 24×24 像素与代表色。
+     *
+     * 【r15·渲染路径已不再依赖】遮罩改纯线性后不再逐像素推导，这两个字段只被写入。
+     *   刻意先留着、没有一并删掉：解码回调里 `loadFailed` 的判定还引用采样结果（fPx），
+     *   删它要同时改 5 处且本机没有可用的 Kotlin 编译器验证；而外观页要做的
+     *   「建议遮罩值」提示正好要用这份采样。等那一步落地时再连删。
+     */
     private var cachedPixels: IntArray? = null
     /** 模糊后的绘制用图；半径 0 时为 null，绘制直接复用 [cachedBmp]。 */
     private var cachedBlurBmp: Bitmap? = null
     /** 当前缓存对应的毛玻璃半径（-1 = 未加载）。 */
     private var cachedRadius = -1
+    /** 采样代表色。同上：r15 起仅写入，留给「建议遮罩值」提示。 */
     private var cachedAvg: Int = DEFAULT_AVG
     private var loading = false
     /** 上一次解码是否失败。失败不永久缓存，下次 install 会重试。 */
     private var loadFailed = false
-    /** 遮罩透明度缓存：随（底色 / 正文 / 副标题）变化重算。 */
+    /** 【历史残留】r13 的遮罩缓存键；缓存已在 r13 移除，这两个字段不再被读取。 */
     private var scrimKey = 0
     private var scrimAlpha = -1
 
@@ -143,66 +152,37 @@ object GlobalBackground {
     }
 
     /**
-     * 可读性遮罩色：对采样像素里的最亮 / 最暗区域分别求所需遮罩，取更严的那个。
-     * 不用平均色——平均色会把「大面积白 + 一条黑」洗成中灰，漏掉真正读不清的极值区。
-     * 【消除双重压暗】图片在 UI 里按 [imgAlpha] 半透明叠在底色上，遮罩必须按「有效色」
-     *   （原图 × 透明度 叠底色）推导，否则图会被自身衰减 + 遮罩再压一遍，发灰发闷。
+     * 遮罩色：整页压在背景图上的一层「雾白」。
+     *
+     * 【r15·改口径为纯线性】alpha = 强度百分比 × 255 / 100。0 = 原图直出，100 = 全雾白。
+     *   不再按 WCAG 反推，也不再被 (100 - 图不透明度) 夹紧。旧口径有两个数学后果，
+     *   合起来把滑条变成了安慰剂：
+     *   一是上限与图不透明度成反比 —— 图 92% 时上限只剩 8% × 255；
+     *   二是推导取「全图最需要压暗的那个像素」，而副标题色在页面底色上只有 4.66:1 的余量
+     *   （几乎零余量），于是几乎每张照片都会把 required 推到 245~251/255，
+     *   只要强度 ≥ 8% 就撞上 8% 的上限 —— 用户拖 30% 与拖 100% 渲染完全相同。
+     *   用户原话「参数比例有问题」「先给页面增加一点蒙版」，说的就是这个看不见的天花板。
+     *
+     * 【那可读性靠什么】靠承载文字的地方自己带底，不再指望整页遮罩：
+     *   顶栏带见 DhKit 的 `readableTopBand`，卡片底见 UiKit.card，压在图上用的次文本色见 UiKit.subOnPhoto。
+     *   这是刻意分工：整页遮罩只管「雾白氛围」，局部底只管「字能看清」。
+     *   因为「图 92% 保真」与「字直接压在图上可读」物理互斥 —— 要让深色区域达标，
+     *   雾白得盖到 57%，那图本身也就毁了。
+     *
+     * @param imgAlpha 图不透明度百分比。本函数已不再依赖它，保留入参只为不改动调用点；
+     *                 旧实现正是用它算上限，那才是滑条失效的来源。
      */
     fun scrimColor(c: Context, imgAlpha: Int): Int {
-        val base = UiKit.BG
-        val cap = scrimCap(imgAlpha)
-        // 【遮罩强度】把 WCAG 推导出的「必要遮罩」按用户强度缩放：100 = 原样，0 = 完全不加。
-        //   只缩最终 alpha，不动推导本身，所以「图太亮必须压暗」的判定依旧成立。
-        val k = scrimStrength(c)
-        val pixels = cachedPixels
-        if (pixels == null || pixels.isEmpty()) {
-            val a = Math.max(
-                ContrastCore.minOverlayAlphaEffective(cachedAvg, base, imgAlpha, UiKit.BG, UiKit.TITLE, ContrastCore.AA_NORMAL),
-                ContrastCore.minOverlayAlphaEffective(cachedAvg, base, imgAlpha, UiKit.BG, UiKit.SUB, ContrastCore.AA_NORMAL))
-            return ContrastCore.withAlpha(UiKit.BG, Math.max(0, Math.min(a * k / 100, cap)))
-        }
-        // 【r13 修 bug·遮罩强度完全没效果】这里原来有一层 key 缓存：
-        //     `... xor imgAlpha xor (cap shl 24) xor (k shl 16)`，
-        //   把 cap / k / imgAlpha 异或进同一个整数再比对 —— 三个量的位段互相干扰，
-        //   拖动滑条改 k 时算出的 key 可能与上一次**相同**，于是判定「没变」、
-        //   直接沿用旧的 scrimAlpha，用户看到的就是「拖了完全没反应」。
-        //
-        //   【修法】去掉缓存，每次都按当前 k 现算。
-        //   逐像素遍历只在图片已解码（cachedPixels 非空）时发生，
-        //   而拖滑条本身是低频手势；正确性远比这点开销重要。
-        var worst = 0
-        for (px in pixels) {
-            if (ContrastCore.alphaOf(px) < 16) {
-                continue
-            }
-            val t = ContrastCore.minOverlayAlphaEffective(px, base, imgAlpha, UiKit.BG, UiKit.TITLE, ContrastCore.AA_NORMAL)
-            if (t > worst) {
-                worst = t
-            }
-            val s = ContrastCore.minOverlayAlphaEffective(px, base, imgAlpha, UiKit.BG, UiKit.SUB, ContrastCore.AA_NORMAL)
-            if (s > worst) {
-                worst = s
-            }
-        }
-        return ContrastCore.withAlpha(UiKit.BG, Math.max(0, Math.min(worst * k / 100, cap)))
+        val k = Math.max(0, Math.min(100, scrimStrength(c)))
+        return ContrastCore.withAlpha(UiKit.BG, k * 255 / 100)
     }
 
-    /**
-     * 遮罩不透明度的上限（0..255）：让「滑条拉到多实」真正决定图有多清晰。
-     *
-     * 【解决什么】原实现无论滑条多高都按 WCAG 反推遮罩，浅色照片上会推出接近全不透明的压暗层，
-     *   于是「透明度 100% 了图还是灰的」——用户看到的是遮罩，不是图片本身的透明度。
-     * 【口径】不透明度 100% 时不再叠任何压暗层（原图直出）；往下每降 1% 上限放宽 1/100，
-     *   默认 60% 时上限 ≈40%（约 0x66），图能如实透出来，同时仍有基础压暗兜住正文可读性。
-     * 【代价】透明度拉满且背景是浅色照片时，直接压在整页上的文字对比会降低；
-     *   本 App 的正文/副标题本就压在 CARD 底上，另有描边与字色夹紧兜底，故按用户定案（方案 A）执行。
-     */
-    /** 遮罩强度百分比（0~100），读偏好；任何异常一律回退 100（原样生效）。 */
+    /** 遮罩强度百分比（0~100，绝对不透明度：0 = 原图直出，100 = 全雾白）。 */
     private fun scrimStrength(c: Context): Int {
         return try {
             PetPrefs.scrimStrength(c)
         } catch (ignored: Throwable) {
-            100
+            0
         }
     }
     /** 背景毛玻璃半径（0~24 dp），读偏好；任何异常一律回退 0（不模糊）。 */
@@ -213,11 +193,6 @@ object GlobalBackground {
             0
         }
     }
-    private fun scrimCap(imgAlpha: Int): Int {
-        val a = Math.max(0, Math.min(100, imgAlpha))
-        return (100 - a) * 255 / 100
-    }
-
     /**
      * 给一个 View 挂上全局背景（幂等）。图片尚未就绪时先铺 [fallbackColor] 兜底，
      * 解码完成后自动刷新（[refreshAll] 会遍历所有登记视图）。

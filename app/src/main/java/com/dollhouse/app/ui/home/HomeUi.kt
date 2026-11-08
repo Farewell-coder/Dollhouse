@@ -924,17 +924,17 @@ object HomeUi {
         ThemeRefresh.applyInPlace(act)
     }
 
-    /** 卡片透明度说明文案。 */
+    /** 卡片不透明度说明文案。 */
     @JvmStatic
     fun cardAlphaHint(percent: Int): String {
-        return "卡片透明度\u00a0\u00a0" + (if (percent >= 95) {
+        return "卡片不透明度\u00a0\u00a0" + (if (percent >= 95) {
             "（默认，卡片最实）"
         } else if (percent >= 60) {
             "（略透，能看见背景）"
         } else if (percent >= 25) {
             "（很透，背景明显）"
         } else {
-            "（几乎全透，字可能看不清）"
+            "（几乎全透，卡片里的字会压在背景上）"
         })
     }
     /** 遮罩强度说明文案。 */
@@ -970,12 +970,16 @@ object HomeUi {
     }
 
     fun scrimHint(percent: Int): String {
-        return "遮罩强度\u00a0\u00a0" + (if (percent >= 95) {
-            "（默认，按可读性自动压暗）"
-        } else if (percent >= 55) {
-            "（略淡，图更清楚）"
-        } else if (percent >= 20) {
-            "（很淡，注意看字）"
+        // 【r15·重写】旧文案（「很淡，注意看字」/「按可读性自动压暗」）对应的是旧口径：
+        //   那时本值只是「倍数」，实际渲染被 (100 - 图不透明度) 夹死，拖到 8% 以上就没反应，
+        //   文案却让用户以为「再拖大一点就能看清」—— 这就是用户说的「参数比例有问题」。
+        //   现在本值就是绝对不透明度，读数与观感一一对应，文案只描述它真的做了什么，不再规劝。
+        return "遮罩强度\u00a0\u00a0" + (if (percent >= 70) {
+            "（很实，背景图基本被雾白盖住）"
+        } else if (percent >= 30) {
+            "（明显雾白，图偏淡）"
+        } else if (percent >= 10) {
+            "（轻微雾白，图很清楚）"
         } else {
             "（几乎不加遮罩，原图直出）"
         })
@@ -1014,10 +1018,13 @@ object HomeUi {
         })
     }
 
-    /** 背景透明度说明文案（原 `MainActivity.updateBgAlphaLabel` 的口径）。 */
+    /** 背景图不透明度说明文案（原 `MainActivity.updateBgAlphaLabel` 的口径）。 */
     @JvmStatic
     fun alphaHint(percent: Int): String {
-        return "背景图透明度\u00a0\u00a0" + (if (percent <= 8) {
+        // 【r15·只改标签口径】本值的语义一直是「越大越实」，标签却叫「透明度」，
+        //   与数值方向相反。文案里的括注这轮刻意原样保留（含「注意看字」），
+        //   因为列表行还没加局部底，那个警告目前仍然成立；等局部底铺完再统一改写。
+        return "背景图不透明度\u00a0\u00a0" + (if (percent <= 8) {
             "（几乎看不见了）"
         } else if (percent <= 45) {
             "（推荐，字最清楚）"

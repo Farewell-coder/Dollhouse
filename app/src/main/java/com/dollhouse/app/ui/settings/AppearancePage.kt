@@ -83,6 +83,9 @@ object AppearancePage {
     private const val TAB_CHAT = 2
     private const val TAB_DIALOG = 3
 
+    /** 毛玻璃半径的上限（dp），与 [PetPrefs.blurRadius] 的夹紧值一致。 */
+    private const val BLUR_DP_MAX = 24
+
     /** 打开外观页。 */
     fun open(act: MainActivity) {
         ComposeHost.installForActivity(act)
@@ -288,7 +291,10 @@ object AppearancePage {
         // ---------- 四个滑条 ----------
         DhKit.Card(collapsibleTitle = "背景参数", titleIcon = Icons.IC_APERTURE) {
             SliderBlock(
-                title = "背景图透明度",
+                // 【r15·改标签】这两根滑条的实际语义是「不透明度」：数值越大越实。
+                //   原名「透明度」与数值方向相反，用户以为是「越透」而把图推到 92%、
+                //   卡片推到 79%，结果背景几乎全实、字直接压在图案上。
+                title = "背景图不透明度",
                 hint = HomeUi.alphaHint(HomeState.bgAlpha),
                 max = 100,
                 value = HomeState.bgAlpha,
@@ -304,12 +310,16 @@ object AppearancePage {
             SliderBlock(
                 title = "背景毛玻璃",
                 hint = HomeUi.blurHint(HomeState.bgBlur),
-                max = 24,
-                value = HomeState.bgBlur,
+                // 【r15·单位统一】四根滑条一律 0~100%，本项内部再映射到 0~[BLUR_DP_MAX] 的模糊半径。
+                //   改造前这里是 max=24，而滑条自带的读数写死拼了 "%"，于是同一段拖动在四根上
+                //   意义不同（读数「2%」其实是 2/24 的模糊量），数字与手感对不上。
+                max = 100,
+                value = Math.round(HomeState.bgBlur * 100f / BLUR_DP_MAX),
                 iconRes = Icons.IC_APERTURE
             ) { v, fromUser ->
-                PetPrefs.setBlurRadius(act, v)
-                HomeState.bgBlur = v
+                val dp = Math.round(v * BLUR_DP_MAX / 100f)
+                PetPrefs.setBlurRadius(act, dp)
+                HomeState.bgBlur = dp
                 if (fromUser) {
                     GlobalBackground.refreshAll()
                 }
@@ -328,7 +338,7 @@ object AppearancePage {
                 }
             }
             SliderBlock(
-                title = "卡片透明度",
+                title = "卡片不透明度",
                 hint = HomeUi.cardAlphaHint(HomeState.bgCardAlpha),
                 max = 100,
                 value = HomeState.bgCardAlpha,

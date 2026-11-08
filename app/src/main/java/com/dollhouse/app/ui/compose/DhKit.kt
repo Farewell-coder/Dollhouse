@@ -63,6 +63,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -83,6 +86,7 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.kit.IconSeat
 import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.theme.Design
+import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
@@ -581,6 +585,91 @@ object DhKit {
     /* ============================ 顶栏 ============================ */
 
     /**
+     * 顶栏「可读性带」的雾白不透明度（0~1）。
+     *
+     * 【88% 是怎么定的】按最坏情况（照片在标题后面是纯黑）反算：带底合成后 TITLE 7.6:1、
+     *   subOnPhoto 4.95:1，两个都过 AA 且留有余量；再往上加，照片就越看不出是照片了。
+     */
+    private const val TOP_BAND_ALPHA = 0.88f
+
+    /** 顶栏带底边渐隐的高度（dp）。让带子下沿与照片自然接上，不出现一条硬边。 */
+    const val TOP_BAND_FADE_DP = 12
+
+    /**
+     * 当前是否有「用户背景图」。顶栏带的开关就是它。
+     *
+     * 【为什么要 remember 到 DhTheme.revision】`GlobalBackground.hasImage` 要读偏好 + 判断文件存在，
+     *   每次重组都做是白白 I/O。挂版本号是因为换图 / 改参数那条路径会走 ThemeRefresh.bumpAll。
+     * 【没图时为什么完全不加带】带子的填充色就是页面底色 [UiKit.BG]，
+     *   在纯主题页面上「BG 叠 BG」等于 BG 本身，加不加逐像素一样 ——
+     *   但那样会白白多出 12dp 底部留白，把没设背景的用户整体下移。故按有无图分流。
+     *
+     * 【为什么是 public】聊天页 [com.dollhouse.app.ui.chat.ChatUi] 的顶栏是手搓的第三套，
+     *   不走 [TopBar] / [TabTopBar]；它同样压在背景图上，必须能拿到同一个判断，
+     *   否则「标题能读了、聊天页的人偶名还是糊的」。
+     */
+    @Composable
+    fun hasPhotoBackdrop(): Boolean {
+        val ctx = LocalContext.current
+        val rev = DhTheme.revision
+        return remember(rev) { GlobalBackground.hasImage(ctx) }
+    }
+
+    /**
+     * 顶栏「可读性带」的公开入口：给不走 [TopBar] / [TabTopBar] 的自绘顶栏用。
+     *
+     * @param onPhoto  传 [hasPhotoBackdrop] 的结果。
+     * @param cornerDp 圆角。默认与卡片同一档；**贴屏幕边缘的满宽顶栏传 0**
+     *                 （例如聊天页），否则四个圆角会漏出照片的角。
+     */
+    fun Modifier.photoTopBand(
+        onPhoto: Boolean,
+        cornerDp: Int = DhDesign.Radius.btn
+    ): Modifier {
+        return readableTopBand(onPhoto, cornerDp)
+    }
+
+    /**
+     * 顶栏「可读性带」：有背景图时，在顶栏范围铺一层 88% 的雾白底，底边 12dp 渐隐。
+     *
+     * 【为什么文字必须自带底，而不是靠整页遮罩】整页那层遮罩的透明度由用户的「遮罩强度」
+     *   滑条决定，可以拖到 0；顶栏标题（TITLE）压在一张深色插画上只有 1.03~1.9:1。
+     *   文字能不能看清不该取决于「用户把背景图调多实」。所以这里给它一层不随用户设置变化的底。
+     *
+     * 【为什么是 88% 而不是不透明】保留一点照片透出来，带子读作「雾面玻璃」而不是「一条灰条」；
+     *   88% 时底色的实际色相仍由主题决定，切浅色/深色主题自动跟随。
+     *
+     * 【为什么底边要渐隐】不带渐隐时，带子下沿是一条硬边，滚动内容从下面钻出来时很突兀。
+     *   渐隐占的 12dp 由调用方补成底部留白，所以文字永远不会落在半透明的渐隐区里。
+     */
+    private fun Modifier.readableTopBand(onPhoto: Boolean): Modifier {
+        if (!onPhoto) {
+            return this
+        }
+        val band = Color(UiKit.BG).copy(alpha = TOP_BAND_ALPHA)
+        return this
+            .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
+            .drawBehind {
+                val fade = TOP_BAND_FADE_DP.dp.toPx().coerceAtMost(size.height)
+                val solid = size.height - fade
+                if (solid > 0f) {
+                    drawRect(color = band, topLeft = Offset.Zero, size = Size(size.width, solid))
+                }
+                if (fade > 0f) {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(band, band.copy(alpha = 0f)),
+                            startY = solid,
+                            endY = size.height
+                        ),
+                        topLeft = Offset(0f, solid),
+                        size = Size(size.width, fade)
+                    )
+                }
+            }
+    }
+
+    /**
      * 统一顶栏：可选返回键 + 主标题 + 可选副标题。
      * 【为什么不用 Material3 TopAppBar】它的高度 / 内边距 / 字号与既有 `UiKit.topBar` 对不上，
      *   混用会让「Compose 页的顶栏比 View 页高一点」，正是规格书禁止的突兀。
@@ -602,10 +691,14 @@ object DhKit {
         //   取二者较大值：隐藏时给固定呼吸，唤出时自动让开，两种情况都正确。
         val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val topGap = if (sbTop > TOP_MIN_GAP.dp) sbTop else TOP_MIN_GAP.dp
+        // 【可读性带】有背景图时给顶栏铺一层雾白底：标题的可读性不再由「遮罩强度」滑条决定。
+        val onPhoto = rememberOnPhotoBackdrop()
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(top = topGap, bottom = 4.dp),
+                .readableTopBand(onPhoto)
+                // 有带子时底部多留出渐隐那 12dp：保证文字不会落在半透明的渐隐区里。
+                .padding(top = topGap, bottom = if (onPhoto) TOP_BAND_FADE_DP.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack != null) {
@@ -623,7 +716,9 @@ object DhKit {
                     Text(
                         text = sub,
                         modifier = Modifier.padding(top = 2.dp),
-                        color = DhTokens.colors.sub,
+                        // 【压在图上要换一档更深的色】SUB 在页面底色上只有 4.66:1（AA 要 4.5），
+                        //  照片一旦渗进带子就跌破线；subOnPhoto 是「夹到 6.5」的那一档。
+                        color = if (onPhoto) Color(UiKit.subOnPhoto()) else DhTokens.colors.sub,
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fonts
                     )
@@ -657,11 +752,19 @@ object DhKit {
         left: (@Composable () -> Unit)? = null,
         actions: (@Composable RowScope.() -> Unit)? = null
     ) {
+        // 【可读性带】与 [TopBar] 同一套：有背景图时铺一层雾白底，标题不再「压在图案上」。
+        //   横向先内缩再画带，色带与页面左右边距、底部胶囊对齐（都是 pageX=16dp）。
+        val onPhoto = rememberOnPhotoBackdrop()
         Row(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = PAD_PAGE.dp)
-                .padding(top = TAB_BAR_TOP.dp, bottom = TAB_BAR_BOTTOM.dp),
+                .readableTopBand(onPhoto)
+                // 有带子时把渐隐那 12dp 补进底部留白，标题不会落在半透明的渐隐区里。
+                .padding(
+                    top = TAB_BAR_TOP.dp,
+                    bottom = if (onPhoto) (TAB_BAR_BOTTOM + TOP_BAND_FADE_DP).dp else TAB_BAR_BOTTOM.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (left != null) {
