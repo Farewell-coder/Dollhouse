@@ -50,7 +50,7 @@ object ConversationHistoryPage {
             val arr = ChatSessions.forDoll(act, personaId)
             (0 until arr.length()).mapNotNull { index ->
                 val item = arr.optJSONObject(index) ?: return@mapNotNull null
-                Triple(item.optString("id"), item.optString("title", "新的对话"), item.optLong("updated", 0L))
+                Triple(item.optString("id"), item.optString("title", "新的会话"), item.optLong("updated", 0L))
             }
         }
         var renaming by remember { mutableStateOf<String?>(null) }

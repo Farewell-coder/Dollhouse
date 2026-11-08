@@ -329,7 +329,7 @@ object ChatSessions {
     @JvmStatic
     fun create(ctx: Context): String {
         val p = pool(ctx)
-        val id = createIn(ctx, p, if (POOL_PET == p) "p" else "c", "新的对话")
+        val id = createIn(ctx, p, if (POOL_PET == p) "p" else "c", "新的会话")
         setCurrent(ctx, p, id)
         return id
     }
@@ -575,7 +575,7 @@ object ChatSessions {
         }
         ensureForDoll(ctx, dollId)
         val name = title?.trim()
-        val clean = if (name.isNullOrEmpty()) "新的对话" else name
+        val clean = if (name.isNullOrEmpty()) "新的会话" else name
         var attempt = 0
         while (attempt < 8) {
             val id = nextFreeSessionId(dollId, System.currentTimeMillis()) { find(ctx, it) != null }
@@ -931,7 +931,7 @@ object ChatSessions {
                 val arr = listAll(ctx)
                 val o = JSONObject()
                 o.put("id", id)
-                o.put("title", if (migrated) autoTitleFrom(legacy) else "新的对话")
+                o.put("title", if (migrated) autoTitleFrom(legacy) else "新的会话")
                 o.put("pool", POOL_SELF)
                 o.put("updated", System.currentTimeMillis())
                 arr.put(o)
@@ -1066,7 +1066,9 @@ object ChatSessions {
             return
         }
         val title = o.optString("title", "")
-        if (!title.isEmpty() && "新的对话" != title) {
+        // 【T4 文案统一】默认标题已改「新的会话」。旧会话里存的仍是「新的对话」，
+        //   两个都算占位标题，否则升级用户那批旧会话再也不会被首条消息自动命名。
+        if (!title.isEmpty() && "新的会话" != title && "新的对话" != title) {
             return
         }
         rename(ctx, id, autoTitle(firstUserText))
@@ -1076,11 +1078,11 @@ object ChatSessions {
     @JvmStatic
     fun autoTitle(text: String?): String {
         if (text == null) {
-            return "新的对话"
+            return "新的会话"
         }
         val t = text.replace('\n', ' ').trim()
         if (t.isEmpty()) {
-            return "新的对话"
+            return "新的会话"
         }
         return if (t.length <= 12) t else t.substring(0, 12) + "…"
     }

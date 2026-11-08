@@ -124,7 +124,7 @@ object ChatListData {
         val read = PetPrefs.convRead(ctx, id)
         return Row(
             id = id,
-            title = o.optString("title", "新的对话"),
+            title = o.optString("title", "新的会话"),
             preview = previewOf(last),
             time = o.optLong("updated", 0L),
             unread = Math.max(0, total - read),
