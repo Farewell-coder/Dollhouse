@@ -226,6 +226,9 @@ object ModelListPage {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
+                            // 与左侧「已添加」的对勾是互斥状态的两半：对勾不可点、不朗读；
+                            // 这个加号是本行唯一操作，必须报出「添加什么」。
+                            .semantics { contentDescription = "添加该模型" }
                             .pressable(onAdd),
                         contentAlignment = Alignment.Center
                     ) {

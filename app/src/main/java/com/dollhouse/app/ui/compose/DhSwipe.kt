@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.ui.theme.Icons
@@ -87,6 +89,11 @@ fun SwipeToDelete(
                     // 不再出现「两块圆角之间夹一道底色」的穿模感。
                     .clip(RoundedCornerShape(topEnd = DhKit.R_CARD.dp, bottomEnd = DhKit.R_CARD.dp))
                     .background(c.err)
+                    // 【无障碍】这一块里只有一枚垃圾桶图标。不给名字，读屏只念「按钮」——
+                    //   而它是个**不可撤销的删除**，名字必须说清动作。
+                    //   【仍存在的缺口】读屏用户很难完成「横向滑开」这个手势去让它出现；
+                    //   这里只保证「它出现时是可读的」，不解决可达性（见 A11Y_FINDINGS §3）。
+                    .semantics { contentDescription = "删除此项" }
                     .pressable { onDelete() },
                 contentAlignment = Alignment.Center
             ) {

@@ -106,6 +106,17 @@ object ChatListScreen {
     /** 列表顶部 / 底部内边距（底部要避开悬浮底栏，由宿主用 [contentPadding] 传进来）。 */
     private val PAD_H = 16.dp
 
+    /**
+     * 列表可读性面板的浓度（88%）。
+     *
+     * 【为什么要这个常量】只有设了背景图时才铺面板，浓度必须与顶栏带一致
+     *   （DhKit 里那个 alpha 是 private 常量 0.88f），否则「顶栏 88%、正文 70%」
+     *   两块雾面浓淡不一，滚动时能看出一条分界。
+     * 【为什么用品格槽 SOFT 而不是 UiKit.soft()】后者会乘上「卡片透明度」用户设置；
+     *   而可读性不该取决于用户把卡片调多透 —— 这里要的是一层与设置无关的固定底。
+     */
+    private const val SHEET_ALPHA = 0.88f
+
     /** 供宿主把「当前 Tab」直接渲染成 View（与 [com.dollhouse.app.ui.home.HomeScreen] 同构）。 */
     @Composable
     fun Content(act: MainActivity) {
