@@ -209,7 +209,7 @@ object AboutPage {
                 is UpdateCheckResult.UpToDate -> DhForm.Alert(
                     title = "已是最新版本",
                     onDismiss = { result = null },
-                    posText = "好",
+                    posText = "知道了",
                     onPos = { result = null }
                 ) {
                     Text(
@@ -223,7 +223,7 @@ object AboutPage {
                 is UpdateCheckResult.Failed -> DhForm.Alert(
                     title = "检查更新失败",
                     onDismiss = { result = null },
-                    posText = "好",
+                    posText = "知道了",
                     onPos = { result = null }
                 ) {
                     Text(

@@ -62,7 +62,12 @@ import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressScaleClick
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.UiKit
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -717,6 +722,56 @@ fun DhTag(
 }
 
 /**
+ * 空态「压图铺底」的不透明度。
+ *
+ * 【为什么是 0.88，而不是随手取一个】与顶栏可读性带 [DhKit.hasPhotoBackdrop] 同一口径：
+ *   那个 0.88 是按最坏情况（照片在文字背后是纯黑）反算出来的，带底合成后
+ *   TITLE 7.6:1、`UiKit.subOnPhoto()` 4.95:1，两项都过 AA 且留有余量。
+ *   空态只是把同一条带子铺成一块板，取同一个数才与顶栏观感一致。
+ */
+private const val STATE_PLATE_ALPHA = 0.88f
+
+/** 铺底板的左右视觉内缩（dp）。12dp 让板边与文字之间留出呼吸，不与文字贴着。 */
+private const val STATE_PLATE_INSET_DP = 12
+
+/** 铺底板的圆角（dp）。与卡片同档，读作"一块板"而不是"一条色带"。 */
+private const val STATE_PLATE_CORNER_DP = 22
+
+/**
+ * 给空态内容块铺一层「可读底板」——**只在有用户背景图时生效**。
+ *
+ * 【为什么用 drawBehind 而不是套一层 Card / Box 背景】这是本函数唯一的硬约束：
+ *   **没设背景图时一个像素都不许变**。若改成包一层面板，会引入内边距变化、
+ *   圆角裁切、阴影，进而让所有空态的落点和换行都可能变；而 drawBehind 只画不改布局，
+ *   无图时直接 return this（原样返回），有图时才多一层绘制 —— 逐像素零风险。
+ *
+ * 【为什么色底用 [UiKit.BG] 而不是调色板 SOFT】SOFT 只比页面底色亮一档，
+ *   压在深色插画上仍是"灰得发虚"；BG@88% 是顶栏带已验证过的那块雾面玻璃，
+ *   同一块底色、同一个透明度，两个位置的观感才连得起来。
+ */
+private fun Modifier.stateReadablePlate(onPhoto: Boolean): Modifier {
+    if (!onPhoto) {
+        return this
+    }
+    val plate = Color(UiKit.BG).copy(alpha = STATE_PLATE_ALPHA)
+    val insetPx = STATE_PLATE_INSET_DP.dp
+    val cornerPx = STATE_PLATE_CORNER_DP.dp
+    return this.drawBehind {
+        val inset = insetPx.toPx()
+        val w = size.width - inset * 2.0f
+        if (w <= 0.0f || size.height <= 0.0f) {
+            return@drawBehind
+        }
+        drawRoundRect(
+            color = plate,
+            topLeft = Offset(inset, 0.0f),
+            size = Size(w, size.height),
+            cornerRadius = CornerRadius(cornerPx.toPx())
+        )
+    }
+}
+
+/**
  * 状态块：空 / 错误 / 无权限 / 加载**共用同一个骨架**。
  *
  * 【为什么必须统一】改造前每个页面自己拼空状态：有的只有一行灰字、有的有大图标 + 三个按钮。
@@ -736,9 +791,15 @@ fun DhState(
 ) {
     val p = DhTokens.palette
     val t = DhTokens.type
+    // 【压图分流】有用户背景图时：内容块铺一层同顶栏口径的雾面板，
+    //   副文本换成 subOnPhoto（SUB 在 BG 上只有 4.66:1，被照片染一点就跌破 AA）。
+    //   无图时 onPhoto=false：铺底不画、副文本仍是 p.sub —— 与改造前逐像素一致。
+    val onPhoto = DhKit.hasPhotoBackdrop()
+    val subTint = if (onPhoto) Color(UiKit.subOnPhoto()) else p.sub
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .stateReadablePlate(onPhoto)
             .padding(
                 horizontal = DhDesign.Space.xl.dp,
                 vertical = DhDesign.Space.xxl.dp
@@ -755,7 +816,7 @@ fun DhState(
                 iconRes = iconRes,
                 sizeDp = IconSeatSize.LG,
                 shape = IconSeatShape.CIRCLE,
-                tint = tone ?: p.sub
+                tint = tone ?: subTint
             )
             Spacer(Modifier.height(DhDesign.Space.md.dp))
         }
@@ -769,7 +830,7 @@ fun DhState(
             Spacer(Modifier.height(DhDesign.Space.xs.dp))
             Text(
                 text = body,
-                color = p.sub,
+                color = subTint,
                 style = t.sub,
                 textAlign = TextAlign.Center,
                 maxLines = 2,

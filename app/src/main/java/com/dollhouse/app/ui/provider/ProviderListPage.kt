@@ -23,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -93,6 +95,9 @@ object ProviderListPage {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
+                        // 【无障碍】顶栏三枚都是纯图标，没有名字读屏一律念「按钮」，
+                        //   三个挨在一起就无法区分。名字必须说明「干什么」而不是「图标长什么样」。
+                        .semantics { contentDescription = "导出配置" }
                         .pressable { com.dollhouse.app.ui.widget.ExportSheet.show(act) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -107,6 +112,7 @@ object ProviderListPage {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
+                        .semantics { contentDescription = "导入配置文件" }
                         .pressable { com.dollhouse.app.ui.widget.AexImportSheet.show(act) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -115,6 +121,7 @@ object ProviderListPage {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
+                        .semantics { contentDescription = "新建供应商" }
                         .pressable { ProviderNav.openNewProvider(act) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -335,6 +342,9 @@ object ProviderListPage {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
+                        // 名字里点明「供应商」：同一屏可能有别的「更多」，
+                        // 只写「更多」在朗读里无法判断作用域。
+                        .semantics { contentDescription = "更多供应商操作" }
                         .pressable(onMore),
                     contentAlignment = Alignment.Center
                 ) {

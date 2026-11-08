@@ -150,7 +150,7 @@ object ExportSheet {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
-                    DhForm.Button(text = "好") { ref.get()?.dismiss() }
+                    DhForm.Button(text = "知道了") { ref.get()?.dismiss() }
                 }
             }
         }

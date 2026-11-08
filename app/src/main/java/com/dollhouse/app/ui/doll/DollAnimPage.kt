@@ -550,22 +550,26 @@ object DollAnimPage {
                 ) {
                     // 【v0.1.0·修·图标偏小】chevron 图形只占视口 58%，16dp 画出来仅约 9.3dp。
                     //   这四个是「微调偏移」的主操作按钮，必须一眼可辨 → 按按钮档走 SZ_MD。
-                    DhKit.IconButton(Icons.IC_CHEVRON_LEFT, Design.SZ_MD, c.title) {
+                    // 【无障碍·P0】四个同形 chevron 并排且中间只隔 4dp，`label` 放不下、
+                    //   `tooltip` 会引入长按行为，所以统一走 `a11yName`：只挂语义、不渲染、
+                    //   不加交互。名字按**方向**给（左移 / 上移 / 下移 / 右移），
+                    //   读屏用户才能区分这四颗，而不是听到四个「按钮」。
+                    DhKit.IconButton(Icons.IC_CHEVRON_LEFT, Design.SZ_MD, c.title, a11yName = "左移") {
                         DollProfile.setFrameOffset(act, dollId, off[0] - FINE_STEP, off[1])
                         offTick++
                     }
                     Spacer(Modifier.width(4.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title, a11yName = "上移") {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] - FINE_STEP)
                         offTick++
                     }
                     Spacer(Modifier.width(4.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title, a11yName = "下移") {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] + FINE_STEP)
                         offTick++
                     }
                     Spacer(Modifier.width(4.dp))
-                    DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title) {
+                    DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title, a11yName = "右移") {
                         DollProfile.setFrameOffset(act, dollId, off[0] + FINE_STEP, off[1])
                         offTick++
                     }

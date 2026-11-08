@@ -30,6 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -283,6 +287,13 @@ object ChatListScreen {
                 Spacer(Modifier.weight(1f))
                 DhKit.OutlineChip(if (archivedView) "返回" else "归档") { archivedView = !archivedView }
             }
+            // 【背景图可读性】设了背景图时，列表整块铺一层 SOFT@88% 的雾面。
+            //   没图时 listSheet 返回 this —— 零绘制、零布局变化，老用户像素级不变。
+            val onPhoto = DhKit.hasPhotoBackdrop()
+            // 副文本在压图 / 半透明行上必须换色：SUB 在页面底色上只有 4.66:1 的余量，
+            //   照片一渗进来就破 4.5。没图时仍是原来的 SUB，一个字节都不改。
+            val subColor = if (onPhoto) Color(UiKit.subOnPhoto()) else DhTokens.colors.sub
+
             when {
                 !loaded -> {
                     // 【本轮·修「纯空白页」】改造前这里是一个空 Box：数据读盘期间整屏什么都没有。
@@ -317,10 +328,13 @@ object ChatListScreen {
 
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().then(listSheet(onPhoto)),
                         contentPadding = PaddingValues(
                             start = PAD_H,
                             end = PAD_H,
+                            // 【渐隐区不吃文字】面板顶部 12dp 是半透明渐隐；有图时补进留白，
+                            //   首行的名字/预览才不会落在半透明区里。
+                            top = if (onPhoto) DhKit.TOP_BAND_FADE_DP.dp else 0.dp,
                             // 【底部避让】主界面底栏是悬浮的（不在布局流里），列表要自己留出高度，
                             //   否则最后一张卡片会被底栏压住点不到。
                             bottom = com.dollhouse.app.ui.home.BottomNav.HEIGHT_DP.dp + 16.dp
@@ -340,6 +354,7 @@ object ChatListScreen {
                             Box(Modifier.animateItem()) {
                                 Card(
                                     row = row,
+                                    subColor = subColor,
                                     onClick = {
                                         ChatListData.markRead(act, row.id)
                                         ChatState.bumpList()
@@ -479,7 +494,13 @@ object ChatListScreen {
 
     /** 单张会话卡片：头像 + 名字 + 最近一条 + 时间 + 未读。 */
     @Composable
-    private fun Card(row: ChatListData.Row, onClick: () -> Unit, onLong: () -> Unit) {
+    private fun Card(
+        row: ChatListData.Row,
+        /** 副文本颜色：有背景图时传 subOnPhoto，否则就是常规 SUB（见 Screen 的注释）。 */
+        subColor: Color,
+        onClick: () -> Unit,
+        onLong: () -> Unit
+    ) {
         val c = DhTokens.colors
         // 【时间格式跟随系统】不要把 "HH:mm" 写死在代码里：用户在系统设置里选了
         //   12 小时制时，列表仍显示 24 小时制 —— 这就是"界面在说假话"。
@@ -533,7 +554,7 @@ object ChatListScreen {
                 Spacer(Modifier.height(DhDesign.Space.xs.dp))
                 Text(
                     text = row.preview,
-                    color = c.sub,
+                    color = subColor,
                     fontSize = DhTokens.type.sub.fontSize, lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody,
                     maxLines = 1,
@@ -544,7 +565,7 @@ object ChatListScreen {
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = timeText(row.time, timeFmt),
-                    color = c.sub,
+                    color = subColor,
                     fontSize = DhTokens.type.label.fontSize, lineHeight = DhTokens.type.label.lineHeight,
                     fontFamily = DhTokens.fonts
                 )
@@ -552,6 +573,54 @@ object ChatListScreen {
                     Spacer(Modifier.height(DhDesign.Space.xs.dp))
                     UnreadDot(row.unread)
                 }
+            }
+        }
+    }
+
+    /**
+     * 列表「可读性面板」：用户设了背景图时，在列表区铺一层 SOFT@88% 的雾面。
+     *
+     * 【为什么整块铺、不逐行加卡片】本列表的设计口径是「一条连续的消息流」：
+     *   行直接铺在页面底色上、行间用 1dp 发丝线分隔（见 [Card] 的注释）。
+     *   逐行加底会把它变回「一堆互不相干的小卡片」，而那正是当初专门改掉的形态。
+     *   现在页面底色从「纯 BG」变成「用户的照片」，于是把**整块**垫起来 —— 观感不变，可读性回来。
+     *
+     * 【顶边 12dp 渐隐】面板直接压照片时上沿是一条硬边，滚动内容从下面钻出来很突兀；
+     *   渐隐这 12dp 由调用方补进顶部留白（见 contentPadding），文字不会落在半透明区。
+     *   与顶栏带（[DhKit.photoTopBand] / TabTopBar）同一套口径。
+     *
+     * 【没图时为什么原样返回】没图时页面底色就是 BG，再叠一层 SOFT 会把整块列表染色 ——
+     *   没设背景图的老用户会看到「聊天列表变灰了」。这里直接返回 this：零绘制、零布局变化。
+     */
+    private fun Modifier.listSheet(onPhoto: Boolean): Modifier {
+        if (!onPhoto) {
+            return this
+        }
+        // 只圆上面两角：面板一直铺到屏幕底部（被悬浮底栏盖住），底角看不见。
+        val shape = RoundedCornerShape(
+            topStart = DhDesign.Radius.xl.dp,
+            topEnd = DhDesign.Radius.xl.dp
+        )
+        val fill = Color(UiKit.SOFT).copy(alpha = SHEET_ALPHA)
+        return this.clip(shape).drawBehind {
+            val fade = DhKit.TOP_BAND_FADE_DP.dp.toPx().coerceAtMost(size.height)
+            if (fade > 0f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(fill.copy(alpha = 0f), fill),
+                        startY = 0f,
+                        endY = fade
+                    ),
+                    topLeft = Offset(0f, 0f),
+                    size = Size(size.width, fade)
+                )
+            }
+            if (size.height > fade) {
+                drawRect(
+                    color = fill,
+                    topLeft = Offset(0f, fade),
+                    size = Size(size.width, size.height - fade)
+                )
             }
         }
     }

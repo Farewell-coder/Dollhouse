@@ -28,7 +28,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +60,7 @@ import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.settings.MemSettingsPage
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.UiKit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -140,6 +145,16 @@ object SocialPage {
     /** 首屏条数；点「加载更多」再放一页。 */
     private const val PAGE = 30
 
+    /**
+     * 列表可读性面板的浓度（88%）。
+     *
+     * 【为什么是 0.88】与顶栏带 [DhKit.TOP_BAND_FADE_DP] 那一套保持一致：
+     *   那个带子的填充 alpha 在 DhKit 里是 private 常量（0.88f），这里复刻同一个值，
+     *   免得「顶栏 88%、正文 70%」两块雾面浓淡不一。低于约 0.8 时照片会明显透上来，
+     *   副文本按 [UiKit.subOnPhoto] 计算出的对比度就会被打折。
+     */
+    private const val SHEET_ALPHA = 0.88f
+
     /** 筛选条里「全部」的哨兵 id（不能用空串：人偶 id 非空，但语义上要一个显式值）。 */
     private const val FILTER_ALL = "\u0000all"
 
@@ -201,73 +216,94 @@ object SocialPage {
                 return@Column
             }
 
+            // 【背景图可读性】只在用户设了图时才铺面板；没图时 listSheet 返回 this，
+            //   零绘制、零布局变化（老用户像素级不变）。
+            val onPhoto = DhKit.hasPhotoBackdrop()
+            // 压图场景的副文本必须换色：SUB 在页面底色上只有 4.66:1 的余量，
+            //   照片一渗进来就破 4.5。没图时仍用原来的 SUB / LINE，一个字节都不改。
+            val subColor = if (onPhoto) Color(UiKit.subOnPhoto()) else p.sub
+            val timeColor = if (onPhoto) Color(UiKit.subOnPhoto()) else p.line
+
             if (s.items.isEmpty()) {
-                EmptyState(act = act, snap = s, onRetry = { reload++ })
+                // 【空态也在照片上】它没有列表面板兜底，副文本同样得换色。
+                EmptyState(act = act, snap = s, onRetry = { reload++ }, subColor = subColor)
                 return@Column
             }
 
             val chips = remember(s, dollRev) { chipList(s) }
-            if (chips.size > 1) {
-                FilterRow(chips = chips, selected = filter) { filter = it }
-            }
 
-            val visible = remember(s, filter) {
-                if (filter == FILTER_ALL) s.items else s.items.filter { it.dollId == filter }
-            }
-            val rows = remember(visible, shown) {
-                val base = buildRows(visible.take(shown))
-                val withMore = if (visible.size > shown) base + Entry.More() else base
-                // 【不许默默截断】上限是性能要求，但用户找不到更早的记忆会以为丢了；
-                //   列表末端如实说明「这里只显示最近 N 条、全量在哪里」。
-                withMore + Entry.Foot()
-            }
-            val avatarOf = remember(s.items) { avatars(act, s.items) }
-            val moreCount = visible.size - shown
-
-            LazyColumn(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                contentPadding = PaddingValues(
-                    start = DhDesign.Space.pageX.dp,
-                    end = DhDesign.Space.pageX.dp,
-                    top = DhDesign.Space.xs.dp,
-                    // 底栏是悬浮的（不在布局流里），列表末端要自己让出高度。
-                    bottom = BottomNav.HEIGHT_DP.dp + DhDesign.Space.lg.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                    .weight(1f)
+                    .then(listSheet(onPhoto))
             ) {
-                items(
-                    items = rows,
-                    // 【性能硬要求】key 必须跨人偶唯一：记忆 id 是「m+时间戳-随机」，
-                    //   两只人偶理论上可能撞同一串，所以拼上 dollId 做前缀。
-                    key = { row -> row.key },
-                    // 【性能硬要求】三类条目布局不同（日期头 / 记忆卡 / 加载更多），
-                    //   contentType 分开，Compose 才会各自复用各自的槽位。
-                    contentType = { row -> row.contentType }
-                ) { row ->
-                    when (row) {
-                        is Entry.Header -> DayHeader(row.label)
-                        is Entry.Post -> PostCard(
-                            item = row.item,
-                            avatar = avatarOf[row.item.dollId],
-                            // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
-                            //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
-                            //   聊天是「现在」，记忆库才是这条内容的上下文。
-                            //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
-                            //   anchorId（= 这条记忆的 id）决定落在哪一条上。
-                            onClick = {
-                                // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
-                                //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
-                                //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
-                                //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
-                                //   所以每次点卡都重新登记一次。
-                                PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
-                                MemPage.open(act, row.item.dollId, row.item.memId)
-                            }
-                        )
-                        is Entry.More -> MoreRow(moreCount) { shown += PAGE }
-                        is Entry.Foot -> FootNote()
+                if (chips.size > 1) {
+                    FilterRow(chips = chips, selected = filter) { filter = it }
+                }
+
+                val visible = remember(s, filter) {
+                    if (filter == FILTER_ALL) s.items else s.items.filter { it.dollId == filter }
+                }
+                val rows = remember(visible, shown) {
+                    val base = buildRows(visible.take(shown))
+                    val withMore = if (visible.size > shown) base + Entry.More() else base
+                    // 【不许默默截断】上限是性能要求，但用户找不到更早的记忆会以为丢了；
+                    //   列表末端如实说明「这里只显示最近 N 条、全量在哪里」。
+                    withMore + Entry.Foot()
+                }
+                val avatarOf = remember(s.items) { avatars(act, s.items) }
+                val moreCount = visible.size - shown
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(
+                        start = DhDesign.Space.pageX.dp,
+                        end = DhDesign.Space.pageX.dp,
+                        // 【渐隐区不吃文字】面板顶部 12dp 是半透明渐隐；有图时把它补进留白，
+                        //   文字才不会落在半透明区里（与顶栏带的处理同一口径）。
+                        top = (DhDesign.Space.xs + (if (onPhoto) DhKit.TOP_BAND_FADE_DP else 0)).dp,
+                        // 底栏是悬浮的（不在布局流里），列表末端要自己让出高度。
+                        bottom = BottomNav.HEIGHT_DP.dp + DhDesign.Space.lg.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    items(
+                        items = rows,
+                        // 【性能硬要求】key 必须跨人偶唯一：记忆 id 是「m+时间戳-随机」，
+                        //   两只人偶理论上可能撞同一串，所以拼上 dollId 做前缀。
+                        key = { row -> row.key },
+                        // 【性能硬要求】三类条目布局不同（日期头 / 记忆卡 / 加载更多），
+                        //   contentType 分开，Compose 才会各自复用各自的槽位。
+                        contentType = { row -> row.contentType }
+                    ) { row ->
+                        when (row) {
+                            is Entry.Header -> DayHeader(row.label, subColor)
+                            is Entry.Post -> PostCard(
+                                item = row.item,
+                                avatar = avatarOf[row.item.dollId],
+                                subColor = subColor,
+                                timeColor = timeColor,
+                                // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
+                                //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
+                                //   聊天是「现在」，记忆库才是这条内容的上下文。
+                                //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
+                                //   anchorId（= 这条记忆的 id）决定落在哪一条上。
+                                onClick = {
+                                    // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
+                                    //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
+                                    //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
+                                    //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
+                                    //   所以每次点卡都重新登记一次。
+                                    PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
+                                    MemPage.open(act, row.item.dollId, row.item.memId)
+                                }
+                            )
+                            is Entry.More -> MoreRow(moreCount) { shown += PAGE }
+                            is Entry.Foot -> FootNote(timeColor)
+                        }
                     }
                 }
             }
@@ -314,7 +350,7 @@ object SocialPage {
     }
 
     @Composable
-    private fun EmptyState(act: MainActivity, snap: Snapshot, onRetry: () -> Unit) {
+    private fun EmptyState(act: MainActivity, snap: Snapshot, onRetry: () -> Unit, subColor: Color) {
         val kind = emptyKind(snap)
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -389,7 +425,7 @@ object SocialPage {
 
                 if (kind == EmptyKind.NO_MEM || kind == EmptyKind.NO_MODEL) {
                     Spacer(Modifier.height(DhDesign.Space.xl.dp))
-                    HowItWorks(intervalMinutes = snap.intervalMinutes)
+                    HowItWorks(intervalMinutes = snap.intervalMinutes, subColor = subColor)
                 }
 
                 // 底栏避让：这一块是 Column 的直接子节点，不在 LazyColumn 的 contentPadding 里。
@@ -407,7 +443,7 @@ object SocialPage {
      *   这里只用文字与间距，保持页面清透。
      */
     @Composable
-    private fun HowItWorks(intervalMinutes: Int) {
+    private fun HowItWorks(intervalMinutes: Int, subColor: Color) {
         val p = DhTokens.palette
         val t = DhTokens.type
         Column(
@@ -437,7 +473,7 @@ object SocialPage {
                     Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Text(
                         text = line,
-                        color = p.sub,
+                        color = subColor,
                         fontSize = t.caption.fontSize,
                         lineHeight = t.caption.lineHeight,
                         fontFamily = DhTokens.fontsBody
@@ -490,8 +526,7 @@ object SocialPage {
 
     /** 日期分隔头：今天 / 昨天 / MM-dd / yyyy-MM-dd。 */
     @Composable
-    private fun DayHeader(label: String) {
-        val p = DhTokens.palette
+    private fun DayHeader(label: String, color: Color) {
         val t = DhTokens.type
         Row(
             modifier = Modifier
@@ -501,7 +536,7 @@ object SocialPage {
         ) {
             Text(
                 text = label,
-                color = p.sub,
+                color = color,
                 fontSize = t.label.fontSize,
                 lineHeight = t.label.lineHeight,
                 fontFamily = DhTokens.fonts,
@@ -520,7 +555,13 @@ object SocialPage {
      *   这是「清透柔和轻拟物」里卡片的标准画法（OutlineChip 也是同一套渐变思路）。
      */
     @Composable
-    private fun PostCard(item: ShuoItem, avatar: android.graphics.Bitmap?, onClick: () -> Unit) {
+    private fun PostCard(
+        item: ShuoItem,
+        avatar: android.graphics.Bitmap?,
+        subColor: Color,
+        timeColor: Color,
+        onClick: () -> Unit
+    ) {
         val p = DhTokens.palette
         val t = DhTokens.type
         val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
@@ -582,7 +623,7 @@ object SocialPage {
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Text(
                     text = item.timeText,
-                    color = p.line,
+                    color = timeColor,
                     fontSize = t.caption.fontSize,
                     lineHeight = t.caption.lineHeight,
                     fontFamily = DhTokens.fontsBody
@@ -606,7 +647,7 @@ object SocialPage {
                 Spacer(Modifier.height(3.dp))
                 Text(
                     text = item.body,
-                    color = p.sub,
+                    color = subColor,
                     fontSize = t.sub.fontSize,
                     lineHeight = t.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody,
@@ -620,7 +661,7 @@ object SocialPage {
                     for (tag in item.tags) {
                         Text(
                             text = tag,
-                            color = p.sub,
+                            color = subColor,
                             fontSize = t.caption.fontSize,
                             lineHeight = t.caption.lineHeight,
                             fontFamily = DhTokens.fontsBody,
@@ -657,8 +698,7 @@ object SocialPage {
      *   这里把「上限是多少、全量在哪」一次说清（全量在她的记忆库里读，那边没有截断）。
      */
     @Composable
-    private fun FootNote() {
-        val p = DhTokens.palette
+    private fun FootNote(color: Color) {
         val t = DhTokens.type
         Box(
             modifier = Modifier
@@ -668,12 +708,61 @@ object SocialPage {
         ) {
             Text(
                 text = "每人偶最多显示最近 " + TAIL_PER_DOLL + " 条 · 全部记在她的记忆库里",
-                color = p.line,
+                color = color,
                 fontSize = t.caption.fontSize,
                 lineHeight = t.caption.lineHeight,
                 fontFamily = DhTokens.fontsBody,
                 textAlign = TextAlign.Center
             )
+        }
+    }
+
+    /* ============================ 背景图可读性 ============================ */
+
+    /**
+     * 列表「可读性面板」：用户设了背景图时，在列表区铺一层 SOFT@88% 的雾面。
+     *
+     * 【为什么是整块而不是逐行加底】说说页的语义是「一条连续的时间线」；
+     *   逐行加底会把它变成「一堆互不相干的小卡片」——正是设计稿禁止的那种碎片感。
+     *
+     * 【为什么顶边要 12dp 渐隐】面板直接压在照片上时上沿是一条硬边，滚动内容从
+     *   下面钻出来会很突兀。渐隐这 12dp 由调用方补进顶部留白（见 contentPadding），
+     *   所以文字永远不会落在半透明区里 —— 与顶栏带同一套口径。
+     *
+     * 【没图时为什么原样返回】没图时页面底色就是 BG，再叠一层 SOFT 会把整块列表
+     *   染色，老用户会看到「说说页变灰了」。这里直接返回 this：零绘制、零布局变化。
+     */
+    private fun Modifier.listSheet(onPhoto: Boolean): Modifier {
+        if (!onPhoto) {
+            return this
+        }
+        // 只圆上面两角：面板一直铺到屏幕底部（被悬浮底栏盖住），底角看不见，
+        // 圆了反而会在左右下缘露出照片的三角。
+        val shape = RoundedCornerShape(
+            topStart = DhDesign.Radius.xl.dp,
+            topEnd = DhDesign.Radius.xl.dp
+        )
+        val fill = Color(UiKit.SOFT).copy(alpha = SHEET_ALPHA)
+        return this.clip(shape).drawBehind {
+            val fade = DhKit.TOP_BAND_FADE_DP.dp.toPx().coerceAtMost(size.height)
+            if (fade > 0f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(fill.copy(alpha = 0f), fill),
+                        startY = 0f,
+                        endY = fade
+                    ),
+                    topLeft = Offset(0f, 0f),
+                    size = Size(size.width, fade)
+                )
+            }
+            if (size.height > fade) {
+                drawRect(
+                    color = fill,
+                    topLeft = Offset(0f, fade),
+                    size = Size(size.width, size.height - fade)
+                )
+            }
         }
     }
 

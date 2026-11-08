@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -565,11 +567,19 @@ onCover = {
                     // 【r16·修·窄槽不加文字】卡片底部三枚按钮处在「等分窄槽」里：
                     //   列数 3 时每槽仅约 36dp，而「图标+文字」需要约 70dp ——
                     //   加了文字会挤出卡片或被裁。此处保持纯图标（符合 DhKit.IconButton 的
-                    //   「宽裕处才加 label」约定），文字语义由卡片整体可点区域承载。
+                    //   「宽裕处才加 label」约定）。
+                    // 【无障碍·P0·改正错误注释】原注释写「文字语义由卡片整体可点区域承载」——
+                    //   这是**错的**：卡片整体念的是人偶名，不会念这三颗按钮各自做什么。
+                    //   后果是读屏用户**完全无法启停人偶**（UI 侧这是唯一入口）。
+                    //   现在改用 `a11yName`（只挂语义、不渲染、不加交互），
+                    //   并且这一颗的名字**随状态变**：当前启用 → 念「停用 X」。
                     DhKit.IconButton(
                         iconRes = if (doll.enabled) Icons.IC_SQUARE else Icons.IC_PLAY,
                         sizeDp = btnDp,
-                        color = if (doll.enabled) c.acc else c.title
+                        color = if (doll.enabled) c.acc else c.title,
+                        // 名字描述的是**点下去会发生什么**，所以启用态给「停用」。
+                        // 带上人偶名：一屏有多张卡片，只念「停用」无法定位是哪一只。
+                        a11yName = if (doll.enabled) "停用 " + doll.name else "启用 " + doll.name
                     ) {
                         DollStore.toggleEnabled(act, doll.id)
                         DollState.bump()
@@ -578,19 +588,24 @@ onCover = {
                 }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     // 【r16·修】同上一槽：窄槽内保持纯图标。
+                    // 【无障碍·P0】纯图标 + 无文字 = 读屏只会念「按钮」，故补 a11yName。
                     DhKit.IconButton(
                         iconRes = Icons.IC_EDIT,
                         sizeDp = btnDp,
                         color = c.title,
+                        a11yName = "编辑 " + doll.name,
                         onClick = onEdit
                     )
                 }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     // 【r16·修】同上：窄槽内保持纯图标。
+                    // 【无障碍·P0】它打开的是「重命名 / 封面 / 换模型 / 复制 / 删除 / 导出 / 恢复」
+                    //   那一整套操作，名字取「更多操作」而不是「更多」——后者读屏听不出含义。
                     DhKit.IconButton(
                         iconRes = Icons.IC_MORE,
                         sizeDp = btnDp,
                         color = c.title,
+                        a11yName = "更多操作 " + doll.name,
                         onClick = onMore
                     )
                 }
@@ -926,8 +941,9 @@ onCover = {
                     .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                for (p in action.frames) {
-                    CoverThumb(path = p) {
+                for (i in action.frames.indices) {
+                    val p = action.frames[i]
+                    CoverThumb(path = p, name = "第 " + (i + 1) + " 帧，设为封面") {
                         Thread({
                             DollStore.setCoverFromFrame(act, dollId, p)
                             act.runOnUiThread { onDone() }
@@ -938,9 +954,15 @@ onCover = {
         }
     }
 
-    /** 挑帧用的小缩略图（只解码 1/4 尺寸，一屏几十张也不吃内存）。 */
+    /**
+     * 挑帧用的小缩略图（只解码 1/4 尺寸，一屏几十张也不吃内存）。
+     *
+     * @param name 无障碍名。本瓦片内只有一张图（`contentDescription = null`）没有任何文字，
+     *   不给名字读屏只念「按钮」。这里由调用方按序号传入（「第 N 帧」），
+     *   否则一屏几十个瓦片全叫同一个名字，读屏用户无法知道选的是哪一帧。
+     */
     @Composable
-    private fun CoverThumb(path: String, onClick: () -> Unit) {
+    private fun CoverThumb(path: String, name: String, onClick: () -> Unit) {
         val c = DhTokens.colors
         var bmp by remember(path) { mutableStateOf<ImageBitmap?>(null) }
         LaunchedEffect(path) {
@@ -961,6 +983,8 @@ onCover = {
                 .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
                 .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
+                // 名字挂在可点区域上；里面的 Image 继续是 null（否则同一张图会被念两遍）。
+                .semantics { contentDescription = name }
                 .pressable(onClick),
             contentAlignment = Alignment.Center
         ) {

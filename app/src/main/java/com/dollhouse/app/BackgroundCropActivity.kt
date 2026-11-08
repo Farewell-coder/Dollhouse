@@ -42,6 +42,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.GlobalBackground
+import com.dollhouse.app.ui.theme.ThemeRefresh
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -414,6 +415,13 @@ class BackgroundCropActivity : Activity() {
             //   先 release 让缓存按新路径重建，再 refreshAll 遍历全部登记视图。
             GlobalBackground.release()
             GlobalBackground.refreshAll()
+            // 【r15·还要通知 Compose】上面那条链路只重刷 **View 背景**：各页的 View 会立刻换图，
+            //   但 Compose 侧「顶栏要不要带可读性带」是 remember 到 DhTheme.revision 的，
+            //   不 bump 就还是旧值 —— 用户换完图回到页面，图换了、带子没出现，
+            //   观感就是「我这儿的图还是看不清 / 又没生效」。
+            //   安全：bumpAll 只把版本号 +1，与外观页滑条用的是同一个入口，
+            //   不重建 Activity、不丢滚动位置，也不会重读盘。
+            ThemeRefresh.bumpAll()
             // 【为什么走 HomeUi】那里已经带「服务在跑才发 REFRESH」的判断：
             //   桌宠被用户关掉时不会因为这次保存把服务又拉起来，中间态也不会多一个悬浮窗。
             HomeUi.notifyPetRefresh(this)

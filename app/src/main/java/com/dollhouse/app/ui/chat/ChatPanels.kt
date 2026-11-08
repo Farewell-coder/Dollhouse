@@ -28,6 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.ai.ModelRules
@@ -349,6 +352,16 @@ object ChatPanels {
                             .height(6.dp) // 【不收敛·D6】分段条自身高度属 Size 语义
                             .clip(RoundedCornerShape(DhDesign.Radius.sm.dp))
                             .background(if (i <= level) p.accent else p.line)
+                            // 【无障碍·P0·摘出语义树】这 6 段是「6dp 高、无文字、无选中态」的色块：
+                            //   · 读屏只会念「按钮」，既听不出是第几档，也听不出当前选到哪；
+                            //   · 命中区实际也只有 6dp 高 —— `pressable` 内置的 48dp
+                            //     `minTouchTarget` 被外层的 `.height(6.dp)` 把约束压到最大 6dp，
+                            //     于是「扩大命中区」在这里完全没生效。探索触摸基本点不中，
+                            //     留在语义树里只是让人多划六次空节点。
+                            //   所以把整段 clearAndSetSemantics 摘出去；真正的入口是下面那排
+                            //   **有文字**的档位行（行高 40dp+、点即生效，并已补 selected 状态）。
+                            //   视觉与触摸行为一字未改：`pressable` 照旧保留，手指点分段条仍生效。
+                            .clearAndSetSemantics { }
                             .pressable { level = i }
                     )
                 }
@@ -361,6 +374,10 @@ object ChatPanels {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                        // 【无障碍】把「当前是哪一档」挂成 selected：分段条已摘出语义树，
+                        //   选中信息必须由这排有文字的档位行承担，否则读屏会丢掉状态。
+                        //   只是语义属性，视觉与点击都不变。
+                        .semantics { selected = i == level }
                         .pressable { onPick(i) }
                         .padding(vertical = DhDesign.Space.sm.dp + 2.dp),
                     verticalAlignment = Alignment.CenterVertically

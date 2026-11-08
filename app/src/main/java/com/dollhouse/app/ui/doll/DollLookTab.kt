@@ -65,6 +65,9 @@ object DollLookTab {
     /** 人偶聊天背景图的最长边（px）。 */
     private const val BG_MAX = 1440
 
+    /** 毛玻璃半径上限（dp），与 [DollProfile.setChatBgBlur] 的夹紧值一致；滑条按 0~100% 展示。 */
+    private const val BLUR_DP_MAX = 24
+
     /**
      * 【选图回调怎么知道是哪只人偶】
      *   `PickFileActivity` 是「静态监听 + 独立 Activity」，回调里拿不到 Compose 的闭包变量，
@@ -171,7 +174,8 @@ object DollLookTab {
         if (has) {
             DhKit.Card(collapsibleTitle = "背景参数") {
                 DhKit.SliderRow(
-                    title = "背景图透明度",
+                    // 【r15·标签口径】本值越大图越实，与「透明度」的字面方向相反 —— 全 App 统一改叫不透明度。
+                    title = "背景图不透明度",
                     hint = "越大图越实；0 = 完全看不见图",
                     max = 100,
                     value = DollProfile.chatBgAlpha(act, dollId),
@@ -185,11 +189,13 @@ object DollLookTab {
                 DhKit.SliderRow(
                     title = "背景毛玻璃",
                     hint = "让这张图更糊一些（0 = 不模糊）",
-                    max = 24,
-                    value = DollProfile.chatBgBlur(act, dollId),
+                    // 【r15·单位统一】与外观页同一口径：滑条 0~100%，内部映射到 0~[BLUR_DP_MAX] dp。
+                    //   改造前 max=24 而滑条读数写死拼 "%"，「2%」其实是 2/24 的模糊量。
+                    max = 100,
+                    value = Math.round(DollProfile.chatBgBlur(act, dollId) * 100f / BLUR_DP_MAX),
                     iconRes = Icons.IC_APERTURE
                 ) { v, fromUser ->
-                    DollProfile.setChatBgBlur(act, dollId, v)
+                    DollProfile.setChatBgBlur(act, dollId, Math.round(v * BLUR_DP_MAX / 100f))
                     if (fromUser) {
                         GlobalBackground.refreshAll()
                     }

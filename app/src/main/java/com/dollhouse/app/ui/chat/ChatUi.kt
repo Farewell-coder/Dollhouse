@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -63,6 +64,7 @@ import com.dollhouse.app.data.ImageStore
 import kotlinx.coroutines.withContext
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhKit.photoTopBand
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
@@ -202,11 +204,23 @@ object ChatUi {
                 }
             )
         }
+        // 【r15·可读性带】聊天页顶栏是手搓的第三套（不走 DhKit.TopBar），但它同样整条压在
+        //   背景图上 —— 而这是用户停留最久的一页。有背景图时铺一层 88% 雾白底 + 底边渐隐，
+        //   人偶名（TITLE）与状态（SUB）才有稳定的落底。
+        //   【满宽、不做圆角】聊天面板本身会被窗口裁圆角，带子再收一次圆角会漏出照片的四个角。
+        val onPhoto = DhKit.hasPhotoBackdrop()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // 带子要在所有 padding **之前**铺：这样它连刘海/状态栏那段留白一起盖住，
+                //   不会出现「顶栏有底色、最上面一条还是照片」的断层。
+                .photoTopBand(onPhoto, cornerDp = 0)
                 .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(start = 6.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+                // 有带子时底部多留出渐隐那 12dp，文字不会落在半透明的渐隐区里。
+                .padding(
+                    start = 6.dp, end = 8.dp, top = 6.dp,
+                    bottom = if (onPhoto) 8.dp + DhKit.TOP_BAND_FADE_DP.dp else 8.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.IconButton(iconRes = Icons.IC_ARROW_LEFT, sizeDp = 20f, color = c.title) {
@@ -292,9 +306,22 @@ object ChatUi {
                     // 状态行：请求在途显示「正在回复」，否则「在线」。
                     //   【不用假数据】两者都由真实状态派生 —— ChatState.waiting
                     //   正是发送键切「停止」的同一个标志。
+                    //   【压在图上换色】SUB 在页面底色上只有 4.66:1 的余量，照片渗进带子就跌破线；
+                    //   有带子时两种状态统一用 subOnPhoto（夹到 6.5 的那一档，纯黑照片上仍有 4.95:1）。
+                    //   【为什么连等待态一起换】实测主色 #4375C1 压在带子上只有 3.03（黑图）~4.06（白图），
+                    //   低于 AA 4.5。而「正在回复…」在语义上是**状态说明**、不是强调，用主色本就勉强；
+                    //   状态的区分由文案本身承担（"正在回复…" vs "在线"），不靠颜色。
+                    //   若日后要更强的「在响应」感，正解是给省略号加动效 —— 动效不占对比度预算。
+                    //   【没设背景图时保持原样】主色照旧，默认主题下它压在卡片/底色上是既有观感，不动。
                     Text(
                         text = if (ChatState.waiting) "正在回复…" else "在线",
-                        color = if (ChatState.waiting) c.acc else c.sub,
+                        color = if (onPhoto) {
+                            Color(UiKit.subOnPhoto())
+                        } else if (ChatState.waiting) {
+                            c.acc
+                        } else {
+                            c.sub
+                        },
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBody,
                         maxLines = 1

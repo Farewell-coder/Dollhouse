@@ -167,7 +167,14 @@ class CoverCropActivity : Activity() {
         setContentView(buildUi())
         UiKit.applyEdgeToEdge(this)
         if (bundle == null) {
-            pick()
+            // 【修·「裁剪页一弹出来就消失」】原来在这里直接 `pick()`，
+            //   而此刻窗口还没 attach 完成（本页是 Theme.Translucent，attach 更靠后）。
+            //   部分 ROM / 系统版本上，此时 `startActivityForResult` 会**立刻以 CANCELED 回调**，
+            //   于是 onActivityResult 走「没选图」分支 → finish() → 用户看到的就是「一闪就没了」。
+            //   改到 decorView.post：等第一帧消息队列跑完（窗口已 attach）再拉起相册。
+            //   `post` 在 View 未 attach 时仍会排队执行，故不会因为窗口没就绪而丢失。
+            //   （与 BackgroundCropActivity 同一处修复、同一套注释，两页行为保持一致。）
+            window.decorView.post { pick() }
         } else {
             Logs.i(TAG, "[重建] 不再重弹相册，等待结果")
         }

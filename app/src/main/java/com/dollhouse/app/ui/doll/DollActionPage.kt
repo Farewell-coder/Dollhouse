@@ -178,18 +178,21 @@ object DollActionPage {
                 //   合计约 250dp，而 `DhKit.TopBar` 让标题占满剩余宽后再放 actions ——
                 //   1080p 屏上三者会把标题挤到换行、最右那颗「新建」被裁掉一半，
                 //   表现为「按钮点了没反应」（其实点在了裁剪区之外）。
-                //   现在一律走**纯图标**（DhKit.IconButton 的 label 只在宽裕处才加），
-                //   语义由图标 + 下方说明承载；图标本身已是 Lucide 语义对齐的。
+                //   现在一律走**纯图标**（DhKit.IconButton 的 label 只在宽裕处才加）。
+                // 【无障碍·改正错误注释】原注释写「语义由图标 + 下方说明承载」—— 这是**错的**：
+                //   `DhKit.Icon` 默认 desc = null，**不产生任何语义**；下方那段说明是一整段
+                //   静态文案，也不挂在这三颗按钮上。真相是读屏只会念三个「按钮」。
+                //   现在三颗各自带 `a11yName`（只挂语义、不渲染、不加交互）。
                 // 【恢复内置已搬走】它做的是「把这套动作恢复成出厂自带的样子」，
                 //   属于人偶级操作，已挪到「人偶管理 → 更多」里（见 DollListScreen）。
                 // 【行为模板】逐条调绑定太费事，这里给一组预设。
-                DhKit.IconButton(Icons.IC_SPARKLES, Design.SZ_MD, DhTokens.colors.title) {
+                DhKit.IconButton(Icons.IC_SPARKLES, Design.SZ_MD, DhTokens.colors.title, a11yName = "行为模板") {
                     templateOpen = true
                 }
-                DhKit.IconButton(Icons.IC_FOLDER_OPEN, Design.SZ_MD, DhTokens.colors.title) {
+                DhKit.IconButton(Icons.IC_FOLDER_OPEN, Design.SZ_MD, DhTokens.colors.title, a11yName = "导入资源") {
                     DollImportWizardPage.open(act, id)
                 }
-                DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, DhTokens.colors.title) {
+                DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, DhTokens.colors.title, a11yName = "新建动作") {
                     newGroup = DollAnim.GROUP_MANUAL
                     newOpen = true
                 }

@@ -642,13 +642,13 @@ object DhKit {
      * 【为什么底边要渐隐】不带渐隐时，带子下沿是一条硬边，滚动内容从下面钻出来时很突兀。
      *   渐隐占的 12dp 由调用方补成底部留白，所以文字永远不会落在半透明的渐隐区里。
      */
-    private fun Modifier.readableTopBand(onPhoto: Boolean): Modifier {
+    private fun Modifier.readableTopBand(onPhoto: Boolean, cornerDp: Int): Modifier {
         if (!onPhoto) {
             return this
         }
         val band = Color(UiKit.BG).copy(alpha = TOP_BAND_ALPHA)
         return this
-            .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
+            .clip(RoundedCornerShape(cornerDp.dp))
             .drawBehind {
                 val fade = TOP_BAND_FADE_DP.dp.toPx().coerceAtMost(size.height)
                 val solid = size.height - fade
@@ -692,11 +692,11 @@ object DhKit {
         val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val topGap = if (sbTop > TOP_MIN_GAP.dp) sbTop else TOP_MIN_GAP.dp
         // 【可读性带】有背景图时给顶栏铺一层雾白底：标题的可读性不再由「遮罩强度」滑条决定。
-        val onPhoto = rememberOnPhotoBackdrop()
+        val onPhoto = hasPhotoBackdrop()
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .readableTopBand(onPhoto)
+                .photoTopBand(onPhoto)
                 // 有带子时底部多留出渐隐那 12dp：保证文字不会落在半透明的渐隐区里。
                 .padding(top = topGap, bottom = if (onPhoto) TOP_BAND_FADE_DP.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -754,12 +754,12 @@ object DhKit {
     ) {
         // 【可读性带】与 [TopBar] 同一套：有背景图时铺一层雾白底，标题不再「压在图案上」。
         //   横向先内缩再画带，色带与页面左右边距、底部胶囊对齐（都是 pageX=16dp）。
-        val onPhoto = rememberOnPhotoBackdrop()
+        val onPhoto = hasPhotoBackdrop()
         Row(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = PAD_PAGE.dp)
-                .readableTopBand(onPhoto)
+                .photoTopBand(onPhoto)
                 // 有带子时把渐隐那 12dp 补进底部留白，标题不会落在半透明的渐隐区里。
                 .padding(
                     top = TAB_BAR_TOP.dp,
@@ -1397,6 +1397,22 @@ object DhKit {
         modifier: Modifier = Modifier,
         label: String? = null,
         tooltip: String? = null,
+        /**
+         * 无障碍名：**只挂语义，不渲染任何东西**。
+         *
+         * 【为什么必须有这个参数】本函数原先只有两条能产生名字的路子，而它们都带副作用：
+         *   · `label`  → 会**渲染可见文字**，紧凑排布放不下（4dp 间距的四方向键、36dp 窄槽）
+         *   · `tooltip`→ 会被 `HintTooltip` 包一层，**长按弹提示**，是交互行为
+         *   于是「给按钮起个名字」这件事在没有副作用的情况下**无写法可写** ——
+         *   这不是「忘了写」，是能力缺口。补上本参数即为根因修复。
+         *
+         * 【优先级】`a11yName` > `label` > `tooltip`：
+         *   显式指定的名字最可信；其次才是那个恰好也是可见文字 / 提示的字符串。
+         *
+         * 【不影响既有行为】`label` 的渲染逻辑一行未动：传了 label 仍会画文字，
+         *   只是此时若同时传 a11yName，读屏念 a11yName 而不是 label。
+         */
+        a11yName: String? = null,
         onClick: () -> Unit
     ) {
         val hasLabel = !label.isNullOrEmpty()
@@ -1404,8 +1420,15 @@ object DhKit {
         val iconSeatLight = if (ThemeManager.isDark(LocalContext.current)) 0.16f else 0.10f
         // 本函数没有 `c` 局部变量（参数叫 `color`），故显式取调色板。
         val seat = DhTokens.colors.soft
-        // 无障碍名称：label 优先，其次 tooltip，都没有则为空（不朗读）。
-        val a11yName = if (hasLabel) label!! else (tooltip ?: "")
+        // 无障碍名称：显式 a11yName 优先，其次 label（可见文字），最后 tooltip（长按提示）；
+        //   三者都没有则为空 = 不挂语义（与改造前一致）。
+        val a11yText = if (!a11yName.isNullOrEmpty()) {
+            a11yName!!
+        } else if (hasLabel) {
+            label!!
+        } else {
+            tooltip ?: ""
+        }
         val button: @Composable () -> Unit = {
         Row(
             modifier = modifier
@@ -1442,8 +1465,8 @@ object DhKit {
                 // 放在 pressable 之前：语义描述的是「这个可点区域是什么」，
                 // 与它内部如何处理手势无关。
                 .then(
-                    if (a11yName.isEmpty()) Modifier
-                    else Modifier.semantics { contentDescription = a11yName }
+                    if (a11yText.isEmpty()) Modifier
+                    else Modifier.semantics { contentDescription = a11yText }
                 )
                 .pressable(onClick)
                 .then(if (hasLabel) Modifier.padding(horizontal = 8.dp) else Modifier),
