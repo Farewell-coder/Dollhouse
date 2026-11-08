@@ -93,7 +93,7 @@ object ReplaceModelPage {
                 val expanded = ImportSource.expand(act, picked, File(s.root, "expand"))
                 if (!expanded.ok) {
                     val msg = expanded.error?.let { ImportSource.textOf(it) }
-                        ?: "这个文件里没有找到能用的角色图。"
+                        ?: "这个文件里没有找到能用的人偶图。"
                     ImportSession.deleteTree(s.root)
                     act.runOnUiThread {
                         busy = false
@@ -170,12 +170,12 @@ object ReplaceModelPage {
         when (step) {
             Step.PICK -> DhKit.Page(
                 title = "更换模型",
-                sub = (doll?.name ?: "这个角色") + " 的新样子",
+                sub = (doll?.name ?: "这只人偶") + " 的新样子",
                 onBack = { leave() }
             ) {
                 DhForm.Note(
-                    "这里换的是「" + (doll?.name ?: "这个角色") + "」的样子本身：" +
-                        "她的人格、记忆和聊天记录都留着不动，也不会在角色库里多出一个人。"
+                    "这里换的是「" + (doll?.name ?: "这只人偶") + "」的样子本身：" +
+                        "她的人格、记忆和聊天记录都留着不动，也不会在人偶库里多出一个人。"
                 )
                 DhForm.Gap()
                 DhKit.MiniChip("选择图片或压缩包", iconRes = Icons.IC_FOLDER_OPEN) {
@@ -259,9 +259,9 @@ object ReplaceModelPage {
                         has = doneFilled.contains(slot)
                     )
                 }
-                DhForm.Note("她的人格、记忆和聊天记录都没变，角色库里也没有多出人。")
+                DhForm.Note("她的人格、记忆和聊天记录都没变，人偶库里也没有多出人。")
                 Spacer(Modifier.height(12.dp))
-                DhKit.MiniChip("回角色列表", iconRes = Icons.IC_CHECK) {
+                DhKit.MiniChip("回人偶列表", iconRes = Icons.IC_CHECK) {
                     PageStack.pop(act)
                 }
             }
@@ -277,8 +277,8 @@ object ReplaceModelPage {
                 negText = "再看看"
             ) {
                 DhForm.Note(
-                    "这次会替换「" + (doll?.name ?: "这个角色") + "」的模型，" +
-                        "不会新建角色，也不会改动她的人格和记忆。"
+                    "这次会替换「" + (doll?.name ?: "这只人偶") + "」的模型，" +
+                        "不会新建人偶，也不会改动她的人格和记忆。"
                 )
                 DhForm.Note("替换失败会自动保留原来的样子，不会只换一半。")
             }

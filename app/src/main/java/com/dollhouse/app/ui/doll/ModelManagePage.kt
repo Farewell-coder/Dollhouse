@@ -130,7 +130,7 @@ object ModelManagePage {
 
         DhKit.Page(
             title = "模型",
-            sub = doll?.name ?: "这个角色",
+            sub = doll?.name ?: "这只人偶",
             onBack = { PageStack.pop(act) }
         ) {
             DhKit.Card {
@@ -236,7 +236,7 @@ object ModelManagePage {
             }
             Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhForm.Note(
-                "换模型只换样子：她的人格、记忆和聊天记录都不会变，角色库里也不会多出人。"
+                "换模型只换样子：她的人格、记忆和聊天记录都不会变，人偶库里也不会多出人。"
             )
         }
 
@@ -290,7 +290,7 @@ object ModelManagePage {
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                DhForm.Note("只替换这个角色的模型。她的人格、记忆和聊天记录不会变。")
+                DhForm.Note("只替换这只人偶的模型。她的人格、记忆和聊天记录不会变。")
             }
         }
 

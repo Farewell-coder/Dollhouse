@@ -17,9 +17,13 @@ import com.dollhouse.app.ui.compose.ComposeHost
  *   于是：
  *   - 三个按钮**搬进「我的资料」抽屉**（见 [ProfileDrawer]）；本页**一个不留**；
  *   - `Dollhouse` 大标题与 `A Home for Every Character` 副标题**整体丢弃**（用户明确说不要）；
- *   - 这一页只剩「暂未开放」占位（见 [ComingSoonPage.Social]）。
+ *   - 这一页当时只剩「暂未开放」占位。
  *
- * 【为什么不把这个类删掉、直接把第三格渲染成 ComingSoonPage】
+ * 【r25 变更】占位换成真内容：`说说` 现在是**人偶近况流**（见 [SocialPage]）——
+ *   把每只人偶的长期记忆按时间倒序聚合上来。数据只读、不新增任何存储。
+ *   原占位页 [ComingSoonPage] 保留（它仍是通用「暂未开放」骨架，只是本页不再用）。
+ *
+ * 【为什么不把这个类删掉、直接把第三格渲染成内容页】
  *   底栏的路由契约是「每个 Tab 一个可缓存的 View（带 tag）」——
  *   `HomeUi.apply` 建它、`showTab` 靠 `findViewWithTag(TAG_HOME)` 显隐它。
  *   直接删掉会让 `TAG_HOME` 找不到视图、切到第三格时整片空白。
@@ -50,8 +54,8 @@ object HomeScreen {
 
     @Composable
     private fun HomeContent(act: MainActivity) {
-        // 【为什么不传 act】占位页无任何交互，不需要 Activity。
-        //   参数留着是为了不动 build 的签名（见上一条注释）。
-        ComingSoonPage.Social()
+        // 【为什么传 act】说说页需要 Context 读记忆库 / 解码头像，也需要它做页面跳转
+        //   （去聊天、去记忆库设置），所以 Activity 是真实依赖，不再是占位时期的空参数。
+        SocialPage.Feed(act)
     }
 }

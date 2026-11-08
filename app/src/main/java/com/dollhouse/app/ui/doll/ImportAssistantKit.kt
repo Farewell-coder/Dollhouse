@@ -623,7 +623,7 @@ internal object ImportAssistantKit {
                 Box(Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
                     Image(
                         bitmap = b,
-                        contentDescription = "预览角色，可以拖动",
+                        contentDescription = "预览人偶，可以拖动",
                         modifier = Modifier
                             .fillMaxSize(0.90f * k)
                             .offset {

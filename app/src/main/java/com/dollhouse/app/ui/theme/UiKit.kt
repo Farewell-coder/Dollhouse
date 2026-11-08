@@ -1581,7 +1581,15 @@ object UiKit {
         return b
     }
 
-    /** 弹窗正文说明：13sp 副字色。 */
+    /**
+     * 弹窗正文说明：13sp 副字色。
+     *
+     * @deprecated 随 [showDialog] 一起退场：它唯一的调用方是 View 版弹窗。
+     *   2026-11 全仓调用点已清零（最后一处是 ChatPanel 的消息详情）。
+     *   新代码请用 `AppDialog.note(act, title, message)` —— 正文样式由
+     *   `DhTokens.type.sub` 提供，与 Compose 弹窗同档。
+     */
+    @Deprecated(message = "已由 AppDialog.note(act, title, message) 取代，禁止新增调用")
     @JvmStatic
     fun dialogMessage(ctx: Context, text: String): TextView {
         val t = TextView(ctx)
@@ -1608,7 +1616,18 @@ object UiKit {
      * 刻意不用系统 AlertDialog —— 各家 ROM 的原生弹窗是白底 Material 外观，
      * 与全局配色割裂；自绘才能保证暗色 / 纯黑主题下也不刺眼。
      * posText / negText 传 null 表示不显示该按钮；两者都 null 则整行不出现。
+     *
+     * @deprecated 已由 `ui/compose/AppDialog` 取代，**禁止新增调用**。
+     *   全仓调用点在 2026-11 已清零（最后一处是 PetWindow 的调试弹窗）。
+     *   为什么不删：它的按钮/标题/取色工具（dialogButton / dialogTitle / dialogTint）
+     *   仍被其它弹窗与主题刷新引用，删外壳要连带改这些，收益为零、风险不为零。
+     *   新代码请用 `AppDialog.note(...)` / `AppDialog.confirm(...)` / `AppDialog.custom(...)`，
+     *   三者共用 `DhForm.DialogButton` 与共享取色 `dialogSheet()`，与 Compose 弹窗同一套观感。
      */
+    @Deprecated(
+        message = "已由 ui/compose/AppDialog 取代，禁止新增调用："
+                + "note = 通知、confirm = 确认、custom = 自定义正文"
+    )
     @JvmStatic
     fun showDialog(
         act: Activity?, title: String?, content: View?,

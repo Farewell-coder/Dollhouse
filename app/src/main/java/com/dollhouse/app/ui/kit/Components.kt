@@ -242,8 +242,25 @@ fun DhField(
     enabled: Boolean = true,
     leadingIcon: Int = 0,
     trailing: (@Composable () -> Unit)? = null,
-    onDone: (() -> Unit)? = null
+    onDone: (() -> Unit)? = null,
+    /**
+     * 输入框的**无障碍名**（读屏与 `uiautomator dump` 读到的名字）。
+     *
+     * 【为什么是 contentDescription 而不是 hint】Compose 1.10.2 的 `ui-android` 只暴露
+     *   `setContentDescription`，**没有** `setHintText` —— 没有「提示文本」这条语义通道。
+     *   所以想让 dump 里那个 EditText 节点带名字，contentDescription 是唯一入口。
+     *
+     * 【取舍·写在这里免得下一个人以为乱写】官方建议「别给可编辑控件塞 content-desc」，
+     *   因为部分读屏会先念名字再念输入值。本工程没有 hint 通道，两者只能二选一：
+     *   要么 dump / 读屏完全无名（就是本次要修的 bug），要么接受「名字 + 值」的念法。
+     *   选后者。
+     *
+     * 【为什么必须挂在 BasicTextField 自己的 modifier 上】挂在外层 Row 只会多一个兄弟节点，
+     *   dump 里 EditText 节点仍然是空 desc（实测两个节点不会合并）。
+     */
+    a11yName: String? = null
 ) {
+    val a11y = a11yName
     val p = DhTokens.palette
     val t = DhTokens.type
     val source = remember { MutableInteractionSource() }
@@ -304,7 +321,17 @@ fun DhField(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
+                // 【只加一个属性】这里只写 contentDescription；text field 自己的
+                //   editableText / SetText / imeAction 由它内部语义提供，本修饰符不覆盖它们。
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (a11y != null) {
+                            Modifier.semantics { contentDescription = a11y }
+                        } else {
+                            Modifier
+                        }
+                    ),
                 enabled = enabled,
                 textStyle = t.body.copy(color = p.title),
                 singleLine = singleLine,

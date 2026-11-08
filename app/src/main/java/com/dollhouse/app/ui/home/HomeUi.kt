@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.dp
+import com.dollhouse.app.ui.compose.AppDialog
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
@@ -369,14 +370,19 @@ object HomeUi {
      *
      * 【为什么是弹窗不是 Toast】`UiKit` 顶部有工程硬约束：本 App **不允许任何形式的
      *   Toast / Snackbar / 自实现浮层短提示**（2026-10-03 已全量删除 55 处）。
-     *   这里走 [showShizukuDialog] 的同一条合法通道：原生 Dialog + 标题 + 正文 + 「知道了」。
+     *   这里走 [AppDialog.note] 这条统一通道：标题 + 正文 + 「知道了」。
+     *
+     * 【迁移记录】原先调用 `UiKit.showDialog` + `UiKit.dialogMessage`（View 手搭正文）。
+     *   行为逐项等价：同样的标题 / 同样的「知道了」单按钮 / 点外部与返回键都可关闭 /
+     *   连点只保留一个弹窗（下面的 noticeDialog 判重原样保留）。
+     *   观感上只多了一层「弹窗透明度」的补偿（见 AppDialog.sheetColor）。
      */
     @JvmStatic
     fun showNotice(ctx: Context, title: String, message: String) {
         val act = UiKit.findActivity(ctx) ?: return
         // 同类提示只保留一个，连续点击不会叠出一串对话框。
         if (noticeDialog?.isShowing == true) return
-        noticeDialog = UiKit.showDialog(act, title, UiKit.dialogMessage(act, message), "知道了", null, null, null)
+        noticeDialog = AppDialog.note(act, title, message)
     }
     private var noticeDialog: android.app.Dialog? = null
 
@@ -760,10 +766,16 @@ object HomeUi {
         }
     }
 
-    /** Shizuku 说明弹窗（无 Toast 约束下的唯一合法反馈通道）。 */
+    /**
+     * Shizuku 说明弹窗（无 Toast 约束下的唯一合法反馈通道）。
+     *
+     * 【迁移记录】原 `UiKit.showDialog(act, "Shizuku 授权", UiKit.dialogMessage(...), "知道了", null, null, null)`
+     *   → [AppDialog.note]。标题、正文、「知道了」单按钮、点外部可关闭全部保持不变；
+     *   与 [showNotice] 不同，这里**不做**判重（原来也没有），连续触发会叠窗，行为按原样保留。
+     */
     private fun showShizukuDialog(ctx: Context, message: String) {
         val act = UiKit.findActivity(ctx) ?: return
-        UiKit.showDialog(act, "Shizuku 授权", UiKit.dialogMessage(act, message), "知道了", null, null, null)
+        AppDialog.note(act, "Shizuku 授权", message)
     }
 
     /* ============================ 保活 / 磁贴 ============================ */

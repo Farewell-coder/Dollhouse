@@ -1018,14 +1018,14 @@ object DollActionPage {
             negText = "取消"
         ) {
             // 【R-112 七节】副标题：明确告诉用户「这是给谁的」，避免他以为在新建独立动作。
-            DhForm.Note("给 " + (DollStore.byId(act, dollId)?.name ?: "这个角色"))
+            DhForm.Note("给 " + (DollStore.byId(act, dollId)?.name ?: "这只人偶"))
             DhKit.SectionLabel("什么时候播放")
             DhKit.CheckRow(
                 text = "自动：待机时每隔 15–60 秒自己播放一次",
                 selected = groupIdx == 0
             ) { groupIdx = 0 }
             DhKit.CheckRow(
-                text = "手动：点击角色时随机播放",
+                text = "手动：点击人偶时随机播放",
                 selected = groupIdx == 1
             ) { groupIdx = 1 }
             DhForm.Note("待机、拖拽和贴边在「状态动画」里设置。")

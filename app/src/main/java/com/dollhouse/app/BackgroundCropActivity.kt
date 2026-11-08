@@ -134,6 +134,16 @@ class BackgroundCropActivity : Activity() {
     //   Activity 重建路径下 `crop` 可能还挂在旧树上，故先 removeView 兜一道。
 
     private fun buildUi(): View {
+        // 【必须最先装 owner】本页继承的是 `android.app.Activity`（不是 ComponentActivity），
+        //   它的 decorView 上**没有** `ViewTreeLifecycleOwner`。
+        //   ComposeView 一 attach 就会抛 `ViewTreeLifecycleOwner not found from DecorView` ——
+        //   也就是「一进裁剪页就闪退」。原生 Activity 不会自动装这三个 owner。
+        //   顺序必须是：装 owner → 建 ComposeView → setContentView。
+        //   `installForActivity` 幂等（已装过直接返回既有 owner），重复调用无害。
+        //   【为什么这条差点漏掉】改造时只盯着"外壳换 Compose"，忘了 Compose 的宿主前提
+        //   在原生 Activity 上不会自动满足 —— `ChatActivity` 与 `CoverCropActivity`
+        //   都有同一段注释，唯独这里漏了。`device-verify` 对照两个文件时发现的。
+        ComposeHost.installForActivity(this)
         return ComposeHost.createView(this) { CropShell() }
     }
 

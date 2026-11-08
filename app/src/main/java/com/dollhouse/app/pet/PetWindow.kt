@@ -22,6 +22,7 @@ import com.dollhouse.app.data.ActionViewport
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.pet.behavior.ActionSemantic
+import com.dollhouse.app.ui.compose.AppDialog
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.doll.DollActionPage
 import com.dollhouse.app.ui.theme.UiKit
@@ -2094,10 +2095,11 @@ class PetWindow(private val host: PetService, val doll: DollStore.Doll) {
             append("内存：").append(usedMb).append(" MB\n")
             append("帧尺寸：").append(pv.width).append("×").append(pv.height)
         }
-        UiKit.showDialog(act, "调试状态", android.widget.TextView(act).apply {
-            text = info
-            setPadding(24, 16, 24, 16)
-        }, "关闭", null, null, null)
+        // 【迁移记录】原 `UiKit.showDialog(act, "调试状态", TextView(手搭多行文本), "关闭", null, null, null)`
+        //   → [AppDialog.note]。标题、正文内容、「关闭」单按钮不变；调试信息本来就只读，
+        //   因此沿用最简形态（note），不做「复制/保存」之类的新交互。
+        //   【可见性行为不变】它仍然只由长按菜单里的「调试状态」触发，触发条件一行未改。
+        AppDialog.note(act, "调试状态", info, posText = "关闭")
     }
 
     /** 打开该人偶的动作列表页（先回主页，再 push 动作页）。 */

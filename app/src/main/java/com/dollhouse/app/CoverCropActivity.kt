@@ -13,18 +13,43 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.view.ViewGroup
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.home.HomeUi
-import com.dollhouse.app.ui.theme.Fonts
 import com.dollhouse.app.ui.theme.UiKit
 import java.io.File
 import java.io.FileOutputStream
@@ -76,14 +101,29 @@ class CoverCropActivity : Activity() {
      */
     private val savedMatrix = arrayOfNulls<FloatArray>(3)
 
-    /** 顶部「第 N / 3 次」与比例名。 */
-    private var stepLabel: TextView? = null
+    /**
+     * 当前步骤的**只读镜像**，供 Compose 画「第 N / 3 次」与主按钮文案。
+     *
+     * 【为什么不把 [step] 本身变成 Compose 状态】[step] 不只是界面状态：
+     *   [cropOne] 在保存时会把 step 临时改成 0 / 1 / 2（借它切比例算选区），算完再还原。
+     *   一旦它成为 Compose 状态，等于把「落盘循环的游标」暴露给重组 ——
+     *   文案与几何的时序会互相牵连，而这正是这类页面最容易出事的地方。
+     *   所以这里只镜像一个副本：**几何仍由 [refreshStep] 命令式驱动，Compose 只读不写。**
+     */
+    private val uiStep = mutableStateOf(0)
 
-    /** 「上一个比例」按钮（第 1 次时置灰不可点）。 */
-    private var prevBtn: TextView? = null
-
-    /** 主操作按钮：前两次是「下一个比例」，最后一次是「保存」。 */
-    private var nextBtn: TextView? = null
+    /**
+     * 裁剪切台的浮层配色（黑画布 + 照片之上）。
+     *
+     * 【为什么不走 DhTokens.palette】本页刻意不跟主题：`window.statusBarColor` 被强制成黑色，
+     *   界面压在照片上。浅色主题的卡片色在照片上会糊成一片。
+     *   这四个值逐项对应改造前的 `roundStroke(0x1AFFFFFF, 0x66FFFFFF)` / `(0x14FFFFFF, 0x59FFFFFF)`。
+     */
+    private val overlayFg = androidx.compose.ui.graphics.Color.White
+    private val overlayBg = androidx.compose.ui.graphics.Color(0x1AFFFFFF)
+    private val overlayLine = androidx.compose.ui.graphics.Color(0x66FFFFFF)
+    private val toolBg = androidx.compose.ui.graphics.Color(0x14FFFFFF)
+    private val toolLine = androidx.compose.ui.graphics.Color(0x59FFFFFF)
 
     /** 顶栏 / 底栏实测占用高度（像素），由页面量出来后回填给 CropView。 */
     private var insetTop = 0
@@ -135,125 +175,217 @@ class CoverCropActivity : Activity() {
 
     /* ============================ 界面 ============================ */
 
+    /**
+     * 建页面。
+     *
+     * 【为什么必须先 installForActivity】本页继承的是 `android.app.Activity`（不是
+     *   ComponentActivity），它的 decorView 上**没有** `ViewTreeLifecycleOwner`。
+     *   ComposeView 一 attach 就会抛 `ViewTreeLifecycleOwner not found from DecorView`。
+     *   所以顺序必须是：装 owner → 建 ComposeView → setContentView。
+     *   （`ChatActivity` 用的是同一个写法。）
+     */
     private fun buildUi(): View {
-        val root = FrameLayout(this)
-        root.setBackgroundColor(Color.BLACK)
-
-        val c = CropView(this)
-        crop = c
-        root.addView(c, FrameLayout.LayoutParams(-1, -1))
-
-        buildTopBar(root)
-        buildBottomBar(root)
-        return root
+        ComposeHost.installForActivity(this)
+        return ComposeHost.createView(this) { CoverShell() }
     }
 
-    /** 顶栏：取消 + 「第 N / 3 次」+ 当前比例名。 */
-    private fun buildTopBar(root: FrameLayout) {
-        val bar = LinearLayout(this)
-        bar.orientation = LinearLayout.HORIZONTAL
-        bar.gravity = Gravity.CENTER_VERTICAL
-
-        val cancel = pill("取消")
-        cancel.setOnClickListener { finish() }
-        bar.addView(cancel)
-
-        // 步骤指示：居中、占满剩余宽度，右侧需要真居中就靠一层 Spacer 平衡。
-        val label = TextView(this)
-        label.typeface = Fonts.uiBold(this)
-        label.setTextSize(UiKit.FS_TINY + 3.0f)
-        label.setTextColor(Color.WHITE)
-        label.gravity = Gravity.CENTER
-        bar.addView(label, LinearLayout.LayoutParams(0, -2, 1.0f))
-        stepLabel = label
-
-        // 右侧放一个与「取消」等宽的占位，保证中间的指示文字是真居中（不是偏左）。
-        val ghost = pill("取消")
-        ghost.visibility = View.INVISIBLE
-        bar.addView(ghost)
-
-        val lp = FrameLayout.LayoutParams(-1, -2)
-        lp.topMargin = UiKit.dp(this, 18.0f)
-        lp.leftMargin = UiKit.dp(this, PAD_DP)
-        lp.rightMargin = UiKit.dp(this, PAD_DP)
-        root.addView(bar, lp)
-        bar.addOnLayoutChangeListener { _, _, _, _, b, _, _, _, _ ->
-            insetTop = b + UiKit.dp(this, 10.0f)
-            applyInsets()
-        }
-    }
-
-    /** 底栏：上一个比例 / 复位 / − / + / 下一个比例（或保存）。 */
-    private fun buildBottomBar(root: FrameLayout) {
-        val bottom = LinearLayout(this)
-        bottom.orientation = LinearLayout.VERTICAL
-        bottom.gravity = Gravity.CENTER_HORIZONTAL
-
-        // 第一行：复位 / 缩小 / 放大（与背景裁剪页同款，用户已经熟悉这套操作）。
-        val tools = LinearLayout(this)
-        tools.orientation = LinearLayout.HORIZONTAL
-        tools.gravity = Gravity.CENTER
-        tools.addView(tool("复位") { crop?.reset() })
-        tools.addView(tool("−") { crop?.zoomBy(1 / 1.25f) })
-        tools.addView(tool("+") { crop?.zoomBy(1.25f) })
-        bottom.addView(tools)
-
-        // 第二行：上一个比例（次操作）+ 主操作。
-        val actions = LinearLayout(this)
-        actions.orientation = LinearLayout.HORIZONTAL
-        actions.gravity = Gravity.CENTER
-        val prev = tool("上一个")
-        prev.setOnClickListener { goStep(step - 1) }
-        actions.addView(prev)
-        prevBtn = prev
-
-        val main = TextView(this)
-        main.typeface = Fonts.uiBold(this)
-        main.setTextSize(UiKit.FS_BTN)
-        main.setTextColor(Color.WHITE)
-        main.gravity = Gravity.CENTER
-        main.background = UiKit.round(UiKit.ACC, this, 12f)
-        UiKit.press(main)
-        main.setOnClickListener { onMainAction() }
-        val mLp = LinearLayout.LayoutParams(UiKit.dp(this, 150.0f), UiKit.dp(this, 40.0f))
-        mLp.leftMargin = UiKit.dp(this, 10.0f)
-        actions.addView(main, mLp)
-        nextBtn = main
-
-        val aLp = LinearLayout.LayoutParams(-2, -2)
-        aLp.topMargin = UiKit.dp(this, 12.0f)
-        bottom.addView(actions, aLp)
-
-        val botLp = FrameLayout.LayoutParams(-1, -2)
-        botLp.gravity = Gravity.BOTTOM
-        botLp.bottomMargin = UiKit.dp(this, 22.0f)
-        root.addView(bottom, botLp)
-
-        bottom.addOnLayoutChangeListener { v, _, t, _, _, _, _, _, _ ->
-            val parent = v.parent as View
-            insetBottom = Math.max(0, parent.height - t) + UiKit.dp(this, 10.0f)
-            applyInsets()
-        }
-
-        refreshStep()
-    }
-
-    /** 刷新步骤相关的界面文案与可按状态。 */
-    private fun refreshStep() {
+    /**
+     * 封面裁剪页外壳：顶栏（取消 + 步骤指示）+ 底栏（工具 + 上一个 + 主操作）。
+     *
+     * 【改造边界·只换外壳】选图、解码、拖拽、双指缩放、边界夹紧、三次落盘的语义与代码
+     *   **一行未动**；[CropView] 原封不动地由 [AndroidView] 装进来。
+     *   步骤状态机同样未动：`step` 仍是普通 Int，[goStep] / [cropOne] / [saveAll] 的控制流照旧。
+     *
+     * 【insetTop / insetBottom 的时序·最容易出错的地方】改造前靠
+     *   `addOnLayoutChangeListener` 量出顶栏底边、底栏顶边再回填给 CropView。
+     *   这里换成 [onSizeChanged]，并让公式逐项对上：
+     *     · 顶栏 → `onSizeChanged` 写在 `padding` **之前**（链上更外层），
+     *       量到的就是「18dp 上边距 + 内容高」，与原实现里的 `b`（顶栏底边 y）相等；
+     *     · 底栏 → 把 22dp 底部留白做成 Column **内部**的 Spacer，
+     *       于是 Column 实测高度 = 原实现里的 `parent.height - t`（底栏高 + 底边距），
+     *       不需要任何常数补偿；
+     *     · 两处再各自 +10dp 余量，与原实现的 `+ UiKit.dp(10f)` 一致。
+     *   两个 inset 先后到达是安全的：[CropView.setInsets] 只在值变化时才重排，
+     *   且 `layout()` 内部对「还没量到」保留了 96dp / 170dp 的保守下限。
+     */
+    @Composable
+    private fun CoverShell() {
+        // 引擎实例：每次搭页面建一个，并登记到 `crop` 字段 ——
+        //   saveAll / cropOne / onDestroy / applyInsets 仍然走这个入口，与改造前一致。
+        val engine = remember { CropView(this).also { crop = it } }
+        val gap = UiKit.dp(this, 10.0f)
+        val index = uiStep.value
         val total = PetPrefs.DOLL_COVER_RATIOS.size
-        val label = stepLabel ?: return
-        val cols = step + 1
-        label.text = "第 " + (step + 1) + " / " + total + " 次 · " + cols + " 列排布"
-        val prev = prevBtn
-        if (prev != null) {
-            // 【可点判据】第 1 步没有上一步；置灰但仍然占位，避免按钮左右横跳。
-            prev.alpha = if (step <= 0) 0.35f else 1.0f
-            prev.isEnabled = step > 0
+        // 改造前在 buildBottomBar 末尾调 refreshStep()；此刻 crop 已创建，等价位置就是这里。
+        LaunchedEffect(Unit) { refreshStep() }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black)
+        ) {
+            // 裁剪引擎：原封不动的 CropView
+            AndroidView(
+                factory = { _ ->
+                    // 【坑·一个 View 只能有一个 parent】重建路径下 engine 可能还挂在旧树上。
+                    (engine.parent as? ViewGroup)?.removeView(engine)
+                    engine
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // ---------- 顶栏：取消 + 「第 N / 3 次 · M 列排布」 ----------
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .onSizeChanged {
+                        insetTop = it.height + gap
+                        applyInsets()
+                    }
+                    .fillMaxWidth()
+                    .padding(top = 18.dp, start = PAD_DP.dp, end = PAD_DP.dp)
+            ) {
+                // 【顺手去掉原来那个 ghost 占位】改造前为了让中间的文字真居中，
+                //   在右侧放了一个 INVISIBLE 的「取消」当等宽占位。Compose 直接居中即可。
+                Pill(
+                    text = "取消",
+                    bg = overlayBg,
+                    line = overlayLine,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    onClick = { finish() }
+                )
+                Text(
+                    text = "第 " + (index + 1) + " / " + total + " 次 · " + (index + 1) + " 列排布",
+                    modifier = Modifier.align(Alignment.Center),
+                    // 【字族】步骤指示是「系统在报告事实」，按全 App 口径走系统字（section 16/600）。
+                    style = DhTokens.type.section,
+                    color = overlayFg
+                )
+            }
+
+            // ---------- 底栏 ----------
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .onSizeChanged {
+                        insetBottom = it.height + gap
+                        applyInsets()
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 第一行：复位 / 缩小 / 放大（与背景裁剪页同款，用户已经熟悉这套操作）。
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ToolPill("复位") { crop?.reset() }
+                    ToolPill("−") { crop?.zoomBy(1 / 1.25f) }
+                    ToolPill("+") { crop?.zoomBy(1.25f) }
+                }
+                Spacer(Modifier.height(12.dp))
+                // 第二行：上一个比例（次操作）+ 主操作。
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 【可点判据】第 1 步没有上一步；置灰但仍然占位，避免按钮左右横跳。
+                    ToolPill(
+                        text = "上一个",
+                        enabled = index > 0,
+                        modifier = Modifier.alpha(if (index <= 0) 0.35f else 1f)
+                    ) { goStep(index - 1) }
+                    Box(
+                        modifier = Modifier
+                            .width(150.dp)
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(DhTokens.palette.accent)
+                            .clickable { onMainAction() },
+                        // 【对齐门禁】有背景 + 只有一个文字，必须显式居中。
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (index >= total - 1) "保存" else "下一个比例",
+                            // 【字重】文楷是单字重字体，写 600 会被合成加粗；这里固定 400，
+                            //   层级由强调色底 + 白字承担（与全 App 清理双粗体的口径一致）。
+                            style = DhTokens.type.body.copy(
+                                fontFamily = DhTokens.fonts,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            color = overlayFg
+                        )
+                    }
+                }
+                // 22dp 底部留白放在 Column 内部：Column 实测高度即「底栏 + 底边距」。
+                Spacer(Modifier.height(22.dp))
+            }
         }
-        val main = nextBtn
-        if (main != null) {
-            main.text = if (step >= total - 1) "保存" else "下一个比例"
+    }
+
+    /**
+     * 胶囊按钮：顶栏「取消」与底栏工具共用一套实现。
+     *
+     * 【为什么这里不用主题色】本页是「黑画布 + 照片」的裁剪台，`window.statusBarColor`
+     *   也被强制成黑色。白色半透明浮层是这类页面的通行做法 —— 换成浅色主题的卡片色，
+     *   压在照片上会糊成一片，反而更看不清。字形 / 字号 / 字重则**照全 App 口径**走令牌。
+     */
+    @Composable
+    private fun Pill(
+        text: String,
+        bg: androidx.compose.ui.graphics.Color,
+        line: androidx.compose.ui.graphics.Color,
+        modifier: Modifier = Modifier,
+        enabled: Boolean = true,
+        onClick: () -> Unit
+    ) {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(bg)
+                .border(1.dp, line, RoundedCornerShape(999.dp))
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                // 【字重】文楷只有单字重，写 600 会被合成加粗（全 App 已清过一轮双粗体），
+                //   所以这里固定 400。
+                style = DhTokens.type.body.copy(
+                    fontFamily = DhTokens.fonts,
+                    fontWeight = FontWeight.Normal
+                ),
+                color = overlayFg
+            )
         }
+    }
+
+    /** 底部工具按钮：84×40、透明底 + 白描边 + 白字（与原 `tool()` 同尺寸）。 */
+    @Composable
+    private fun ToolPill(
+        text: String,
+        enabled: Boolean = true,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        Pill(
+            text = text,
+            bg = toolBg,
+            line = toolLine,
+            modifier = modifier.width(84.dp).height(40.dp),
+            enabled = enabled,
+            onClick = onClick
+        )
+    }
+
+    /**
+     * 刷新步骤相关的界面文案与可按状态。
+     *
+     * 【只做两件事】把步骤号镜像给 Compose（文案 / 置灰由它派生）；
+     *   再让裁剪框切到当前步的比例并恢复这一步之前框好的构图（与原实现逐字一致）。
+     */
+    private fun refreshStep() {
+        uiStep.value = step
         // 让裁剪框切到当前步的比例，并恢复这一步之前框好的构图。
         crop?.applyStep(step, savedMatrix[step])
     }
@@ -808,41 +940,6 @@ class CoverCropActivity : Activity() {
             clampOffset()
             invalidate()
         }
-    }
-
-    /* ============================ 小控件 ============================ */
-
-    private fun pill(text: String): TextView {
-        val t = TextView(this)
-        t.typeface = Fonts.ui(this)
-        t.text = text
-        t.setTextSize(UiKit.FS_TINY + 2f)
-        t.setTextColor(Color.WHITE)
-        t.gravity = Gravity.CENTER
-        t.background = UiKit.roundStroke(0x1AFFFFFF, 0x66FFFFFF, this, 999f)
-        t.setPadding(UiKit.dp(this, 16f), UiKit.dp(this, 7f), UiKit.dp(this, 16f), UiKit.dp(this, 7f))
-        UiKit.press(t)
-        return t
-    }
-
-    /** 底部工具按钮：透明底 + 白描边 + 白字。 */
-    private fun tool(text: String, click: (() -> Unit)? = null): TextView {
-        val t = TextView(this)
-        t.typeface = Fonts.ui(this)
-        t.text = text
-        t.setTextSize(UiKit.FS_BTN)
-        t.setTextColor(Color.WHITE)
-        t.gravity = Gravity.CENTER
-        t.background = UiKit.roundStroke(0x14FFFFFF, 0x59FFFFFF, this, 10f)
-        if (click != null) {
-            t.setOnClickListener { click.invoke() }
-        }
-        UiKit.press(t)
-        val lp = LinearLayout.LayoutParams(UiKit.dp(this, 84f), UiKit.dp(this, 40f))
-        lp.leftMargin = UiKit.dp(this, 5f)
-        lp.rightMargin = UiKit.dp(this, 5f)
-        t.layoutParams = lp
-        return t
     }
 
     companion object {

@@ -248,6 +248,9 @@ object ChatListScreen {
                     value = query,
                     onValueChange = { query = it },
                     hint = "搜索会话或人偶名",
+                    // 【无障碍名】Compose 没有 hint 语义通道（只有 contentDescription），
+                    //   不设这一项，读屏与 uiautomator dump 里这个输入框都是无名的。
+                    a11yName = "搜索会话或人偶名",
                     keyboard = androidx.compose.ui.text.input.KeyboardType.Text,
                     // 【搜索键】软键盘回车显示「搜索」而不是「完成」——
                     //   与本框的用途一致（虽然过滤是即时的，不依赖回车）。

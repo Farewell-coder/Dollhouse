@@ -42,6 +42,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.dollhouse.app.ui.theme.ThemeManager
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -74,6 +76,31 @@ private const val TRAILING_VISUAL_DP = 22
  *   避免「改一处、另一处不动」导致同一输入框在两个页面高度不同。
  */
 private val FIELD_H = com.dollhouse.app.ui.design.DhDesign.Size.fieldH
+
+/**
+ * 弹窗底：`c.sheet` 按「弹窗透明度」缩放 alpha —— 全工程**唯一**实现。
+ *
+ * 【为什么必须抽出来】`UiKit.kt` 的 `dialogTint` 注释早就承诺「弹窗底色由 showDialog /
+ *   Alert 从 sheet 取，再过一遍 dialogTint」，但 Compose 侧一直是直接 `c.sheet` ——
+ *   于是用户把「弹窗透明度」调到 60%，旧 View 弹窗变透了、Compose 弹窗还是实的。
+ *   这是功能缺陷，不是风格问题。
+ *
+ * 【为什么只有一份】同一语义两处实现，迟早会走岔（本工程已经为此吃过多次教训）。
+ *   `DhForm.Alert`、`DhForm.show`、`AppDialog` 全部调本函数；算法与
+ *   `UiKit.dialogTint` 逐字一致（base alpha * percent / 100）。
+ *
+ * 【为什么读 UiKit.dialogAlphaApplied 而不是可组合状态】该字段由主题刷新时统一落盘，
+ *   且每次弹窗构建都会重新读；调低透明度后重开弹窗即生效，与 View 侧同一时机。
+ */
+@Composable
+fun dialogSheet(): Color {
+    val base = DhTokens.colors.sheet
+    val percent = UiKit.dialogAlphaApplied
+    if (percent >= 100) {
+        return base
+    }
+    return base.copy(alpha = base.alpha * (Math.max(0, percent) / 100f))
+}
 
 /**
  * 【职责】Compose 侧的表单 / 弹层构件：输入框、标签、徽标、主色药丸、分隔间距、确认弹窗。
@@ -127,7 +154,16 @@ object DhForm {
         keyboard: KeyboardType = KeyboardType.Text,
         imeAction: ImeAction = ImeAction.Done,
         trailing: (@Composable () -> Unit)? = null,
-        compactTrailing: Boolean = false
+        compactTrailing: Boolean = false,
+        /**
+         * 无障碍名（读屏 / `uiautomator dump` 读到的名字）。null = 不设置，与改造前一致。
+         *
+         * 【为什么是 contentDescription】Compose 1.10 没有 hint 语义通道
+         *   （`ui-android` 只有 setContentDescription，没有 setHintText），详见 `DhField` 的同名参数。
+         * 【为什么两条分支都要转发】空文本走 [DhField]、带 trailing 走 [LegacyInput]，
+         *   只改一条会留下「同一个框有时有名有时没名」的坑。
+         */
+        a11yName: String? = null
     ) {
         // 【分派条件】只有「带尾部内容」这一种情况必须走旧实现（理由见 KDoc）。
         //   其余 47 处一律委托 DhField —— 这正是本任务要的「规范真正落地」。
@@ -145,7 +181,8 @@ object DhForm {
                 keyboard = keyboard,
                 imeAction = imeAction,
                 trailing = trailing,
-                compactTrailing = compactTrailing
+                compactTrailing = compactTrailing,
+                a11yName = a11yName
             )
             return
         }
@@ -164,7 +201,8 @@ object DhForm {
                 singleLine = singleLine,
                 keyboard = keyboard,
                 imeAction = imeAction,
-                password = password
+                password = password,
+                a11yName = a11yName
             )
         }
     }
@@ -220,8 +258,11 @@ object DhForm {
          *   周围全是输入框本身，误触风险低；这与 M3「优先扩大命中区」不冲突 ——
          *   该要求针对的是孤立的图标按钮。
          */
-        compactTrailing: Boolean = false
+        compactTrailing: Boolean = false,
+        /** 无障碍名；语义同 [Input] 的 a11yName（两条渲染路径都要能设，否则会漏一半）。 */
+        a11yName: String? = null
     ) {
+        val a11y = a11yName
         val c = DhTokens.colors
         // 【聚焦态·必须保住】这一版不走 DhField，所以聚焦态得自己画 ——
         //   与本轮上一版**逐值相同**（底 field→card、描边 Transparent→accent、160ms），
@@ -263,6 +304,15 @@ object DhForm {
                 onValueChange = onValueChange,
                 modifier = Modifier
                     .fillMaxWidth()
+                    // 【只加一个属性】contentDescription；editableText / SetText / imeAction
+                    //   由 BasicTextField 内部语义提供，本修饰符不覆盖。
+                    .then(
+                        if (a11y != null) {
+                            Modifier.semantics { contentDescription = a11y }
+                        } else {
+                            Modifier
+                        }
+                    )
                     .then(
                         if (fixedHeight) {
                             Modifier.height(FIELD_H)
@@ -1029,10 +1079,12 @@ object DhForm {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 c.sheet：**不透明**，
+                    // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 sheet 一档：默认**不透明**，
                     //   质感由「外观 → 磨砂程度」控制。原来走 c.card，会跟着卡片透明度
                     //   一起变半透明，用户把卡片调透之后弹窗与背后正文叠成一片。
-                    .background(c.sheet)
+                    // 【r15·修】改走共享的 dialogSheet()：再过一道「弹窗透明度」设置 ——
+                    //   此前 Compose 弹窗完全无视该设置（View 弹窗却生效），是功能缺陷。
+                    .background(dialogSheet())
                     .padding(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 14.dp)
             ) {
                 Text(
@@ -1184,8 +1236,9 @@ object DhForm {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    // 【r13】弹窗底走 sheet：不透明 + 磨砂质感（见 UiKit.sheet()）。
-                    .background(c.sheet)
+                    // 【r13】弹窗底走 sheet：默认不透明 + 磨砂质感（见 UiKit.sheet()）。
+                    //   【r15·修】与 Alert 同一份取色：dialogSheet() 会再过一道「弹窗透明度」。
+                    .background(dialogSheet())
                     .padding(start = 18.dp, top = 18.dp, end = 18.dp, bottom = 14.dp)
             ) {
                 if (!title.isNullOrEmpty()) {

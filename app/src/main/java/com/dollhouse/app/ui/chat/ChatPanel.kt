@@ -6,8 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import android.view.View
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.agent.ChatToolRegistry
@@ -33,7 +40,9 @@ import com.dollhouse.app.ui.theme.UiKit
 import java.util.regex.Pattern
 import org.json.JSONArray
 import org.json.JSONObject
+import com.dollhouse.app.ui.compose.AppDialog
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhForm
 
 /**
  * 【职责】聊天气泡面板本体：消息列表、输入行、附件条、AI 请求与工具回填。
@@ -770,19 +779,28 @@ class ChatPanel(
     /**
      * 【r19·聊天搜索】弹出搜索框，在当前会话历史里查关键词并高亮定位。
      *
-     * 【为什么用原生 Dialog 而不是 Compose】这里是命令式调用（长按标题触发），
-     *   且要带输入框 + 结果列表 —— 原生 Dialog 与既有确认框同一套壳，零额外依赖。
+     * 【迁移记录】原先是 `UiKit.showDialog`（View 手搭 `EditText`）。现在走 [AppDialog.custom]：
+     *   标题 / 按钮文案（取消 · 搜索）/ 点击「搜索」后先关窗再执行（`AppDialog` 保证同序）/
+     *   空关键词只关窗不搜 —— 全部与旧实现一致；输入框换成 Compose 的 [DhForm.Input]。
+     *
+     * 【焦点与输入法】旧版 EditText 是弹窗里唯一的可聚焦控件，靠系统默认行为拿焦点。
+     *   Compose 不会自动这样做，所以这里显式 `requestFocus()`；窗口再开 `imeSafe`
+     *   （`SOFT_INPUT_ADJUST_RESIZE`），让键盘弹出时把弹窗顶上去而不是盖住输入框；
+     *   弹窗销毁时主动收键盘，避免「窗关了键盘还杵着」。
+     *   ⚠ 这一条**必须真机确认**：Compose TextField 在 Dialog 里的键盘时序与 View 不同。
+     *
      * 【命中后】滚动到该条并闪烁高亮（由 renderHistory 的 highlightIndex 控制）。
      */
     public override fun showSearchDialog() {
         val act = UiKit.findActivity(context) ?: return
-        val input = android.widget.EditText(act)
-        input.hint = "搜索聊天内容"
-        input.setPadding(24, 16, 24, 16)
-        UiKit.showDialog(act, "搜索", input, "搜索", View.OnClickListener {
-            val kw = input.text.toString().trim()
+        // 关键词草稿：Action 回调（普通 lambda）与输入框（Composable）共用这一份状态。
+        val draft = mutableStateOf("")
+
+        fun commit() {
+            val kw = draft.value.trim()
             if (kw.isEmpty()) {
-                return@OnClickListener
+                // 与旧实现一致：空关键词不搜。弹窗已由 AppDialog 关闭。
+                return
             }
             val idx = searchHistory(kw)
             if (idx >= 0) {
@@ -797,7 +815,35 @@ class ChatPanel(
             } else {
                 flashMemo("没找到「" + kw + "」")
             }
-        }, "取消", null)
+        }
+
+        AppDialog.custom(
+            act = act,
+            title = "搜索",
+            actions = listOf(
+                AppDialog.Action("取消", false),
+                AppDialog.Action("搜索", true) { commit() }
+            ),
+            imeSafe = true
+        ) {
+            val focus = remember { FocusRequester() }
+            val keyboard = LocalSoftwareKeyboardController.current
+            // 弹窗销毁即收键盘（Dialog 的 window 消失后 IME 不一定自己走）。
+            DisposableEffect(Unit) {
+                onDispose { keyboard?.hide() }
+            }
+            // 进窗即聚焦；Compose 的 TextField 拿到焦点后会自行建立输入连接。
+            LaunchedEffect(Unit) {
+                focus.requestFocus()
+            }
+            DhForm.Input(
+                value = draft.value,
+                onValueChange = { draft.value = it },
+                modifier = Modifier.focusRequester(focus),
+                hint = "搜索聊天内容",
+                singleLine = true
+            )
+        }
     }
 
     /** 在历史里搜关键词（从最新往回找），返回下标；没找到返回 -1。 */
@@ -1222,15 +1268,9 @@ class ChatPanel(
         if (o.has("image")) {
             sb.append("带图：是\n")
         }
-        com.dollhouse.app.ui.theme.UiKit.showDialog(
-            act,
-            "这条消息",
-            com.dollhouse.app.ui.theme.UiKit.dialogMessage(act, sb.toString().trim()),
-            "知道了",
-            null,
-            null,
-            null
-        )
+        // 【迁移记录】原 `UiKit.showDialog(act, "这条消息", UiKit.dialogMessage(...), "知道了", null, null, null)`
+        //   → [AppDialog.note]：标题、多行正文、「知道了」单按钮、点外部可关闭全部不变。
+        AppDialog.note(act, "这条消息", sb.toString().trim())
     }
 
     /**
