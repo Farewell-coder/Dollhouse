@@ -412,7 +412,7 @@ object DollActionPage {
                             "\n\n⚠ 已存在同标识的模型包，导入会覆盖它。" else ""),
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 if (chk.warnings.isNotEmpty()) {
                     Spacer(Modifier.height(DhDesign.Space.xs.dp))
@@ -496,7 +496,7 @@ object DollActionPage {
                     text = msg,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -538,7 +538,7 @@ object DollActionPage {
                     text = "确定删除「" + (target?.name ?: "") + "」吗？它下面的所有帧都会被一起删掉。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 if (refs.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -560,7 +560,7 @@ object DollActionPage {
                         text = "删除时会一并取消这些绑定，不会留下悬空的设置。",
                         color = DhTokens.colors.sub,
                         fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }
@@ -601,7 +601,7 @@ object DollActionPage {
                         (target?.frames?.size ?: 0) + " 帧、播放速度、显示设置一起复制一份。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 if (target != null && DollAnim.isFixedGroup(target.group)) {
                     Spacer(Modifier.height(DhDesign.Space.xs.dp))
@@ -610,7 +610,7 @@ object DollActionPage {
                             "」组（固定位只能有一个）。",
                         color = DhTokens.colors.sub,
                         fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }
@@ -644,7 +644,7 @@ object DollActionPage {
                         (target?.frames?.size ?: 0) + " 帧、播放参数、锚点与触发设置都带上。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 Spacer(Modifier.height(DhDesign.Space.xs.dp))
                 Text(
@@ -652,7 +652,7 @@ object DollActionPage {
                         "别人拿到包不用猜顺序。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -670,7 +670,7 @@ object DollActionPage {
                     text = expMsg,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -697,7 +697,7 @@ object DollActionPage {
                         "之后你可以导入新的一组图。\n\n名字、描述、播放速度都会保留。",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -797,7 +797,7 @@ object DollActionPage {
                 else action!!.frames.size.toString() + " 帧 · " + action.fps + "fps",
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts,
+                fontFamily = DhTokens.fontsBody,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -913,7 +913,7 @@ object DollActionPage {
                     text = if (action.desc.isEmpty()) "（没有描述）" else action.desc,
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )

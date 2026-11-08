@@ -296,7 +296,7 @@ object ChatUi {
                         text = if (ChatState.waiting) "正在回复…" else "在线",
                         color = if (ChatState.waiting) c.acc else c.sub,
                         fontSize = UiKit.FS_SUB.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         maxLines = 1
                     )
                 }
@@ -390,7 +390,7 @@ object ChatUi {
                     text = text,
                     color = c.hintFg,
                     fontSize = UiKit.FS_SUB.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -573,7 +573,7 @@ object ChatUi {
                 text = "还没有聊过，说点什么吧",
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
     }
@@ -981,7 +981,7 @@ object ChatUi {
                     text = "这条摘要覆盖了 " + cover + " 条消息。",
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -1010,7 +1010,7 @@ object ChatUi {
                     text = "点击加载更早的历史记录",
                     color = c.chatChipFg,
                     fontSize = UiKit.FS_CHIP.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -1088,7 +1088,7 @@ object ChatUi {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                 }
             }
@@ -1284,7 +1284,7 @@ object ChatUi {
                     modifier = Modifier.padding(start = 6.dp, end = 2.dp),
                     color = c.chatChipMute,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     maxLines = 1
                 )
             }
@@ -1334,6 +1334,8 @@ object ChatUi {
                 textStyle = TextStyle(
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
+                    // 【刻意用文楷，别改成 fontsBody】这里输入的是**跟人偶说的话**，
+                    //   不是工具输入的查询词。换系统字会让对话突然「变成表单」。
                     fontFamily = DhTokens.fonts
                 ),
                 maxLines = 4,
@@ -1364,6 +1366,8 @@ object ChatUi {
                                 text = "跟她说点什么…",
                                 color = c.sub,
                                 fontSize = UiKit.FS_BTN.sp,
+                                // 【刻意用文楷】占位符是**人偶在邀请你开口**，全 App 情感浓度最高的一处，
+                                //   与上面 BasicTextField 的 textStyle 保持同一字族才连贯。
                                 fontFamily = DhTokens.fonts
                             )
                         }

@@ -554,7 +554,7 @@ object TokenStat {
                 modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fonts
+                fontFamily = DhTokens.fontsBody
             )
         }
     }

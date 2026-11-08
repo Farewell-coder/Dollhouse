@@ -379,7 +379,7 @@ object FriendProfilePage {
                         text = bio,
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
-                        fontFamily = DhTokens.fonts,
+                        fontFamily = DhTokens.fontsBody,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )

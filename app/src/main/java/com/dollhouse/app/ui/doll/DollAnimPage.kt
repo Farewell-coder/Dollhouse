@@ -452,7 +452,7 @@ object DollAnimPage {
                             text = if (baking) "正在生成帧…" else if (engineAction != null) "资源加载失败" else if (frames.isEmpty()) "还没有帧" else "加载中…",
                             color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fontsBody
                         )
                     }
                     if (baking) {
@@ -461,7 +461,7 @@ object DollAnimPage {
                             modifier = Modifier.align(Alignment.BottomCenter).padding(DhDesign.Space.md.dp),
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fontsBody
                         )
                     }
                     // 中心点位（对齐基准）画在所有帧之上。
@@ -513,7 +513,7 @@ object DollAnimPage {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -581,7 +581,7 @@ object DollAnimPage {
                     modifier = Modifier.padding(top = 2.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
 
                 // ---------- 播放控制 ----------
@@ -760,7 +760,7 @@ object DollAnimPage {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
-                        fontFamily = DhTokens.fonts
+                        fontFamily = DhTokens.fontsBody
                     )
                     Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     DhKit.MiniChip("选择触发方式", iconRes = Icons.IC_WAYPOINTS) { triggerOpen = true }
@@ -949,7 +949,7 @@ object DollAnimPage {
                         "真实播放时人偶的脚踩在窗口底边，所以默认是底部居中。",
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Gap()
                 for (a in com.dollhouse.app.data.ActionWorkbench.ANCHORS) {
@@ -984,7 +984,7 @@ object DollAnimPage {
                     text = "把这个动作的画面整体挪一点。当前：" + pct(disp.ox) + " / " + pct(disp.oy),
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Gap()
                 Row(
@@ -1085,7 +1085,7 @@ object DollAnimPage {
                         "（否则它永远播不到）。",
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Gap()
                 for (t in com.dollhouse.app.data.ActionWorkbench.TRIGGERS) {
@@ -1124,7 +1124,7 @@ object DollAnimPage {
                         "名字、描述、播放速度（以及贴边裁截线）都会保留。",
                     color = c.sub,
                     fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
         }
@@ -1186,7 +1186,7 @@ object DollAnimPage {
                             "文件存在" else "文件不存在或未指定",
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Gap()
                 DhForm.Button("导出这只人偶为模型包") {
@@ -1214,7 +1214,7 @@ object DollAnimPage {
                     text = em,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Note(
                     "包内只有这只人偶的动作素材，不含聊天记录与个人信息。\n" +

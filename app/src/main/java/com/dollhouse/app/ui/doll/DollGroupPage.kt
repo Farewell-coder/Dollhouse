@@ -122,6 +122,8 @@ object DollGroupPage {
                             text = if (allNames.isEmpty()) "还没有分组" else "分组还是空的",
                             color = c.sub,
                             fontSize = DhTokens.type.body.fontSize, lineHeight = DhTokens.type.body.lineHeight,
+                            // 【刻意用文楷】空态**主文案**是 App 在跟用户说话（有情感），
+                            //   与下面那行系统字的 body 说明形成「主文楷 / 说明系统字」的对比。
                             fontFamily = DhTokens.fonts
                         )
                         Spacer(Modifier.height(DhDesign.Space.xs.dp))
@@ -129,7 +131,7 @@ object DollGroupPage {
                             text = "点右上角的文件夹图标新建一个",
                             color = c.line,
                             fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
-                            fontFamily = DhTokens.fonts
+                            fontFamily = DhTokens.fontsBody
                         )
                     }
                 }

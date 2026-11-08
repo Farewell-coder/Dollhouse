@@ -230,7 +230,7 @@ object DollImportWizardPage {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts
+                    fontFamily = DhTokens.fontsBody
                 )
             }
             val list = checks

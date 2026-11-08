@@ -524,7 +524,7 @@ object ChatListScreen {
                     text = row.preview,
                     color = c.sub,
                     fontSize = DhTokens.type.sub.fontSize, lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fonts,
+                    fontFamily = DhTokens.fontsBody,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
