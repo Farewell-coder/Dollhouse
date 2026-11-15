@@ -48,7 +48,22 @@ object Mem {
         PetPrefs.setMem2List(ctx, dollId, arr.toString())
     }
 
-    /** 新建一条记忆。title 与 content 至少一个非空才写入。 */
+    /**
+     * 新建一条记忆。title 与 content 至少一个非空才写入。
+     *
+     * ## 【坑·返回值语义】`true` 只表示「没抛异常」，**不代表用户能看到这条记忆**
+     * 追加后若超过 [MAX_ENTRIES]，本方法会**砍掉最旧的那批**并仍然返回 `true`。
+     * 日常使用下这是对的（新记忆更重要），但任何**需要知道"这条到底还在不在"**的场景
+     * 都不能拿返回值当证据 —— 典型反例是备份恢复：备份 300 条、上限 200 条时，
+     * 第 201 条起每条都「写进去就被砍」却照样返回 true，于是摘要报「新增 300 条」，
+     * 盘上只有 200 条，而且丢的恰是最早那批（时间最久、情感价值最高）。
+     *
+     * 所以 `AllInOneArchive` 恢复记忆时是**写入前先查条数**（`Mem.list().length() >= MAX_ENTRIES`
+     * 就不写并单独计数），不依赖本方法的返回值。见该文件「记忆」段注释。
+     *
+     * 【为什么不改成"被砍就返回 false"】本方法被多处调用，改语义会让那些地方
+     * 把「正常淘汰旧记忆」误判成失败。契约保持不变，把判断责任交给调用方。
+     */
     @JvmStatic
     fun add(ctx: Context, dollId: String?, m: Memory): Boolean {
         if (m.title.trim().isEmpty() && m.content.trim().isEmpty()) {
@@ -245,6 +260,12 @@ object Mem {
 
     /** 加一条连接；source / target 相同或重复时跳过。 */
     @JvmStatic
+    /**
+     * 加一条记忆连接。同源同目标同类型已存在时返回 false（去重）。
+     *
+     * 【坑·同 [add]】超过 [MAX_LINKS] 时同样会砍最旧的并返回 `true`。
+     * 恢复侧因此也是**写入前先查条数**，不拿返回值当"这条还在"的证据。
+     */
     fun addLink(ctx: Context, dollId: String?, link: MemLink): Boolean {
         if (link.source.isEmpty() || link.target.isEmpty() || link.source == link.target) {
             return false
