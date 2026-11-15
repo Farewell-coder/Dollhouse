@@ -220,40 +220,73 @@ object SettingsScreen {
     /* ============================ 备份 ============================ */
 
     /**
-     * 【v0.2.6·完整备份】把供应商、模型、人偶、记忆与外观设置打成一个文件。
+     * 【v0.2.8·一键全量备份】把整台手机的 Dollhouse 打成一个文件：人偶、人设、
+     *   全部聊天记录、长期记忆、配置与图片。
      *
-     * 【为什么单独一张卡】此前「导出配置」只导供应商与模型（那是给 Aivora 互通用的），
-     *   但用户换手机时真正要带走的是**对话、人偶、记忆**。两者语义完全不同，
-     *   混在一个入口里会让人误以为「导出配置 = 完整备份」。
+     * 【为什么只剩这一条通道】改造前这张卡外面还有两个平级「导出」入口：
+     *   「导出配置」（供应商页顶栏，只导供应商与模型，给 Aivora 互通用）与
+     *   「导出角色卡」（人偶编辑页，只导单只人偶的卡）。三者名字里都有「导出」，
+     *   **用户无法从措辞判断哪个才是换机要用的那个** —— 而换机恰恰是备份功能唯一的
+     *   真实场景。它俩能导的东西已经逐字段包含在全量存档里（见 [com.dollhouse.app.data.AllInOneArchive]），
+     *   留着就是两份永远可能与全量存档分叉的平行实现，故本轮删除，
+     *   只保留「导出 / 恢复」这一对，且做成**同一张卡片的上下两行**，语义自明。
+     *   【注意】角色卡「导入」保留：用户仍要从网上下载酒馆卡，那不是备份场景。
+     *
+     * 【为什么不再写「不含图片」】v2 起封面 / 形象 / 聊天背景 / 头像 / 自建动作帧
+     *   都会打包。文案说错范围与丢数据等价 —— 用户会以为图片没进包，
+     *   于是另找办法搬图，或者干脆不敢用备份。
+     *
+     * 【不含 API Key 是**有意**的】provider 的密钥是 KeyVault 密文，与来源机 Keystore
+     *   绑定，搬过去也解不开；写进包里只是白白外泄一份密文。代价是换机后必须重填，
+     *   所以恢复前后两处都要明确告知（见下面弹窗与恢复摘要）。
      */
     @Composable
     private fun BackupCard(act: MainActivity) {
         var busy by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
+        // 【为什么单独一个成功标志，而不是看文案前缀】改造前这里是
+        //   `message.startsWith("已")` 判色，而恢复摘要的第一句是「恢复完成。」——
+        //   于是**恢复成功会显示成红色错误样式**。文案是会改的，判色不能依赖文案。
+        var okMsg by remember { mutableStateOf(false) }
         var pending by remember { mutableStateOf<org.json.JSONObject?>(null) }
         var pendingSummary by remember { mutableStateOf<List<String>>(emptyList()) }
 
         DhKit.Card(collapsibleTitle = "备份与恢复", titleIcon = Icons.IC_DOWNLOAD) {
-            DhForm.Note("备份包含供应商、模型、人偶设定、聊天记忆与外观设置；不含 API Key 与图片。")
+            DhForm.Note(
+                "一个文件装下整台手机：人偶与设定、全部聊天记录、长期记忆、外观与开关、" +
+                    "以及封面 / 形象 / 头像 / 自建动作帧等图片。\n" +
+                    "**不含 API 密钥**（它绑定本机，搬过去也用不了），换机后请在新机重填。"
+            )
 
             if (message.isNotEmpty()) {
-                DhForm.Note(message, color = if (message.startsWith("已")) DhTokens.colors.ok else DhTokens.colors.err)
+                DhForm.Note(message, color = if (okMsg) DhTokens.colors.ok else DhTokens.colors.err)
             }
 
             DhKit.ActionRow(
-                label = "导出完整备份",
+                label = "一键全量备份",
                 iconRes = Icons.IC_UPLOAD,
-                desc = "生成一个文件，通过系统分享保存",
+                desc = "生成一个文件，通过系统分享保存或直接发到新手机",
                 trailing = if (busy) "处理中…" else null,
                 showChevron = !busy
             ) {
+                // 【重入闸门】备份要遍历全部会话与图片，可能十来秒；期间重复点击
+                //   会并发组装两份包，还各写一个文件。busy 在这里是必须的，不是装饰。
                 if (busy) return@ActionRow
                 busy = true
+                okMsg = false
                 Thread {
                     var out: String? = null
                     var err = ""
+                    var skipped = 0
                     try {
-                        val json = com.dollhouse.app.data.BackupService.export(act, act.packageName)
+                        // 【appVersion 传真实版本号，不传包名】改造前这里传的是
+                        //   `act.packageName`（值形如 com.dollhouse.app），被当作「来源版本」
+                        //   写进信封 —— 排查用户备份时这一行永远是无用信息。
+                        val json = com.dollhouse.app.data.BackupService.export(act, appVersionOf(act))
+                        // 【必须紧接着读】它是伴随 export 的静态计数（签名不能改，
+                        //   见 AllInOneArchive.lastSkippedImageCount 的说明），
+                        //   下一次 export 会覆盖它。所以同一线程内立刻取走。
+                        skipped = com.dollhouse.app.data.AllInOneArchive.lastSkippedImageCount()
                         out = json.toString()
                     } catch (t: Throwable) {
                         err = t.message ?: "导出失败"
@@ -261,16 +294,28 @@ object SettingsScreen {
                     act.runOnUiThread {
                         busy = false
                         if (out == null) {
+                            okMsg = false
                             message = err
                         } else {
                             val f = com.dollhouse.app.data.BackupFile.write(act, out)
                             com.dollhouse.app.data.BackupFile.prune(act)
                             if (f == null) {
+                                okMsg = false
                                 message = "写文件失败，请检查存储空间"
-                            } else if (com.dollhouse.app.data.BackupFile.share(act, f)) {
-                                message = "已生成备份文件，选择保存位置即可"
-                            } else {
+                            } else if (!com.dollhouse.app.data.BackupFile.share(act, f)) {
+                                okMsg = false
                                 message = "没有可用的分享目标"
+                            } else {
+                                okMsg = true
+                                message = "已生成备份文件，选择保存位置即可"
+                                // 【为什么要说这一句】图片被体积预算挤掉时，
+                                //   「备份完成」这句话是不诚实的：用户换机后才发现
+                                //   封面缺了几张、自建动作播不出来，而当时什么都没被告知。
+                                if (skipped > 0) {
+                                    okMsg = false
+                                    message = "备份已生成，但有 " + skipped +
+                                        " 张图片因体积过大未打包（其余内容完整）。"
+                                }
                             }
                         }
                     }
@@ -280,32 +325,69 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "从备份恢复",
                 iconRes = Icons.IC_DOWNLOAD,
-                desc = "恢复前会先给你看会还原什么",
-                showChevron = true
+                desc = "新版与旧版备份都能导入，恢复前先给你看会还原什么",
+                // 导出在跑的时候不让选文件：两条流程共用同一组状态（busy / message），
+                // 并发起来会把对方的结果覆盖掉。
+                enabled = !busy,
+                showChevron = !busy
             ) {
                 com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
                     com.dollhouse.app.PickFileActivity.setFileListener(null)
                     if (failed || paths.isEmpty()) {
+                        okMsg = false
                         message = "没有读到文件"
                         return@setFileListener
                     }
                     val f = java.io.File(paths[0])
                     val bytes = try {
+                        // 【先读长度再读字节】256 MiB 的文件读进 byte[] 就是 256 MB 常驻，
+                        //   在读出之前先挡掉明显不对的文件（比如把视频改名成 .json）。
                         if (f.length() > com.dollhouse.app.data.BackupEnvelope.MAX_BYTES) {
-                            message = "文件过大，不像是有效备份"
+                            okMsg = false
+                            message = "文件过大（超过 " +
+                                com.dollhouse.app.data.BackupEnvelope.maxLabel() + "），不像是有效备份"
                             return@setFileListener
                         }
                         f.readBytes()
                     } catch (t: Throwable) {
+                        okMsg = false
                         message = "读取失败：" + (t.message ?: "")
                         return@setFileListener
                     }
                     val parsed = com.dollhouse.app.data.BackupEnvelope.parse(bytes)
                     if (!parsed.ok()) {
-                        message = parsed.message()
+                        okMsg = false
+                        // 【反向指路】用户手上刚导出过角色卡时，最容易把那张卡
+                        //   拖进「从备份恢复」。只说「这不是完整备份」会让人以为
+                        //   文件坏了、回头重导一遍。这里直接告诉他该去哪个入口。
+                        message = if (looksLikePersonaCard(bytes)) {
+                            "这是一张角色卡，不是全量备份。\n" +
+                                "请到「人偶 → 编辑 → 提示词与角色卡 → 导入角色卡」导入。"
+                        } else {
+                            parsed.message()
+                        }
                         return@setFileListener
                     }
-                    pendingSummary = com.dollhouse.app.data.BackupEnvelope.summary(parsed.root)
+                    // 【自动识别版本，用户不必知道格式】v2 全量存档与 v1 旧备份都放行
+                    //   （v1 的判定与兼容在 BackupEnvelope.parse 里，缺失段回落成空）。
+                    //   这里只把「你手上这份是全的还是旧的」摆在弹窗第一行 ——
+                    //   否则用户导入一份 v1 旧包，看到「恢复完成」就以为聊天也回来了。
+                    val ver = parsed.root?.optInt("ver", 1) ?: 1
+                    val lines = ArrayList<String>()
+                    lines.add(
+                        if (ver >= 2) {
+                            "格式：全量存档 v" + ver + "（人设 / 聊天 / 图片齐全）"
+                        } else {
+                            "格式：旧版备份 v" + ver + "（能导入，但没有聊天 / 人设 / 图片）"
+                        }
+                    )
+                    lines.add("文件大小：" + humanSize(f.length()))
+                    lines.addAll(com.dollhouse.app.data.BackupEnvelope.summary(parsed.root))
+                    // 【去重】parse() 的 warnings 与 summary() 都会说「这是旧版备份…」，
+                    //   两处并列会在弹窗里出现两遍同一句话。以 summary 的口径为准，
+                    //   这里只补 summary 没提到的（如「备份没有记录来源版本」）。
+                    lines.addAll(parsed.warnings.filterNot { it.contains("旧版备份") })
+                    pendingSummary = lines
                     pending = parsed.root
                 }
                 com.dollhouse.app.PickFileActivity.startFiles(act, false)
@@ -329,6 +411,12 @@ object SettingsScreen {
                                 fontFamily = DhTokens.fonts
                             )
                         }
+                        // 【不再自己拼提示】上面这段逐行文案全部来自
+                        //   `BackupEnvelope.summary()`（数据层契约，UI 原样显示）。
+                        //   改造前这里没有概览；本次刻意**不**在 UI 里另写一套
+                        //   「会还原什么 / 不含密钥 / 只新增不删除」——两套文案迟早会分叉，
+                        //   而 summary() 已经把这三件事逐行说清了（含
+                        //   「API Key 需要重新填写」与「这是旧版备份…」）。
                     }
                 },
                 confirmButton = {
@@ -337,15 +425,24 @@ object SettingsScreen {
                         busy = true
                         Thread {
                             var result = ""
+                            var ok = true
                             try {
                                 result = com.dollhouse.app.data.BackupService.restore(act, toRestore)
                             } catch (t: Throwable) {
+                                ok = false
                                 result = "恢复失败：" + (t.message ?: "")
                             }
                             val r = result
+                            val o = ok
                             act.runOnUiThread {
                                 busy = false
+                                okMsg = o
                                 message = r
+                                // 【恢复后必须整页对一次状态】供应商数量、主题、背景、
+                                //   人偶列表、是否有常驻角色都可能被这次恢复改变；
+                                //   不刷新的话用户看到的是恢复前的旧值，会以为没生效。
+                                HomeUi.syncAll(act)
+                                ProfileState.bump()
                             }
                         }.start()
                     }) { androidx.compose.material3.Text("确认恢复") }
@@ -357,6 +454,57 @@ object SettingsScreen {
                 }
             )
         }
+    }
+
+    /**
+     * 当前 App 版本名，写进备份信封的 `appVersion`（只用于排查，不参与恢复决策）。
+     *
+     * 【为什么不写成 BuildConfig】版本号只在 build.gradle 一处维护；从 PackageManager
+     *   现取与 AboutPage 的口径一致，升级时不会因为忘改某个常量而写出错误的版本标记。
+     */
+    private fun appVersionOf(act: MainActivity): String {
+        return try {
+            act.packageManager.getPackageInfo(act.packageName, 0).versionName ?: ""
+        } catch (t: Throwable) {
+            ""
+        }
+    }
+
+    /**
+     * 文件大小的可读形式。
+     *
+     * 【为什么要显示它】全量存档常是几十 MB，用户看到「12.4 MB」才知道这个文件
+     *   是真的带上了图片（旧版备份只有几十 KB）。这也是「是否选错了文件」的最快判据。
+     */
+    private fun humanSize(bytes: Long): String {
+        val mb = bytes / (1024.0 * 1024.0)
+        // 【显式 Locale.US】默认 Locale 会把小数点写成逗号（如德语 "12,4"），
+        //   与同页其它数值文案（DeveloperOptionsPage / ChatUi）口径不一致。
+        return if (mb >= 1.0) {
+            String.format(java.util.Locale.US, "%.1f MB", mb)
+        } else {
+            (bytes / 1024).toString() + " KB"
+        }
+    }
+
+    /**
+     * 这份文件是不是一张角色卡（而不是全量备份）。
+     *
+     * 【为什么要判】全量存档与角色卡都是 `.json`，系统文件选择器里长得一模一样。
+     *   选错时只说「这不是完整备份」，用户会以为文件损坏 → 回头重新导出 → 再选错。
+     *   直接把正确的入口指出来，一次就能走对。
+     *
+     * 【为什么只查开头 4 KiB】两种格式的标识字段都在信封最前面
+     *   （角色卡是 `dollhouse_card` / `chara_card`，全量存档是 `dollhouse.backup`）。
+     *   角色卡本身很小，这里仍按前缀查，避免对大文件做全文扫描。
+     */
+    private fun looksLikePersonaCard(bytes: ByteArray): Boolean {
+        val probeLen = Math.min(bytes.size, 4096)
+        val head = String(bytes, 0, probeLen, Charsets.UTF_8)
+        // 【三种都算】本 App 自有格式、酒馆 v2（spec=chara_card_v2）、酒馆 v1。
+        return head.contains("dollhouse_card") ||
+            head.contains("chara_card") ||
+            head.contains("\"tavern\"")
     }
 
     /* ============================ 实验 ============================ */

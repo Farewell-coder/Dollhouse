@@ -3,39 +3,30 @@ package com.dollhouse.app.ui.doll
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.core.Logs
-import com.dollhouse.app.data.DollProfile
-import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PersonaIO
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.home.HomeUi
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import java.io.File
-import com.dollhouse.app.ui.theme.Icons
 
 /**
- * 【职责】角色卡的导入 / 导出入口（r13 新增）。
+ * 【职责】角色卡的**导入**入口。
+ *
+ * ## v0.2.8 起这里只剩导入，为什么
+ * 改造前本对象同时管「导出角色卡」。那个按钮只导出**一只**人偶的人设与角色设定，
+ * 但它和其它入口一起并列成三个同名的「导出」，用户以为那就是备份 ——
+ * 换到新机后才发现聊天记录、长期记忆、封面图片全都不在包里。
+ *
+ * 正确的通道是设置页的「一键全量备份」（[com.dollhouse.app.data.AllInOneArchive]），
+ * 它在 `persona` 段里**逐字段**包含了这里能导出的全部内容，外加聊天 / 记忆 / 图片。
+ * 于是本轮删掉导出，只留导入 ——
+ * **导入不是备份场景**：用户要从网上下载酒馆（Tavern）角色卡，全量存档替代不了它。
+ * （导出能力没有被丢掉，只是合并进了全量存档；`PersonaIO.exportOwn / exportTavern`
+ *  仍留在 data 层，如需恢复单独导出可以再接回来。）
  *
  * 【为什么复用 PickFileActivity】工程已有一条成熟的「选文件 → 复制到缓存 → 回调路径」
  *   通道（见 [PickFileActivity.FileListener]），动作导入用的就是它。这里不再另起一套，
  *   用户看到的选择器与动作导入完全一致 —— 不引入第二种交互。
- *
- * 【导出落哪】写到 App 外部私有目录的 `export/persona/`（与 [DollStore.exportAll] 同一片区域），
- *   再从那里分享出去。**不直接写用户可见目录**：那张卡里可能有人设私密内容，
- *   落到公共目录会被相册 / 文件管理器扫到。由用户主动「分享」才外流。
- *
- * 【为什么不弹输入框让用户写路径】Android 10+ 的分区存储下，让用户手打路径是反人类设计；
- *   工程的既有做法是「落到自己的目录 → 分享」，与备份功能同款。
  */
 object DollCardIO {
-
-    /** 导出文件的存放目录名（相对 App 外部私有目录）。 */
-    private const val DIR = "export/persona"
 
     /**
      * 走文件选择器导入一张角色卡。
@@ -68,6 +59,19 @@ object DollCardIO {
         }
         val imported = PersonaIO.parse(text)
         if (imported == null) {
+            // 【先认「选错通道」这种最常见的错】用户手上刚做完备份，最容易
+            //   顺手把 `dollhouse-backup-xxx.json` 拖进"导入角色卡"。
+            //   只说「认不出这张卡」会让人以为文件坏了，于是回头重做备份。
+            //   这里直接把正确的入口指给他（判定用信封的 kind 标识，只扫文本前缀，
+            //   不解析整份 —— 全量存档可能有几十 MB）。
+            if (looksLikeFullBackup(text)) {
+                HomeUi.showNotice(
+                    act, "这是一份全量备份",
+                    "它装的是整台手机的内容，不是单张角色卡。\n" +
+                        "请到「设置 → 备份与恢复 → 从备份恢复」导入。"
+                )
+                return
+            }
             // 【提示要具体】用户常见的错是把普通文本 / 图片当角色卡拖进来，
             //   所以这里把「支持什么」讲清楚，而不是只说一句「格式不对」。
             HomeUi.showNotice(
@@ -88,66 +92,17 @@ object DollCardIO {
         onDone()
     }
 
-    /** 选导出格式。 */
-    @JvmStatic
-    fun showExport(act: MainActivity, dollId: String) {
-        var dlgRef: android.app.Dialog? = null
-        dlgRef = DhForm.show(act, "导出角色卡") {
-            val name = DollStore.byId(act, dollId)?.name ?: ""
-            DhForm.Note("选择导出格式：")
-            DhKit.ActionRow(
-                    label = "Dollhouse 格式",
-                    iconRes = Icons.IC_PACKAGE,
-                    trailing = "字段最全"
-                ) {
-                write(act, dollId, name, false)
-                dlgRef?.dismiss()
-            }
-            DhForm.Note("本软件专用，含注入位置、输出替换等全部设置，换手机 / 备份用这个。")
-            DhKit.ActionRow(
-                    label = "酒馆（Tavern）格式",
-                    iconRes = Icons.IC_EXTERNAL
-                ) {
-                write(act, dollId, name, true)
-                dlgRef?.dismiss()
-            }
-            DhForm.Note("能导入到其他同类软件；但装不下注入位置与输出替换，这部分会丢掉。")
-            androidx.compose.foundation.layout.Row(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(top = 18.dp)
-            ) {
-                Spacer(Modifier.weight(1f))
-                DhForm.DialogButton(text = "取消", primary = false) { dlgRef?.dismiss() }
-            }
-        }
-    }
-
-    private fun write(act: MainActivity, dollId: String, name: String, tavern: Boolean) {
-        try {
-            val persona = DollProfile.persona(act, dollId)
-            val spec = DollProfile.spec(act, dollId)
-            val text = if (tavern) {
-                PersonaIO.exportTavern(name, persona, spec)
-            } else {
-                PersonaIO.exportOwn(name, persona, spec)
-            }
-            val dir = File(act.getExternalFilesDir(null), DIR)
-            if (!dir.exists() && !dir.mkdirs()) {
-                HomeUi.showNotice(act, "导出失败", "建不了导出目录。")
-                return
-            }
-            val safe = if (name.isEmpty()) "persona" else name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val suffix = if (tavern) "_tavern.json" else ".json"
-            val f = File(dir, safe + suffix)
-            f.writeText(text, Charsets.UTF_8)
-            Logs.i("DollhousePersona", "[export] " + f.absolutePath + " len=" + text.length)
-            HomeUi.showNotice(
-                act, "已导出",
-                "保存在：" + f.absolutePath
-            )
-        } catch (t: Throwable) {
-            Logs.w("DollhousePersona", "导出失败", t)
-            HomeUi.showNotice(act, "导出失败", "写入时出错了，请重试。")
-        }
+    /**
+     * 这段文本是不是一份全量存档。
+     *
+     * 【为什么只查前缀 4 KiB】与 [com.dollhouse.app.data.BackupEnvelope.looksLike] 同口径：
+     *   本格式的 `kind` 是信封的第一个键，正常备份 30 字节内就命中。
+     *   但这里拿到的是**已经读进内存的 String**（PickFileActivity 给的是路径，
+     *   我们为了解析角色卡必然要读全文），不能再为判定多转一次；
+     *   只看开头既省事，也避免在 40 MB 文本上做 contains 全文扫描。
+     */
+    private fun looksLikeFullBackup(text: String): Boolean {
+        val head = if (text.length > 4096) text.substring(0, 4096) else text
+        return head.contains("dollhouse.backup")
     }
 }

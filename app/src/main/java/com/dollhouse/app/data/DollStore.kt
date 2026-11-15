@@ -372,6 +372,66 @@ object DollStore {
     }
 
     /**
+     * 【v0.2.8·全量存档】按 id 插入一条人偶记录：**id 已存在则忽略，不存在才追加**。
+     *
+     * 【为什么必须新开一个方法，而不是复用 [update]】
+     *   [update] 的语义是「改一个已存在的」，遍历完没命中就静默返回 ——
+     *   恢复备份时那个人偶在本机根本不存在，于是**什么都不会发生**。
+     *   改造前的备份恢复正是因为这条，只能对缺失的人偶说「未自动新建」，
+     *   用户换机后拿到的是空列表。
+     *
+     * 【为什么不直接把 [load] / [save] 改成 public】
+     *   那样等于把「整份数组的读写权」开放给所有调用方，
+     *   任何人一次写坏就会盖掉全部人偶（本文件第 1368 行那段按 id 去重的注释
+     *   就是历史上并发写把存档搞坏的证据）。这里只开一个**单条插入**的口子，
+     *   范围可控，且内部仍走 [load] / [save] 同一套持久化与缓存失效逻辑。
+     *
+     * 【为什么不照搬 builtin】备份里可能带着来源机的内置标记。
+     *   内置位在本工程里代表「不可删除」，让一份外来备份把某只普通人偶
+     *   变成不可删除是不可接受的；这里一律按 false 写入。
+     *   默认配置（[DEFAULT_ID]）由 [load] 无条件补齐，所以那条不会走到这里。
+     *
+     * 【为什么不校验 enabled】调用方（存档恢复）有自己的策略：
+     *   一恢复就把别人机器上的常驻角色搬过来，等于替用户换了屏幕上的角色。
+     *   这里如实写入调用方给的值，策略留在上层。
+     *
+     * 【为什么刻意不碰动作库（不调 DollAnim.markEmpty）】
+     *   本方法是「插一条记录」，动作库归 [DollAnim] 管。若在这里打上「空白模板」标记，
+     *   那么一只**存档里没带动作库**的人偶恢复后连内置动作都不会被补 ——
+     *   用户看到的是「恢复出来一只能站着但什么都不做的角色」，比缺动作更糟。
+     *   不打标记时，[DollAnim.all] 会按老档案口径补齐内置动作（含三个固定壳），
+     *   而存档里**确实带了**动作库的那些，由存档恢复去整段覆盖，两边不冲突。
+     *
+     * @return 真的插入了返回 true；id 已存在 / 参数非法返回 false
+     */
+    @JvmStatic
+    @Synchronized
+    fun upsertRecord(ctx: Context, doll: Doll?): Boolean {
+        if (doll == null || doll.id.isEmpty()) {
+            return false
+        }
+        val list = load(ctx)
+        for (d in list) {
+            if (d.id == doll.id) {
+                return false
+            }
+        }
+        list.add(
+            Doll(
+                id = doll.id,
+                name = doll.name,
+                cover = doll.cover,
+                sprite = doll.sprite,
+                enabled = doll.enabled,
+                builtin = false,
+                group = doll.group
+            )
+        )
+        save(ctx, list)
+        return true
+    }
+
+    /**
      * 【r13·需求B】把「人偶动作库里某一帧」设为封面。
      *
      * 【r13 修 bug·「从动作库选一帧」失效】用户原话：

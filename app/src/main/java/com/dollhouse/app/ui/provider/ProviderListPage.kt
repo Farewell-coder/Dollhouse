@@ -92,19 +92,14 @@ object ProviderListPage {
             sub = "共 " + all.size + " 个供应商",
             onBack = { ProviderNav.handleBack(act) },
             actions = {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        // 【无障碍】顶栏三枚都是纯图标，没有名字读屏一律念「按钮」，
-                        //   三个挨在一起就无法区分。名字必须说明「干什么」而不是「图标长什么样」。
-                        .semantics { contentDescription = "导出配置" }
-                        .pressable { com.dollhouse.app.ui.widget.ExportSheet.show(act) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    DhKit.Icon(iconRes = Icons.IC_EXTERNAL, sizeDp = UiKit.FS_ICON, color = c.sub)
-                }
+                // 【v0.2.8·顶栏「导出配置」已删】它只导供应商与模型（旧 `ExportSheet`），
+                //   语义上不是「备份」，却与设置页的全量备份、人偶页的导出角色卡
+                //   并列为三个同名的「导出」入口 —— 用户无法从措辞判断换机该点哪个。
+                //   它能导出的内容已被全量存档逐字段覆盖，故收敛到设置页那一条通道。
+                //   【为什么保留「导入配置文件」】它是**外部来源**（Aivora / AEX / AKCP）
+                //   的入口，全量存档无法替代；删掉等于断了跨软件互通这条路。
+                //
                 // 【AKCP / AEX 导入】读 Aivora 导出的配置文件，直接建供应商与模型。
-                //   放在导出旁边：同属「配置进出本机」，用户不用去别处找。
                 //   【为什么只留一个按钮】AEX（.akcp）与 AKCP（.aivora）本来是两套协议，
                 //   但对用户来说就是「导入 Aivora 的配置文件」一件事。入口统一到
                 //   [AexImportSheet.show]，由它按**文件内容 Magic** 分流到对应链路 ——

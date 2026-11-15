@@ -84,6 +84,14 @@ object PetPrefs {
         val seen = Math.max(0, Math.min(40, Math.min(100 - alpha, k)))
         p.edit()
             .putInt("scrim_strength", seen)
+            // 【v0.2.8·全量存档】把「迁移写进去的那个值」另存一份快照。
+            //   为什么必须存：恢复备份时要判断「用户是否动过遮罩」。
+            //     · 用 `!contains(键)` —— 迁移已把键写死，判据恒假，永远不恢复；
+            //     · 用「当前值 == 迁移公式重算结果」—— 公式里含着当前值，是循环不动点，
+            //       会把用户主动拖到 0~40 的任何值都判成「没动过」而覆盖掉（更糟）。
+            //   有了这个快照，判据变成「当前值是否仍等于迁移当年实际写入值」，
+            //   既不受后续用户改动干扰，也不需要复刻公式。
+            .putInt("scrim_migrated_val", seen)
             .putBoolean("scrim_linear_v1", true)
             .apply()
     }
@@ -1535,7 +1543,14 @@ object PetPrefs {
             //   开启（含此前已手动关掉的老用户，它们 prefs 里已写死 web_search=false，改默认值
             //   对它们无效），避免留下一个用户再也改不回来的永久 false 锁。
             if (p.getInt("web_search_ver", 0) < 1) {
-                p.edit().putBoolean("web_search", true).putInt("web_search_ver", 1).apply()
+                p.edit().putBoolean("web_search", true)
+                    // 【v0.2.8·全量存档】同 scrim：留一份「迁移写入值」的快照。
+                    //   目前联网搜索没有 UI 入口，用户改不到它，但将来一旦恢复该入口，
+                    //   恢复备份时就会需要区分「迁移拨开的」与「用户自己设的 true」。
+                    //   现在先把这个约定埋好，代价是一个布尔键。
+                    .putBoolean("web_search_migrated_val", true)
+                    .putInt("web_search_ver", 1)
+                    .apply()
             }
             // 【r13·记忆系统重构】原来这里还会把旧记忆三项开关（mem_auto / mem_auto_save /
             //   mem_auto_merge）一次性拨到开 —— 那三个键已随旧系统整体下线，这段覆盖没有意义，

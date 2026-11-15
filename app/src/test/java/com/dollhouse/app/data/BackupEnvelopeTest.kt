@@ -46,8 +46,15 @@ class BackupEnvelopeTest {
     }
 
     @Test fun `更高版本备份被拒绝`() {
-        val p = BackupEnvelope.parse(bytes(build(verOverride = 2)))
+        // 【v0.2.8】VER 从 1 升到 2，这里必须跟着抬到「比当前高一级」。
+        // 写死 2 会变成「当前版本拒绝自己」，测试红得莫名其妙。
+        val p = BackupEnvelope.parse(bytes(build(verOverride = BackupEnvelope.VER + 1)))
         assertEquals(BackupEnvelope.Reason.UNSUPPORTED_VERSION, p.reason)
+    }
+
+    @Test fun `当前版本备份本身不会被当成更高版本`() {
+        val p = BackupEnvelope.parse(bytes(build(verOverride = BackupEnvelope.VER)))
+        assertTrue(p.message(), p.ok())
     }
 
     @Test fun `缺少 sections 被拒绝`() {
@@ -55,13 +62,27 @@ class BackupEnvelopeTest {
         assertEquals(BackupEnvelope.Reason.MISSING_SECTIONS, BackupEnvelope.parse(bytes(root)).reason)
     }
 
-    @Test fun `概览如实统计且提示密钥与图片不含`() {
+    @Test fun `概览如实统计且提示密钥需重填`() {
         val lines = BackupEnvelope.summary(build())
         assertTrue(lines.any { it.contains("供应商 1 个") })
         assertTrue(lines.any { it.contains("模型 2 个") })
         assertTrue(lines.any { it.contains("记忆 1 条") })
+        // 【v0.2.8】口径变了：密钥不进备份这一点没变，但文案统一成「需要重新填写」。
         assertTrue(lines.any { it.contains("需要重新填写") })
-        assertTrue(lines.any { it.contains("图片不包含") })
+        // 【v0.2.8】图片现在**会**进备份。空备份里没有图片段，所以提示的是
+        // 「这份备份没有图片段」，而不是旧版的「图片不包含在备份里」。
+        // 断言「不含图片」会与本版设计直接矛盾，因此改为核对新版文案。
+        assertTrue(lines.any { it.contains("没有图片段") })
+    }
+
+    @Test fun `有图片时概览报告张数`() {
+        val root = build()
+        root.getJSONObject("sections").put(
+            "images",
+            JSONArray().put(JSONObject().put("rel", "a.png")).put(JSONObject().put("rel", "b.png"))
+        )
+        val lines = BackupEnvelope.summary(root)
+        assertTrue(lines.any { it.contains("图片 2 张") })
     }
 
     @Test fun `缺失数据区按空处理而不崩溃`() {

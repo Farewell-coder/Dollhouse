@@ -292,10 +292,14 @@ object DollPersonaPage {
                 DhKit.ActionRow(label = "导入角色卡", iconRes = Icons.IC_DOWNLOAD) {
                     DollCardIO.pickImport(act, id) { tick++ }
                 }
-                DhKit.ActionRow(label = "导出角色卡", iconRes = Icons.IC_EXTERNAL) {
-                    DollCardIO.showExport(act, id)
-                }
-                DhForm.Note("支持酒馆（Tavern）角色卡；导出默认用 Dollhouse 格式，字段最全。")
+                // 【v0.2.8·本条卡片的「导出角色卡」已删】它只能导出**这一只**人偶的人设，
+                //   而用户以为自己在做备份 —— 换机后聊天记录、记忆、图片全都不在。
+                //   现在统一走设置页的「一键全量备份」（全量存档里逐字段含人设，
+                //   见 AllInOneArchive 的 persona 段），这里只保留**外部来源**的导入。
+                DhForm.Note(
+                    "支持酒馆（Tavern）角色卡与 Dollhouse 导出的角色卡。\n" +
+                        "想把这只人偶完整带走（含聊天与图片），请用设置页的「一键全量备份」。"
+                )
             }
 
             Spacer(Modifier.height(DhKit.GAP_CARD.dp))
