@@ -296,26 +296,27 @@ onCover = {
                     DollState.bump()
                     HomeUi.notifyPetReload(act)
                  },
-                 onExport = {
-                     val target = more.id
-                     moreId = null
-                     // 【附录D-14】导出会递归复制封面 / 立绘 / 动作帧，原来是主线程同步跑，
-                     //   而且 export 本身是 `@Synchronized` —— 期间所有 DollStore 读取
-                     //   （首页列表、桌宠渲染）都在同一把锁上等。角色一多就是明显的卡顿。
-                     //   改成后台线程 + 完成后回主线程提示。
-                     HomeUi.showNotice(act, "正在导出", "封面、立绘和动作帧会一起打包，人偶多时需要几秒。")
-                     Thread({
-                         val path = DollStore.export(act, target)
-                         act.runOnUiThread {
-                             DollState.bump()
-                             if (path.isEmpty()) {
-                                 HomeUi.showNotice(act, "导出失败", "没能写入导出目录，请检查存储空间后重试。")
-                             } else {
-                                 HomeUi.showNotice(act, "导出完成", path)
-                             }
-                         }
-                     }, "doll-export").start()
-                 },
+                 // 【v0.2.8·删「更多 → 导出」】这是一条**单向死路**，本轮清除。
+                 //
+                 // 【为什么删】它调 `DollStore.export()`，产出
+                 //   `getExternalFilesDir()/export/doll-<时间戳>/`（dolls.json + 封面立绘 + 动作帧），
+                 //   然后弹一句「导出完成」并给出路径 —— 用户理所当然地以为这是换机备份。
+                 //   但全工程**零个读取方**：我检索了 `export/doll` 与 `dolls.json`，
+                 //   除 `DollStore` 自己的写入点（1282 / 1346 行）外没有任何一处读取。
+                 //   也就是说导出的东西**永远导不回 App**，用户把它当成备份保存、
+                 //   换机时才发现是废纸 —— 这正是本轮「界面在说谎」命题的原型
+                 //   （此前已删「导出配置」「导出角色卡」两个同类入口，这一处是漏网的第三个）。
+                 //
+                 // 【为什么不是"改成导素材到电脑"】该目录在 `getExternalFilesDir` 下，
+                 //   属于**应用私有**外部目录：Android 11+ 上系统文件管理器基本不可浏览，
+                 //   用户要靠数据线 / adb 才拿得到；而它导出的封面立绘动作帧
+                 //   全量存档已经逐项包含且能真正恢复。留一条「导得出、看不见、回不来」
+                 //   的通道，比没有更糟。真要「把素材导到电脑」应当另做一个
+                 //   走系统分享 / SAF 的功能，而不是复用这条已死的老路。
+                 //
+                 // 【保留了什么】`DollStore.export()` 本体**未删** —— 它在 data 层，
+                 //   本轮 UI 修复不越界动它（lead 已划定范围）。已无 UI 调用点，
+                 //   下版连同 `ExportSheet` 一起做死代码清理时可一并处理。
                 onRestore = {
                     restoreId = more.id
                     moreId = null
@@ -794,7 +795,8 @@ onCover = {
         onModel: () -> Unit,
         onCopy: () -> Unit,
         onDelete: () -> Unit,
-        onExport: () -> Unit,
+        // 【v0.2.8】原 `onExport` 参数随「更多 → 导出」入口一并移除：
+        //   该入口的输出全工程无读取方（单向死路），详见调用点处的注释。
         onRestore: () -> Unit
     ) {
         val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -834,7 +836,9 @@ onCover = {
             if (!isFactoryDoll(doll)) {
                 all.add(Pair(Icons.IC_TRASH, Pair("删除", onDelete)))
             }
-            all.add(Pair(Icons.IC_DOWNLOAD, Pair("导出", onExport)))
+            // 【v0.2.8·删】原「导出」按钮已移除（单向死路，无法导回 App）。
+            //   换机请用「设置 → 备份与恢复 → 一键全量备份」，它才真正包含
+            //   人偶 / 人设 / 聊天 / 记忆 / 图片并能恢复回来。
             // 【只在默认配置上出现】用户定案：「这个恢复默认 只需要默认配置有就好」。
             //   「恢复默认」的语义是「回到下载软件时自带的样子」，这个概念对**自建人偶**
             //   不成立 —— 自建人偶出厂状态就是用户自己刚建出来的空样子，

@@ -29,6 +29,10 @@ import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+// 【v0.2.8·修 P2】恢复前概览弹窗可能到 10~14 行，必须可滚动，否则尾部
+//   「API Key 需要重新填写」在小屏 / 大字体下会被裁掉且无法查看。
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -69,6 +73,52 @@ import com.dollhouse.app.ui.design.DhDesign
  *   与主流设置页一致（线不穿过图标区）。行没有图标时传 0。
  */
 private const val ICON_ROW_INSET = 28
+
+/**
+ * 恢复备份时的内存峰值倍数：**文件字节数 × 本值 ≈ 恢复过程需要的堆**。
+ *
+ * 【怎么来的】不是拍脑袋，是在 JVM 上用二分法压 `-Xmx` 求「刚好不 OOM 的最小堆」，
+ *   用与真实信封同形状的样件量出来的（详见 [memoryGateMessage] 的注释）：
+ *   · 图片主导（真实备份几乎都是这种）：10 MB→6.00、20 MB→5.81、
+ *     39 MB→5.64、50 MB→5.62、98 MB→5.36（倍）；
+ *   · 纯中文长文本：4.1 倍。
+ *   取 6 覆盖图片主导的上界。为什么峰值会是文件体积的六倍：读盘后的 `byte[]`（1×）
+ *   在解析期间不能释放，解码出的 `String` 是 UTF-16（2×），`JSONObject` 里的每个
+ *   字符串值又各存一份（2×），再加上 base64 解码出的图片字节（1×）。
+ *
+ * 【为什么不用更小的倍数】这个闸门的作用是"提前告诉用户原因"，不是精确预测。
+ *   估小了等于没拦住（放行然后闪退），估大了只是偶尔多劝一次 —— 两种错法的代价不对称。
+ */
+private const val PEAK_FACTOR = 6L
+
+/**
+ * 备份卡结果提示的**三态**（此前是 Boolean `okMsg`，只有"成功 / 失败"两档）。
+ *
+ * 【为什么必须三档】v0.2.8 的导出与恢复都存在"**部分成功**"这个真实状态：
+ *   · 导出：包已生成、已分享，但有 N 张图片因体积预算被跳过（`lastSkippedImageCount()`）；
+ *   · 恢复：绝大部分写回成功，但有个别图片写盘失败。
+ *   用布尔值时这两种状态只能二选一，于是出现两种说谎：
+ *   把"部分成功"染成**绿色**（用户以为全好了），或染成**红色**（文案却写着"已生成"）。
+ *   两者都比"多说一句实话"更糟 —— 用户要么漏备份，要么白白重做一遍。
+ *
+ * 【为什么 PARTIAL 用中性色而不是新增一个 warn 色】`DhTokens.colors` 目前只有
+ *   `ok` / `err` 两档语义色（见 `DhTheme.kt` 的 `DhColors` 字段表），加一个 warn
+ *   要同时改动配色方案与全部主题分支，波及面远大于本卡片的收益。
+ *   用 `sub`（正文次要色，中性）恰好是诚实的表达：**不是好消息，也不是失败**。
+ */
+private enum class BackupMsgKind {
+    /** 还没操作过，不显示提示。 */
+    NONE,
+
+    /** 全部成功。 */
+    OK,
+
+    /** 做成了，但有东西没跟上（图片被跳过 / 写盘失败）。 */
+    PARTIAL,
+
+    /** 失败，没有任何可用产出。 */
+    ERR
+}
 
 object SettingsScreen {
 
@@ -244,22 +294,29 @@ object SettingsScreen {
     private fun BackupCard(act: MainActivity) {
         var busy by remember { mutableStateOf(false) }
         var message by remember { mutableStateOf("") }
-        // 【为什么单独一个成功标志，而不是看文案前缀】改造前这里是
-        //   `message.startsWith("已")` 判色，而恢复摘要的第一句是「恢复完成。」——
-        //   于是**恢复成功会显示成红色错误样式**。文案是会改的，判色不能依赖文案。
-        var okMsg by remember { mutableStateOf(false) }
+        // 【为什么是三态而不是 Boolean】见 [BackupMsgKind] 的说明：
+        //   「部分成功」既不能染绿（会让用户漏备份），也不能染红（文案写着"已生成"）。
+        //   改造前这里是 `message.startsWith("已")` 判色，则恢复成功的摘要
+        //   「恢复完成。」会显示成红色错误样式 —— 文案是会改的，判色不能依赖文案。
+        var msgKind by remember { mutableStateOf(BackupMsgKind.NONE) }
         var pending by remember { mutableStateOf<org.json.JSONObject?>(null) }
         var pendingSummary by remember { mutableStateOf<List<String>>(emptyList()) }
 
         DhKit.Card(collapsibleTitle = "备份与恢复", titleIcon = Icons.IC_DOWNLOAD) {
             DhForm.Note(
-                "一个文件装下整台手机：人偶与设定、全部聊天记录、长期记忆、外观与开关、" +
-                    "以及封面 / 形象 / 头像 / 自建动作帧等图片。\n" +
-                    "**不含 API 密钥**（它绑定本机，搬过去也用不了），换机后请在新机重填。"
+                "一个文件装下整台手机的 Dollhouse：人偶与设定、全部聊天记录、长期记忆、" +
+                    "供应商与模型、外观与开关，以及封面 / 形象 / 头像 / 自建动作帧等图片。\n" +
+                    "**不含**：API 密钥（绑定本机，换机后请重填）、全局背景图、" +
+                    "Live2D / 模型包（体积过大，需在新机重新导入）。"
             )
 
             if (message.isNotEmpty()) {
-                DhForm.Note(message, color = if (okMsg) DhTokens.colors.ok else DhTokens.colors.err)
+                DhForm.Note(message, color = when (msgKind) {
+                    BackupMsgKind.OK -> DhTokens.colors.ok
+                    BackupMsgKind.PARTIAL -> DhTokens.colors.sub
+                    // NONE 时 message 必为空（不会走到这里）；兜底按错误色，宁可显眼。
+                    BackupMsgKind.ERR, BackupMsgKind.NONE -> DhTokens.colors.err
+                })
             }
 
             DhKit.ActionRow(
@@ -273,9 +330,9 @@ object SettingsScreen {
                 //   会并发组装两份包，还各写一个文件。busy 在这里是必须的，不是装饰。
                 if (busy) return@ActionRow
                 busy = true
-                okMsg = false
+                msgKind = BackupMsgKind.NONE
                 Thread {
-                    var out: String? = null
+                    var f: java.io.File? = null
                     var err = ""
                     var skipped = 0
                     try {
@@ -287,36 +344,39 @@ object SettingsScreen {
                         //   见 AllInOneArchive.lastSkippedImageCount 的说明），
                         //   下一次 export 会覆盖它。所以同一线程内立刻取走。
                         skipped = com.dollhouse.app.data.AllInOneArchive.lastSkippedImageCount()
-                        out = json.toString()
+                        // 【v0.2.8·修 P1·主线程写盘】改造前 `write` 与 `prune` 在
+                        //   `runOnUiThread { }` 里 —— 组装放在后台做对了，**写文件却又挪回主线程**。
+                        //   全量存档常是 40~70 MB（图片 base64 后更大），`writeText` 要对
+                        //   60 MB 的 String 做一次完整 UTF-8 编码再落盘，中低端机可达数秒，
+                        //   足以触发 ANR —— 而这条是本次发布头号功能的**成功路径**，不是边界。
+                        //   现在两步都留在本后台线程：`share` 才必须回主线程（要 startActivity）。
+                        f = com.dollhouse.app.data.BackupFile.write(act, json.toString())
+                        // 【prune 也在后台】它要 listFiles + 排序整个 cache 目录，
+                        //   放在主线程同样是无谓的卡顿。
+                        com.dollhouse.app.data.BackupFile.prune(act)
                     } catch (t: Throwable) {
                         err = t.message ?: "导出失败"
                     }
+                    val file = f
                     act.runOnUiThread {
                         busy = false
-                        if (out == null) {
-                            okMsg = false
-                            message = err
+                        if (file == null) {
+                            msgKind = BackupMsgKind.ERR
+                            message = if (err.isEmpty()) "写文件失败，请检查存储空间" else err
+                        } else if (!com.dollhouse.app.data.BackupFile.share(act, file)) {
+                            msgKind = BackupMsgKind.ERR
+                            message = "没有可用的分享目标"
+                        } else if (skipped > 0) {
+                            // 【v0.2.8·修 P2·「已生成」配红字】改造前这里置 okMsg=false，
+                            //   于是文案明明写着「备份已生成」，整段却是**红色错误色**——
+                            //   色与文互相打架，用户会怀疑「到底要不要重做」。
+                            //   这是"做成了但有残缺"，属 PARTIAL（中性色），不是失败。
+                            msgKind = BackupMsgKind.PARTIAL
+                            message = "部分完成：备份已生成，但有 " + skipped +
+                                " 张图片因体积过大未打包（其余内容完整）。"
                         } else {
-                            val f = com.dollhouse.app.data.BackupFile.write(act, out)
-                            com.dollhouse.app.data.BackupFile.prune(act)
-                            if (f == null) {
-                                okMsg = false
-                                message = "写文件失败，请检查存储空间"
-                            } else if (!com.dollhouse.app.data.BackupFile.share(act, f)) {
-                                okMsg = false
-                                message = "没有可用的分享目标"
-                            } else {
-                                okMsg = true
-                                message = "已生成备份文件，选择保存位置即可"
-                                // 【为什么要说这一句】图片被体积预算挤掉时，
-                                //   「备份完成」这句话是不诚实的：用户换机后才发现
-                                //   封面缺了几张、自建动作播不出来，而当时什么都没被告知。
-                                if (skipped > 0) {
-                                    okMsg = false
-                                    message = "备份已生成，但有 " + skipped +
-                                        " 张图片因体积过大未打包（其余内容完整）。"
-                                }
-                            }
+                            msgKind = BackupMsgKind.OK
+                            message = "已生成备份文件，选择保存位置即可"
                         }
                     }
                 }.start()
@@ -334,35 +394,75 @@ object SettingsScreen {
                 com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
                     com.dollhouse.app.PickFileActivity.setFileListener(null)
                     if (failed || paths.isEmpty()) {
-                        okMsg = false
-                        message = "没有读到文件"
+                        // 【v0.2.8·修 P2·取消不该报错】`failed=false && paths.isEmpty()` 是
+                        //   用户点了选择器又按返回 —— 什么都没出错，属于主动取消。
+                        //   改造前一律置红「没有读到文件」并把上一次的恢复摘要整段顶掉，
+                        //   于是那条「API Key 需要重新填写」的提醒就此消失，用户下次点发送
+                        //   吃 401 时已无处可查。现在：取消**静默**，只有真失败才报。
+                        if (failed) {
+                            msgKind = BackupMsgKind.ERR
+                            message = "没能读取选中的文件，请重试"
+                        }
                         return@setFileListener
                     }
                     val f = java.io.File(paths[0])
+                    // 【先判体积，再判内存】顺序不能反：一个把 2 GB 视频改名成 .json 的文件，
+                    //   若先过内存闸门，报出来的是「内存不够」—— 用户会去关掉所有应用、
+                    //   回旧机重导一遍备份，全都白费。「文件过大，不像是有效备份」才是真正的原因。
+                    //   256 MiB 的文件读进 byte[] 就是 256 MB 常驻，所以在读出之前先挡掉。
+                    if (f.length() > com.dollhouse.app.data.BackupEnvelope.MAX_BYTES) {
+                        msgKind = BackupMsgKind.ERR
+                        message = "文件过大（超过 " +
+                            com.dollhouse.app.data.BackupEnvelope.maxLabel() + "），不像是有效备份"
+                        return@setFileListener
+                    }
+                    // 【v0.2.8·恢复前先看内存】本工程 JSON 走 org.json，没有流式解析：
+                    //   整份文本要读成一个 String（Android 的 String 恒为 UTF-16），
+                    //   JSONObject 解析后其中的字符串还会各占一份，而原始 byte[] 在这一步
+                    //   仍未释放 —— 三者叠加才是恢复的峰值。
+                    //   实测（JVM 上以二分法压 -Xmx 求最小可行堆，样件形状与真实备份一致）：
+                    //   · 图片主导的备份 5.4~6.0 倍（10/20/39/50/98 MB 五档：6.00/5.81/5.64/5.62/5.36）；
+                    //   · 纯中文长文本的备份 4.1 倍。
+                    //   真实备份的体积几乎都由图片占据，所以统一按 6 倍估算 ——
+                    //   这是「防崩溃」用的上界，宁可偶尔多劝一次，也不要赌一次 OOM。
+                    //
+                    // 【为什么不能只看系统可用内存】恢复时真正撞的是**本进程的 Java 堆上限**
+                    //   （无 largeHeap 时中端机常在 192~256 MB），而不是整机还剩多少 RAM。
+                    //   实测一份 50 MB 的备份在 -Xmx256m 下当场 OOM，而此刻整机 availMem
+                    //   仍有 3 GB —— 只比 availMem 的闸门会"放行然后闪退"，等于没拦。
+                    //   所以两个上限都要看，谁小以谁为准。
+                    val needMessage = memoryGateMessage(act, f.length())
+                    if (needMessage != null) {
+                        msgKind = BackupMsgKind.ERR
+                        message = needMessage
+                        return@setFileListener
+                    }
                     val bytes = try {
-                        // 【先读长度再读字节】256 MiB 的文件读进 byte[] 就是 256 MB 常驻，
-                        //   在读出之前先挡掉明显不对的文件（比如把视频改名成 .json）。
-                        if (f.length() > com.dollhouse.app.data.BackupEnvelope.MAX_BYTES) {
-                            okMsg = false
-                            message = "文件过大（超过 " +
-                                com.dollhouse.app.data.BackupEnvelope.maxLabel() + "），不像是有效备份"
-                            return@setFileListener
-                        }
                         f.readBytes()
                     } catch (t: Throwable) {
-                        okMsg = false
+                        msgKind = BackupMsgKind.ERR
                         message = "读取失败：" + (t.message ?: "")
                         return@setFileListener
                     }
                     val parsed = com.dollhouse.app.data.BackupEnvelope.parse(bytes)
                     if (!parsed.ok()) {
-                        okMsg = false
+                        msgKind = BackupMsgKind.ERR
                         // 【反向指路】用户手上刚导出过角色卡时，最容易把那张卡
                         //   拖进「从备份恢复」。只说「这不是完整备份」会让人以为
                         //   文件坏了、回头重导一遍。这里直接告诉他该去哪个入口。
+                        //
+                        // 【v0.2.8·修 P1·指路必须能用】改造前写的是
+                        //   「人偶 → 编辑 → 提示词与角色卡 → 导入角色卡」，**漏了两层**：
+                        //   编辑页默认落在「控制」页签（DollEditScreen 的 `tab = TAB_CTRL`），
+                        //   用户进去根本看不到「提示词与角色卡」—— 它在本页的「角色设定」
+                        //   卡片里。照着原话操作只会在四个页签里乱点。
+                        //   下面按真实层级逐层写全，并点出「默认不在人格页签」这个坑。
                         message = if (looksLikePersonaCard(bytes)) {
-                            "这是一张角色卡，不是全量备份。\n" +
-                                "请到「人偶 → 编辑 → 提示词与角色卡 → 导入角色卡」导入。"
+                            "这是一张角色卡，不是全量备份。\n\n" +
+                                "导入路径：「设置 → 人偶 → 管理人偶」→ 点某只人偶的编辑（铅笔）" +
+                                "→ **先切到顶部的「人格」页签** → 点「角色设定」" +
+                                "→ 在「提示词与角色卡」里点「导入角色卡」。\n" +
+                                "（编辑页默认停在「控制」页签，所以要点一下「人格」。）"
                         } else {
                             parsed.message()
                         }
@@ -378,10 +478,16 @@ object SettingsScreen {
                         if (ver >= 2) {
                             "格式：全量存档 v" + ver + "（人设 / 聊天 / 图片齐全）"
                         } else {
-                            "格式：旧版备份 v" + ver + "（能导入，但没有聊天 / 人设 / 图片）"
+                            "格式：旧版备份 v" + ver
                         }
                     )
                     lines.add("文件大小：" + humanSize(f.length()))
+                    // 【v0.2.8·修 P2·同一件事说了两遍】`summary()` 自己在 v1 时也会输出
+                    //   「这是旧版备份（v1），不含聊天记录 / 人设 / 图片」。改造前我另加了一行
+                    //   「格式：旧版备份 v1（能导入，但没有聊天 / 人设 / 图片）」，
+                    //   于是弹窗里同一句话以两种措辞出现两次 —— 用户会怀疑是不是两种不同的问题。
+                    //   现在 v1 只留格式标识（不含受影响范围的重复描述），
+                    //   受影响范围统一以 `summary()` 那一句为准（它更完整，带 ver 号）。
                     lines.addAll(com.dollhouse.app.data.BackupEnvelope.summary(parsed.root))
                     // 【去重】parse() 的 warnings 与 summary() 都会说「这是旧版备份…」，
                     //   两处并列会在弹窗里出现两遍同一句话。以 summary 的口径为准，
@@ -401,7 +507,17 @@ object SettingsScreen {
                 onDismissRequest = { pending = null },
                 title = { androidx.compose.material3.Text("确认恢复") },
                 text = {
-                    androidx.compose.foundation.layout.Column {
+                    androidx.compose.foundation.layout.Column(
+                        modifier = Modifier
+                            // 【v0.2.8·修 P2·概览可能看不全】行数会到 10~14 行
+                            //   （我加的「格式」「文件大小」2 行 + summary() 最多 9 行 +
+                            //   warnings），13sp/18sp 行高约 200~260dp，加上标题与按钮，
+                            //   在小屏或**系统字体放大**时会被裁掉尾部且无法滚动 ——
+                            //   被裁的恰恰是最需要看到的那句「API Key 需要重新填写」
+                            //   （BackupEnvelope.kt 末尾）。M3 的 AlertDialog 内容区默认
+                            //   不滚动，所以这里必须自己加。
+                            .verticalScroll(rememberScrollState())
+                    ) {
                         pendingSummary.forEach { line ->
                             androidx.compose.material3.Text(
                                 text = "· " + line,
@@ -436,7 +552,32 @@ object SettingsScreen {
                             val o = ok
                             act.runOnUiThread {
                                 busy = false
-                                okMsg = o
+                                // 【成功与否看异常，不看文案主体】`ok` 只在 restore()
+                                //   整体抛异常时才是 false —— 那种情况一个字都没写进去，是 ERR。
+                                //
+                                // 【但"没抛异常"不等于"全好了"】data 层会用 `continue` 跳过
+                                //   单张图片的写盘失败（存储满 / mkdirs 失败 / base64 损坏），
+                                //   整次恢复仍算成功返回。此刻若一律报 OK，用户看到的就是
+                                //   绿色「恢复完成」，然后自己发现封面是空白的 —— 正是本轮
+                                //   要消灭的失败态。所以这里再按**摘要内容**降一级。
+                                //
+                                // 【为什么按摘要文字判，而不是让 restore() 返回结构化结果】
+                                //   `BackupService.restore` 的契约是「一句能直接念给用户听的中文
+                                //   摘要」（见该文件的 KDoc，且被 UI 与历史调用点共同依赖）。
+                                //   改返回值会波及数据层契约；而摘要里那行「N 张图片写回失败」
+                                //   本就是 data 层**为 UI 升级状态**而特意单独成行的
+                                //   （AllInOneArchive 的注释写明「UI 也据此升级为『部分成功』」）。
+                                //   用 `contains` 匹配这一句，是双方已经约定好的信号。
+                                //
+                                // 【稳健性】只匹配「图片写回失败」这个稳定的语义短语，
+                                //   不依赖行号、不带前面的数字（那个数字会变）。
+                                //   data 层若将来改措辞，最坏结果是退化成 OK（不再谎报"有失败"），
+                                //   不会误报成错误 —— 这个降级方向是安全的。
+                                msgKind = when {
+                                    !o -> BackupMsgKind.ERR
+                                    r.contains("图片写回失败") -> BackupMsgKind.PARTIAL
+                                    else -> BackupMsgKind.OK
+                                }
                                 message = r
                                 // 【恢复后必须整页对一次状态】供应商数量、主题、背景、
                                 //   人偶列表、是否有常驻角色都可能被这次恢复改变；
@@ -467,6 +608,96 @@ object SettingsScreen {
             act.packageManager.getPackageInfo(act.packageName, 0).versionName ?: ""
         } catch (t: Throwable) {
             ""
+        }
+    }
+
+    /**
+     * 恢复这份备份会不会把进程撑爆；会则返回**一句能直接给用户看的话**，不会返回 null。
+     *
+     * 【两个上限，谁小以谁为准】这是本闸门最容易被写错的地方：
+     *   · `availMem` 是**整机**可用 RAM —— 它决定"系统会不会因为内存紧张来杀我"；
+     *   · `maxMemory()` 是**本进程**的 Java 堆上限 —— 它决定"我这次分配会不会直接 OOM"。
+     *   恢复撞的其实是后者：中端机无 largeHeap 时堆上限常在 192~256 MB，而整机
+     *   可能有 3 GB 可用。实测一份 50 MB 的备份在 256 MB 堆上限下必定 OOM，
+     *   此时只看 availMem 的闸门会**放行然后闪退**，用户连"备份太大"都看不到。
+     *   所以这里取两者的最小值当作可用额度。
+     *
+     * 【堆的"已用"要扣掉】`maxMemory() - (totalMemory() - freeMemory())` 才是当前
+     *   还能再分配多少。只看 maxMemory 会低估已占用的部分（App 本身 + 已加载的界面
+     *   已经吃掉几十 MB）。
+     *
+     * 【0 的语义】查不到就当额度未知，**放行**（返回 null）—— 宁可少拦一次，
+     *   也不能因为读不到内存数就把用户的恢复操作挡在门外。
+     *
+     * @param fileBytes 备份文件字节数（调用方在**读文件之前**就拿得到）
+     */
+    private fun memoryGateMessage(act: MainActivity, fileBytes: Long): String? {
+        val needBytes = fileBytes * PEAK_FACTOR
+        val availBytes = availableMemoryBytes(act)
+        val heapLeft = heapHeadroomBytes()
+        // 两个额度里取更紧的那个；查不到的（0）不参与比较。
+        val limit = when {
+            availBytes <= 0L -> heapLeft
+            heapLeft <= 0L -> availBytes
+            else -> Math.min(availBytes, heapLeft)
+        }
+        if (limit <= 0L || limit >= needBytes) {
+            return null
+        }
+        val mb = 1024L * 1024L
+        // 【为什么把「谁不够」分开说】两种不足的最优应对不同：
+        //   整机内存不足 → 关掉其它应用就能救回来；
+        //   本进程堆不够 → 关应用没用，只能减少图片后重新导出。
+        //   混成一句会让用户按错误的办法白试一遍。
+        // 【为什么要把 availBytes 未知（0）算作"堆这一路生效"】否则报出的是
+        //   「系统当前可用内存（0 MB）不够」—— 一个查不到的数字被当成结论，纯误导。
+        val heapBinding = heapLeft > 0L && (availBytes <= 0L || heapLeft <= availBytes)
+        val reason = if (heapBinding) {
+            "本应用可用内存（" + (heapLeft / mb) + " MB）不够"
+        } else {
+            "系统当前可用内存（" + (availBytes / mb) + " MB）不够"
+        }
+        return "内存不够：这份备份约 " + (fileBytes / mb) + " MB，" +
+            "恢复预计需要 " + (needBytes / mb) + " MB，但" + reason + "。\n" +
+            "请先关掉其它应用再试；若仍不行，这份备份里的图片较多，" +
+            "可在旧机上重新导出一次并减少图片后再恢复（文字数据不受影响）。"
+    }
+
+    /**
+     * 当前进程还能再分配多少 Java 堆字节；查不到返回 0。
+     *
+     * 【为什么用 Runtime 而不是 ActivityManager】见 [memoryGateMessage]：
+     *   这里问的是"我这个进程的堆还剩多少"，`Runtime.getRuntime().maxMemory()`
+     *   是唯一的答案来源，ActivityManager 给的是整机口径。
+     */
+    private fun heapHeadroomBytes(): Long {
+        return try {
+            val rt = Runtime.getRuntime()
+            val used = rt.totalMemory() - rt.freeMemory()
+            val left = rt.maxMemory() - used
+            if (left > 0L) left else 0L
+        } catch (t: Throwable) {
+            0L
+        }
+    }
+
+    /**
+     * 系统当前可用内存（字节）；查询失败返回 0。
+     *
+     * 【为什么用 availMem 而不是 totalMem】恢复备份撞的是「此刻是否装得下」这个限制，
+     *   而 totalMem 是物理总量，和当前能不能分配无关。
+     * 【0 的语义】调用方把 0 当作「查不到」，据此**跳过**这一路判断 ——
+     *   宁可少拦一次，也不能因为查不到内存就把用户的恢复操作挡在门外。
+     */
+    private fun availableMemoryBytes(act: MainActivity): Long {
+        return try {
+            val am = act.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+                as? android.app.ActivityManager ?: return 0L
+            val info = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(info)
+            info.availMem
+        } catch (t: Throwable) {
+            0L
         }
     }
 
