@@ -64,6 +64,9 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.DhState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
@@ -633,10 +636,41 @@ object DollAnimPage {
                 // ============ ② 帧序列条 ============
                 DhKit.SectionLabel("帧序列（左右滑动查看）", iconRes = Icons.IC_IMAGE)
                 if (frames.isEmpty()) {
-                    DhForm.Note(
-                        if (fixed) "这一格还是空的。点下面「添加帧」导入一组图，它就会开始生效。"
-                        else "这个动作还没有帧。点下面「添加帧」从相册选图。"
-                    )
+                    // 【B4+B9·先分清两件事，再决定画什么】
+                    //   改造前这里是一行 `DhForm.Note`，把「正在烘帧」和「确实没有帧」
+                    //   合成同一句话 —— 但它们是两回事：
+                    //     · baking == true  ：后台正在给内置壳烘帧（`LaunchedEffect` 里
+                    //       `withContext(Dispatchers.IO) { AnimBaker.ensure(...) }`），
+                    //       用户只需要等，**不该**被提示去「点添加帧」。
+                    //     · baking == false ：这一格真的空着，用户需要动作指引。
+                    //   未分开时，烘帧那几秒会先显示「这个动作还没有帧。点下面添加帧」
+                    //   —— 一个假的空态，用户可能因此去点添加帧，与正在进行的烘焙撞车。
+                    if (baking) {
+                        // 【真实异步窗口】烘帧期间帧序列条没有任何内容可看，
+                        //   属于 MAA 硬规则 1 的「确实没内容」，允许占住这一条的位置。
+                        //   高度不变（骨架行自带与真实行同档的垂直节奏），
+                        //   烘完切换成真实缩略图时不产生跳动。
+                        DhLoadingState(
+                            state = LoadingState.FirstLoad,
+                            rows = 1,
+                            lines = 1
+                        )
+                    } else {
+                        // 真的空：走规范空态。文案一字未改（原来的 DhForm.Note 文案）。
+                        DhState(
+                            title = "还没有帧",
+                            body = if (fixed) {
+                                "这一格还是空的。点下面「添加帧」导入一组图，它就会开始生效。"
+                            } else {
+                                "这个动作还没有帧。点下面「添加帧」从相册选图。"
+                            },
+                            iconRes = Icons.IC_IMAGE
+                            // 【为什么 actionText = null】「添加帧」按钮就在**正下方**
+                            //   （同屏的 `DhKit.MiniChip("添加帧", ...)`），空态里再放一个
+                            //   指向同一件事的按钮属于重复动作 —— 与 DollGroupPage / MemPage
+                            //   两处空态收编同一判断。body 文案已经写明「点下面添加帧」。
+                        )
+                    }
                 } else {
                     Row(
                         modifier = Modifier

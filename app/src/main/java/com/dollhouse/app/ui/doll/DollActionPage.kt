@@ -807,7 +807,7 @@ object DollActionPage {
             //   改造前这里是「清空」独占一行、下面再排两个 —— 同一种小按钮在一张卡里
             //   出现两种排法（一列 + 一行），卡片高度被拉高，视觉上也比别处松散。
             //   【为什么改成三列等分】固定位卡片宽度足够放三个 2 字按钮；
-            //   等分后每个命中区都 ≥ 40dp，比原来「清空」整行的超宽按钮更均匀。
+            //   等分后每个命中区都 ≥ 48dp，比原来「清空」整行的超宽按钮更均匀。
             if (!empty && dollId != DollStore.DEFAULT_ID) {
                 Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {

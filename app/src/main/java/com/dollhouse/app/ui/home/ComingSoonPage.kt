@@ -79,7 +79,12 @@ object ComingSoonPage {
                         Spacer(Modifier.height(DhDesign.Space.xs.dp))
                         Text(
                             text = hint,
-                            color = c.line,
+                            // 【修·可读性】原来是 c.line（分隔线色）：压在页面底上只有 1.33:1，
+                            //   「这里以后会是你的动态」这类引导句完全读不出来 ——
+                            //   而空态页只有两行字，第二行看不见等于空态只剩标题。
+                            //   【上面那枚图标不改】它是刻意"退到背景里"的装饰（见其注释），
+                            //   文字则承担信息，两者性质不同。
+                            color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
                             fontFamily = DhTokens.fontsBody,
                             textAlign = TextAlign.Center

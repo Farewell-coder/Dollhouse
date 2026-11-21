@@ -316,14 +316,31 @@ object AppDialog {
      * 入场：轻微上浮 + 缩放 + 淡入，与 `UiKit.showDialog` 用同一时长与曲线。
      *
      * 【必须在 show() 之前设初始态】否则会先闪一帧完整尺寸再缩回去。
+     *
+     * 【B3·reduceMotion 闸门】系统「移除动画」开启时**直接落终态**，不设 alpha=0 / 缩放
+     *   的初始态、也不起动画。
+     *   为什么不用「时长归零」（`dur(D_MICRO)` → 0ms）：
+     *   这里初始态是 `alpha=0`，0ms 动画仍会先让窗口以完全透明的状态被 show 出来，
+     *   下一帧才写终值 —— 在关闭动画的机器上反而制造了一次「弹窗闪一下」。
+     *   这与 `UiKit.openPage / swapPage / enter / slideUpIn / fadeSwap / reveal`
+     *   的处理是同一口径（那里也选了「直接落终态」而不是「0ms」）。
      */
     private fun runEntrance(act: Activity, view: View) {
+        if (UiKit.reduceMotion()) {
+            // 不设中间的透明/缩放态，窗口一 show 就是终态。
+            view.animate().cancel()
+            view.alpha = 1f
+            view.scaleX = 1f
+            view.scaleY = 1f
+            view.translationY = 0f
+            return
+        }
         view.alpha = 0f
         view.scaleX = 0.94f
         view.scaleY = 0.94f
         view.translationY = UiKit.dp(act, 14).toFloat()
         view.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
-            .setDuration(UiKit.D_MICRO.toLong())
+            .setDuration(UiKit.dur(UiKit.D_MICRO))
             .setInterpolator(UiKit.EASE_DECEL)
             .start()
     }

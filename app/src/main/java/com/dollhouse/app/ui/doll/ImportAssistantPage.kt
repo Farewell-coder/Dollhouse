@@ -29,9 +29,11 @@ import com.dollhouse.app.data.ImportSource
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
-import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Icons
 import java.io.File
 
@@ -377,7 +379,24 @@ object ImportAssistantPage {
                     PageStack.pop(act)
                 }
                 if (busy) {
-                    ImportAssistantKit.BusyHint(busyText)
+                    // 【B4·接入加载态】改造前这里是 `ImportAssistantKit.BusyHint(busyText)` ——
+                    //   一枚转圈图标 + 一行灰字。形态本身没错（确实表达了"在动"），
+                    //   但它是全 App 唯一一处**自成一套**的行内加载（其余都走
+                    //   DhLoadingState / DhLoadingSpinner），且没有"占位"概念：
+                    //   识别期间下方整片是空的，用户不知道将来会长出什么。
+                    //
+                    //   【为什么是 FirstLoad】`busy = true` 时 `session` 仍为 null（见
+                    //   analyzeAsync：先置 busy，Thread 里才 create session），
+                    //   此刻页面上除了这行提示没有任何实质内容 —— 符合 MAA 硬规则 1。
+                    //
+                    //   【`busyText` 保留】它是动态的（"正在识别…" / "正在把人偶安顿好…"），
+                    //   直接当 label 传给统一组件，文案一字未改。
+                    DhLoadingState(
+                        state = LoadingState.FirstLoad,
+                        rows = 3,
+                        lines = 2,
+                        label = busyText
+                    )
                 }
                 failure?.let { ImportAssistantKit.FailureBox(it) }
                 // 【R-070-6】识别失败的三个出口：重选 / 支持格式 / 示例角色。
@@ -494,7 +513,22 @@ object ImportAssistantPage {
                     }
                 }
                 if (busy) {
-                    ImportAssistantKit.BusyHint(busyText)
+                    // 【B4·接入加载态·ARTIST 分支】与 NOVICE_PICK 那处同属"识别中"，
+                    //   但本页**下方已经有已选图片的格子**（用户刚挑的图就在眼前）。
+                    //
+                    //   【为什么这里也用 FirstLoad】虽然格子可见，但它们是用户自己选的
+                    //   文件路径缩略，**不是**识别结果；识别结果（槽位判定）此刻恒为空。
+                    //   MAA 硬规则 1 的判据是「有没有**该展现的**内容」——
+                    //   本页在识别完成前，槽位区确实无可展示内容。
+                    //   （若将来这里改成保留上次识别结果，则应降为 Refreshing。）
+                    //
+                    //   【`busyText` 保留】动态文案原样透传，一字未改。
+                    DhLoadingState(
+                        state = LoadingState.FirstLoad,
+                        rows = 3,
+                        lines = 2,
+                        label = busyText
+                    )
                 }
                 failure?.let { ImportAssistantKit.FailureBox(it) }
             }
@@ -721,7 +755,18 @@ object ImportAssistantPage {
                         }
                     }
                     if (busy) {
-                        ImportAssistantKit.BusyHint(busyText)
+                        // 【B4·接入加载态】这一处与上面两处（NOVICE_PICK / ARTIST 的识别阶段）
+                        //   同属 `busy` 但语义不同：这里是 **PREVIEW 页的"让她住进来"提交中**，
+                        //   而页面上方的预览图、槽位、开关此刻**全部还在**（不像识别阶段那样空白）。
+                        //
+                        //   【为什么是 Refreshing 而不是 FirstLoad】按 MAA 硬规则 1，
+                        //   已有内容（预览 + 槽位配置）必须保持可见，不许全屏遮 ——
+                        //   否则用户正核对着槽位，界面突然变成骨架，等于把手上的信息抽走。
+                        //   这里只加一行细圈，`busyText`（"正在把人偶安顿好…"）照原样透传。
+                        DhLoadingState(
+                            state = LoadingState.Refreshing,
+                            label = busyText
+                        )
                     }
                     failure?.let { ImportAssistantKit.FailureBox(it) }
                 }

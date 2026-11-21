@@ -251,7 +251,14 @@ class ChatPanel(
      *   （见 [ChatUi.showMessageMenu]）需要 index 才能定位到历史里的那条消息，
      *   于是「刚发/刚生成、还没经过 renderHistory 重铺」的那条长按一律无反应 ——
      *   历史里已有的消息因为重铺时拿到了正确 index，反倒正常。
-     *   修法：由调用方在**落库之后**传入 `history.length() - 1`。
+     *   修法：由调用方在**落库之后**传入真实下标。
+     *
+     *   【r0.2.9·改】上面这句原先写的是「传入 `history.length() - 1`」——
+     *   那是错的，正是 `Key "h59" was already used` 的来源：
+     *   `ChatHistoryStore.push` 内部的 `saveHistory(host)` 会裁剪并**回写** history，
+     *   满 60 条时 `length() - 1` 会算出已被旧条目占用的下标。
+     *   现在改由 `push` 返回真实下标；它返回 -1 时**不要**走本方法，
+     *   调用方必须先 `renderHistory()` 整列重铺（见 `sendMessage` / `handleReply`）。
      */
     private fun appendBubble(text: String, mine: Boolean, image: String?, index: Int = -1) {
         // 每条本地提示拥有独立身份，不能与流式占位共用 "live" key。
@@ -1525,6 +1532,18 @@ class ChatPanel(
             if (greeting.isEmpty()) {
                 return
             }
+            // 【为什么这里不需要 -1 / 重铺分支（与 sendMessage / handleReply 不同）】
+            //   本方法是全仓唯一「可能给满 60 条的会话再追加消息」的入口，逐条核过，三点都不成立：
+            //   ① **进不到这里**：上面 `if (hist.length() > 0) return` 判的是**刚从磁盘读出的**
+            //      `hist`，与 `ChatPanel.history` 的残留无关。任何非空历史（含已满 60 条的）
+            //      都会提前 return，所以执行到这里时 `hist.length() == 0`。
+            //   ② **加了也压不到 60**：写入后 length = 1，`trimForSave` 的
+            //      `tail = max(0, 1 - KEEP_FOR_SAVE) = 0` → 一条都不裁，`before+1 == length` 恒成立。
+            //   ③ **即使裁了也污染不到面板**：这里传的是**局部** `hist`（不是 `ChatPanel.history`），
+            //      调用完即丢弃；紧接着 `:236` 的 `ChatHistoryStore.loadHistory(this)`
+            //      会**重新从磁盘读**一份（已是裁剪后的），内存与磁盘因此天然一致。
+            //   另：本方法排在 `renderHistory()` **之前**，此时列表里还没有任何 key，
+            //   也就不存在「新项撞旧 key」的前提。
             ChatHistoryStore.push(context, hist, "assistant", greeting, id)
             Logs.i("DollhousePersona", "[greeting] 铺开场白 len=" + greeting.length + " conv=" + id)
         } catch (t: Throwable) {
@@ -1609,10 +1628,33 @@ class ChatPanel(
         com.dollhouse.app.data.ChatDraftStore.clear(context, boundDollId(), ChatSessions.currentId(context))
         // 【顺序】先落库、再挂气泡 —— 这样气泡能拿到它在 history 里的真实下标，
         //   长按菜单才定位得到（见 appendBubble 的说明）。
-        ChatHistoryStore.push(this, "user", text, str2)
-        appendBubble(text, true, str2, history.length() - 1)
+        // 【r0.2.9·修 LazyColumn 重复 key 崩溃】下标改由数据层返回，不再用
+        //   `history.length() - 1` 自己猜：
+        //   push 内部的 saveHistory(host) 会**裁剪并回写** host.history（保留最近 60 条）。
+        //   会话满 60 条时，写入第 61 条会被裁回 60 条，`length() - 1` 算出 59 ——
+        //   而列表里 `h59` 已被「旧的第 60 条」占着（裁剪让它前移到 59），
+        //   于是 Compose 抛 `Key "h59" was already used` 直接崩（0.2.7 真机）。
+        //   裁剪**不会**给新消息腾出空闲下标，所以不能只换 index 来源：
+        //   一旦 push 返回 -1（发生过裁剪），必须整列按新快照重建。
+        // 【为什么这里显式写全 5 个参数】3-arg / 4-arg 两条旧重载**刻意保持返回 Unit**
+        //   （它们是数据层的公开入口，别处还在用；改返回类型会波及无关调用点）。
+        //   要拿到下标必须走会返回 Int 的 5-arg 版本 —— 这里没有 think，传 null / 0L 与
+        //   `push(host, "user", text, str2, null, 0L)` 语义完全等价。
+        val at = ChatHistoryStore.push(this, "user", text, str2, null, 0L)
+        if (at < 0) {
+            // 【裁了就整列重铺】新快照里 index 已全部重新编号（0..59），不会撞。
+            //   ⚠️ 不要在这里设 `ChatState.holdScroll = true`：它的语义是「重铺时**别**滚到底」，
+            //   用于「加载更早」停在原位；发送消息后用户恰恰**要**滚到底看自己那条，
+            //   而 renderHistory() 末尾的 `if (!holdScroll) requestScrollBottom()` 会自动完成。
+            //   误设的表现为「发出去以后看不到自己发的那条」，比崩溃更难查。
+            renderHistory()
+        } else {
+            appendBubble(text, true, str2, at)
+        }
         // 【修·进度环陈旧值】本路径走 appendBubble 增量追加、不重铺整屏，
         //   所以环必须在这里单独同步（否则发完消息环一点不动）。
+        //   裁剪分支多走了一次 renderHistory()，但 syncCtxRatio 幂等、且它读的是当前
+        //   history 的真实比例，两条分支都调不会有副作用。
         syncCtxRatio()
         if (ChatSessions.isPet(context)) {
             PetBus.say(if (str2 != null) "让我看看…" else "让我想想…", 2500L)
@@ -2180,10 +2222,14 @@ class ChatPanel(
                 // 思考不是人偶的最终发言；保留思考记录，并明确提示本次没有正文。
                 setWaiting(false)
                 removeThinking()
-                ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
+                // 【r0.2.9·修重复 key】下标由数据层返回；-1 = 本次落盘发生了裁剪，
+                //   旧快照下标全部失配，必须整列重铺（否则新气泡会复用旧 key 崩溃）。
+                val at = ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
                 // 【修·进度环陈旧值】增量路径，环单独同步。
                 syncCtxRatio()
-                if (attached) appendBubble("", false, null, history.length() - 1)
+                if (attached) {
+                    if (at < 0) renderHistory() else appendBubble("", false, null, at)
+                }
                 finishWithError("模型本次只返回了思考过程，没有生成回答，请重试")
                 return
             } else {
@@ -2193,11 +2239,12 @@ class ChatPanel(
                 //   但**切成历史后仍然看得到**，这正是本轮要的「思考可回看」。
                 setWaiting(false)
                 removeThinking()
-                ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
+                // 【r0.2.9·修重复 key】同上一分支：下标由数据层返回，-1 = 裁过 → 整列重铺。
+                val at = ChatHistoryStore.push(this, "assistant", "", null, think, costMs)
                 // 【修·进度环陈旧值】增量路径，环单独同步。
                 syncCtxRatio()
                 if (attached) {
-                    appendBubble("", false, null, history.length() - 1)
+                    if (at < 0) renderHistory() else appendBubble("", false, null, at)
                 }
                 return
             }
@@ -2245,6 +2292,14 @@ class ChatPanel(
         syncCtxRatio()
         // 【r13·思考过程】不再往「内存思考框」写：推理已随消息落盘（见上面的 push），
         //   本条气泡经 appendBubble 落到 [ChatState.items] 后，思考框由 [ChatUi] 按 think 渲染。
+        // 【为什么本路径**不**改（与上面两处不同）】逐行核过 006 的结论：
+        //   上面走的是 `appendAssistantToConversation`，它内部用 **3-arg** `saveHistory(ctx,history,id)`
+        //   （只写盘、**不回写** host.history），返回的是**未裁剪**的数组。
+        //   所以这里 `history.length() - 1` 算出的是 60（不是 59），
+        //   比 items 里最大 key 大 1 —— 语义上是个「已不存在的下标」（长按菜单 itemAt 取到 null，
+        //   属另一个独立 issue），但**不会与已占用的 key 撞车**，因此不会崩。
+        //   TODO（下次，非本轮）：让 appendAssistantToConversation 也回传「是否裁剪 + 真实下标」，
+        //   顺带修掉「长按最后一条回复取不到 itemAt」这个相邻 bug。
         appendBubble(trim, false, null, history.length() - 1)
         if (ChatSessions.isPet(context) && ChatSessions.currentId(context) == ownerConversation) {
             PetBus.say(ChatHistoryStore.bubbleVersion(trim), 5000L)

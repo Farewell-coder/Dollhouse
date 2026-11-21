@@ -249,7 +249,74 @@ object ChatUi {
             //   完全看不出「正在跟谁聊」。需求书要求顶栏展示**人偶头像、名称、状态**，
             //   而数据层（ChatSessions.dollOfConv → DollStore.byId）本来就齐备，只是没接。
             //   【保留原有能力】长按这块区域仍然唤出聊天搜索（与原长按标题同一入口）。
-            val convId = remember { ChatSessions.currentId(topCtx) }
+            /*
+             * 【P0-d·修「分支后顶栏身份不刷新」】
+             *
+             * ── 原来错在哪（两层，只修一层不够）──
+             *   ① `remember { ... }` **没有 key**，组合能重组时也不重新取值；
+             *   ② 更根本：`TopBarRow` 的作用域里**没有任何因「换会话」而变的订阅**。
+             *      实测它只读 `ChatState.waiting`，而切会话时 waiting 通常本就是 false
+             *      （`reloadDraft` 仅在 `activeGeneration == null` 时 `setWaiting(false)`，
+             *      赋同值不触发重组）。`renderHistory` 改的 `items` 读在 `Messages()`、
+             *      `ctxRatio` 读在 `CtxRingView()`，都是兄弟 / 子作用域 ——
+             *      作用域隔离下它们只重启自己，**不会**让本行重新执行。
+             *      所以「只给 remember 加 key」修不好这个 bug。
+             *
+             * ── 修法：两层 remember（订阅便宜、重算昂贵，两者必须分开）──
+             *   第一层：`remember(repaint, currentPool)` 只做**零副作用纯读**
+             *     （`ChatSessions.pool()` + `PetPrefs.convCurrent*`，都是一次内存 map 读）。
+             *     它的 key 里有 `repaint`，所以「重铺即重组」——这就是本行的**订阅点**。
+             *   第二层：`remember(currentPool, declaredConvId)` 才调昂贵的
+             *     `currentId()`（内部 `ensure()`：listAll 解析 JSON + 可能的迁移写盘）。
+             *     它只在「声明值真的变了」时重算。
+             *
+             *   为什么 `repaint` **不能**直接进第二层的 key（也**不能**用它的
+             *   hashCode / size 代替）：流式期间 `flushStream` 每 60ms 重写一次 items，
+             *   那样 `currentId()` 就每 60ms 跑一次 JSON 遍历，白烧主线程。
+             *   分工后的行为：
+             *     · 流式期：items 变 → 本行重组 → 第一层重跑（2 次内存读，可忽略）
+             *       → 声明值未变 → **第二层不重算** ✅
+             *     · 换会话 / 分支：`switchTo()` → `setCurrent()` 写 `conv_current[_pet]`
+             *       （SharedPreferences `apply()` 会同步更新内存，紧接着读得到新值）
+             *       → 声明值变 → 第二层重算 ✅
+             *     · 内联重铺但没换会话（展开收回 / 删单条 / 清空）→ 声明值不变 → 不重算 ✅
+             *
+             * ── 为什么必须让第一层「用到」repaint，而不是只声明一个变量 ──
+             *   只写 `val repaint = ChatState.items` 而不使用，Kotlin / R8 有可能把这次
+             *   属性读优化掉，订阅随之失效（这就是「注释写着修了、实际没修」的经典坑）。
+             *   放进第一层 `remember` 的 key 以后，它是**真正参与计算**的输入，不会被消掉。
+             *
+             * 【branchAt 的所有分支情形都被覆盖】它复制 `history[0..index]`；即使对
+             *   **最后一条**开分支（新旧消息逐字相同、items 内容相等），`switchTo(newId)`
+             *   仍会改 `conv_current` ⇒ declaredConvId 变化 ⇒ 第二层一定会重算。
+             *   —— 不要改用「items 内容是否相等」来判断该不该刷新，分支恰恰靠声明值兜住。
+             */
+            val repaint = ChatState.items
+            val currentPool = ChatSessions.pool(topCtx)
+            /*
+             * 【为什么这一层要 remember(repaint, currentPool) 而不是直接写 if/else】
+             *   它是本行的**订阅点**：`repaint`（ChatState.items）在每次重铺时变，
+             *   于是本行会被重新执行。而它内部的两件事都很便宜、且**必须**跟上最新声明值：
+             *     · `ChatSessions.pool()` —— `PetPrefs.convPool()` 是一次 SharedPreferences 读；
+             *     · `PetPrefs.convCurrent*()` —— 同上。
+             *   【为什么不省掉 remember 直接调】这两次读每帧都跑没有意义（流式期 items
+             *   每 60ms 变一次）；包在 remember 里就只在「重铺」时读一次。
+             *   【PetPrefs.get() 的真实成本】它每次都会跑 4 个一次性迁移函数
+             *   （purgeDeadKeys / forceMemSwitchesOn / purgeAffection / migrateScrimLinear），
+             *   四者都是「先读一个标记位、已迁移就 return」，所以稳态下是 4 次 getBoolean/Int
+             *   的开销。放进 remember 后每次重铺只付一次，可接受。
+             */
+            val declaredConvId = remember(repaint, currentPool) {
+                if (currentPool == ChatSessions.POOL_PET) {
+                    PetPrefs.convCurrentPet(topCtx)
+                } else {
+                    PetPrefs.convCurrent(topCtx)
+                }
+            }
+            // 第二层：昂贵，只在「声明值变了」时重算。
+            val convId = remember(currentPool, declaredConvId) {
+                ChatSessions.currentId(topCtx)
+            }
             val dollId = remember(convId) { ChatSessions.dollOfConv(topCtx, convId) }
             val doll = remember(dollId) {
                 if (dollId.isEmpty()) null else DollStore.byId(topCtx, dollId)
@@ -359,6 +426,10 @@ object ChatUi {
         val ratio = ChatState.ctxRatio.coerceIn(0f, 1f)
         Box(
             modifier = Modifier
+                // 【E13】pressable 在最外层：它内置 sizeIn(min=48dp)，
+                //   size(30) 写在外层会把约束上限夹回 30，命中区只剩 30×30。
+                //   环本身的视觉尺寸由下面 Canvas(fillMaxSize) 跟随外框，不受影响。
+                .pressable { host.controller?.onOpenTokenStat() }
                 .size(30.dp)
                 // 【无障碍】环身是 Canvas 画的两条弧，读屏读不到；环心只有一个「32」，
                 //   既没单位也没说这是干什么的。这里合成一句话：**数值 + 含义 + 操作**。
@@ -368,8 +439,7 @@ object ChatUi {
                 .semantics(mergeDescendants = true) {
                     contentDescription = "上下文已用 " +
                         (ratio * 100f).roundToInt() + "%，查看用量详情"
-                }
-                .pressable { host.controller?.onOpenTokenStat() },
+                },
             contentAlignment = Alignment.Center
         ) {
             Canvas(Modifier.fillMaxSize()) {
@@ -1190,9 +1260,7 @@ object ChatUi {
                 .padding(end = 6.dp)
                 .clip(RoundedCornerShape(UiKit.RADIUS_CHIP.dp))
                 .background(c.chatChipOff)
-                // 【r19·修复点击无反应】pressable 的 clickable(interactionSource, indication=null)
-                //   在 ChatPanel 边界下可能吞事件；改为显式 clickable（与发送按钮同款修复）。
-                .clickable { onClick() }
+                .pressable { onClick() }
                 .padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1259,7 +1327,7 @@ object ChatUi {
                 maxLines = 1
             )
             // 【v0.1.0·修·图标偏小】全工程唯一还写着字面量 14f 的按钮图标（旁侧文字 12sp，
-            //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 40dp 命中区里像个针尖）。
+            //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 48dp 命中区里像个针尖）。
             // 【无障碍】附件预览卡上的叉＝移除附件（不是关闭页面）。
             DhKit.IconButton(
                 iconRes = Icons.IC_CLOSE,
@@ -1433,16 +1501,13 @@ object ChatUi {
                 }
             )
             Spacer(Modifier.width(8.dp))
-            // 【r19·修点击】发送按钮从 IconButton 换成显式 Box + clickable。
-            //   原写法 IconButton 内部走 pressable → clickable(interactionSource, indication=null)，
-            //   在 ChatPanel（LinearLayout 嵌 ComposeView）的边界下点击事件可能被吞。
-            //   显式 Box 的 clickable 区域就是整个圆形背景，不依赖 interactionSource 的命中判定。
+            // 发送按钮统一走 pressable，固定 48dp 圆形命中区。
             Box(
                 modifier = Modifier
                     .size(UiKit.HIT_DP.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(c.acc)
-                    .clickable {
+                    .pressable {
                         if (ChatState.waiting) {
                             host.stopGenerating()
                         } else {

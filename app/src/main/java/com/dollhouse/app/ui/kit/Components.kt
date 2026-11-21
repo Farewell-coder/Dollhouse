@@ -885,11 +885,11 @@ fun DhSkeletonRow(modifier: Modifier = Modifier, lines: Int = 2) {
 }
 
 /**
- * 行内图标按钮（命中区 48dp、视觉 40dp）。
+ * 行内图标按钮（视觉 48dp、命中区 48dp）。
  *
- * 【为什么再包一层】`DhKit.IconButton` 的命中区固定 40dp（HIT），
- *   与设计稿「图标 40dp 命中区 + 48dp 最小触摸目标」只差在**透明扩展**这一层；
- *   这里显式给出 48dp，并且把无障碍名称做成必需参数（漏掉就读屏念"按钮"）。
+ * 【为什么再包一层】`DhKit.IconButton` 现在也走 `minTouchTarget()`（48dp）且 `HIT` 同为 48，
+ *   两者命中区与视觉口径都已一致；本函数额外把无障碍名称做成**必需参数**
+ *   （漏掉就读屏念"按钮"）。
  */
 @Composable
 fun DhIconButton(

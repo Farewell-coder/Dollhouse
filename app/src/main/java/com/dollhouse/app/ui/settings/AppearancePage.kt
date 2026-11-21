@@ -382,7 +382,9 @@ object AppearancePage {
                 Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                 Text(
                     text = "主题跟随：" + ThemeManager.MODE_NAMES[HomeState.themeMode],
-                    color = c.line,
+                    // 【修·可读性】原来用 c.line（分隔线色）：压在 c.card 上只有 1.50:1，
+                    //   这行说明「当前主题档位」的提示等于空白。改 c.sub（唯一被夹到 ≥4.5 的次要文字槽）。
+                    color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
                     fontFamily = DhTokens.fontsBody
                 )

@@ -371,6 +371,18 @@ class PetTalkInput internal constructor(
                             Brush.linearGradient(listOf(palette.accent, palette.accent2))
                         )
                         .alpha(if (busy.value) 0.5f else 1f)
+                        // 【E12 白名单·为什么这一处保留裸 .clickable】
+                        //   本栏是悬浮在桌宠上的迷你输入条，窗口高度由 HEIGHT_DP = 46dp 写死
+                        //   （见本文件 HEIGHT_DP 常量与 WindowManager.LayoutParams 的建窗处）：
+                        //   **物理上限 46dp < 48dp**，比 pressable 的 minTouchTarget 下限还小。
+                        //   换成 pressable 后 minTouchTarget 会被父约束直接压回去（等于没生效），
+                        //   按钮实际仍是「行高决定的 62×34」，只是把裸 clickable 藏进 pressable 里
+                        //   —— 门禁会过，命中区一点没变大，属于机械替换，故不做。
+                        //   要真做到 48dp，必须把整条悬浮窗从 46 抬到 ~60dp，
+                        //   那是**改桌宠输入条的视觉尺寸**，属于独立设计决策，不在本次范围。
+                        //   缓解：发送键宽 62dp（远大于 48），误触风险主要在纵向；
+                        //   这也是本文件 PetBar 文档注释里早已写明的既有取舍。
+                        // E12-ALLOW: legacy-hit-target
                         .clickable(enabled = !busy.value) { submit() },
                     // 【对齐门禁】有背景 + 只有一个图标，必须显式居中，否则贴左上。
                     contentAlignment = Alignment.Center

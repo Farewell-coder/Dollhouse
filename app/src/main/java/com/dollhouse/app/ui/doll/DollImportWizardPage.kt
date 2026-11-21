@@ -40,9 +40,11 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
-import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -125,6 +127,11 @@ object DollImportWizardPage {
         var submitting by remember { mutableStateOf(false) }
         // 预览：第一张能认出的图片。
         var preview by remember { mutableStateOf<ImageBitmap?>(null) }
+        // 【B4·预览解码进度】`preview == null` 有两种含义，必须分开：
+        //   · previewBusy == true  ：正在用 ImageDecode 解 320px 缩略（IO 线程）
+        //   · previewBusy == false ：解完了，但确实没有可解码的图（或全解失败）
+        //   改造前两者都表现为「预览区整块不渲染」，用户分不清是"还在解"还是"没图可解"。
+        var previewBusy by remember { mutableStateOf(false) }
 
         // 分组选择：提到组件顶层，才能传给 doImport（B4 修复）。
         var groupDraft by remember { mutableStateOf(initialGroup) }
@@ -145,22 +152,41 @@ object DollImportWizardPage {
         // 预览解码：只解第一张「认出是图片」的文件。
         LaunchedEffect(checks) {
             preview = null
-            val list = checks ?: return@LaunchedEffect
-            for (it in list) {
-                if (!it.canImport) {
-                    continue
-                }
-                if (it.kind == "image" || it.kind == "anim" || it.kind == "spritesheet") {
-                    val b = withContext(Dispatchers.IO) {
-                        com.dollhouse.app.core.ImageDecode.file(
-                            it.path, reqWidth = 320, reqHeight = 320
-                        )
+            val list = checks ?: run {
+                previewBusy = false
+                return@LaunchedEffect
+            }
+            // 【为什么先判"有没有可解码的图"再置 busy】若这批文件里根本没有图片类，
+            //   置 busy 会让预览区先闪一条骨架再消失 —— 比不做更糟。
+            val decodable = list.any {
+                it.canImport && (it.kind == "image" || it.kind == "anim" || it.kind == "spritesheet")
+            }
+            if (!decodable) {
+                previewBusy = false
+                return@LaunchedEffect
+            }
+            previewBusy = true
+            try {
+                for (it in list) {
+                    if (!it.canImport) {
+                        continue
                     }
-                    if (b != null) {
-                        preview = b.asImageBitmap()
-                        break
+                    if (it.kind == "image" || it.kind == "anim" || it.kind == "spritesheet") {
+                        val b = withContext(Dispatchers.IO) {
+                            com.dollhouse.app.core.ImageDecode.file(
+                                it.path, reqWidth = 320, reqHeight = 320
+                            )
+                        }
+                        if (b != null) {
+                            preview = b.asImageBitmap()
+                            break
+                        }
                     }
                 }
+            } finally {
+                // 【finally 而非顺序执行】withContext 取消（换文件 / 退出页面）时
+                //   也要把标志复位，否则下次进来会残留 busy。
+                previewBusy = false
             }
         }
 
@@ -293,6 +319,29 @@ object DollImportWizardPage {
 
             // ============ 预览 ============
             val bmp = preview
+            // 【B4·接入加载态】解码期间给一块与最终预览**同尺寸**（180dp）的骨架，
+            //   而不是让预览区整块消失再突然出现 —— 后者会让下方「③ 导入方式」
+            //   整段跳一下，用户正在点的选项会移位。
+            //   这正是 MAA 硬规则 2「图片位置留同尺寸空位，不抖」的场景。
+            if (previewBusy && bmp == null) {
+                DhKit.SectionLabel("预览", iconRes = Icons.IC_IMAGE)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(DhKit.R_CARD.dp))
+                        .background(c.soft)
+                        .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    DhLoadingState(
+                        state = LoadingState.FirstLoad,
+                        modifier = Modifier.fillMaxWidth(),
+                        rows = 2,
+                        lines = 2
+                    )
+                }
+            }
             if (bmp != null) {
                 DhKit.SectionLabel("预览", iconRes = Icons.IC_IMAGE)
                 Box(

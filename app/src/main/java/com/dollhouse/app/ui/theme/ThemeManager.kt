@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.PetPrefs
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
  * 【职责】整体 UI 主题：四档模式（随系统 / 白色 / 暗色 / 纯黑）+ 莫奈主题色（按壁纸动态取色）。
@@ -311,10 +312,13 @@ object ThemeManager {
             UiKit.applyFontColor(PetPrefs.fontColor(c))
             // 窗口背景同步成当前主题底色：换主题走 recreate()，重建的那一瞬间会先露出
             // 窗口背景，不刷的话暗色 / 纯黑下会闪一下白。
+            // 【B1·P1】这里必须用**降饱和版**：窗口背景是页面透明期间的最终兜底，
+            //   它与 `GlobalBackground` 的渐变底是同一块面，两边色值不一致会表现为
+            //   「换主题重建时闪一下原色，再跳到中性色」。口径见 `Palette.neutralPageArgb`。
             val act = UiKit.findActivity(c)
             val win = act?.window
             if (win != null) {
-                win.setBackgroundDrawable(ColorDrawable(UiKit.BG))
+                win.setBackgroundDrawable(ColorDrawable(DhDesign.Palette.neutralPageArgb(UiKit.BG)))
             }
         } catch (t: Throwable) {
             Logs.w(LOG_TAG, "ignored", t)
@@ -662,6 +666,39 @@ object ThemeManager {
     }
 
     /**
+     * [inkOn] 的**提亮**方向版本：把同色相的颜色提亮到「在 bg 上读得清」。
+     *
+     * 【为什么需要它】[inkOn] 只会往下走（压暗），因此它只能回答「深色字压浅底」这一类问题。
+     * 而我方聊天气泡是反过来的：气泡**底**要够浅、`title`（深色字）才压得住。若继续用
+     * [inkOn] 以「白字可读」为基准去推气泡底，必然把底压到中明度（#B05858 这一档），
+     * 于是 `title` 压上去只有 2.16~2.63:1 —— 这是莫奈浅色档长期存在的既存缺陷。
+     *
+     * 【与内置浅色档对齐】内置 LIGHT 的气泡底是 `#DCE9FA`（s=0.12 / v=0.98 的低饱和浅底），
+     * `title` 压上去 9.45:1。本函数让莫奈档产出**同族**的浅底：饱和度固定低档（见调用点
+     * 传 0.12f），只把明度提到「对 title 达标」为止，因此既不会出现高饱和的刺眼色，
+     * 也不会改变 `title` 本身。
+     *
+     * 【步长为什么是 0.02 而不是 0.03】提亮方向上每步的明度增量更敏感：0.03 会一步跨过
+     * 达标点 0.4~0.6 个色阶，浅底上表现为「这一档比相邻档明显更白」；0.02 让 24 个色相的
+     * 气泡底明度落在同一窄带内（实测 #C3DEDE~#DEDEC3，全部 6.93~7.24:1）。
+     *
+     * 【为什么兜底是 1.0 而不是 0.06】与 [inkOn] 的方向相反：走到 40 步仍不达标只可能是
+     * `bg` 本身已接近纯白（此时任何不饱和色都提不出对比度），此时返回最亮的一档，
+     * 让调用方至少拿到一个浅底，而不是一个几乎不可见的深底。
+     */
+    private fun inkOnLit(hue: Float, s: Float, v: Float, bg: Int, need: Float): Int {
+        var vv = v
+        for (i in 0 until 40) {
+            val c = hsv(hue, s, vv)
+            if (contrast(c, bg) >= need) {
+                return c
+            }
+            vv += 0.02f
+        }
+        return hsv(hue, s, 1.0f)
+    }
+
+    /**
      * 【莫奈统筹】把「语义色相」朝主色相靠 amount（0~1），只挪色相，不动饱和度 / 明度。
      *
      * 【为什么需要】成功绿 / 错误红 / 提示黄 / 表情色都有既定语义，色相不能直接跟着主色跑，
@@ -749,12 +786,20 @@ object ThemeManager {
         // 状态色的对比度基准：白卡片。与 I_CARD 同为 0xFFFFFFFF。
         val lCard = 0xFFFFFFFF.toInt()
         val lHintBg = hsv(tintBy(42f, hue, 0.22f), 0.30f, 0.96f)
+        // 【我方气泡底·修既存缺陷】气泡底必须与**实际使用的字色**对齐。
+        //   ChatUi.Bubble 画我方消息用的是 `title`（见 ChatUi.kt 的 color = c.title 及其注释），
+        //   而内置三档（LIGHT/DARK/BLACK）的气泡底也都是按「title 压得住」配的
+        //   （实测 title/气泡底 = 9.45 / 10.18 / 12.46，全部远超 4.5）。
+        //   原实现用 `inkOn(..., 0xFFFFFFFF)` 推导气泡底，语义是「保证**白字**可读」，
+        //   于是底被压到中明度（如 hue=0 → #B05858），title 压上去只有 2.16~2.63:1。
+        //   现在把基准换成 title，并走**提亮**方向 + 低饱和，产出与内置浅色档同族的浅底。
+        val lBubbleTitle = inkOn(hue, 0.30f, 0.28f, soft)
         return intArrayOf(
             inkOn(hue, 0.62f, 0.85f, 0xFFFFFFFF.toInt()),
             inkOn(hue, 0.58f, 0.95f, 0xFFFFFFFF.toInt()),
             0xFFFFFFFF.toInt(),
             hsv(hue, 0.05f, 0.98f),
-            inkOn(hue, 0.30f, 0.28f, soft),
+            lBubbleTitle,
             inkOn(hue, 0.20f, 0.58f, soft),
             hsv(hue, 0.10f, 0.93f),
             hsv(hue, 0.10f, 0.98f),
@@ -766,7 +811,7 @@ object ThemeManager {
             inkOn(tintBy(142f, hue, 0.18f), 0.55f, 0.34f, lCard),
             inkOn(tintBy(4f, hue, 0.18f), 0.62f, 0.40f, lCard),
             0xFFFFFFFF.toInt(),
-            inkOn(hue, 0.50f, 0.87f, 0xFFFFFFFF.toInt()),
+            inkOnLit(hue, 0.12f, 0.87f, lBubbleTitle, 4.5f),
             hsv(hue, 0.18f, 0.92f),
             chipBg,
             inkOn(hue, 0.55f, 0.78f, chipBg),

@@ -33,6 +33,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.dollhouse.app.R
 import com.dollhouse.app.anim.Springs
+import com.dollhouse.app.core.Logs
+import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
  * 统一视觉与动效。配色 / 圆角 / 时长全部在此收口，
@@ -605,14 +608,61 @@ object UiKit {
     const val D_LAYER = 220
     const val D_PAGE = 200
 
+    /**
+     * 【B3·reduceMotion 闸门】系统「移除动画」是否开启。
+     *
+     * 【为什么统一走 Compose 侧那份】判定逻辑只有一份（`DhAnim.reduceMotion`：
+     *   API26+ 用 `ValueAnimator.areAnimatorsEnabled()`，更低版本用根组合写入的进程级镜像）。
+     *   View 侧若另写一套 `Settings.Global` 读取，两边就可能给出不同答案，
+     *   结果正是本任务要消灭的「同一屏两种行为」。
+     */
+    @JvmStatic
+    fun reduceMotion(): Boolean {
+        return com.dollhouse.app.ui.compose.DhAnim.reduceMotion()
+    }
+
+    /**
+     * 时长的闸门版本：关闭动画时返回 0，动画**一帧到位**（不改变终态，只取消过程）。
+     *
+     * 【为什么是 0 而不是跳过调用】`ViewPropertyAnimator` 在 duration=0 时仍会写入终值，
+     *   并且 `withEndAction` 照常执行 —— 移除/收起这类「动画完才 removeView」的逻辑
+     *   因此不会漏跑。若改成 `return` 早退，调用方就得各自补一遍终态，漏一处就是视图卡死。
+     */
+    @JvmStatic
+    fun dur(ms: Int): Long {
+        return if (reduceMotion()) 0L else ms.toLong()
+    }
+
+    /**
+     * 弹簧驱动的闸门版本：关闭动画时**直接落到终态**，不启动 [Springs.drive]。
+     *
+     * 【为什么不能只是把弹簧的刚度调大】弹簧是逐帧积分器，进度 >1 的过冲是设计的一部分；
+     *   `Springs.drive` 也没有「时长」参数可以归零，唯一的瞬时通道就是
+     *   直接把 `onUpdate(1f)` + `onEnd()` 走一遍。所有调用点的 onEnd 都会写终态，
+     *   所以这样既保证终态正确，也不会留下半途的高度 / 颜色 / 旋转。
+     *
+     * 【返回 null 是既有契约】调用方本来就按「句柄可能为空」写（`if (h != null)`），
+     *   归零时返回 null 等于「没有动画在跑」，与 `StartPressBack` 里
+     *   「已经在终态就返回 null」的口径完全一致。
+     */
+    @JvmStatic
+    fun springDrive(spring: com.dollhouse.app.anim.Spring?, listener: Springs.Listener?): Springs.Handle? {
+        // 空参契约与 Springs.drive 保持一致：任一为空直接返回 null，不误调 listener。
+        if (spring == null || listener == null) {
+            return null
+        }
+        if (reduceMotion()) {
+            listener.onUpdate(1f)
+            listener.onEnd()
+            return null
+        }
+        return Springs.drive(spring, listener)
+    }
+
     /** 系统关闭 Animator 时，普通页面直接切换，不播放装饰性转场。 */
     @JvmStatic
     fun pageTransitionDuration(): Long {
-        return if (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()) {
-            D_PAGE.toLong()
-        } else {
-            0L
-        }
+        return dur(D_PAGE)
     }
 
     /** 列表错峰入场的每一档延迟（毫秒）。 */
@@ -961,9 +1011,14 @@ object UiKit {
                     prev.cancel()
                     pressSpringMap.remove(view)
                 }
+                // 【B3·闸门】dur() 在关闭动画时返回 0 → 直接落到按压态。
+                //   【为什么保留「瞬间态变化」而不是整个跳过】Compose 侧 `DhAnim.PRESS_DOWN`
+                //   在关闭动画时是 `snap()`，同样是「一帧到位」。两侧都保留反馈、都去掉过程，
+                //   才符合本任务「同一屏不能两种行为」的要求；若 View 侧整个跳过，
+                //   就会出现「Compose 按钮按下有变化、View 按钮按下没反应」。
                 view.animate().cancel()
                 view.animate().scaleX(PRESS_SCALE).scaleY(PRESS_SCALE)
-                    .setDuration(D_PRESS.toLong())
+                    .setDuration(dur(D_PRESS))
                     .setInterpolator(EASE_STD).start()
             } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
                 // 【弹簧】松手那一下用 bouncy（ζ=0.40）弹回，按下仍用 EASE_STD 保持跟手。
@@ -989,7 +1044,9 @@ object UiKit {
             v.scaleY = 1f
             return null
         }
-        return Springs.drive(Springs.bouncy(), object : Springs.Listener {
+        // 【B3·闸门】关闭动画时 springDrive 直接落终态（scale=1），不启动弹簧。
+        //   与 Compose 侧 `DhAnim.BOUNCY → snap()` 一致：反馈保留，过程去掉。
+        return springDrive(Springs.bouncy(), object : Springs.Listener {
             override fun onUpdate(p: Float) {
                 val s = Springs.lerp(from, 1.0f, p)
                 v.scaleX = s
@@ -1040,27 +1097,37 @@ object UiKit {
         if (prevH != null && prevH.isRunning) {
             prevH.cancel()
         }
-        val va = ValueAnimator.ofInt(from, to)
-        va.duration = D_LAYER.toLong()
-        va.interpolator = EASE_STD
-        va.addUpdateListener { an ->
-            val h = an.animatedValue as Int
-            val lp = body.layoutParams ?: return@addUpdateListener
-            lp.height = h
-            body.layoutParams = lp
-            body.alpha = Math.min(1f, h.toFloat() / full)
-        }
-        va.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(an: Animator) {
-                expandAnimMap.remove(body)
-                val lp = body.layoutParams ?: return
-                lp.height = if (open) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+        // 【B3·闸门】关闭动画时高度直接落终态：不建 ValueAnimator。
+        //   duration=0 的 ValueAnimator 仍会激活一次动画器并在下一帧写值，
+        //   卡片会出现「先量到 1px 再撑开」的一帧跳动；这里直接写 layoutParams 更干净。
+        if (reduceMotion()) {
+            val lp0 = body.layoutParams ?: return
+            lp0.height = if (open) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+            body.layoutParams = lp0
+            body.alpha = if (open) 1f else 0f
+        } else {
+            val va = ValueAnimator.ofInt(from, to)
+            va.duration = dur(D_LAYER)
+            va.interpolator = EASE_STD
+            va.addUpdateListener { an ->
+                val h = an.animatedValue as Int
+                val lp = body.layoutParams ?: return@addUpdateListener
+                lp.height = h
                 body.layoutParams = lp
-                body.alpha = if (open) 1f else 0f
+                body.alpha = Math.min(1f, h.toFloat() / full)
             }
-        })
-        expandAnimMap[body] = va
-        va.start()
+            va.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(an: Animator) {
+                    expandAnimMap.remove(body)
+                    val lp = body.layoutParams ?: return
+                    lp.height = if (open) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+                    body.layoutParams = lp
+                    body.alpha = if (open) 1f else 0f
+                }
+            })
+            expandAnimMap[body] = va
+            va.start()
+        }
         if (arrow != null) {
             // 【弹簧】箭头旋转同样走 snappy，与卡片高度动画同节奏。
             // 【本次修复】上一段箭头弹簧必须先取消，否则两段波形叠加来回抽。
@@ -1075,7 +1142,7 @@ object UiKit {
                 // 已经是终态（重复点同一个方向）：不动，避免无意义的一帧抖动。
                 arrow.rotation = toRot
             } else {
-                val h = Springs.drive(Springs.snappy(), object : Springs.Listener {
+                val h = springDrive(Springs.snappy(), object : Springs.Listener {
                     override fun onUpdate(p: Float) {
                         arrow.rotation = Springs.lerp(fromRot, toRot, p)
                     }
@@ -1101,11 +1168,20 @@ object UiKit {
             v.post { enter(v, delayMs) }
             return
         }
+        // 【B3·闸门】关闭动画时直接出现在终态：不置 0 alpha / 不上移，也不排错峰延时。
+        //   若只把 duration 归零而保留 delay，列表仍会「一行一行地冒出来」——
+        //   那是时间轴动画，同样属于「移除动画」该关掉的东西。
+        if (reduceMotion()) {
+            v.animate().cancel()
+            v.alpha = 1f
+            v.translationY = 0f
+            return
+        }
         v.alpha = 0f
         v.translationY = dp(v.context, 8).toFloat()
         v.animate().alpha(1f).translationY(0f)
             .setStartDelay(Math.max(0, delayMs).toLong())
-            .setDuration(D_LAYER.toLong())
+            .setDuration(dur(D_LAYER))
             .setInterpolator(EASE_DECEL).start()
     }
 
@@ -1157,7 +1233,8 @@ object UiKit {
         }
         v.animate().cancel()
         val from = if (Math.abs(v.scaleX - 1f) < 0.002f) 1.06f else Math.max(1f, v.scaleX)
-        val h = Springs.drive(Springs.bouncy(), object : Springs.Listener {
+        // 【B3·闸门】关闭动画时 springDrive 直接落终态 = 不弹这一下（脉冲纯粹是装饰）。
+        val h = springDrive(Springs.bouncy(), object : Springs.Listener {
             override fun onUpdate(p: Float) {
                 val s = Springs.lerp(from, 1f, p)
                 v.scaleX = s
@@ -1281,7 +1358,8 @@ object UiKit {
             //   现在轨道、滑块各持一条曲线，各自收敛，互不干扰。
             val trackFrom = if (value) UiKit.SWITCH_OFF else UiKit.ACC
             trackColorAnim?.cancel()
-            trackColorAnim = Springs.drive(Springs.smooth(), object : Springs.Listener {
+            // 【B3·闸门】关闭动画时 springDrive 直接走完终态：轨道一步到位变色，滑块一步到位。
+            trackColorAnim = UiKit.springDrive(Springs.smooth(), object : Springs.Listener {
                 override fun onUpdate(p: Float) {
                     setBackground(UiKit.round(ev.evaluate(p, trackFrom, toColor) as Int, c, 999f))
                 }
@@ -1290,7 +1368,7 @@ object UiKit {
                     setBackground(UiKit.round(toColor, c, 999f))
                 }
             })
-            trackAnim = Springs.drive(Springs.snappy(), object : Springs.Listener {
+            trackAnim = UiKit.springDrive(Springs.snappy(), object : Springs.Listener {
                 override fun onUpdate(p: Float) {
                     knob.translationX = Springs.lerp(fromX, toX, p)
                 }
@@ -1391,7 +1469,8 @@ object UiKit {
             //   这里换成临界阻尼 smooth（ζ=1.00），保证 shown 单调不越界；
             //   观感仍然平滑，因为弹簧的减速段本身就带缓出。
             val from = shown
-            anim = Springs.drive(Springs.smooth(), object : Springs.Listener {
+            // 【B3·闸门】关闭动画时进度直接落到目标值，不播放弹簧。
+            anim = UiKit.springDrive(Springs.smooth(), object : Springs.Listener {
                 override fun onUpdate(q: Float) {
                     shown = Springs.lerp(from, to, q)
                     postInvalidateOnAnimation()
@@ -1642,12 +1721,22 @@ object UiKit {
      * 与全局配色割裂；自绘才能保证暗色 / 纯黑主题下也不刺眼。
      * posText / negText 传 null 表示不显示该按钮；两者都 null 则整行不出现。
      *
-     * @deprecated 已由 `ui/compose/AppDialog` 取代，**禁止新增调用**。
+     * @deprecated 已由 `ui/compose/AppDialog` 取代，**禁止新增调用，勿用**。
      *   全仓调用点在 2026-11 已清零（最后一处是 PetWindow 的调试弹窗）。
      *   为什么不删：它的按钮/标题/取色工具（dialogButton / dialogTitle / dialogTint）
      *   仍被其它弹窗与主题刷新引用，删外壳要连带改这些，收益为零、风险不为零。
      *   新代码请用 `AppDialog.note(...)` / `AppDialog.confirm(...)` / `AppDialog.custom(...)`，
      *   三者共用 `DhForm.DialogButton` 与共享取色 `dialogSheet()`，与 Compose 弹窗同一套观感。
+     *
+     * 【为什么这里没有直接 throw 或直接返回 null】
+     *   本函数本身建的是纯 View 树（LinearLayout / TextView），**不需要** Compose owner；
+     *   危险只出现在「调用方把 ComposeView 塞进 content」这一种用法上。
+     *   · 直接 `throw`：等于把「全仓调用点已清零」这个静态假设变成运行时炸弹 ——
+     *    将来任何一处遗留调用（反射、复用、分支没删净）都从「弹窗样式旧」升级成「必崩」。
+     *   · 直接 `return null`：调用方拿不到 Dialog，静默失败比崩溃更难查。
+     *   · 所以选择**补装 owner**：对纯 View 内容零行为变化（多一个没人读的 owner，
+     *    随窗口关闭一并销毁），对 ComposeView 内容则消除 `ViewTreeLifecycleOwner not found`。
+     *    这样它是「安全但已废弃」，而不是「安全全靠没人用」。
      */
     @Deprecated(
         message = "已由 ui/compose/AppDialog 取代，禁止新增调用："
@@ -1662,89 +1751,109 @@ object UiKit {
         if (act == null) {
             return null
         }
-        val dlg = Dialog(act)
-        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        // owner 必须在 try **之外**声明：`setContentView` / `dlg.show()` 抛异常时
+        //   OnDismissListener 不会触发，catch 要能就地回收，否则 Recomposer 泄漏。
+        //   口径与 UpdatePrompt / DhDialogHost 一致（三处同形，改一处要同步另两处）。
+        var owner: ComposeHost.HostOwner? = null
+        try {
+            val dlg = Dialog(act)
+            dlg.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            // 【崩溃修复·配套】Dialog 是独立 Window，`ViewTreeLifecycleOwner` 不跨窗口。
+            //   若 content 里带了 ComposeView，不装 owner 就会抛
+            //   `ViewTreeLifecycleOwner not found`。装在该 Dialog 自己的 decorView 上，
+            //   必须在 setContentView 之前。纯 View 内容时这份 owner 无人读取，
+            //   随 OnDismissListener 一起销毁，无副作用。
+            val installed = ComposeHost.installForDialog(dlg)
+            owner = installed
+            dlg.setOnDismissListener { installed?.onDestroy() }
 
-        val col = LinearLayout(act)
-        col.orientation = LinearLayout.VERTICAL
-        // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 sheet()：**不透明**（绝不让背后正文透上来），
-        //   质感由「外观 → 磨砂程度」控制。原来走 card()，会跟着卡片透明度一起变半透明，
-        //   用户把卡片调透之后弹窗与背后文字就叠成一片。
-        // 【r14·弹窗透明度】底色再过一道 dialogTint：把「弹窗透明度」设置作用到每一处弹窗，
-        //   不必在每个弹窗的构建代码里各写一遍（默认 100 时本方法原样返回，零行为变化）。
-        col.background = round(dialogTint(sheet()), act, 16f)
-        val pad = dp(act, 18)
-        col.setPadding(pad, pad, pad, dp(act, 14))
+            val col = LinearLayout(act)
+            col.orientation = LinearLayout.VERTICAL
+            // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 sheet()：**不透明**（绝不让背后正文透上来），
+            //   质感由「外观 → 磨砂程度」控制。原来走 card()，会跟着卡片透明度一起变半透明，
+            //   用户把卡片调透之后弹窗与背后文字就叠成一片。
+            // 【r14·弹窗透明度】底色再过一道 dialogTint：把「弹窗透明度」设置作用到每一处弹窗，
+            //   不必在每个弹窗的构建代码里各写一遍（默认 100 时本方法原样返回，零行为变化）。
+            col.background = round(dialogTint(sheet()), act, 16f)
+            val pad = dp(act, 18)
+            col.setPadding(pad, pad, pad, dp(act, 14))
 
-        if (title != null && title.length > 0) {
-            col.addView(dialogTitle(act, title))
-        }
-        if (content != null) {
-            val clp = LinearLayout.LayoutParams(-1, -2)
-            clp.topMargin = dp(act, 12)
-            content.layoutParams = clp
-            col.addView(content)
-        }
-        if (posText != null || negText != null) {
-            val bar = LinearLayout(act)
-            bar.orientation = LinearLayout.HORIZONTAL
-            bar.gravity = Gravity.RIGHT
-            val blp = LinearLayout.LayoutParams(-1, -2)
-            blp.topMargin = dp(act, 18)
-            bar.layoutParams = blp
-            if (negText != null) {
-                val nb = dialogButton(act, negText, false)
-                nb.setOnClickListener { v ->
-                    dlg.dismiss()
-                    neg?.onClick(v)
-                }
-                bar.addView(nb)
+            if (title != null && title.length > 0) {
+                col.addView(dialogTitle(act, title))
             }
-            if (posText != null) {
-                val pb = dialogButton(act, posText, true)
-                val plp = LinearLayout.LayoutParams(-2, -2)
-                plp.leftMargin = dp(act, 10)
-                pb.layoutParams = plp
-                pb.setOnClickListener { v ->
-                    // 同一窗口的确认操作只接受第一次点击；取消/返回不走这里。
-                    pb.isEnabled = false
-                    dlg.dismiss()
-                    pos?.onClick(v)
-                }
-                bar.addView(pb)
+            if (content != null) {
+                val clp = LinearLayout.LayoutParams(-1, -2)
+                clp.topMargin = dp(act, 12)
+                content.layoutParams = clp
+                col.addView(content)
             }
-            col.addView(bar)
-        }
-        dlg.setContentView(col)
+            if (posText != null || negText != null) {
+                val bar = LinearLayout(act)
+                bar.orientation = LinearLayout.HORIZONTAL
+                bar.gravity = Gravity.RIGHT
+                val blp = LinearLayout.LayoutParams(-1, -2)
+                blp.topMargin = dp(act, 18)
+                bar.layoutParams = blp
+                if (negText != null) {
+                    val nb = dialogButton(act, negText, false)
+                    nb.setOnClickListener { v ->
+                        dlg.dismiss()
+                        neg?.onClick(v)
+                    }
+                    bar.addView(nb)
+                }
+                if (posText != null) {
+                    val pb = dialogButton(act, posText, true)
+                    val plp = LinearLayout.LayoutParams(-2, -2)
+                    plp.leftMargin = dp(act, 10)
+                    pb.layoutParams = plp
+                    pb.setOnClickListener { v ->
+                        // 同一窗口的确认操作只接受第一次点击；取消/返回不走这里。
+                        pb.isEnabled = false
+                        dlg.dismiss()
+                        pos?.onClick(v)
+                    }
+                    bar.addView(pb)
+                }
+                col.addView(bar)
+            }
+            dlg.setContentView(col)
 
-        val w = dlg.window
-        if (w != null) {
-            w.setBackgroundDrawable(ColorDrawable(0x00000000))
-            w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-            w.setDimAmount(0.45f)
-            val wide = Math.min(
-                (act.resources.displayMetrics.widthPixels * 0.88f).toInt(),
-                dp(act, 420)
-            )
-            w.setLayout(wide, ViewGroup.LayoutParams.WRAP_CONTENT)
-            // 【r14·弹窗模糊】API 31+ 才真正有效；低版本由本方法内部判掉，静默不生效。
-            //   放在 setLayout 之后调用 —— 模糊是按 window 的整体背景算的，尺寸定好再设更稳。
-            applyDialogBlurToWindow(w)
+            val w = dlg.window
+            if (w != null) {
+                w.setBackgroundDrawable(ColorDrawable(0x00000000))
+                w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                w.setDimAmount(0.45f)
+                val wide = Math.min(
+                    (act.resources.displayMetrics.widthPixels * 0.88f).toInt(),
+                    dp(act, 420)
+                )
+                w.setLayout(wide, ViewGroup.LayoutParams.WRAP_CONTENT)
+                // 【r14·弹窗模糊】API 31+ 才真正有效；低版本由本方法内部判掉，静默不生效。
+                //   放在 setLayout 之后调用 —— 模糊是按 window 的整体背景算的，尺寸定好再设更稳。
+                applyDialogBlurToWindow(w)
+            }
+            // 弹窗入场：轻微上浮 + 缩放 + 淡入。
+            // 【为何】原先是 show() 后凭空出现，与 App 其他地方的过渡感不一致。
+            //   初始态必须在 show() 之前设好，否则会先闪一帧完整尺寸再缩回去。
+            col.alpha = 0f
+            col.scaleX = 0.94f
+            col.scaleY = 0.94f
+            col.translationY = dp(act, 14).toFloat()
+            col.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+                .setDuration(D_MICRO.toLong()).setInterpolator(EASE_DECEL).start()
+            dlg.show()
+            // 【坑·沉浸同步】必须放在 show() 之后：show 之前窗口 / decor 还没建立，controller 无宿主，
+            //   同步调用无效；放在 show 之后才能把状态栏状态同步到已建立的弹窗窗口。
+            ImmersiveStatus.syncDialog(dlg)
+            return dlg
+        } catch (t: Throwable) {
+            // 【异常路径·必须】窗口没建起来时没有 OnDismissListener 兜底，这里释放。
+            runCatching { owner?.onDestroy() }
+            owner = null
+            Logs.w("Dollhouse", "showDialog failed", t)
+            return null
         }
-        // 弹窗入场：轻微上浮 + 缩放 + 淡入。
-        // 【为何】原先是 show() 后凭空出现，与 App 其他地方的过渡感不一致。
-        //   初始态必须在 show() 之前设好，否则会先闪一帧完整尺寸再缩回去。
-        col.alpha = 0f
-        col.scaleX = 0.94f
-        col.scaleY = 0.94f
-        col.translationY = dp(act, 14).toFloat()
-        col.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
-            .setDuration(D_MICRO.toLong()).setInterpolator(EASE_DECEL).start()
-        dlg.show()
-        // 【坑·沉浸同步】必须放在 show() 之后：show 之前窗口 / decor 还没建立，controller 无宿主，
-        //   同步调用无效；放在 show 之后才能把状态栏状态同步到已建立的弹窗窗口。
-        ImmersiveStatus.syncDialog(dlg)
-        return dlg
     }
 
     /** 【职责】安全取 TextView 文本并 trim；非 TextView 返回 null。 */
@@ -1793,10 +1902,8 @@ object UiKit {
     /** 顶栏图标字号 ← [DhDesign.Size.iconMd]。 */
     const val FS_ICON = 20.0f
 
-    /** 图标控件的固定命中区边长（dp）。
-     *  【M1】视觉命中区 40dp 保留（设计稿 §2.2 图标 40dp 命中区），
-     *   实际可点的最小尺寸由 [com.dollhouse.app.ui.design.DhDesign.Size.minTouch]（48dp）保证。 */
-    const val HIT_DP = 40
+    /** 图标控件的固定命中区边长（dp），与 DhDesign.Size.minTouch 统一为 48dp。 */
+    const val HIT_DP = 48
 
     /** 按钮圆角（dp）← [DhDesign.Radius.md]。 */
     const val RADIUS_BTN = com.dollhouse.app.ui.design.DhDesign.Radius.md
@@ -1807,7 +1914,7 @@ object UiKit {
     /**
      * 统一图标按钮：裸贴描边图标 + 固定命中区，靠 press 缩放反馈表达可点。
      * 【为何用 padding 而不是直接给图标尺寸】调用方可能用 iconLp() 之类再覆盖
-     *   LayoutParams（命中区要 40dp）。若图标本身跟着容器撑大，视觉就会时大时小；
+     *   LayoutParams（命中区 48dp）。若图标本身跟着容器撑大，视觉就会时大时小；
      *   所以把「视觉边长」钉在 padding 上，容器给多大都不影响图标实际大小。
      */
     @JvmStatic
@@ -2009,10 +2116,18 @@ object UiKit {
         }
         page.setTag(tag)
         page.translationX = 0f
-        page.alpha = 0f
+        // 【B3·闸门】关闭动画时不先置 alpha=0：那会有一帧完全透明的页面（白闪的根源）。
+        //   只读一次闸门，避免「判定的两次调用之间系统开关刚好翻转」造成分裂。
+        val instant = reduceMotion()
+        page.alpha = if (instant) 1f else 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
         // 页根铺全局背景，页面底色保持既有规则。
         GlobalBackground.installPage(page)
+        if (instant) {
+            page.animate().cancel()
+            page.alpha = 1f
+            return
+        }
         val duration = pageTransitionDuration()
         page.animate().alpha(1f).setDuration(duration).setInterpolator(EASE_STD).start()
     }
@@ -2030,10 +2145,21 @@ object UiKit {
             disablePageInput(old)
         }
         page.setTag(tag)
-        page.alpha = 0f
+        // 【B3·闸门】关闭动画时新页直接可见、旧页立即移除，不留半透明重影。
+        val instant = reduceMotion()
+        page.alpha = if (instant) 1f else 0f
         content.addView(page, ViewGroup.LayoutParams(-1, -1))
         // 同 openPage：页根铺全局背景，页内页面级底色置透明，避免与宿主重复叠图。
         GlobalBackground.installPage(page)
+        if (instant) {
+            page.animate().cancel()
+            page.alpha = 1f
+            if (old != null) {
+                old.animate().cancel()
+                content.removeView(old)
+            }
+            return
+        }
         if (old != null) {
             old.animate().alpha(0f).setDuration(pageTransitionDuration()).setInterpolator(EASE_STD)
                 .withEndAction { content.removeView(old) }.start()
@@ -2060,6 +2186,12 @@ object UiKit {
         val parent = page.parent as ViewGroup
         page.translationX = 0f
         disablePageInput(page)
+        // 【B3·闸门】关闭动画时立即移除。仍走 disablePageInput：关闭期间不该再接收触摸。
+        if (reduceMotion()) {
+            page.animate().cancel()
+            parent.removeView(page)
+            return
+        }
         page.animate().alpha(0f)
             .setDuration(pageTransitionDuration()).setInterpolator(EASE_STD)
             .withEndAction {
@@ -2082,7 +2214,12 @@ object UiKit {
             v.alpha = 0f
         }
         v.animate().cancel()
-        v.animate().alpha(1f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_STD).start()
+        // 【B3·闸门】关闭动画时直接 alpha=1：不从 0 起跳，避免「闪一下才出来」。
+        if (reduceMotion()) {
+            v.alpha = 1f
+            return
+        }
+        v.animate().alpha(1f).setDuration(dur(D_MICRO)).setInterpolator(EASE_STD).start()
     }
 
     /** 淡出隐藏（动画结束后才置 GONE，保留布局占位直到真正隐藏）。 */
@@ -2092,7 +2229,13 @@ object UiKit {
             return
         }
         v.animate().cancel()
-        v.animate().alpha(0f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_ACCEL)
+        // 【B3·闸门】关闭动画时直接隐藏（保留既有语义：结束时 alpha<0.05 才置 GONE）。
+        if (reduceMotion()) {
+            v.alpha = 0f
+            v.visibility = View.GONE
+            return
+        }
+        v.animate().alpha(0f).setDuration(dur(D_MICRO)).setInterpolator(EASE_ACCEL)
             .withEndAction {
                 if (v.alpha < 0.05f) {
                     v.visibility = View.GONE
@@ -2120,9 +2263,15 @@ object UiKit {
         if (from == toColor) {
             return
         }
+        // 【B3·闸门】关闭动画时直接换色。不靠 duration=0 的 ValueAnimator：
+        //   它仍会激活一次动画器并在下一帧写值，等于「闪一下」；直接 setTextColor 才是零帧。
+        if (reduceMotion()) {
+            t.setTextColor(toColor)
+            return
+        }
         val ev = ArgbEvaluator()
         val va = ValueAnimator.ofFloat(0f, 1f)
-        va.duration = D_MICRO.toLong()
+        va.duration = dur(D_MICRO)
         va.interpolator = EASE_STD
         va.addUpdateListener { an ->
             val f = an.animatedValue as Float
@@ -2139,6 +2288,12 @@ object UiKit {
     @JvmStatic
     fun scrollToTop(sv: ScrollView?) {
         if (sv == null) {
+            return
+        }
+        // 【B3·闸门】smoothScrollTo 内部是一个 Scroller 动画（不受 DurationScale 直接影响），
+        //   关闭动画时必须退成瞬时 scrollTo，否则「移除动画」下仍在做滚动位移。
+        if (reduceMotion()) {
+            sv.scrollTo(0, 0)
             return
         }
         sv.post {
@@ -2189,12 +2344,21 @@ object UiKit {
         if (shade == null || panel == null) {
             return
         }
+        // 【B3·闸门】关闭动画时不要「先挪到屏外再 0ms 弹回」—— 那样会有一帧面板缺席。
+        //   直接摆在终态：遮罩不透明、面板 translation 归零。
+        if (reduceMotion()) {
+            shade.animate().cancel()
+            panel.animate().cancel()
+            shade.alpha = 1f
+            panel.translationY = 0f
+            return
+        }
         val h = if (panel.height > 0) panel.height.toFloat()
         else panel.resources.displayMetrics.heightPixels * 0.5f
         shade.alpha = 0f
         panel.translationY = h
-        shade.animate().alpha(1f).setDuration(D_LAYER.toLong()).setInterpolator(EASE_STD).start()
-        panel.animate().translationY(0f).setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL).start()
+        shade.animate().alpha(1f).setDuration(dur(D_LAYER)).setInterpolator(EASE_STD).start()
+        panel.animate().translationY(0f).setDuration(dur(D_PAGE)).setInterpolator(EASE_DECEL).start()
     }
 
     /** 从左侧推入：抽屉专用（遮罩淡入 + 抽屉右移进屏）。 */
@@ -2203,12 +2367,20 @@ object UiKit {
         if (shade == null || panel == null) {
             return
         }
+        // 【B3·闸门】同 slideUpIn：直接落终态，不留一帧半开抽屉。
+        if (reduceMotion()) {
+            shade.animate().cancel()
+            panel.animate().cancel()
+            shade.alpha = 1f
+            panel.translationX = 0f
+            return
+        }
         val w = if (panel.width > 0) panel.width.toFloat()
         else panel.resources.displayMetrics.widthPixels * 0.8f
         shade.alpha = 0f
         panel.translationX = -w
-        shade.animate().alpha(1f).setDuration(D_LAYER.toLong()).setInterpolator(EASE_STD).start()
-        panel.animate().translationX(0f).setDuration(D_PAGE.toLong()).setInterpolator(EASE_DECEL).start()
+        shade.animate().alpha(1f).setDuration(dur(D_LAYER)).setInterpolator(EASE_STD).start()
+        panel.animate().translationX(0f).setDuration(dur(D_PAGE)).setInterpolator(EASE_DECEL).start()
     }
 
     /**
@@ -2233,7 +2405,17 @@ object UiKit {
         val parent = shade.parent as ViewGroup
         val panel = if (shade is ViewGroup && shade.childCount > 0)
             shade.getChildAt(0) else null
-        shade.animate().alpha(0f).setDuration(D_LAYER.toLong()).setInterpolator(EASE_ACCEL).start()
+        // 【B3·闸门】关闭动画时立即移除整层：不留一层已经透明的遮罩继续吃触摸，
+        //   也不让面板瞬间「跳」到屏外之后再被移除。
+        if (reduceMotion()) {
+            if (panel != null) {
+                panel.animate().cancel()
+            }
+            shade.animate().cancel()
+            parent.removeView(shade)
+            return
+        }
+        shade.animate().alpha(0f).setDuration(dur(D_LAYER)).setInterpolator(EASE_ACCEL).start()
         if (panel != null) {
             val dist = if (down)
                 (if (panel.height > 0) panel.height.toFloat()
@@ -2245,13 +2427,15 @@ object UiKit {
                 ObjectAnimator.ofFloat(panel, "translationY", panel.translationY, dist)
             else
                 ObjectAnimator.ofFloat(panel, "translationX", panel.translationX, dist)
-            oa.duration = D_LAYER.toLong()
+            oa.duration = dur(D_LAYER)
             oa.interpolator = EASE_ACCEL
             oa.start()
         }
+        // 【B3·闸门】移除时机同样走 dur —— 上面的 reduceMotion 分支已提前返回，
+        //   这里保留闸门是为了「开关翻转」时不出现正反两套时序。
         shade.postDelayed({
             parent.removeView(shade)
-        }, D_LAYER.toLong())
+        }, dur(D_LAYER))
     }
 
     /**
@@ -2271,12 +2455,23 @@ object UiKit {
         if (decor !is ViewGroup) {
             return
         }
+        // 【B3·闸门】关闭动画时整层遮罩本身就是「动画」：既不淡出，也不盖这一帧。
+        //   只把时长归零仍然会先铺一层不透明底色再立刻移除 —— 在关闭动画的机器上
+        //   反而制造了一次闪白，与这个函数的存在目的相反。
+        if (reduceMotion()) {
+            return
+        }
         val root = decor as ViewGroup
         val cover = View(act)
-        cover.setBackgroundColor(BG)
+        // 【B1·P1 残留①】这层遮罩是「就地换主题」时唯一还会把**原色**页面底露到屏幕上的地方：
+        //   它铺满全屏、不透明、然后 200ms 淡出。若仍用 `BG` 原值，换主题那一瞬会先闪一下
+        //   带壁纸色调的旧底色，再落到已经中性化的渐变底上 —— 与「面永远中性」对不上。
+        //   走 [DhDesign.Palette.neutralPageArgb]（与 `GlobalBackground.pageBase()` / 窗口背景
+        //   同一个函数、同一个输入），保证三处页面底逐位相等。
+        cover.setBackgroundColor(DhDesign.Palette.neutralPageArgb(BG))
         cover.isClickable = false
         root.addView(cover, ViewGroup.LayoutParams(-1, -1))
-        cover.animate().alpha(0f).setDuration(D_PAGE.toLong()).setInterpolator(EASE_STD)
+        cover.animate().alpha(0f).setDuration(dur(D_PAGE)).setInterpolator(EASE_STD)
             .withEndAction {
                 root.removeView(cover)
             }.start()
@@ -2288,7 +2483,13 @@ object UiKit {
         if (v == null) {
             return
         }
-        v.animate().alpha(if (show) 1f else 0f).setDuration(D_MICRO.toLong())
+        // 【B3·闸门】关闭动画时直接写 alpha（不改可见性，与原语义一致）。
+        if (reduceMotion()) {
+            v.animate().cancel()
+            v.alpha = if (show) 1f else 0f
+            return
+        }
+        v.animate().alpha(if (show) 1f else 0f).setDuration(dur(D_MICRO))
             .setInterpolator(if (show) EASE_DECEL else EASE_ACCEL).start()
     }
 
@@ -2302,7 +2503,13 @@ object UiKit {
             return
         }
         val parent = v.parent as ViewGroup
-        v.animate().alpha(0f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_ACCEL)
+        // 【B3·闸门】关闭动画时立即移除。
+        if (reduceMotion()) {
+            v.animate().cancel()
+            parent.removeView(v)
+            return
+        }
+        v.animate().alpha(0f).setDuration(dur(D_MICRO)).setInterpolator(EASE_ACCEL)
             .withEndAction {
                 parent.removeView(v)
             }.start()
@@ -2326,10 +2533,24 @@ object UiKit {
         val c = to.context
         val parent = if (to.parent is ViewGroup) to.parent as ViewGroup else null
 
+        // 【B3·闸门】关闭动画时直接交换可见性：不做淡入淡出、不叠幕布。
+        //   若只把时长归零，幕布那条 3 段链式 withEndAction 会在一帧内连跑三次，
+        //   外观虽然正确，但会白白触发两轮 requestLayout。
+        if (reduceMotion()) {
+            to.animate().cancel()
+            to.alpha = 1f
+            to.visibility = View.VISIBLE
+            if (from != null && from !== to) {
+                from.animate().cancel()
+                from.visibility = View.GONE
+                from.alpha = 1f
+            }
+            return
+        }
         to.alpha = 0f
         to.visibility = View.VISIBLE
         if (from != null && from !== to) {
-            from.animate().alpha(0f).setDuration(D_LAYER.toLong()).setInterpolator(EASE_STD).start()
+            from.animate().alpha(0f).setDuration(dur(D_LAYER)).setInterpolator(EASE_STD).start()
         }
         if (parent is FrameLayout) {
             // 是叠加式容器：用父容器同级的幕布盖住半途，淡完自己移除。
@@ -2337,10 +2558,10 @@ object UiKit {
             scrim.background = ColorDrawable(bgColor)
             scrim.alpha = 0f
             parent.addView(scrim, FrameLayout.LayoutParams(-1, -1))
-            scrim.animate().alpha(1f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_STD)
+            scrim.animate().alpha(1f).setDuration(dur(D_MICRO)).setInterpolator(EASE_STD)
                 .withEndAction {
-                    to.animate().alpha(1f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_STD).start()
-                    scrim.animate().alpha(0f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_STD)
+                    to.animate().alpha(1f).setDuration(dur(D_MICRO)).setInterpolator(EASE_STD).start()
+                    scrim.animate().alpha(0f).setDuration(dur(D_MICRO)).setInterpolator(EASE_STD)
                         .withEndAction {
                             UiKit.fadeOutRemove(scrim)
                             if (from != null && from !== to) {
@@ -2352,7 +2573,7 @@ object UiKit {
             return
         }
         // 普通 LinearLayout 之类：直接让新的淡入，不叠幕布（幕布会把兄弟节点压住）。
-        to.animate().alpha(1f).setDuration(D_MICRO.toLong()).setInterpolator(EASE_STD).start()
+        to.animate().alpha(1f).setDuration(dur(D_MICRO)).setInterpolator(EASE_STD).start()
         if (from != null && from !== to) {
             from.visibility = View.GONE
             from.alpha = 1f

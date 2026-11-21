@@ -1084,10 +1084,7 @@ onCover = {
         Text(
             text = text,
             modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onClick() }
+                .pressable { onClick() }
                 .padding(horizontal = 18.dp, vertical = DhDesign.Space.md.dp),
             color = if (selected) c.acc else c.title,
             fontSize = UiKit.FS_BTN.sp,

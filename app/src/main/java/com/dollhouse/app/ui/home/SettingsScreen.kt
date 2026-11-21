@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import com.dollhouse.app.data.MyProfile
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 
 /**
  * 【职责】设置页（Compose）：权限 / 聊天 / 人偶 / 外观 四张卡片。
@@ -319,6 +321,18 @@ object SettingsScreen {
                 })
             }
 
+            // 【B4·接入加载态】备份是本 App 里**单次等待最长**的操作 ——
+            //   下方注释原话「要遍历全部会话与图片，可能十来秒」。
+            //   改造前这十来秒里，页面上唯一的信号是这一行的 `trailing = "处理中…"`
+            //   （16sp 都不到的一小截灰字，且还挂在行尾）。用户很容易以为没点上。
+            //
+            //   【为什么是 Refreshing 而不是 FirstLoad】本页是设置列表，
+            //   其余开关此刻全部可读可用 —— 只有这个动作在跑。
+            //   按 MAA 硬规则 1 不许遮已有内容，故只加一行细圈（带文字说明在等什么）。
+            DhLoadingState(
+                state = if (busy) LoadingState.Refreshing else LoadingState.Idle,
+                label = "正在打包全部数据，图片多时需要十几秒…"
+            )
             DhKit.ActionRow(
                 label = "一键全量备份",
                 iconRes = Icons.IC_UPLOAD,

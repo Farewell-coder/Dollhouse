@@ -349,6 +349,13 @@ object ChatPanels {
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            // E13-ALLOW: 分段条是刻意做细的 6dp 视觉刻度，命中区保持 6dp。
+                            //   ① 6 段横向排列，各撑到 48dp 需 288dp+间距，窄屏直接溢出；
+                            //   ② 本控件无任何滑动手势（全文件无 scrollable/draggable/pointerInput），
+                            //      不存在与相邻段的手势竞争；
+                            //   ③ 下方紧跟一排**有文字**的档位行（行高 40dp+、带 selected 语义），
+                            //      那才是设计上的真正入口；本段已 clearAndSetSemantics 摘出语义树。
+                            //   属"刻意降级 + 有等价可达替代入口"，不是遗漏。
                             .height(6.dp) // 【不收敛·D6】分段条自身高度属 Size 语义
                             .clip(RoundedCornerShape(DhDesign.Radius.sm.dp))
                             .background(if (i <= level) p.accent else p.line)

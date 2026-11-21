@@ -407,17 +407,18 @@ object MemPage {
             if (listMode) {
                 Spacer(Modifier.height(DhDesign.Space.md.dp))
                 if (shownMems.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
-                            color = c.sub,
-                            fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                            fontFamily = DhTokens.fonts
-                        )
-                    }
+                    // 【B9·收编】列表模式的空态原先只有一行 Text（连图标都没有），
+                    //   与图谱模式的「图标 + 两行」不一致 —— 同一个数据条件下，
+                    //   用户切「列表 / 图谱」会看到两种空态。现统一走 DhState。
+                    com.dollhouse.app.ui.kit.DhState(
+                        title = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
+                        body = if (all.isEmpty()) {
+                            "聊天时她会自己写进来；也可以手动加一条"
+                        } else {
+                            "换个分类或关键词看看"
+                        },
+                        iconRes = Icons.IC_WAYPOINTS
+                    )
                 } else {
                     LazyColumn(
                         state = listState,
@@ -469,6 +470,32 @@ object MemPage {
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.soft)
             ) {
+                // 【B4·接入加载态】图谱布局在 `Dispatchers.Default` 上算
+                //   （200 节点 × 300 轮，见本文件上方 `LaunchedEffect(shownMems, links, pins)`），
+                //   算完之前 `layout == null`，而 MemGraphView.setGraph 收到 null 时
+                //   只 `invalidate()` —— 画布**全空**，只剩一块 soft 底色。
+                //
+                //   【改造前】用户看到的就是那块空底色，没有任何「在算」的信号。
+                //   条目多的时候这段是真能察觉的（200 节点 × 300 轮在主线程会掉帧，
+                //   所以它本来就在后台跑）。
+                //
+                //   【为什么是 FirstLoad 而不是 Refreshing】此刻没有任何图可看 ——
+                //   上一帧的图已经被新数据取代、新图还没算完，符合 MAA 硬规则 1
+                //   「确实没内容」的判据，允许占满这块画布区。
+                //
+                //   【为什么用骨架而不是转圈】骨架表达的是「这里将来会有一张图」，
+                //   转圈只表达「在动」。前者与结果形态一致，切换时不突兀。
+                val graphLoading = layout == null && shownMems.isNotEmpty()
+                com.dollhouse.app.ui.kit.DhLoadingState(
+                    state = if (graphLoading) {
+                        com.dollhouse.app.ui.kit.LoadingState.FirstLoad
+                    } else {
+                        com.dollhouse.app.ui.kit.LoadingState.Idle
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    rows = 4,
+                    lines = 1
+                )
                 androidx.compose.ui.viewinterop.AndroidView(
                     factory = { ctx ->
                         MemGraphView(ctx).apply {
@@ -544,32 +571,24 @@ object MemPage {
 
                 // ---- 空态 ----
                 if (shownMems.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            DhKit.Icon(Icons.IC_WAYPOINTS, Design.SZ_XL, c.line)
-                            Spacer(Modifier.height(DhDesign.Space.iconGap.dp))
-                            Text(
-                                text = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
-                                color = c.sub,
-                                fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                                fontFamily = DhTokens.fonts
-                            )
-                            Spacer(Modifier.height(DhDesign.Space.xs.dp))
-                            Text(
-                                text = if (all.isEmpty()) {
-                                    "聊天时她会自己写进来；也可以手动加一条"
-                                } else {
-                                    "换个分类或关键词看看"
-                                },
-                                color = c.line,
-                                fontSize = UiKit.FS_SUB.sp,
-                                fontFamily = DhTokens.fontsBody
-                            )
-                        }
-                    }
+                    // 【B9·收编到规范骨架】改造前是自建的「图标 + 主文案 + 说明」三件：
+                    //     · 图标 20dp 裸线性 + c.line（几乎看不见的发丝线色）
+                    //     · 主文案 15sp（DhState 是 section 16sp）
+                    //     · 无动作按钮
+                    //   与全 App 其它 10 处 `ui/kit.DhState` 形态不同。收编后文案一字未改。
+                    //
+                    //   【为什么 actionText = null】主入口（新建一条）在顶栏与下方列表里都有，
+                    //   空态里再放一个指向同一件事的按钮属于重复动作 —— 与 MemPage 文件夹空态
+                    //   （本文件 :1267）同一判断。说明文案已经指明了下一步。
+                    com.dollhouse.app.ui.kit.DhState(
+                        title = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
+                        body = if (all.isEmpty()) {
+                            "聊天时她会自己写进来；也可以手动加一条"
+                        } else {
+                            "换个分类或关键词看看"
+                        },
+                        iconRes = Icons.IC_WAYPOINTS
+                    )
                 }
 
                 // ---- 搜索命中列表（覆盖在图谱上）----
@@ -809,13 +828,15 @@ object MemPage {
         Column(modifier = modifier) {
             Text(
                 text = "连线 = 关系",
-                color = c.line,
+                // 【修·可读性】原来用 c.line（分隔线色）：压在 c.soft 画布上只有 1.36:1。
+                //   图例是**解释性文字**，不是装饰 —— 看不见就等于没有图例。改 c.sub。
+                color = c.sub,
                 fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             Text(
                 text = "大圈 = 关联多",
-                color = c.line,
+                color = c.sub,
                 fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
@@ -884,7 +905,17 @@ object MemPage {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                    // 【E12·改走 pressable 长按重载】原来裸用 `combinedClickable`：
+                    //   · 没有 48dp 命中区保障 —— 本行只有「文字 + padding」可点，
+                    //     记忆内容短的时候可点面比一行矮，单手容易点空；
+                    //   · 没有按压反馈（`indication = null` 时视觉上完全无响应）。
+                    //   `pressable(onClick, onLongClick)` 内部正是 `minTouchTarget() + scale + combinedClickable`
+                    //   （见 DhKit.kt:2495 的重载实现），语义不变、命中区与反馈都补齐。
+                    //
+                    //   【为什么这个重载是对的】DhKit 的单参 `pressable` 刻意不带长按
+                    //   （注释明说：带长按会让所有既有按钮的点击多出判定延迟），
+                    //   长按场景专门留了双参重载 —— 本行正是「点进详情 + 长按弹菜单」。
+                    .pressable(onClick = onClick, onLongClick = onLongClick),
                 verticalAlignment = Alignment.Top
             ) {
                 Column(Modifier.weight(1f)) {
@@ -1379,13 +1410,35 @@ object MemPage {
 
     // ============================ 数据操作 ============================
 
-    /** 读某只人偶的全部条目（新的在前）。 */
+    /** 读某只人偶的全部条目（新的在前）。
+     *
+     * 【读端按 id 去重】理由与 [DollStore.load] 按 id 去重完全一致：
+     *   列表的 LazyColumn key 就是 id（见下方 `items(shownMems, key = { it.id })`
+     *   与搜索结果 `item(key = m.id)`），两条同 id 会抛「Duplicate key」把整页打白。
+     *   而存档是一个 JSON 数组、由「读-改-写」维护，历史上确实出现过重复写（见
+     *   DollStore.load 的注释）；备份恢复也会把外部 JSON 原样带进来。
+     *   在**唯一读取入口**收敛一次，比在每个写入点加锁更稳：无论存档被搞成什么样，
+     *   读出来的一定是「一 id 一条」。
+     *
+     *   倒序遍历 = 新的在前，所以 seen 里保留的是**最新那条**（同 id 时后写的那份优先，
+     *   与 Mem.add 的「同 id 覆盖」语义一致）。
+     */
     private fun readAll(ctx: Context, dollId: String): List<Memory> {
         val arr = Mem.list(ctx, dollId)
         val out = ArrayList<Memory>()
+        val seen = HashSet<String>()
         for (i in arr.length() - 1 downTo 0) {
             val o = arr.optJSONObject(i) ?: continue
-            out.add(Memory.fromJson(o))
+            val m = Memory.fromJson(o)
+            // 【id 一定非空】fromJson 对「存档里 id 为空串」会派生一个确定性的 id
+            //   （Memory.idFrom），所以这里拿到的 id 恒非空，seen 去重是有效的。
+            //   仍保留 isNotEmpty 判断只是兜底：万一将来 idFrom 被改成能返回空串，
+            //   这条判断能保证「宁可显示两条同 id（会被下层拦）也不静默吞掉一条记忆」——
+            //   用户看不到条目比看到报错更难排查。
+            if (m.id.isNotEmpty() && !seen.add(m.id)) {
+                continue
+            }
+            out.add(m)
         }
         return out
     }

@@ -69,8 +69,48 @@ object Mem {
         if (m.title.trim().isEmpty() && m.content.trim().isEmpty()) {
             return false
         }
+        // 【空 id 直接拒】id 是 UI 列表的 LazyColumn key（MemPage 的 items(key = { it.id })），
+        //   空 id 会让任意两条撞成同一个 key → 整页崩。
+        //
+        //   【现在还有谁能走到这里】`Memory.fromJson` 已经把「存档里 id 为空串」兜成
+        //   确定性的派生 id（Memory.idFrom），所以反序列化路径不会再产生空 id。
+        //   这条判断现在是**纯防御**：挡的是「外部直接构造 Memory 又把 id 清空」这类
+        //   未来可能出现的调用（Memory() 的字段初始值是 newId()，正常用法不会为空）。
+        //   保留它是因为代价是一次字符串判空，而代价的另一侧是整页白屏。
+        if (m.id.isEmpty()) {
+            return false
+        }
         return try {
             var arr = list(ctx, dollId)
+            // 【同 id 覆盖而不是追加】id 在本工程里语义就是主键：
+            //   `Mem.update`（:91）按 id 改、`Mem.remove`（:147）按 id 删，
+            //   两条同 id 的记录会让这两个操作只命中第一条，另一条从此改不掉也删不掉。
+            //   何况 UI 的 LazyColumn key 就是 id —— 两条同 id 必崩。
+            //
+            //   【为什么选"覆盖"而不是"重新发号"】与 update 的语义一致（一 id 一条），
+            //   条数不变 → 不会触发 MAX_ENTRIES 淘汰，也不会让写一条挤掉另一条。
+            //   若选"重新发号"，就会出现两条内容相同、只是 id 不同的记忆 —— 对用户是纯噪音。
+            //
+            //   【谁会真的用到覆盖分支】备份恢复（AllInOneArchive）在调用本方法**之前**
+            //   已经按标题与 id 双重跳过（它的既有策略是"本机已有就不动"，见该文件），
+            //   所以正常恢复走不到这里。覆盖分支真正保护的是**两条路径**：
+            //   ① 任何绕过预检的写入（将来的导入、批量工具、第三方接入）；
+            //   ② 并发/交错写入把同一 id 写了两遍的存档 —— 再写一次时收敛成一条，而不是变三条。
+            //   换句话说：覆盖是"数据层兜底"，恢复侧的跳过是"业务层策略"，两者不冲突。
+            //
+            //   【为什么不会误伤正常新增】其余 8 处调用点（MemPage 三处手写、createFolder、
+            //   导入文件、ChatPanel、MemoryTool、MemExtractor 两处）都是 `Memory()` 现造对象，
+            //   id 由 newId() 生成，不会命中已有记录 —— 覆盖分支对它们零影响。
+            for (i in 0 until arr.length()) {
+                // 【必须用 Memory.idFrom 而不是 optString("id")】空串 id 的条目会被
+                //   UI 读成派生 id（见 Memory.idFrom）；这里若仍按存档原值比较，
+                //   那条记忆就"能看不能改"—— 覆盖分支永远命中不了它。
+                if (m.id == Memory.idFrom(arr.optJSONObject(i))) {
+                    arr.put(i, m.toJson())
+                    save(ctx, dollId, arr)
+                    return true
+                }
+            }
             arr.put(m.toJson())
             if (arr.length() > MAX_ENTRIES) {
                 val cut = JSONArray()
@@ -97,7 +137,9 @@ object Mem {
             var hit = false
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
-                if (id != o.optString("id")) {
+                // 【统一走 idFrom】UI 传进来的 id 来自 Memory.idFrom（列表/详情）；
+                //   这里若比存档原值，空 id 条目会永远匹配不上（改不动）。
+                if (id != Memory.idFrom(o)) {
                     continue
                 }
                 val m = Memory.fromJson(o)
@@ -153,7 +195,8 @@ object Mem {
             val out = JSONArray()
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
-                if (id != o.optString("id")) {
+                // 同 update：按 idFrom 比较，保证空 id 条目也删得掉。
+                if (id != Memory.idFrom(o)) {
                     out.put(o)
                 }
             }
@@ -177,7 +220,7 @@ object Mem {
             val gone = ArrayList<String>()
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
-                val id = o.optString("id")
+                val id = Memory.idFrom(o)
                 if (set.contains(id)) {
                     gone.add(o.optString("title"))
                 } else {
@@ -203,7 +246,7 @@ object Mem {
     private fun titleOf(arr: JSONArray, id: String?): String {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            if (id == o.optString("id")) {
+            if (id == Memory.idFrom(o)) {
                 return o.optString("title")
             }
         }
@@ -220,6 +263,22 @@ object Mem {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             if (title == o.optString("title")) {
+                return Memory.fromJson(o)
+            }
+        }
+        return null
+    }
+
+    /** 按 id 精确查找。id 是主键（update/remove 都按它定位），查找语义与 findByTitle 并列。 */
+    @JvmStatic
+    fun findById(ctx: Context, dollId: String?, id: String?): Memory? {
+        if (id.isNullOrEmpty()) {
+            return null
+        }
+        val arr = list(ctx, dollId)
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (id == Memory.idFrom(o)) {
                 return Memory.fromJson(o)
             }
         }

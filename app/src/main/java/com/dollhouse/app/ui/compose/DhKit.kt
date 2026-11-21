@@ -103,7 +103,7 @@ import com.dollhouse.app.ui.design.DhDesign
  * 【参数来源】不是拍的，全部抄自既有 View 实现：
  *   - 卡片：圆角 16dp / 描边 1dp(STROKE) / 卡片间距 10dp / 内边距 16dp ← `UiKit.card` + `HomeCards.buildCard`
  *   - 行：圆角 10dp / SOFT 底 / 内边距 12dp / 行距 8dp ← `HomeCards.valueRow`
- *   - 顶栏：标题 20sp 粗 / 副标题 12sp / 命中区 40dp ← `UiKit.topBar` + `UiKit.FS_*` + `UiKit.HIT_DP`
+ *   - 顶栏：标题 20sp 粗 / 副标题 12sp / 命中区 48dp ← `UiKit.topBar` + `UiKit.FS_*` + `UiKit.HIT_DP`
  *   - 开关：44×24dp / 滑块内缩 3dp ← `UiKit.Switch` 的 `W_DP/H_DP/PAD_DP`
  *   - 药丸：圆角 999 / 内边距 12×8 / 12sp ← `UiKit.outlineChip`
  */
@@ -1240,11 +1240,14 @@ object DhKit {
         val c = DhTokens.colors
         Box(
             modifier = Modifier
+                // 【E13·顺序关键】pressable 必须写在 size 之前：它内置 sizeIn(min=48dp)，
+                //   而 size(34) 会把传入约束的上限夹到 34，写在外层就把 48dp 下限压回去。
+                //   现在 pressable 在外 → 传入 min=48，内层 size(34) 被抬到 48，命中区 48×48。
+                .then(if (enabled) Modifier.pressable(onClick) else Modifier)
                 .size(34.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(c.cardUp)
                 .border(1.dp, c.line, RoundedCornerShape(999.dp))
-                .then(if (enabled) Modifier.pressable(onClick) else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
             contentAlignment = Alignment.Center
         ) {
@@ -1385,11 +1388,27 @@ object DhKit {
             modifier = modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.line)
+            /*
+             * 【修·可读性】原来图标与文字都用 `c.line`（分隔线色）：
+             *   压在 CARD 上只有 1.50:1（浅色档），14dp 图标与 13sp 文字**都看不见**。
+             *
+             * 【为什么图标也一起改，而不是「图标是装饰、只改文字」】
+             *   本行的图标不是装饰，它是**这行文字的语义锚点**：调用点只有
+             *   `DollLookTab:250/254`（「全局背景 / 你的气泡 / 弹窗 → 设置 → 外观」
+             *   「聊天里看到的背景与她的气泡，跟随这里的设置」），图标（调色板 / 气泡）
+             *   负责把「这一行在讲哪一块设置」一句话说清。1.5:1 的图标等于没有锚点，
+             *   而全 App 的行首图标一律走 `sub`（`DhRow` 的 `tint = iconTint ?: p.sub`），
+             *   这里跟着改成 `sub` 才能与其它行同族。
+             *
+             * 【为什么不是 `title`】本行是**只读说明**，改 `title` 会让它与正文同权、
+             *   抢层级；`sub` 是设计系统里唯一的「次要文字」槽，且它已被
+             *   `clampPaletteContrast()` 夹到 CARD / BG 两底 ≥4.5，不会再退化。
+             */
+            Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
             Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             Text(
                 text = text,
-                color = c.line,
+                color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
                 fontFamily = DhTokens.fonts
             )

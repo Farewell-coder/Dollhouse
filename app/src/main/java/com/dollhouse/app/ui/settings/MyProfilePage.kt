@@ -255,7 +255,9 @@ object MyProfilePage {
                 trailing = {
                     Text(
                         text = bio.length.toString() + "/" + MyProfile.BIO_MAX,
-                        color = c.line,
+                        // 【修·可读性】原来用 c.line（分隔线色）：压在输入框的 p.field 底上只有 1.30:1，
+                        //   「3/40」这种字数计数完全读不出来。改 c.sub（唯一被夹到 ≥4.5 的次要文字槽）。
+                        color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts
                     )

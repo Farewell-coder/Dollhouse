@@ -34,9 +34,14 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
-import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.IconSeat
+import com.dollhouse.app.ui.kit.IconSeatShape
+import com.dollhouse.app.ui.kit.IconSeatSize
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.Design
@@ -261,7 +266,7 @@ object ProviderEditPage {
             // —— 开关组 ——
             DhKit.Card {
                 DhKit.SectionLabel("开关", iconRes = Icons.IC_SLIDERS_HORIZONTAL)
-                SwitchRow("启用", "关掉后它名下的模型不会出现在聊天页选择器里（数据保留）", enabled) { v ->
+                SwitchRow("启用", "关掉后它名下的模型不会出现在聊天页选择器里（数据保留）", enabled, iconRes = Icons.IC_CIRCLE_CHECK) { v ->
                     enabled = v
                     // 【响应性】供应商一被停用，它名下的模型全部退出可用集，可能直接让「打开聊天」入口失去条件；
                     //   与模型开关同样即时落盘 + 立刻重算，不依赖返回主页触发 onResume。
@@ -271,11 +276,12 @@ object ProviderEditPage {
                     }
                     HomeUi.syncChatEntryNow(act)
                 }
-                SwitchRow("Response API", "开启后对话走 /responses 而不是 chat completions", respApi) { respApi = it }
+                SwitchRow("Response API", "开启后对话走 /responses 而不是 chat completions", respApi, iconRes = Icons.IC_TERMINAL) { respApi = it }
                 SwitchRow(
                     "回传历史思考过程",
                     "把历史消息里的思考内容再次随请求发出；关掉则剥离",
-                    resendReason
+                    resendReason,
+                    iconRes = Icons.IC_BRAIN
                 ) { resendReason = it }
                 // 【v0.1.4】明文 HTTP 授权。
                 //   【为什么必须明说风险】打开后 Key 与聊天内容会以明文经过网络，
@@ -285,7 +291,8 @@ object ProviderEditPage {
                     "允许明文 HTTP",
                     "仅在你这台服务只支持 http:// 时打开。开启后密钥与聊天内容会明文传输，" +
                         "同一网络下的其他人可能读到。https:// 地址无需打开。",
-                    allowCleartext
+                    allowCleartext,
+                    iconRes = Icons.IC_WARNING
                 ) { allowCleartext = it }
             }
 
@@ -296,8 +303,21 @@ object ProviderEditPage {
             // ---- 【v0.2.6·适配向导】推荐模型 ----
             //   连上之后直接把「这个供应商该怎么选」摆出来，省掉「先去模型页、
             //   在几十个名字里挑一个、再回来设默认」这一圈。
+            //
+            //   【B4·接入加载态】改造前这里是一行 `DhForm.Note("正在读取可用的模型列表…")`：
+            //   灰色小字，与旁边的说明文字同一形态，读不出「正在联网」。
+            //   它等的是 `ProviderNav.fetchModels` → `{baseUrl}/models`，是**真网络请求**
+            //    （见本文件 :452 起的回调），在弱网下能到数秒。
+            //
+            //   【为什么是 Refreshing 而不是 FirstLoad】本页主体是供应商表单
+            //   （名称 / 地址 / 密钥 / 开关），**此刻已经完全可用**；只有这一块推荐区在等。
+            //   按 MAA 硬规则 1，有内容可看时不许全屏遮挡 —— 所以只给一行细圈，
+            //   不占满、不加高，表单照常可编辑。
             if (suggestBusy) {
-                DhForm.Note("正在读取可用的模型列表…")
+                DhLoadingState(
+                    state = LoadingState.Refreshing,
+                    label = "正在读取可用的模型列表…"
+                )
             } else if (suggestList.isNotEmpty()) {
                 DhKit.Card {
                     DhKit.SectionLabel("建议这样开始", iconRes = Icons.IC_CHECK)
@@ -408,7 +428,7 @@ object ProviderEditPage {
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                DhForm.Button(if (saving) "保存中…" else "保存") {
+                DhForm.Button(if (saving) "保存中…" else "保存", leadingIcon = Icons.IC_SAVE) {
                     if (saving || testing) return@Button
                     saving = true
                     val r = save(act, src, pid, name, key, base, path, enabled, respApi, resendReason, allowCleartext)
@@ -530,8 +550,32 @@ object ProviderEditPage {
             }
         }
     }
+    /**
+     * 开关行：左「图标座 + 标题/说明」，右开关。
+     *
+     * 【为什么要 iconRes】本页上方那张卡的 [DhKit.ValueRow] 行首**都带圆形图标座**
+     *   （密钥行 `IC_KEY_ROUND`、常用端点 `IC_PLUG`），而这一组开关原本是 4 行纯文字 ——
+     *   同一页里两种行首节奏并存，切换视线时会觉得「这一块没做完」。
+     *   与全 App 的口径也对齐：`AppearancePage` / `LamdaPage` / `DeveloperOptionsPage`
+     *   的 `DhKit.SwitchRow` 都带图标。
+     *
+     * 【为什么在这里加参数而不是改用 DhKit.SwitchRow】本地的这个只有 4 个调用点、
+     *   且多带了「说明两行 + 开关右置」的既定排版；换成组件库那份会连带改间距与
+     *   说明的字号，属于「为了加图标顺带重排」，不在本次范围。
+     *   【组件库保持中性】图标仍由调用方传（默认 0 = 不占位），不在 DhKit 里给默认图标。
+     *
+     * 【图标座的口径】逐参数照抄 `DhRow`（`ui/kit/Components.kt` 的 iconRes 分支）：
+     *   圆形 `IconSeatSize.SM` + `DhDesign.Size.rowIcon`，右侧空 `Space.md` ——
+     *   于是它与上方的 `ValueRow` 行首在视觉上完全对齐。
+     */
     @Composable
-    private fun SwitchRow(name: String, desc: String?, on: Boolean, onToggle: (Boolean) -> Unit) {
+    private fun SwitchRow(
+        name: String,
+        desc: String?,
+        on: Boolean,
+        iconRes: Int = 0,
+        onToggle: (Boolean) -> Unit
+    ) {
         val c = DhTokens.colors
         Row(
             modifier = Modifier
@@ -539,6 +583,16 @@ object ProviderEditPage {
                 .padding(vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (iconRes != 0) {
+                IconSeat(
+                    iconRes = iconRes,
+                    sizeDp = IconSeatSize.SM,
+                    shape = IconSeatShape.CIRCLE,
+                    iconSizeDp = DhDesign.Size.rowIcon.value.toInt(),
+                    tint = c.sub
+                )
+                Spacer(Modifier.width(DhDesign.Space.md.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = name, color = c.title, fontSize = UiKit.FS_BTN.sp, fontFamily = DhTokens.fonts)
                 if (desc != null && desc.isNotEmpty()) {

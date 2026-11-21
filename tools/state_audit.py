@@ -41,6 +41,36 @@ QUIET = "--quiet" in sys.argv
 # 设计稿里「空态」的典型中文文案（用于发现自建空态）
 EMPTY_WORDS = re.compile(r"还没有|暂无|没有找到|空空|列表为空|还没有人|没有任何|空着")
 
+# 【S4·「无 lambda 的 Box」算不算空白：看 modifier 有没有自带视觉】
+#
+# 背景：`Box(Modifier.fillMaxSize())` 后面**没有** `{ … }` 时，视觉要么由 modifier 提供、
+#   要么靠后续兄弟节点提供。第一版判据把「没有 lambda」直接当成空白态，在全仓报出
+#   3 处**误报**，三处都是本仓的合法写法：
+#     · `pet/DollRangeOverlay.kt:193` —— `.pointerInput { … }` 手势层（内容在兄弟节点）；
+#     · `ui/home/ProfileDrawer.kt:413` —— `.background(scrim).pressable{}` 遮罩层，
+#       底色就是它的视觉；
+#     · `ui/settings/MemPage.kt:449` —— `.border(1.5dp, …)` 高亮描边，描边就是它的视觉。
+#
+# 所以这张表列的是「自己会画出像素、或自己就是交互层」的修饰符 —— 命中即视为非空白。
+#   【为什么把 pointerInput / clickable / pressable 也算进来】
+#     它们只处理手势、不画像素，严格的「可见性」判据不该放过它们；但一个
+#     「只有手势、没背景、没子节点」的满屏 Box 在本仓一处都没有，而把它们算成空白
+#     会让上面那处真实的触控层天天报红。**宁可漏报也不误报** —— 误报会让人把门禁关掉，
+#     那比漏一种形态损失更大。
+VISUAL_MODIFIERS = (
+    ".background(", ".border(", ".drawBehind(", ".drawWithContent(",
+    ".paint(", ".shadow(", ".blur(",
+    ".pointerInput(", ".clickable(", ".pressable(",
+)
+
+# 【S4·lambda 体里「画了东西」的口径】与旧判据一致的宽松度：
+#   任何大写字母开头的调用（Compose 的 Composable 命名约定就是大驼峰），
+#   外加几个小写的已知绘制函数。
+CONTENT_CALL_RE = re.compile(
+    r"\b[A-Z][A-Za-z0-9_]*\s*\("      # 任何 Composable / 工厂函数
+    r"|\b(?:text|print|Spacer|Canvas|draw)\s*\("
+)
+
 results = []
 inventory = {"dhstate": [], "selfbuilt": [], "blank": [], "skeleton": []}
 
@@ -177,24 +207,87 @@ def scan():
             if drawn:
                 inventory["selfbuilt"].append((r, start, name, "内联空态文案 + 动作"))
 
-        # S4 纯空白态：Box(Modifier.fillMaxSize()) 且内容区为空
-        for m in re.finditer(r"\bBox\s*\(\s*(?:modifier\s*=\s*)?Modifier\s*\.\s*fillMaxSize\s*\(\s*\)\s*\)", src):
+        # S4 纯空白态：`Box` 铺满容器、且**不画任何东西**
+        #
+        # 【2026-11·修判据：从「400 字符前瞻」改成「括号配对取 lambda 体」】
+        #   旧判据是「取该 Box 之后 400 字符，看里面有没有任何大写开头的调用」。两个方向都错：
+        #     ① **漏判（本次要修的真 bug）**：空白 Box 后面紧跟**下一个函数**时，那个函数的
+        #        `Text(...)` 会落进 400 字符窗口、被当成「这个 Box 的内容」→ 空白态被放过、
+        #        门禁 exit 0。实测复现：文件末尾追加
+        #            Box(Modifier.fillMaxSize())
+        #            @Composable fun zz() { Text("正常内容") }
+        #        旧判据报「纯空白态 0 处」。漏判的门禁比没有门禁更糟 ——
+        #        它会让人相信「已经查过了」。
+        #     ② **只能靠 400 这个魔数**：窗口太短会漏真内容、太长会吃掉下一个函数，
+        #        取任何值都在两种错误之间摇摆。
+        #
+        #   新判据按 Kotlin 的真实结构走：
+        #     ① 从 `Box(` 起做**圆括号配对**取实参区间；
+        #     ② 实参里要有 `.fillMaxSize()` 或 `.matchParentSize()`；
+        #     ③ 实参结束的 `)` 之后若紧跟 `{`，对它做**花括号配对**取 lambda 体：
+        #          · lambda 体去掉空白后为空 → 空白态（注释已被 strip_comments 去掉）；
+        #          · 非空但只有小写非绘制调用 → 也判空白（宽松口径见 CONTENT_CALL_RE）；
+        #     ④ 若**没有** lambda → 看实参（modifier 链）里有没有 VISUAL_MODIFIERS
+        #          列出的自带视觉/交互原语：有 → 非空白；无 → 空白。
+        #        （这一条是修第一版误报时补的，见 VISUAL_MODIFIERS 的注释。）
+        #
+        #   【嵌套 `Box { Box { } }` 怎么判】只看**本层** lambda 体：
+        #     外层体里有 `Box(` ⇒ 外层算「有内容」（它画了一个子 Box，交给子层判）；
+        #     内层体为空 ⇒ 内层自己被单独报出。两者同时成立、各报各的，
+        #     不会因为外层有调用就把内层放过。
+        i = 0
+        while True:
+            m = re.compile(r"\bBox\s*\(").search(src, i)
+            if not m:
+                break
+            i = m.end()
             ln = src[:m.start()].count("\n") + 1
-            # 取该 Box 之后的 400 字符看有没有任何可绘制内容
-            tail = src[m.end():m.end() + 400]
-            # 【判据改为通用规则，不再枚举白名单】
-            #   历史上这里两次漏项：先漏 `Layout`（三页叠放），后漏 `ComposeLayerShield`
-            #   （闸门包裹层）——每次都把正确代码判成"纯空白 Box"。
-            #   枚举白名单的维护成本太高：只要有人新写一个容器/包装组件就会误报。
-            #
-            #   现在改成：**任何大写字母开头的函数调用都算"有内容"**
-            #   （Compose 的 Composable 命名约定就是大驼峰）；
-            #   另外保留小写的已知内容函数（text/print 之类目前用不到，列出防漏）。
-            #   空白态的真实语义是"这个 Box 里什么都没画"，
-            #   而任何 Composable 调用都意味着画了东西。
-            has_content = re.search(r"\b[A-Z][A-Za-z0-9_]*\s*\(", tail) or re.search(
-                r"\b(?:text|print)\s*\(", tail)
-            if not has_content:
+            # ① 圆括号配对取实参
+            arg_open = m.end() - 1
+            depth = 0
+            arg_close = None
+            j = arg_open
+            while j < len(src):
+                if src[j] == "(":
+                    depth += 1
+                elif src[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        arg_close = j
+                        break
+                j += 1
+            if arg_close is None:
+                continue                       # 括号不平衡：交给别处，不在这里猜
+            args = src[arg_open + 1:arg_close]
+            # ② 只关心铺满容器的 Box
+            if not re.search(r"\.\s*(?:fillMaxSize|matchParentSize)\s*\(\s*\)", args):
+                continue
+            # ③ 找紧随其后的 lambda 体
+            k = arg_close + 1
+            while k < len(src) and src[k] in " \t\r\n":
+                k += 1
+            if k >= len(src) or src[k] != "{":
+                # ④ 无 lambda：看 modifier 链有没有自带视觉
+                if not any(v in args for v in VISUAL_MODIFIERS):
+                    inventory["blank"].append((r, ln))
+                continue
+            depth = 0
+            body_close = None
+            j = k
+            while j < len(src):
+                if src[j] == "{":
+                    depth += 1
+                elif src[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        body_close = j
+                        break
+                j += 1
+            if body_close is None:
+                continue
+            body = src[k + 1:body_close]
+            inner = body.strip()
+            if not inner or not CONTENT_CALL_RE.search(inner):
                 inventory["blank"].append((r, ln))
 
 

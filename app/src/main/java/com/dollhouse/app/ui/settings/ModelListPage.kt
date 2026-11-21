@@ -38,6 +38,8 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.Icons
@@ -161,21 +163,39 @@ object ModelListPage {
             }
             // 【惰性 + 限高】模型多的供应商一次返回几百个名字；forEach 会一次性
             //   组装全部卡片，首帧卡顿。这里只组合可见项，并让列表在页面内正常滚动。
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-            ) {
-                items(shown, key = { it }, contentType = { "model" }) { name ->
-                    androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
-                        ModelRow(
-                            name = name,
-                            has = added.contains(name),
-                            onAdd = {
-                                if (added.contains(name)) return@ModelRow
-                                ModelStore.saveModel(act, newModel(pv.id, name))
-                                added = ModelStore.namesOf(act, pv.id)
-                                feedback = "已加入 " + name
-                            }
-                        )
+            //
+            // 【B4·接入加载态】`loaded == null` 有两种含义，必须分开：
+            //   · busy == true  ：正在拉 `{baseUrl}/models`（网络请求，可能几秒）
+            //   · busy == false ：拉完了但失败（`onDone` 里 error != null 会把 loaded 置回 null）
+            //   改造前两种情况都只靠上面那行 `status` 文字区分，列表区在拉取期间**完全空白**
+            //   —— 用户看到的是一个输入框 + 一行"正在拉取模型列表…" + 下方一大片空。
+            //
+            //   【为什么网络请求给 FirstLoad】此刻没有任何模型可看，且刷新期间
+            //   `loaded` 会被保持（失败才清空），所以"有旧数据"的情况走不到这里；
+            //   走到这里就是真的没有内容。
+            val initialLoading = loaded == null && busy
+            DhLoadingState(
+                state = if (initialLoading) LoadingState.FirstLoad else LoadingState.Idle,
+                rows = 4,
+                lines = 1
+            )
+            if (!initialLoading) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                ) {
+                    items(shown, key = { it }, contentType = { "model" }) { name ->
+                        androidx.compose.foundation.layout.Box(Modifier.animateItem()) {
+                            ModelRow(
+                                name = name,
+                                has = added.contains(name),
+                                onAdd = {
+                                    if (added.contains(name)) return@ModelRow
+                                    ModelStore.saveModel(act, newModel(pv.id, name))
+                                    added = ModelStore.namesOf(act, pv.id)
+                                    feedback = "已加入 " + name
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -225,11 +245,13 @@ object ModelListPage {
                 } else {
                     Box(
                         modifier = Modifier
+                            // 【E13】pressable 在最外层：它内置 sizeIn(min=48dp)，
+                            //   size(36) 写在外层会把约束上限夹回 36。
+                            .pressable(onAdd)
                             .size(36.dp)
                             // 与左侧「已添加」的对勾是互斥状态的两半：对勾不可点、不朗读；
                             // 这个加号是本行唯一操作，必须报出「添加什么」。
-                            .semantics { contentDescription = "添加该模型" }
-                            .pressable(onAdd),
+                            .semantics { contentDescription = "添加该模型" },
                         contentAlignment = Alignment.Center
                     ) {
                         DhKit.Icon(iconRes = Icons.IC_PLUS, sizeDp = UiKit.FS_ICON, color = c.acc)

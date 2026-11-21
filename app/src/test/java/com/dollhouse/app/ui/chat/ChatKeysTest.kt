@@ -93,4 +93,132 @@ class ChatKeysTest {
     fun `空列表不产生 key`() {
         assertEquals(0, emptyList<ChatItem>().map { ChatKeys.of(it) }.size)
     }
+
+    /* ================================================================
+     * 回归：LazyColumn 重复 key 崩溃（h59）
+     * ================================================================ */
+
+    /**
+     * 模拟 [com.dollhouse.app.data.ChatHistoryStore.trimForSave] 的裁剪结果。
+     *
+     * 只建模与本崩溃相关的那一步：**没有**头部摘要、**没有**补回批时，
+     * `tail = max(0, len - keep)`，输出 `history[tail until len]`。
+     * 也就是「挤掉最前面的若干条，其余整体前移」。
+     */
+    private fun trimmed(history: List<ChatItem>, keep: Int): List<ChatItem> {
+        val tail = maxOf(0, history.size - keep)
+        return history.subList(tail, history.size)
+    }
+
+    /**
+     * 模拟 [com.dollhouse.app.ui.chat.ChatPanel.renderHistory] 的重铺：
+     * 它**按数组位置**重新赋 index（`ChatItem(..., i, ...)`），
+     * 所以无论裁剪前各条原来的 index 是多少，重铺后一律是 `0 until size`。
+     */
+    private fun renumbered(history: List<ChatItem>): List<ChatItem> {
+        return history.mapIndexed { i, item -> item.copy(index = i) }
+    }
+
+    private fun keysOf(items: List<ChatItem>): List<String> = items.map { ChatKeys.of(it) }
+
+    /**
+     * **这条用例钉住的是 r0.2.7 的真机崩溃**（诊断包 `logs/event_038.json`）：
+     * `IllegalArgumentException: Key "h59" was already used`。
+     *
+     * 崩溃形状：会话已有 `keep` 条（`trimForSave` 的保留上限），此时再发一条 ——
+     *
+     * | 步骤 | history 长度 | 列表 items 的 key |
+     * |---|---|---|
+     * | 发送前 | 60 | `h0 … h59` |
+     * | 写入第 61 条 | 61 | — |
+     * | 落盘裁剪回 | 60（挤掉第 0 条） | 旧快照仍是 `h0 … h59` |
+     * | 若用 `length() - 1` 当新项下标 | — | 新项 = **`h59`** ← **与旧第 60 条撞车** |
+     *
+     * 断言分两半，缺一不可：
+     *   ① **反例**：把「只换 index 来源」的做法算出来，它必须**确实重复** ——
+     *      这一半是防止将来有人以为「下标换成裁剪后的长度就够了」而删掉重铺分支。
+     *   ② **正例**：`push` 返回 -1 → `renderHistory()` 整列重铺 → key 两两不同。
+     *
+     * @see com.dollhouse.app.data.ChatHistoryStore.KEEP_FOR_SAVE
+     */
+    @Test
+    fun `历史满上限后追加新消息不产生重复 key`() {
+        val keep = com.dollhouse.app.data.ChatHistoryStore.KEEP_FOR_SAVE
+
+        // 发送前的满员快照（恰好 keep 条，index = 0 until keep）。
+        val full = (0 until keep).map { msg(it) }
+        assertEquals("前提：满员快照的 key 应两两不同", keep, keysOf(full).toSet().size)
+        assertEquals("前提：最后一个 key 就是崩溃里那个", "h${keep - 1}", ChatKeys.of(full.last()))
+
+        // 写入第 keep + 1 条 → 落盘裁剪回 keep 条。
+        val written = full + msg(keep)                    // 新写入的那条（尚未重铺）
+        val afterTrim = trimmed(written, keep)
+        assertEquals("前提：裁剪后应回到 keep 条", keep, afterTrim.size)
+
+        // ---- ① 反例：沿用旧快照的下标 ----
+        // 「只把 index 来源换掉」的做法 = 仍然复用旧 items（各自带着旧的 index），
+        // 新项用裁剪后长度 - 1 当下标。这正是崩溃的写法。
+        val staleSnapshot = full                            // 界面上的旧列表，未重铺
+        val newItemOldWay = msg(afterTrim.size - 1)         // ← length-1 = keep-1 = 59
+        val buggyKeys = keysOf(staleSnapshot + newItemOldWay)
+        assertEquals(
+            "反例自检：这条路径必须**确实**产生重复 key，否则说明建模没对上崩溃形状",
+            buggyKeys.size - 1,
+            buggyKeys.toSet().size
+        )
+        assertEquals(
+            "反例自检：重复的必须正是崩溃里那个 h59",
+            "h${keep - 1}",
+            ChatKeys.of(newItemOldWay)
+        )
+
+        // ---- ② 正例：push 返回 -1 → 整列重铺 ----
+        // renderHistory() 收到的就是裁剪后的数组，按位置重新编号后建 items。
+        val rebuilt = renumbered(afterTrim)
+        val fixedKeys = keysOf(rebuilt)
+        assertEquals(
+            "修复后：新列表的 key 必须两两不同（这是 LazyColumn 的硬性要求）",
+            fixedKeys.size,
+            fixedKeys.toSet().size
+        )
+        assertEquals(
+            "修复后：重铺的 key 应是连续的 h0..h${keep - 1}",
+            "h0",
+            fixedKeys.first()
+        )
+        assertEquals(
+            "修复后：末条 key 是 h${keep - 1}，但它对应的是**新消息**（旧的已被挤出）",
+            "h${keep - 1}",
+            fixedKeys.last()
+        )
+    }
+
+    /**
+     * 边界：尚未触顶时（L &lt; keep）**不应**触发重铺 —— 走增量追加。
+     *
+     * 这条与上一条配对：`push` 的返回值判据是 `length != before + 1`，
+     *   · L &lt; keep：写入后 length = L+1，不等于 before+1 为假 → 返回 L → 增量
+     *   · L = keep：裁剪后 length 仍 = keep = before → 不等于 before+1 为真 → 返回 -1 → 重铺
+     * 若判据写错（例如写成 `length &gt;= before + 1` 或恒返回下标），
+     * 触顶时就会静默走增量，崩溃复现。所以这里把「未触顶 = 增量安全」也钉住。
+     */
+    @Test
+    fun `未触顶时增量追加的 key 也不重复`() {
+        val keep = com.dollhouse.app.data.ChatHistoryStore.KEEP_FOR_SAVE
+        // 取上限前一条：写入后正好触顶，但**不裁剪**（长度 keep，恰好等于 keep 上限）。
+        val before = keep - 1
+        val old = (0 until before).map { msg(it) }
+        val written = old + msg(before)          // 长度 = keep，未超过上限
+        val afterTrim = trimmed(written, keep)
+        assertEquals("未触顶时不应被裁掉任何一条", written.size, afterTrim.size)
+
+        // 增量追加：新项下标 = 裁剪后长度 - 1 = 最后一条的位置。
+        val appended = msg(afterTrim.size - 1)
+        val keys = keysOf(old + appended)
+        assertEquals(
+            "未触顶时增量追加的 key 必须两两不同",
+            keys.size,
+            keys.toSet().size
+        )
+    }
 }

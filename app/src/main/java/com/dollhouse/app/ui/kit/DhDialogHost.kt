@@ -49,8 +49,11 @@ import com.dollhouse.app.ui.theme.Icons
  *   两套自建弹层，于是同一个 App 里弹窗有两套观感。
  *
  * 【做法】把 Compose 内容塞进一个轻量 `Dialog` 的 contentView：
- *   1. 先在宿主 decorView 上补 Compose 运行所需的 owner（`ComposeHost.installForActivity`，
- *      幂等）；否则会抛 `ViewTreeLifecycleOwner not found`。
+ *   1. 在**这个 Dialog 自己的** decorView 上补 Compose 运行所需的 owner
+ *      （`ComposeHost.installForDialog(dlg)`，必须在 `setContentView` 之前）；
+ *      Dialog 是独立 Window，装在 Activity decorView 上的 owner 沿 ViewTree 找不到，
+ *      会抛 `ViewTreeLifecycleOwner not found`（本文件 2026-11 修过一个真实的必崩缺陷）。
+ *      关窗时（`OnDismissListener`）必须 `owner.onDestroy()`，否则 Recomposer 泄漏。
  *   2. `ComposeHost.createView { ... }` 产出 ComposeView 作为 Dialog 内容。
  *   3. Dialog 窗口底设为透明，纸张由 Compose 自己画（圆角不会被系统白方角切掉）。
  *
@@ -68,6 +71,16 @@ object DhDialogHost {
 
     /** 当前窗口句柄（单一实例）。 */
     private var current: Dialog? = null
+
+    /**
+     * 当前窗口对应的 Compose owner（由 `installForDialog` 装在**该 Dialog 自己的**
+     * decorView 上，不是 Activity 的）。
+     *
+     * 【为什么必须与 [current] 同时持有】Dialog 一关，那个 Window 就销毁了；
+     *   owner 若不跟着 `onDestroy()`，它持有的 Recomposer 观察者与 ViewModelStore
+     *   会一直挂着 —— 每次弹窗漏一份，属于硬泄漏。
+     */
+    private var currentOwner: ComposeHost.HostOwner? = null
 
     /**
      * 弹一个「列表式操作菜单」。
@@ -235,10 +248,23 @@ object DhDialogHost {
             return
         }
         dismissCurrent()
+        // owner 声明在 try 之外：窗口没 show 出来时（例如 installDecor 抛异常）
+        //   OnDismissListener 不会触发，catch 里要能就地回收它。
+        var owner: ComposeHost.HostOwner? = null
         try {
-            ComposeHost.installForActivity(act)
+            // 【崩溃修复·根因】`Dialog` 是**独立 Window**，`ViewTreeLifecycleOwner.get()`
+            //   只沿 parent 上溯、不跨窗口 —— 装在 Activity decorView 上的 owner 在这里
+            //   永远找不到，ComposeView attach 时必抛 `ViewTreeLifecycleOwner not found`。
+            //   旧代码调的是 `installForActivity(act)`，于是本文件覆盖的 4 条日常路径
+            //   （聊天长按菜单 ChatUi:913、模型/思考面板 ChatPanels:85/108、
+            //   桌宠快捷菜单 PetWindow:2079）全部会崩。
+            //   正确做法：owner 装在**这个 Dialog 自己的 decorView** 上，
+            //   用 `installForDialog(dlg)`，且必须在 `setContentView` 之前
+            //   （晚一步 ComposeView 就先 attach 了）。范式同 `ui/compose/AppDialog`。
             val dlg = Dialog(act)
             dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            val installed = ComposeHost.installForDialog(dlg)
+            owner = installed
             // 【e2 阴影留白】浮层要投影就必须在窗口边界内留出余量，否则阴影会被窗口裁掉。
             //   这里给四周各留 e2 的宽度，并把窗口同量加宽 —— 两者相抵，
             //   纸张的**视觉宽度与改造前完全一致**，只是外面多了一圈透明可投影区。
@@ -253,6 +279,18 @@ object DhDialogHost {
                 android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
             )
             dlg.setCanceledOnTouchOutside(true)
+            // 【owner 释放】挂 OnDismissListener 才能覆盖**全部**关闭路径
+            //   （内容里的 dismiss 回调 / 点外部 / 返回键 / 系统重建把窗拆掉）。
+            //   判等 `current === dlg` 是为了不误清新弹出的那一个：
+            //   新窗是「先 dismissCurrent() 再建」，旧窗的 dismiss 回调可能在
+            //   新窗已赋值之后才到达。
+            dlg.setOnDismissListener {
+                if (current === dlg) {
+                    current = null
+                    currentOwner = null
+                }
+                installed?.onDestroy()
+            }
             // 【浮层遮罩】改造前没设 dimAmount，弹窗与背后内容完全同亮 ——
             //   视觉上"糊在一起"，没有「浮起一层」的纵深感。
             //   【为什么只改窗口属性、不动布局】用户明确要求「不改原有功能和业务逻辑」；
@@ -275,21 +313,39 @@ object DhDialogHost {
                 }
             )
             current = dlg
+            currentOwner = installed
             dlg.show()
         } catch (t: Throwable) {
+            // 【修泄漏】窗口没 show 成功时 OnDismissListener 不会触发，
+            //   owner 必须在这里就地回收，否则 Recomposer 观察者会一直挂着。
+            runCatching { owner?.onDestroy() }
+            currentOwner = null
+            current = null
             Logs.w(LOG_TAG, "dialog host failed", t)
         }
     }
 
     /** 关掉当前弹窗（幂等）。 */
     fun dismissCurrent() {
+        val dlg = current ?: run {
+            // 从没弹过（或已关干净）：没有 OnDismissListener 会兜底，显式清一次 owner。
+            runCatching { currentOwner?.onDestroy() }
+            currentOwner = null
+            return
+        }
         try {
-            if (current?.isShowing == true) {
-                current?.dismiss()
+            if (dlg.isShowing) {
+                dlg.dismiss()
             }
         } catch (ignored: Throwable) {
         } finally {
-            current = null
+            // dismiss() 会触发 OnDismissListener，那里已经释放 owner 并把两个字段置空。
+            // 走 catch 分支（dismiss 抛异常）时兜底同样释放一次 —— onDestroy 幂等。
+            if (current === dlg) {
+                current = null
+                runCatching { currentOwner?.onDestroy() }
+                currentOwner = null
+            }
         }
     }
 

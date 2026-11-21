@@ -339,6 +339,24 @@ object ChatHistoryStore {
     }
 
     /**
+     * 落盘时正文保留的条数（[trimForSave] 的 `keep`）。
+     *
+     * 【为什么提成常量】此前它是 `trimForSave` 里的裸字面量 `60`，
+     *   而「列表 key 会不会撞车」这件事恰好**只由这个值决定**
+     *   （见 `ChatKeys` 与 `ui/chat/ChatKeysTest` 的回归用例）：
+     *   测试里必须能引用同一个数，否则将来改了 keep、测试仍然拿旧的 60 去算，
+     *   会「假绿」—— 测试通过而线上照样撞。
+     *
+     * 【为什么是 public 而不是 internal】`src/test` 是**独立编译单元**，
+     *   `internal` 能否被测试读到取决于 KGP 是否给单测挂了 friend-path
+     *   （Android 侧历来有版本差异）。本工程没有「测试读 main internal」的先例可依，
+     *   而这一轮又不跑 Gradle、无法验证。一个纯数字常量没有 API 泄露风险，
+     *   选 public `const val` 换取「测试一定编译得过」。
+     *   `const` 保证内联，运行时零开销。
+     */
+    const val KEEP_FOR_SAVE = 60
+
+    /**
      * 裁剪历史（头部摘要无条件保留 + 最近 60 条），返回新数组。
      * 【副作用】把本次被裁掉的那一批非摘要消息存进 conv_<id>_prev，
      *          供聊天记录顶部「点击加载更早的历史记录」一次性补回。
@@ -349,7 +367,7 @@ object ChatHistoryStore {
      */
     @JvmStatic
     fun trimForSave(ctx: Context, id: String, history: JSONArray): JSONArray {
-        val keep = 60
+        val keep = KEEP_FOR_SAVE
         val len = history.length()
         // 【v2.8】先把头部摘要 + 紧随其后的「更早历史」补回批整体摘出来，再做裁剪：
         //  摘要被「只留最近 60 条」截掉等于压缩白做；补回批此刻既不在暂存位也不该被裁，
@@ -797,11 +815,36 @@ object ChatHistoryStore {
      * 【长度上限】推理可能很长（推理型模型动辄数千字），单条存档做硬截断，
      *   避免一份历史把 SharedPreferences 撑爆（上限 4000 字，超出留头部）。
      *
+     * 【返回值·r0.2.9 修 LazyColumn 重复 key 崩溃】
+     *   返回这条新消息在 **`host.history` 落盘后的真实下标**；`-1` 表示本次落盘发生了裁剪。
+     *
+     * 【为什么必须由数据层返回，而不是让调用方 `history.length() - 1` 猜】
+     *   [saveHistory]（1-arg 版）内部会调用 [trimForSave]，并把**裁剪后**的数组
+     *   `host.history = trimForSave(...)` 回写（见本文件 `saveHistory` 开头）。
+     *   于是「写入前 length = 60」的会话，写入 61 条 → 裁剪回 60 条 →
+     *   调用方拿 `length() - 1` 算出 **59**。而列表里 `h59` 这个 key
+     *   已经被**旧的第 60 条**占着（裁剪让它前移到 59）—— 于是
+     *   `IllegalArgumentException: Key "h59" was already used`
+     *   （0.2.7 真机崩溃，见 `logs/event_038.json`）。
+     *
+     *   裁剪**不会**为「新消息」腾出空闲下标：它挤掉第 0 条、整体前移，
+     *   新消息落回同一个 59。所以「只把 index 的来源换成裁剪后的长度」还不够 ——
+     *   必须让调用方知道「裁了」，然后把**整列**按新快照重建。
+     *   这就是 `-1` 的语义。
+     *
+     * 【-1 的判定为什么用 `!= before + 1` 而不是 `<`】
+     *   正常写入必然恰好 +1。任何不等于 +1 的结果（被裁、异常被 catch 吞掉没写进去、
+     *   别的线程改动了同一个 history）都意味着**下标不可信**，一律按「需要整列重建」处理。
+     *   保守但正确：多一次 60 条重铺（几毫秒），好过再用一个错的下标去撞 key。
+     *
      * @param think 思考内容；null / 空串则不写该字段（普通模型没有推理，历史里不留空键）
      * @param thinkMs 「思考了 X 毫秒」，流式下是真实思考段耗时；0 表示未知
+     * @return 新消息在落盘后 `history` 里的下标；`-1` = 本次发生了裁剪（旧下标全部失配）
      */
     @JvmStatic
-    fun push(host: ChatHost, str: String, str2: String, str3: String?, think: String?, thinkMs: Long) {
+    fun push(host: ChatHost, str: String, str2: String, str3: String?, think: String?, thinkMs: Long): Int {
+        // 【必须在写入之前记】写入之后 `history.length()` 已经 +1，再取就晚了。
+        val before = host.history.length()
         try {
             val jSONObject = JSONObject()
             jSONObject.put("role", str)
@@ -850,6 +893,15 @@ object ChatHistoryStore {
         //   仍显示旧数据（空态或旧预览），只能等下次冷启动 —— 用户报的正是这个。
         //   修法：把广播补到这条路径上，两条 push 的对外行为就此一致。
         ChatListSignal.bump()
+        // 【返回值】落盘（含裁剪）已经完成，此刻的 host.history 就是列表该呈现的那一份。
+        //   长度不等于 before + 1 ⇒ 发生了裁剪 ⇒ 旧快照的 index 全部失效，回 -1 让调用方整列重建。
+        return if (host.history.length() != before + 1) {
+            -1
+        } else {
+            // coerceAtLeast(0)：理论上不会出现空数组（刚写了一条），但防御性处理，
+            //   避免未来某处把 history 清空后这里返回 -1 之外的负数。
+            (host.history.length() - 1).coerceAtLeast(0)
+        }
     }
 
     /**

@@ -29,6 +29,8 @@ import com.dollhouse.app.core.*
 import com.dollhouse.app.ui.compose.*
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.feedback.AppToast
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -113,23 +115,45 @@ object DeveloperOptionsPage {
         exporting: Boolean,
         onExport: () -> Unit
     ) {
+        // 【B4·接入加载态】`s` 由 `withContext(Dispatchers.IO) { DiagnosticsStore.summary(act) }`
+        //   异步填充（见本文件 :85 的 LaunchedEffect）。读到之前这里是三处文字提示：
+        //     · 卡片标题「正在读取诊断数据」
+        //     · 卡片内一行 `DhForm.Note("请稍候")`
+        //     · 列表区 `StateNote("正在加载…")`
+        //   三句话说的是同一件事，却分布在三个位置、两种组件里。
+        //   现在收敛成一处语义：状态由 `LoadingState` 表达，形态由 `DhLoadingState` 决定。
+        //
+        //   【为什么是 FirstLoad】这一屏的全部内容（统计数字、最近错误列表）都依赖 `s`，
+        //   `s == null` 时确实一条内容都没有 —— 符合 MAA 硬规则 1。
+        //
+        //   【统计卡仍是三块占位】`Stat(错误/警告/崩溃)` 在 s==null 时传 null 进去自己会
+        //   显示占位（见各 Stat 调用），骨架只是让"正在来"这件事在视觉上成立。
+        DhLoadingState(
+            state = if (s == null) LoadingState.FirstLoad else LoadingState.Idle,
+            rows = 3,
+            lines = 2
+        )
+        if (s == null) {
+            // 【首屏期不画统计卡与列表】它们的每个字段都来自 `s`，
+            //   此刻画出来只是三行"--"和一个空列表标题，比骨架更迷惑。
+            return
+        }
         DhKit.Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                DhKit.Icon(Icons.IC_SHIELD_CHECK, Design.SZ_MD, if (s?.corrupted == 0) DhTokens.colors.ok else DhTokens.colors.err)
-                Spacer(Modifier.width(8.dp)); Text(if (s == null) "正在读取诊断数据" else if (s.corrupted == 0) "日志采集已就绪" else "部分日志需要检查", color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
+                DhKit.Icon(Icons.IC_SHIELD_CHECK, Design.SZ_MD, if (s.corrupted == 0) DhTokens.colors.ok else DhTokens.colors.err)
+                Spacer(Modifier.width(8.dp)); Text(if (s.corrupted == 0) "日志采集已就绪" else "部分日志需要检查", color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
             }
-            if (s == null) DhForm.Note("请稍候")
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Stat("错误", s?.errors, DhTokens.colors.err, Modifier.weight(1f), all)
-                Stat("警告", s?.warnings, DhTokens.colors.sub, Modifier.weight(1f), all)
-                Stat("崩溃", s?.crashes, DhTokens.colors.err, Modifier.weight(1f), all)
+                Stat("错误", s.errors, DhTokens.colors.err, Modifier.weight(1f), all)
+                Stat("警告", s.warnings, DhTokens.colors.sub, Modifier.weight(1f), all)
+                Stat("崩溃", s.crashes, DhTokens.colors.err, Modifier.weight(1f), all)
             }
         }
         // 【间距收敛】SectionLabel 自带 top=12 / bottom=4；这里只补差额：
         //   上 12 + 12 = 24（Space.xl，区块间距），下 4 + 4 = 8（Space.sm，标题与内容的间距）。
         DhKit.SectionLabel("最近错误", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
-        val recent = s?.groups?.take(3).orEmpty()
-        if (s == null) StateNote("正在加载…") else if (recent.isEmpty()) StateNote("暂无错误记录。出现实际异常或警告后会显示在这里。")
+        val recent = s.groups.take(3)
+        if (recent.isEmpty()) StateNote("暂无错误记录。出现实际异常或警告后会显示在这里。")
         recent.forEach { EventCard(it) { open(it) } }
         // 查看全部统一由下方诊断工具进入。
         DhKit.SectionLabel("诊断工具", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))

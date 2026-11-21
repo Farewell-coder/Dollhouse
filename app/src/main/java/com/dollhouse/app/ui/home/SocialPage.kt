@@ -52,7 +52,9 @@ import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollState
+import com.dollhouse.app.ui.kit.DhLoadingState
 import com.dollhouse.app.ui.kit.DhState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.settings.MemSettingsPage
@@ -200,7 +202,27 @@ object SocialPage {
 
             val s = snap
             if (s == null) {
-                // 读盘通常是毫秒级；宁可这一帧空着，也不要先闪一屏「暂无内容」再变出内容。
+                // 【B4·接入加载态】改造前这里是**直接 return**，留下一屏空白。
+                //   注释原话是「读盘通常是毫秒级；宁可这一帧空着」—— 但 [readAll] 会
+                //   遍历每只人偶的每条记忆并解析 JSON（见本文件 :812 起），
+                //   人偶多 / 记忆多时这个"毫秒级"不成立，用户面对的是没有任何信号的空白。
+                //
+                //   【为什么是 FirstLoad】此刻 `snap == null`，一帧内容都还没有，
+                //   符合 MAA 硬规则 1 的「确实没内容」——允许占满内容区。
+                //
+                //   【为什么 3 条骨架】与 `ChatListScreen.kt:308` 同一口径：
+                //   首屏通常可见 5–7 条，3 条足以表达「有内容正在来」，又不会在
+                //   数据到达时因为骨架比真实内容长太多而跳动。
+                //
+                //   【为什么不铺 readableSheet】本函数下方内容区自己会铺
+                //   （见 `onPhoto` / `subColor` 那段）；骨架阶段没有内容可比对，
+                //   铺了反而在数据到达时多一层"面板凭空出现"的变化。
+                DhLoadingState(
+                    state = LoadingState.FirstLoad,
+                    modifier = Modifier.fillMaxWidth(),
+                    rows = 3,
+                    lines = 2
+                )
                 return@Column
             }
 

@@ -30,12 +30,14 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhLoadingState
 import com.dollhouse.app.ui.kit.IconSeat
 import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.kit.IconSeatSize
-import com.dollhouse.app.ui.design.DhDesign
-import com.dollhouse.app.ui.compose.PageStack
-import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.update.UpdateChannel
@@ -271,6 +273,18 @@ object AboutPage {
         }
 
         // ---- 检测按钮 ----
+        //
+        // 【B4·接入加载态】改造前 `checking` 只用来把按钮文案改成「正在检查…」并禁用 ——
+        //   页面其余部分（版本号、通道选择、链接）**没有任何"正在联网"的信号**。
+        //   而 `UpdateChecker.manualCheck` 是仓库 API 请求（GitHub Releases），
+        //   弱网 / 被墙时会挂很久，用户只能盯着一个变灰的按钮猜。
+        //
+        //   【为什么是 Refreshing 而不是 FirstLoad】本页主体（版本 / 通道 / 链接）
+        //   此刻全部可读，按 MAA 硬规则 1 不许遮挡已有内容 —— 只加一行细圈在按钮上方。
+        DhLoadingState(
+            state = if (checking) LoadingState.Refreshing else LoadingState.Idle,
+            label = "正在向仓库查询最新版本…"
+        )
         DhKit.ActionRow(
             label = if (checking) "正在检查…" else "检测更新",
             iconRes = Icons.IC_REFRESH,

@@ -106,18 +106,20 @@ object ProviderListPage {
                 //   选错后缀也能走对，比摆两个长得一样的按钮更好懂。
                 Box(
                     modifier = Modifier
+                        // 【E13】pressable 在前：它内置 sizeIn(min=48dp)，
+                        //   外层 size(40) 会把约束上限夹回 40，48dp 命中区就失效。
+                        .pressable { com.dollhouse.app.ui.widget.AexImportSheet.show(act) }
                         .size(40.dp)
-                        .semantics { contentDescription = "导入配置文件" }
-                        .pressable { com.dollhouse.app.ui.widget.AexImportSheet.show(act) },
+                        .semantics { contentDescription = "导入配置文件" },
                     contentAlignment = Alignment.Center
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_DOWNLOAD, sizeDp = UiKit.FS_ICON, color = c.sub)
                 }
                 Box(
                     modifier = Modifier
+                        .pressable { ProviderNav.openNewProvider(act) }
                         .size(40.dp)
-                        .semantics { contentDescription = "新建供应商" }
-                        .pressable { ProviderNav.openNewProvider(act) },
+                        .semantics { contentDescription = "新建供应商" },
                     contentAlignment = Alignment.Center
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_PLUS, sizeDp = UiKit.FS_ICON, color = c.acc)
@@ -336,11 +338,11 @@ object ProviderListPage {
                 }
                 Box(
                     modifier = Modifier
+                        .pressable(onMore)
                         .size(36.dp)
                         // 名字里点明「供应商」：同一屏可能有别的「更多」，
                         // 只写「更多」在朗读里无法判断作用域。
-                        .semantics { contentDescription = "更多供应商操作" }
-                        .pressable(onMore),
+                        .semantics { contentDescription = "更多供应商操作" },
                     contentAlignment = Alignment.Center
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_MORE, sizeDp = UiKit.FS_ICON, color = c.sub)

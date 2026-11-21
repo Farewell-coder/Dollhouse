@@ -18,7 +18,6 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +46,9 @@ import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.UiKit
@@ -304,10 +305,13 @@ class CoverCropActivity : Activity() {
                     Box(
                         modifier = Modifier
                             .width(150.dp)
-                            .height(40.dp)
+                            // 【E12·命中区 48dp】原来写死 40dp，是「点了没反应」的来源之一。
+                            //   改引用 DhKit.MIN_TOUCH（= pressable 内置下限的同一个常量），
+                            //   避免再出现「按钮 40 / 命中区 48」两套值。
+                            .height(DhKit.MIN_TOUCH.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(DhTokens.palette.accent)
-                            .clickable { onMainAction() },
+                            .pressable { onMainAction() },
                         // 【对齐门禁】有背景 + 只有一个文字，必须显式居中。
                         contentAlignment = Alignment.Center
                     ) {
@@ -345,12 +349,23 @@ class CoverCropActivity : Activity() {
         enabled: Boolean = true,
         onClick: () -> Unit
     ) {
+        // 【E12·命中区 48dp】原来裸 .clickable，视觉高 38dp、命中区也 38dp。
+        //   pressable 内置 minTouchTarget(48dp) + 按压反馈；它的 48dp 是作用在
+        //   padding **之外**的最小高度，所以胶囊会长到 48dp，文字仍居中（contentAlignment）。
+        // 【为什么长高是安全的】本页顶栏 / 底栏的 inset 全部由 onSizeChanged 实测后回填
+        //   CropView（见 CoverShell 的注释），没有任何常数假设顶栏 38dp；
+        //   胶囊长高 10dp 会自动传导，只是裁剪视口相应少 10dp。
+        // 【为什么不用 clickable(enabled=)】pressable 没有 enabled 形参：禁用态（第 1 步的
+        //   「上一个」，外面已加 alpha 0.35）就**不挂点击修饰符** —— 与 clickable(enabled=false)
+        //   的可见行为一致（都不响应点击），但不会留下裸 clickable。
+        val visual = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(bg)
+            .border(1.dp, line, RoundedCornerShape(999.dp))
+        val press = if (enabled) Modifier.pressable(onClick = onClick) else Modifier
         Box(
-            modifier = modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(bg)
-                .border(1.dp, line, RoundedCornerShape(999.dp))
-                .clickable(enabled = enabled, onClick = onClick)
+            modifier = visual
+                .then(press)
                 .padding(horizontal = 16.dp, vertical = 7.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -367,7 +382,7 @@ class CoverCropActivity : Activity() {
         }
     }
 
-    /** 底部工具按钮：84×40、透明底 + 白描边 + 白字（与原 `tool()` 同尺寸）。 */
+    /** 底部工具按钮：84×48、透明底 + 白描边 + 白字（高度与 pressable 的 48dp 命中区一致）。 */
     @Composable
     private fun ToolPill(
         text: String,
@@ -379,7 +394,8 @@ class CoverCropActivity : Activity() {
             text = text,
             bg = toolBg,
             line = toolLine,
-            modifier = modifier.width(84.dp).height(40.dp),
+            // 【E12·命中区 48dp】40 → DhKit.MIN_TOUCH（48）：与 pressable 内置下限同源。
+            modifier = modifier.width(84.dp).height(DhKit.MIN_TOUCH.dp),
             enabled = enabled,
             onClick = onClick
         )
