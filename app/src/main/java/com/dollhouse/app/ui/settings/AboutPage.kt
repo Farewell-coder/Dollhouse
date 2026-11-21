@@ -492,7 +492,7 @@ object AboutPage {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 12.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                             .background(c.soft)
                             .padding(12.dp)
                     ) {

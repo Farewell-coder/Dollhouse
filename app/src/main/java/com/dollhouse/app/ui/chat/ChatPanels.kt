@@ -27,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -432,20 +431,15 @@ object ChatPanels {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // 【e1·面板降一档，2026-11】原先挂 e2(16dp)，理由是「与菜单纸张同级」。
-                //   但菜单/弹窗是**全屏浮层、还带遮罩**，而这里只是嵌在聊天页里的一块面板：
-                //   16dp 的模糊半径会铺开一大圈光晕，是当时全仓最重的一处，也是"厚重/不干净"
-                //   观感的主要来源。降到 e1(6dp) 后仍然「浮」，但不抢戏。
-                //   【为什么不干脆去掉投影】下面已有 1dp line 描边，理论上可以只留线；
-                //   但暗色档下近黑投影几乎不可见、这条线才是唯一边界（1.32:1），
-                //   反过来若删线留影，暗色档会直接丢边界。所以方向是「留线、减影」。
-                //   shadow 必须在 clip 之前：先裁后投影会把阴影一起裁没。
-                //   shape 与下面的 clip / border 共用同一个值，避免阴影露出直角。
-                .shadow(
-                    elevation = DhDesign.Elevation.e1,
-                    shape = shape,
-                    clip = false
-                )
+                // 【0 阴影·2026-11】投影已删除，边界完全交给下面的 1dp line 发丝线。
+                //   原实现挂 e2(16dp) → 后降 e1(6dp)，注释里就已写明「方向是留线、减影」，
+                //   本次走完最后一步。理由两条：
+                //   ① 这块面板嵌在聊天页里，不是全屏浮层，也没有遮罩 —— 模糊光晕是它
+                //      「厚重/不干净」观感的来源，而不是层级感的来源；
+                //   ② 暗色档下近黑投影几乎不可见，**这条线才是唯一的边界**（1.32:1）。
+                //      既然线本来就必须在，投影就是纯冗余。
+                //   原 shadow 在 clip 之前、shape 与 clip/border 共用同一值的那套约束，
+                //   随投影一并消失；clip / border 的 shape 仍然共用，不受影响。
                 .clip(shape)
                 .background(p.sheet)
                 .border(

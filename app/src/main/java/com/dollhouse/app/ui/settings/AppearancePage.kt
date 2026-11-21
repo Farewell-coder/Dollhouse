@@ -161,7 +161,7 @@ object AppearancePage {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
                 .padding(DhDesign.Space.xs.dp)
                 .horizontalScroll(rememberScrollState()),
@@ -260,7 +260,7 @@ object AppearancePage {
             DhForm.Note("「从壁纸取色」需要系统允许读取壁纸；取不到时会保持当前配色不变。")
         }
         DhKit.Card(collapsibleTitle = "字体颜色", titleIcon = Icons.IC_EDIT) {
-            FontColorRow(act)
+            FontColorRow(act, spot = spot("appearance.fontColor"))
         }
     }
 
@@ -339,6 +339,7 @@ object AppearancePage {
                 //   原名「透明度」与数值方向相反，用户以为是「越透」而把图推到 92%、
                 //   卡片推到 79%，结果背景几乎全实、字直接压在图案上。
                 title = "背景图不透明度",
+                spot = spot("appearance.bgAlpha"),
                 hint = HomeUi.alphaHint(HomeState.bgAlpha),
                 max = 100,
                 value = HomeState.bgAlpha,
@@ -353,6 +354,7 @@ object AppearancePage {
             }
             SliderBlock(
                 title = "背景毛玻璃",
+                spot = spot("appearance.bgBlur"),
                 hint = HomeUi.blurHint(HomeState.bgBlur),
                 // 【r15·单位统一】四根滑条一律 0~100%，本项内部再映射到 0~[BLUR_DP_MAX] 的模糊半径。
                 //   改造前这里是 max=24，而滑条自带的读数写死拼了 "%"，于是同一段拖动在四根上
@@ -370,6 +372,7 @@ object AppearancePage {
             }
             SliderBlock(
                 title = "遮罩强度",
+                spot = spot("appearance.bgScrim"),
                 hint = HomeUi.scrimHint(HomeState.bgScrim),
                 max = 100,
                 value = HomeState.bgScrim,
@@ -383,6 +386,7 @@ object AppearancePage {
             }
             SliderBlock(
                 title = "卡片不透明度",
+                spot = spot("appearance.cardAlpha"),
                 // 【事实警告按主题给阈值】浅色档怕深色照片、深色档怕浅色照片，
                 //   临界不透明度也不同（80% / 91%，见 HomeUi.cardAlphaHint 的推导）。
                 hint = HomeUi.cardAlphaHint(
@@ -489,6 +493,7 @@ object AppearancePage {
         DhKit.Card(collapsibleTitle = "弹窗", titleIcon = Icons.IC_SQUARE_STACK) {
             SliderBlock(
                 title = "弹窗透明度",
+                spot = spot("appearance.dialogAlpha"),
                 hint = dialogAlphaHint(HomeState.dlgAlpha),
                 max = 100,
                 value = HomeState.dlgAlpha,
@@ -502,6 +507,7 @@ object AppearancePage {
             }
             SliderBlock(
                 title = "弹窗模糊",
+                spot = spot("appearance.dialogBlur"),
                 hint = dialogBlurHint(HomeState.dlgBlur),
                 max = 25,
                 value = HomeState.dlgBlur,
@@ -561,8 +567,21 @@ object AppearancePage {
         max: Int,
         value: Int,
         iconRes: Int,
+        /**
+         * 【P1-e·设置索引】设置项登记。传了就由索引表提供标题（见 [SettingsSpots.spotTitle]）。
+         *
+         * 【参数位置】放在 `onChange` **之前**：`onChange` 是本函数唯一的必填函数参数，
+         *   现有 6 个调用点都用**显式 `{ v, u -> }`** 传入（不是尾随 lambda），
+         *   但按 [DhKit.ValueRow] 的既有惯例仍然让可选参数排在必填参数前，
+         *   这样将来若有人改用尾随 lambda 写法也不会被迫把 lambda 挪到中间。
+         */
+        spot: SettingsSpot? = null,
         onChange: (Int, Boolean) -> Unit
     ) {
+        // 【为什么另起变量名 heading】参数就叫 `title`，若写
+        //   `val title = spotTitle(spot, title)` 会变成自引用（Kotlin 编译期错误）。
+        //   这里用 heading 承接「spot 标题优先、否则用实参」，下方 Text 改读 heading。
+        val heading = SettingsSpots.spotTitle(spot, title)
         val c = DhTokens.colors
         Row(
             modifier = Modifier.padding(top = 12.dp),
@@ -572,7 +591,7 @@ object AppearancePage {
             Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             // E16-ALLOW: 分组小标题 `title`（"气泡样式"/"字体颜色"）：2~4 字标签
             Text(
-                text = title,
+                text = heading,
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
                 fontFamily = DhTokens.fonts
@@ -609,13 +628,18 @@ object AppearancePage {
         )
     }
 
-    /** 【r13 保留】字体颜色行：6 位十六进制 + 实时色块预览。 */
+    /**
+     * 字体颜色行：6 位十六进制 + 实时色块预览。【r13 保留】
+     *
+     * @param spot 【P1-e·设置索引】设置项登记；传了就由索引表提供标题。
+     *   本函数没有尾随 lambda、也没有必填函数参数，`spot` 追加在末位不影响任何现有调用。
+     */
     @Composable
-    private fun FontColorRow(act: MainActivity) {
+    private fun FontColorRow(act: MainActivity, spot: SettingsSpot? = null) {
         var open by remember { mutableStateOf(false) }
         var draft by remember { mutableStateOf("") }
         DhKit.ValueRow(
-            label = "字体颜色",
+            label = SettingsSpots.spotTitle(spot, "字体颜色"),
             value = if (HomeState.fontColor == 0) "跟随主题" else HomeUi.hex(HomeState.fontColor),
             iconRes = Icons.IC_PALETTE
         ) {

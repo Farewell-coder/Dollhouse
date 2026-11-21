@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +48,7 @@ import com.dollhouse.app.data.MemLink
 import com.dollhouse.app.data.Memory
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
@@ -512,7 +512,16 @@ object MemPage {
                             //   动画不会给它们带来任何额外的绘制负担。
                             val pulse by animateFloatAsState(
                                 targetValue = if (m.id == highlightId) 1f else 0f,
-                                animationSpec = tween(durationMillis = 320),
+                                // 【C19·时长收口】原先写死 `tween(320ms)`：
+                                //   320 不在 `DhDesign.Motion` 的任何一档里（press 90 / micro 160 /
+                                //   enter 220 / exit 180），是这一轮唯一逃过令牌化的 Compose 时长。
+                                //   【为什么选 DhAnim.FADE】这盏高亮只做「亮起 / 淡下去」的透明度过渡
+                                //   （下面 `alpha = 0.55f * pulse`），正是 FADE 的语义；时长取
+                                //   `DhDesign.Motion.micro`(160)，比原来的 320 更跟手。
+                                //   【顺带修好无障碍】`tween` 是无条件动画，而 `DhAnim.FADE` 走
+                                //   `reduceMotion()` 闸门 —— 关闭动画的用户现在会直接跳到终值，
+                                //   而不是看一次 320ms 的渐变。
+                                animationSpec = DhAnim.FADE,
                                 label = "memAnchorPulse"
                             )
                             Box(Modifier.animateItem()) {

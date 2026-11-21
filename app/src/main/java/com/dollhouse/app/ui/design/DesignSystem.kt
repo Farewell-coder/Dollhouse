@@ -301,8 +301,8 @@ object DhDesign {
         /** 卡片之间 / 分组之间的间距。 */
         const val cardGap = md
 
-        /** 区块标题与其内容的间距。 */
-        const val sectionGap = sm
+        /** 区块标题与其内容的间距（20dp）：拉开分组感，不再是图标-文字档的 8dp。 */
+        const val sectionGap = 20
 
         /** 图标与紧邻文字的间距。 */
         const val iconGap = sm
@@ -486,8 +486,8 @@ object DhDesign {
     object Motion {
         /** 按压反馈：90ms。 */
         const val press = 90
-        /** 微交互（开关、芯片切换、颜色过渡）：160ms。 */
-        const val micro = 160
+        /** 微交互（开关、芯片切换、颜色过渡）：180ms，与 `UiKit.D_MICRO` 同值。 */
+        const val micro = 180
         /** 进入（页面压栈、面板弹出）：220ms。 */
         const val enter = 220
         /** 退出（返回、面板收起）：180ms。 */

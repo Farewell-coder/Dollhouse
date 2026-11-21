@@ -29,6 +29,25 @@ object ChatState {
     /** 请求在途：发送键切「停止」。 */
     var waiting by mutableStateOf(false)
 
+    /**
+     * 「一轮生成刚刚结束」的单调计数。
+     *
+     * 【为什么需要它】读屏播报要"每条回复只念一次"，但不能用 `waiting == false`
+     *   本身做判据 —— 切会话 / 重铺历史 / 加载更早都会让末条变成 assistant，
+     *   而 waiting 始终是 false，于是每变一次就误播一次（实测切 3 个会话播 3 次）。
+     *   也不能用消息的 history 下标：每个会话有自己的 history，下标会重复。
+     *
+     *   【正确判据是"一次 true→false 的跳变"】它只在**本轮生成真的结束**时发生一次，
+     *   与 items 被重写多少次、用户切了多少次会话都无关。计数而非布尔，是为了让
+     *   "紧接着的第二轮"也能播（布尔会在第二轮的 true 时归位、false 时再次跳变，
+     *   但若中间没有任何读取就丢了这一次）。
+     *
+     * 【谁写】只有 [com.dollhouse.app.ui.chat.ChatPanel.setWaiting] 在 true→false 时 +1。
+     * 【谁读】`ChatUi.Messages` 的读屏播报（`LaunchedEffect(replyTick)`）。
+     */
+    var replyTick by mutableStateOf(0)
+        internal set
+
     // 【M-清理】原 `browsingArchives` 字段已删除。
     //   它声称「浏览归档时收起输入行与工具条」，但全仓**没有任何一处置 true**
     //   （唯一写值是 init 里的 false），于是 ChatUi 的 ToolRow / InputRow 两个

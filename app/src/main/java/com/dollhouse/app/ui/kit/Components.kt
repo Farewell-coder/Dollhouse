@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhKit
@@ -118,7 +119,6 @@ object DhButtonStyle {
  *   页面**禁止**覆盖这些值，需要新尺寸时先来这里加一档并写清用途。
  */
 private val ButtonHeight = 44.dp
-private val ButtonHeightSm = 34.dp
 private val FieldHeight = DhDesign.Size.fieldH
 private val ChipHeight = 26.dp
 private val TagHeight = 20.dp
@@ -143,7 +143,6 @@ private val RowPadV = 10.dp
  *   涟漪在自绘卡片上会溢出圆角，视觉噪点比反馈价值大。
  *
  * @param style 见 [DhButtonStyle]
- * @param small 小尺寸（34dp）；默认 false（44dp）
  * @param loading 加载中：替换文字为转圈且**自动禁用**（防重复提交）
  * @param enabled false 时整颗按钮压到 38% 不透明度并拦截点击
  */
@@ -153,7 +152,6 @@ fun DhButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     style: Int = DhButtonStyle.PRIMARY,
-    small: Boolean = false,
     enabled: Boolean = true,
     loading: Boolean = false,
     leadingIcon: Int = 0
@@ -161,7 +159,10 @@ fun DhButton(
     val p = DhTokens.palette
     val t = DhTokens.type
     val active = enabled && !loading
-    val height = if (small) ButtonHeightSm else ButtonHeight
+    // 【P1-b·清死分支】原 `small = true` 分支（34dp）全仓 **0 调用**，
+    //   删掉它与 `ButtonHeightSm` 常量 —— 它占了「第 5 种按钮高度」的名额却无人使用，
+    //   而按钮高度档正是本轮要收敛的维度。
+    val height = ButtonHeight
     val fill = when (style) {
         DhButtonStyle.PRIMARY -> p.accent
         DhButtonStyle.SECONDARY -> p.card
@@ -178,7 +179,7 @@ fun DhButton(
         DhButtonStyle.DANGER -> p.err
         else -> Color.Transparent
     }
-    val padH = if (small) 12.dp else 20.dp
+    val padH = 20.dp
     val alpha = if (active) 1f else 0.38f
     val shape = RoundedCornerShape(DhDesign.Radius.btn.dp)
     Row(
@@ -212,7 +213,7 @@ fun DhButton(
             Text(
                 text = text,
                 color = fg.copy(alpha = alpha),
-                style = t.rowTitle.copy(fontSize = if (small) t.sub.fontSize else t.body.fontSize),
+                style = t.rowTitle.copy(fontSize = t.body.fontSize),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -400,6 +401,12 @@ fun DhRow(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = if (twoLine) DhDesign.Size.rowTwoLine else DhDesign.Size.rowOneLine)
+            // 【P2-c·读屏】把 title/desc/value/trailing 合并成一个语义节点，读屏一次念完，
+            //   不必逐 Text 划动。**Switch 不会因此失去独立可操作性**：Switch 内部
+            //   `toggleable` 自身是 merging 节点，Compose 的 mergeConfig 会跳过
+            //   merging 子节点（见 SemanticsNode.mergeConfig 字节码），故 Switch 仍是独立可聚焦控件。
+            //   onClick != null 时 pressable→clickable 本身已 merge，这里显式声明对非点击行同样生效。
+            .semantics(mergeDescendants = true) {}
             .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
             .padding(vertical = if (twoLine) RowPadV else 0.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -566,10 +573,12 @@ fun DhGroup(
         if (!collapsible && !title.isNullOrEmpty()) {
             Text(
                 text = title,
-                modifier = Modifier.padding(
-                    start = DhDesign.Space.xs.dp,
-                    bottom = DhDesign.Space.sm.dp
-                ),
+                modifier = Modifier
+                    .semantics { heading() }
+                    .padding(
+                        start = DhDesign.Space.xs.dp,
+                        bottom = DhDesign.Space.sm.dp
+                    ),
                 color = p.sub,
                 style = t.label
             )
@@ -579,7 +588,9 @@ fun DhGroup(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(p.card)
-                .border(DhDesign.Size.hairline, p.line, shape)
+                // 【P1-b·描边统一】次按钮原用 `p.line`（不透明），与 chip 家族统一到
+                //   `p.stroke`（55% 透明）—— 同屏的次按钮与药丸描边不再一深一浅。
+                .border(DhDesign.Size.hairline, p.stroke, shape)
         ) {
             if (collapsible) {
                 Row(

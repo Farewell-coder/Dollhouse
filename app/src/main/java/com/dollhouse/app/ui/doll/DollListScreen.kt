@@ -495,7 +495,7 @@ onCover = {
                 .fillMaxWidth()
                 // 【3:4 竖矩形】列数越小、卡片越窄，高度按比例缩短，始终保持竖着。
                 .aspectRatio(0.75f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                 .background(c.card)
                 .padding(pad)
         ) {
@@ -522,7 +522,7 @@ onCover = {
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(top = DhDesign.Space.md.dp * k)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                     .background(c.soft)
                     // 【r13·实测封面框比例】布局完成后把这块区域的真实宽高比写回偏好，
                     //   供「改封面」裁剪页按它定裁剪框 —— 这样裁出来的图与卡片严丝合缝。

@@ -17,7 +17,20 @@ Dollhouse · 设计稿 ↔ 代码 一致性校验（可复跑）
   设计稿  design-studio/dollhouse-refresh/css/token.css   → CSS 变量（--fs-* / --s1..6 / --r8|12|16 / --t-*）
   代码    app/src/main/java/com/dollhouse/app/ui/design/DesignSystem.kt → Type / Space / Radius / Motion
   颜色    ui/theme/ThemeManager.kt 的 LIGHT / DARK / BLACK 三个 29 格数组
-          vs token.css 里三档 .dh[data-dir="a"] 的语义槽
+          vs tools/design_parity_baseline.json（冻结基线，见下）
+
+【颜色权威已变更 2026-11】
+  token.css 的 data-dir="a"（暖米 #F7F4EE）与 "b"（冷紫 #F3F3F8）
+  均为**旧视觉方向**，与当前代码的冷蓝 #E8EFF7 三不相等。
+  故 D6 不再比对 token.css，改为比对冻结基线（见 design_parity_baseline.json）。
+  提交 05ca215「视觉方向切换为清透轻拟物」是这次变更的来源。
+
+  为什么用冻结基线而不是"把代码值抄回 token.css"：后者会让校验变成自己和自己比，
+  永远绿，等于废掉这条门禁。冻结基线承认「设计稿的颜色权威已被方向切换取代」，
+  同时保住「有人手滑改某个色槽」的检测能力。
+
+  想回到"与设计稿比"的老行为：--against-design（此时例外表生效，用于说明方向差异）。
+  确认要接受新的颜色值：--update-baseline（重写基线文件，请在 code review 里说明理由）。
 
 【判据】
   D1 字号阶梯 8 档 × (size / lineHeight / weight)
@@ -78,12 +91,24 @@ THEME_KT = Path("app/src/main/java/com/dollhouse/app/ui/theme/ThemeManager.kt")
 
 QUIET = "--quiet" in sys.argv
 LIST_EXC = "--list-exceptions" in sys.argv
+AGAINST_DESIGN = "--against-design" in sys.argv     # 回到「与 token.css 比」的老行为
+UPDATE_BASELINE = "--update-baseline" in sys.argv   # 用当前代码重写冻结基线
 
-# CSS 里 direction A 的三档选择器（代码只落地方向 A）
+# 冻结基线（放在仓库内 → 克隆下来也能校验，不依赖仓库外的 design-studio）
+BASELINE_FILE = Path(__file__).resolve().parent / "design_parity_baseline.json"
+
+# CSS 里读哪一档 direction。
+# 【为什么抽成常量】原先三处选择器各自写死 "a"；设计稿后来新增了 "b" 档，
+#   于是「读哪一档」变成一个必须显式说明的选择，而不是藏三个字符串里。
+#   【现状·重要】"a"（暖米）和 "b"（冷紫）**都是旧方向**，代码已是冷蓝（清透轻拟物）。
+#   所以这一项只在 --against-design 模式下有意义；默认走冻结基线，不读它。
+#   可用环境变量覆盖：DOLLHOUSE_DESIGN_DIR=b
+DESIGN_DIR_ATTR = __import__("os").environ.get("DOLLHOUSE_DESIGN_DIR", "a")
+
 THEME_SELECTOR = {
-    "light": '.dh[data-dir="a"][data-theme="light"]',
-    "dark": '.dh[data-dir="a"][data-theme="dark"]',
-    "black": '.dh[data-dir="a"][data-theme="black"]',
+    "light": '.dh[data-dir="%s"][data-theme="light"]' % DESIGN_DIR_ATTR,
+    "dark": '.dh[data-dir="%s"][data-theme="dark"]' % DESIGN_DIR_ATTR,
+    "black": '.dh[data-dir="%s"][data-theme="black"]' % DESIGN_DIR_ATTR,
 }
 
 # ThemeManager 三个数组名 → 主题
@@ -117,6 +142,12 @@ SLOT_TO_CSS = {
 # 命中的差异只报告、不判 FAIL、不进一致率的分母（单列「有意偏离」）。
 # 【写这里的门槛】必须有可复核的数值或明确的工程理由，不接受「看着差不多」。
 # ---------------------------------------------------------------------------
+# 【2026-11·色值已随「清透轻拟物」方向切换更新】
+#   本表里的「代码值」原先写的是旧暖色（#DAD2C2 / #2A251C …）。方向切换后实际值
+#   全部变了，判据仍命中（例外键没变），但**理由里的数字已过期** —— 读者会去找一个
+#   代码里不存在的颜色。现已按 ThemeManager 现值重写，对比度也重算过（均仍 ≥1.3）。
+#   【这些例外只在 --against-design 模式下生效】默认走冻结基线，基线=代码现值，
+#   故 D6 不会命中例外；保留本表是为了「与设计稿比」时能解释方向差异。
 EXCEPTIONS = {
     # ---- line 三档：设计稿值低于 1dp 发丝线的可辨识下限 1.3 ----
     # 依据：ui/theme/ThemeManager.kt 的 LIGHT/DARK/BLACK 上方注释块的实测对照表，
@@ -125,15 +156,25 @@ EXCEPTIONS = {
     #   而是另一条门禁正在独立守护的约束。
     # 设计稿值 → 实测对比度：浅 #E6E0D4 1.20/1.26、暗 #2E2A22 1.28/1.20、纯黑 #201C15 1.24/1.17
     # 代码值 → 实测对比度：浅 #DAD2C2 1.37/1.44、暗 #38332A 1.46/1.37、纯黑 #2A251C 1.38/1.31
+    # ---- D3 圆角 --r16：v3「清透轻拟物」整体上抬一档 ----
+    # 依据：DesignSystem.Radius 的注释「旧档位（8/12/16）… 各档 +4~6，
+    #   并新增 xl 给大面板」，以及同系列提交 05ca215（视觉方向切换）。
+    #   设计稿写 16，代码 lg=22（+6）。r8→xs(8)、r12→md(12) 仍逐一相等，
+    #   只有 r16 这一档是刻意放大的 —— 12dp 卡片在柔和阴影下会显得"没圆到位"。
+    ("D3", "--r16"): (
+        "设计稿 16，代码 lg=22（+6）。v3「清透轻拟物」把圆角整体上抬一档："
+        "旧档 8/12/16 → 新档 xs8/sm10/md12/lg22/xl28。12dp 卡片在柔和阴影下"
+        "像被削了角，故大圆角档必须更大才撑得住体积感。r8/r12 仍与设计稿逐值相等。"),
+
     ("D6", "light", "LINE"): (
         "设计稿 #E6E0D4 对 bg/card 只有 1.20/1.26，低于 1dp 发丝线可辨识下限 1.3；"
-        "代码加深一档 #DAD2C2（1.37/1.44）。见 ThemeManager 注释块与 palette_contrast 的 line 门禁。"),
+        "代码加深一档 #C7D1DD（1.33/1.50）。见 ThemeManager 注释块与 palette_contrast 的 line 门禁。"),
     ("D6", "dark", "LINE"): (
         "设计稿 #2E2A22 对 bg/card 只有 1.28/1.20，低于可辨识下限 1.3；"
-        "代码加深一档 #38332A（1.46/1.37）。"),
+        "代码加深一档 #303A47（1.52/1.32）。"),
     ("D6", "black", "LINE"): (
         "设计稿 #201C15 对 bg/card 只有 1.24/1.17，低于可辨识下限 1.3；"
-        "代码加深一档 #2A251C（1.38/1.31）。"),
+        "代码加深一档 #27303A（1.57/1.39）。"),
 
     # ---- stroke：随 line 一起加深（仅暗色 / 纯黑命中）----
     # 浅色档不登记：token.css 的 stroke(#DAD2C2) 与代码的 LINE 恰好同值，
@@ -144,12 +185,13 @@ EXCEPTIONS = {
     # 代码取 0x8C（=140/255 ≈ 55%）。两边口径本就不一致（CSS 无 alpha vs 文档 78%），
     # 属「设计稿自身未统一」，不是代码单方面偏离，故登记为例外。
     ("D6", "dark", "STROKE"): (
-        "设计稿 stroke #3A342A 未随 line 加深；代码取 #38332A（= 暗色 line 的值）以保持"
+        "设计稿 stroke #3A342A 未随 line 加深；代码取 #353F4C（暗色 line 是 #303A47，"
+        "stroke 比它更实一档，对比度 1.64/1.43）以保持"
         "「描边与发丝线同色」的一致性。差异仅 #02 在 G 通道，肉眼不可辨，"
         "但语义上是对的：stroke 应当等同于同档 line。"),
     ("D6", "black", "STROKE"): (
-        "设计稿 stroke #2A251D 未随 line 加深；代码取 #332D22。纯黑档 line 已加深到 #2A251C，"
-        "stroke 需比 line 更实一档才能在 #000 上承担「浮起层描边」，故取 #332D22。"),
+        "设计稿 stroke #2A251D 未随 line 加深；代码取 #2C353F。纯黑档 line 已加深到 #27303A，"
+        "stroke 需比 line 更实一档（1.69/1.49）才能在 #000 上承担「浮起层描边」。"),
 }
 
 
@@ -295,7 +337,17 @@ def parse_type_block(kt):
         args = body[k:q + 1]
         fs = re.search(r"fontSize\s*=\s*(\d+(?:\.\d+)?)\.sp", args)
         lh = re.search(r"lineHeight\s*=\s*(\d+(?:\.\d+)?)\.sp", args)
-        fw = re.search(r"fontWeight\s*=\s*FontWeight\.(\w+)", args)
+        # 【2026-11 修·判据过时】`Type.of` 的 fontWeight 早已改成深浅两档的条件式：
+        #     fontWeight = if (dark) FontWeight.Medium else FontWeight.SemiBold
+        #   旧正则 `fontWeight\s*=\s*FontWeight\.(\w+)` 完全匹配不到 → 取到 None
+        #   → 8 档里 5 条报「一侧缺失，无法比对」（假红）。
+        #   设计稿给的是**浅色档**字重（brand/display/title/section/label = 600），
+        #   所以这里显式取 `else` 分支；退化成直写时再走简单正则。
+        fw = re.search(
+            r"fontWeight\s*=\s*if\s*\([^)]*\)\s*FontWeight\.\w+\s*else\s*FontWeight\.(\w+)",
+            args)
+        if not fw:
+            fw = re.search(r"fontWeight\s*=\s*FontWeight\.(\w+)", args)
         out[name] = {
             "size": float(fs.group(1)) if fs else None,
             "lineHeight": float(lh.group(1)) if lh else None,
@@ -365,6 +417,49 @@ def parse_palette_arrays(kt):
     return out
 
 
+# --------------------------------------------------------------------------- 冻结基线
+
+def load_baseline():
+    """读冻结基线。返回 {"light": {slot: "AARRGGBB", ...}, ...}；文件不存在返回 None。
+
+    【为什么按槽名而不是按数组下标存】下标顺序一旦调整（`UiKit.snapshotPalette()`
+      的 29 格顺序是硬约束），按下标存会静默错位；按槽名存则对不上会直接报
+      「基线缺少该槽」，不会张冠李戴。
+    """
+    if not BASELINE_FILE.exists():
+        return None
+    try:
+        import json
+        data = json.loads(BASELINE_FILE.read_text(encoding="utf-8"))
+        return data.get("colors")
+    except Exception:
+        return None
+
+
+def save_baseline(arrays):
+    """把当前代码的三档数组冻结成基线 JSON。"""
+    import json
+    colors = {}
+    for theme, arr in arrays.items():
+        if not arr:
+            continue
+        colors[theme] = {slot: arr[i] for i, slot in enumerate(SLOT_ORDER) if i < len(arr)}
+    payload = {
+        "_comment": [
+            "design_parity.py 的 D6（调色板）冻结基线。",
+            "来源：2026-11「清透轻拟物」方向切换（提交 05ca215）后的代码现状。",
+            "为什么不再比对设计稿 token.css：它的 a/b 两档都是旧方向（暖米/冷紫），",
+            "  与当前代码的冷蓝三不相等，继续比会产生 78 条常红，让整条门禁失效。",
+            "改这里的正确姿势：确认是有意的配色调整 → python3 tools/design_parity.py --update-baseline",
+            "  → 在 code review 里说明为什么改，而不是直接提交这个 JSON 的 diff。",
+            "值格式：AARRGGBB（与 ThemeManager 的 LIGHT/DARK/BLACK 数组一致）。",
+        ],
+        "colors": colors,
+    }
+    BASELINE_FILE.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 # --------------------------------------------------------------------------- 判据
 
 results = []   # (status, cid, item, expected, actual, note)
@@ -389,12 +484,20 @@ TYPE_ROLES = ["brand", "display", "title", "section", "body", "sub", "caption", 
 TYPE_CSS_KEY = {r: r for r in TYPE_ROLES}
 
 SPACE_MAP = [("s1", "xs"), ("s2", "sm"), ("s3", "md"), ("s4", "lg"), ("s5", "xl"), ("s6", "xxl")]
-RADIUS_MAP = [("r8", "sm"), ("r12", "md"), ("r16", "lg"), ("rPill", "pill")]
+# 【2026-11 修·映射错位】v3 给 Radius 新增了 `xs = 8` 档（理由见 DesignSystem 里
+#   「P1-b 第 0 批替换时发现 9 处 RoundedCornerShape(8.dp)…此前最小档是 sm=10」），
+#   于是「设计稿 --r8 ↔ 代码某档」的对应关系整体后移了一格：
+#       旧映射 r8 → sm(10)  ← 错位后拿 10 去比设计稿的 8，恒报偏差
+#       正解  r8 → xs(8)
+#   现档位：xs=8 / sm=10 / md=12 / lg=22 / xl=28 / pill=999
+RADIUS_MAP = [("r8", "xs"), ("r12", "md"), ("r16", "lg"), ("rPill", "pill")]
 MOTION_MAP = [("t-press", "press"), ("t-micro", "micro"), ("t-enter", "enter"), ("t-exit", "exit")]
 EASE_MAP = [("ease-std", "easeStd"), ("ease-io", "easeIo"), ("ease-exit", "easeExit")]
 
 
 def compare_all():
+    global BASELINE_COLORS
+    BASELINE_COLORS = load_baseline() or {}
     css = read(CSS)
     dkt = read(DESIGN_KT)
     tkt = read(THEME_KT)
@@ -446,7 +549,9 @@ def compare_all():
 
     # ---- D3 圆角
     for ck, dk in RADIUS_MAP:
-        cmp("D3", "--" + ck, px(root.get(ck)), radii.get(dk))
+        cmp("D3", "--" + ck, px(root.get(ck)), radii.get(dk),
+            exc_key=("D3", "--" + ck),
+            exc_reason=EXCEPTIONS.get(("D3", "--" + ck), ""))
 
     # ---- D4 动效时长
     for ck, dk in MOTION_MAP:
@@ -460,6 +565,13 @@ def compare_all():
         cmp("D5", "--" + ck, exp, motion.get(dk))
 
     # ---- D6 颜色 29 槽 × 3 档
+    # 【基线缺失要快速失败】否则 87 个槽各报一条「基线缺少该槽」，把真正的信息淹掉。
+    if not AGAINST_DESIGN and not BASELINE_COLORS:
+        results.append(("FAIL", "D6", "palette.baseline", "基线文件存在", "缺失",
+                        "找不到 %s —— 首次使用请跑 "
+                        "`python3 tools/design_parity.py --update-baseline` 冻结基线"
+                        % BASELINE_FILE.name))
+        return True
     for theme, sel in THEME_SELECTOR.items():
         cssvars = parse_css_vars(css, sel)
         arr = arrays.get(theme)
@@ -472,6 +584,27 @@ def compare_all():
             code_val = arr[idx]                      # AARRGGBB
             code_hex = code_val[2:]                  # RRGGBB
             code_alpha = code_val[:2]
+
+            # ---- 基线模式（默认）：与冻结基线比 ----
+            if not AGAINST_DESIGN:
+                base_val = (BASELINE_COLORS.get(theme) or {}).get(slot)
+                if base_val is None:
+                    results.append(("FAIL", "D6", theme + "." + slot,
+                                    "基线应包含该槽", None,
+                                    "冻结基线缺少该槽 —— 可能是新增了色槽，"
+                                    "请 --update-baseline 重新冻结"))
+                    continue
+                base_hex, base_alpha = base_val[2:], base_val[:2]
+                cmp("D6", theme + "." + slot, "#" + base_hex, "#" + code_hex,
+                    exc_key=("D6", theme, slot),
+                    exc_reason=EXCEPTIONS.get(("D6", theme, slot), ""))
+                if base_alpha != code_alpha:
+                    cmp("D6", theme + "." + slot + ".alpha",
+                        "alpha=%d%%" % round(int(base_alpha, 16) / 255 * 100),
+                        "alpha=%d%%" % round(int(code_alpha, 16) / 255 * 100))
+                continue
+
+            # ---- 设计稿模式（--against-design）：与 token.css 比（老行为）----
             cv = cssvars.get(SLOT_TO_CSS.get(slot, ""), None)
 
             if cv is None:
@@ -523,9 +656,13 @@ def report():
     if not QUIET:
         print("===== 设计稿 ↔ 代码 一致性校验 =====")
         print("数据源：")
-        print("  设计稿  %s" % CSS)
+        print("  设计稿  %s（direction=%s）" % (CSS, DESIGN_DIR_ATTR))
         print("  字号/间距/圆角/动效  %s" % DESIGN_KT)
         print("  三档调色板  %s" % THEME_KT)
+        if AGAINST_DESIGN:
+            print("  颜色基准  token.css（--against-design；例外表生效）")
+        else:
+            print("  颜色基准  %s（冻结基线；设计稿 a/b 两档均为旧方向）" % BASELINE_FILE.name)
         print()
         by_cid = {}
         for st, cid, item, e, a, note in results:
@@ -570,6 +707,17 @@ def report():
 
 
 def main():
+    if UPDATE_BASELINE:
+        arrays = parse_palette_arrays(read(THEME_KT))
+        if not arrays or not any(arrays.values()):
+            print("❌ 读不到 ThemeManager 的三档数组，无法冻结基线")
+            return 2
+        save_baseline(arrays)
+        n = sum(len(v) for v in (load_baseline() or {}).values())
+        print("✅ 已冻结调色板基线 → %s（%d 个槽）" % (BASELINE_FILE, n))
+        print("   请把这次改动的**理由**写进 code review，不要只提交 JSON 的 diff。")
+        return 0
+
     if LIST_EXC:
         print("===== 已知例外表（%d 条）=====" % len(EXCEPTIONS))
         for (cid, theme, slot), reason in sorted(EXCEPTIONS.items()):

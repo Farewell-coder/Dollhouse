@@ -310,7 +310,7 @@ class CoverCropActivity : Activity() {
                             //   改引用 DhKit.MIN_TOUCH（= pressable 内置下限的同一个常量），
                             //   避免再出现「按钮 40 / 命中区 48」两套值。
                             .height(DhKit.MIN_TOUCH.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                             .background(DhTokens.palette.accent)
                             .pressable { onMainAction() },
                         // 【对齐门禁】有背景 + 只有一个文字，必须显式居中。

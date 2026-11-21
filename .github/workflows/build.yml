@@ -122,6 +122,41 @@ jobs:
           python3 tools/palette_contrast.py --quiet
           python3 tools/symbol_refs.py --quiet
 
+      # 【静态门禁·B 档】上面两组覆盖「布局/令牌/状态/引用」，本步补上**行为契约**类检查。
+      #   四项都是纯静态、不写盘、无第三方依赖，本地实测合计约 38s
+      #   （backup 8.3s / gen_lucide 1.8s / input_audit 4.5s / kit_usage 24s）；
+      #   其中 kit_usage_audit 内部会再跑一遍 input_audit —— 保留两条是刻意的：
+      #   input_audit 单跑能在日志里直接指明「哪个文件哪一行」，kit_usage 只报汇总结论，
+      #   定位问题时分开跑更快；CI 里两条都跑只是多花 ~5s。
+      #
+      #   · backup_roundtrip_check —— 「一键全量备份」是 0.2.8 的卖点，本脚本是它唯一的
+      #     自动化保障：11 组检查含密钥泄漏（P0 安全红线）、恶意备份能否改写供应商配置、
+      #     恢复是否覆盖本机数据、图片写盘失败是否静默报成功。
+      #   · gen_lucide --check —— Icons.kt 的 ICON_MAP 与 res/drawable 是否失同步
+      #     （历史上手抄 SVG 导致图标风格漂移）。只比对不写盘，缺失即非 0。
+      #   · input_audit —— 输入框聚焦态是否真的接上线（防「聚焦态只存在于没人调用的
+      #     DhField 里」这类静默失效）。
+      #   · kit_usage_audit —— ui/kit 的「转发」是否被架空虚化（转发是软约束，代码能编译、
+      #     界面差不多、测试全绿，但规范已悄悄失效）。
+      - name: 静态门禁（备份往返 / 图标 / 输入框 / 组件库转发）
+        run: |
+          python3 tools/backup_roundtrip_check.py
+          python3 tools/gen_lucide.py --check
+          python3 tools/input_audit.py --quiet
+          python3 tools/kit_usage_audit.py --quiet
+
+      # 【静态门禁·页面一致性】与上面四组不是一类：那几组查「行为契约」，本步查
+      #   「页面级视觉规范是否被绕过」——页面是否走了 DhKit.Page 脚手架、水平内边距
+      #   是否等于 Space.lg（规范值从 DesignSystem.kt 现读，不是写死在脚本里，
+      #   将来调 token 不会误报）。
+      #   退出码：有离群即非 0。--quiet 只在有离群时打印「文件:行 函数 -> 原因」，
+      #   全绿时只留一行汇总，CI 日志更干净。
+      #   不适用页面规范的形态（三 Tab 常驻宿主、AndroidView 壳、全屏聊天画布、
+      #   桌宠悬浮层等）登记在脚本的 EXEMPT 表里，每条都写了「为什么它不该遵循」，
+      #   新增页面若被判离群，先确认是不是该走脚手架，而不是直接加例外。
+      - name: 页面一致性（边距/标题/内边距）
+        run: python3 tools/page_consistency_audit.py --quiet
+
       - name: 单元测试
         run: ./gradlew test --stacktrace
 

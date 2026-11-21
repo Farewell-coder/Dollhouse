@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -28,8 +27,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.MainActivity
@@ -39,9 +36,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
-import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
-import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import kotlin.math.roundToInt
 
@@ -164,11 +159,11 @@ object DollRangePage {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 取消 = 直接退出，不写任何键（与悬浮窗同一语义）。
-                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存") { PageStack.popIfTopStartsWith(act, PREFIX) }
+                DhKit.CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存") { PageStack.popIfTopStartsWith(act, PREFIX) }
                 Spacer(Modifier.width(20.dp))
                 // 重置：只把**本地草稿**拨回整屏（0,0,1,1），**不落盘** ——
                 //   【r13 修 bug】原来这里立刻 setBounds，用户点取消时框已经被改掉了。
-                CircleButton(Icons.IC_ROTATE_CCW, c.sub, "重置为整屏") {
+                DhKit.CircleButton(Icons.IC_ROTATE_CCW, c.sub, "重置为整屏") {
                     l = 0f
                     t = 0f
                     r = 1f
@@ -176,7 +171,7 @@ object DollRangePage {
                 }
                 Spacer(Modifier.width(20.dp))
                 // 确认 = 把草稿写盘后退出。
-                CircleButton(Icons.IC_CHECK, c.acc, "确认范围") {
+                DhKit.CircleButton(Icons.IC_CHECK, c.acc, "确认范围") {
                     DollProfile.setBounds(act, id, orient, l, t, r, b)
                     PageStack.popIfTopStartsWith(act, PREFIX)
                 }
@@ -226,28 +221,4 @@ object DollRangePage {
         }
     }
 
-    /**
-     * 圆形图标按钮（与初始位置页同一口径，实心底以免和底图糊在一起）。
-     *
-     * @param name 无障碍名（读屏朗读）。**必填** —— 本按钮内只有一枚图标、无任何文字，
-     *   漏传读屏只会念「按钮」；本行同时有「取消 / 重置 / 确认」三颗，三句都念「按钮」
-     *   等于读屏用户无法操作。必填参数让漏传在编译期就报错。
-     */
-    @Composable
-    private fun CircleButton(iconRes: Int, tint: Color, name: String, onClick: () -> Unit) {
-        val c = DhTokens.colors
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
-                .background(c.card)
-                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
-                // 语义挂在可点区域上、置于 pressable 之前（与 DhIconButton 同写法）。
-                .semantics { contentDescription = name }
-                .pressable(onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            DhKit.Icon(iconRes, Design.SZ_LG, tint)
-        }
-    }
 }

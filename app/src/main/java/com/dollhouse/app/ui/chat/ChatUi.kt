@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
+import androidx.core.view.ViewCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -52,6 +54,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.dollhouse.app.data.PetPrefs
@@ -67,6 +70,7 @@ import kotlinx.coroutines.withContext
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhKit.photoTopBand
+import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.design.LocalCompactHeight
@@ -395,7 +399,9 @@ object ChatUi {
                         color = if (onPhoto) {
                             Color(UiKit.subOnPhoto())
                         } else if (ChatState.waiting) {
-                            c.acc
+                            // 【强调色收敛】状态文字不是"主操作/选中/关键数据"，用中性字色：
+                            //   文案本身（正在回复…）已经表达了状态，再上强调色属于装饰。
+                            c.title
                         } else {
                             c.sub
                         },
@@ -501,7 +507,21 @@ object ChatUi {
                 modifier = Modifier
                     // 【圆角收敛】原 10dp -> Radius.md(12)：提示条与卡片同族。
                     .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
-                    .background(c.hintBg)
+                    // 【一屏一色相·2026-11】原先是整条 `hintBg`（淡蓝 #E3EEFA）铺底：
+                    //   全宽 × 约 34dp ≈ 12,900dp² 的着色面，而信息只有一句 18 字提示。
+                    //   与本页的我方气泡（#DCE9FA）同属蓝家族，两块淡蓝叠在一起就是
+                    //   「一屏两处淡蓝」的浑浊感来源。改为**中性面 + 左侧 2dp 色条**：
+                    //   色相仍然只出现在一处（那道 2dp），面积降到约 1/20。
+                    .background(c.card)
+                    .drawBehind {
+                        drawRect(
+                            color = c.hintBg,
+                            size = androidx.compose.ui.geometry.Size(
+                                width = 2.dp.toPx(),
+                                height = size.height
+                            )
+                        )
+                    }
                     .pressable { host.openMain() }
                     .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
@@ -541,6 +561,53 @@ object ChatUi {
         //   滚动目标与滚动回调必须按同一口径平移，否则收回判据会整体错位一格。
         val offset = if (ChatState.hasPrev) 1 else 0
         val tailExtra = if (ChatState.thinking != null) 1 else 0
+
+        // 【P2-c·流式回复的读屏播报】每条回复**只播报一次**。
+        //
+        // 【为什么不能用声明式 liveRegion】`flushStream` 每 60ms 就把末条气泡的 text
+        //   整体重写一次（见 ChatPanel.flushStream：浅拷 List + 替换尾元素）。
+        //   若给气泡 Text 挂 `liveRegion = Polite`，读屏会**每 60ms 收到一次内容变更
+        //   通知** —— 一条两百字的回复就是三十多次播报，实际表现是反复从头念、卡顿、
+        //   完全听不清。那是比"不播报"更糟的结果，用户会直接关掉无障碍功能。
+        //
+        // 【为什么不能用 `waiting == false` 或消息下标做判据】两者我都试过并否决：
+        //   · `waiting == false`：切会话 / 重铺历史 / 加载更早都会让末条变成 assistant，
+        //     而 waiting 始终是 false → 实测切 3 个会话误播 3 次；
+        //   · 消息的 history 下标：每个会话有独立 history，下标会重复，同样误播。
+        //   【正确判据是 `replyTick`】它只在 `setWaiting(true → false)` 时 +1
+        //   （见 ChatPanel.setWaiting），即"一轮生成真的结束"这一精确事件。
+        //   播报次数与文本被重写多少次、用户切多少次会话**完全无关**。
+        //
+        // 【为什么用命令式 announceForAccessibility 而不是 liveRegion】
+        //   liveRegion 的粒度是"每次重组"，对流式文本没有节流能力；命令式播报是一次性
+        //   事件，天然不重复，也不需要节流判断。
+        //
+        // 【开销】replyTick 不变时 LaunchedEffect 不重启，零协程开销。
+        //   读屏关闭时 announceForAccessibility 是空操作（内部直接 return）。
+        val view = LocalView.current
+        val replyTick = ChatState.replyTick
+        LaunchedEffect(replyTick) {
+            if (replyTick == 0) {
+                return@LaunchedEffect   // 还没生成过任何回复，首屏不播
+            }
+            // 取末条：只念**助手的完整回复**（role=assistant、已落库 index>=0、
+            // 非摘要条、正文非空）。流式占位气泡 index=-1 与 summary 都被排除。
+            val last = ChatState.items.lastOrNull()
+            val text = if (last != null && last.role == "assistant" && last.index >= 0 &&
+                !last.isSummary && last.text.isNotBlank()
+            ) {
+                last.text
+            } else {
+                null
+            }
+            if (text.isNullOrEmpty()) {
+                return@LaunchedEffect
+            }
+            // 【长度上限】读屏念几千字要很久，且会把用户堵在这一条上。
+            //   超过 500 字只播前缀 + 提示完整内容已在屏幕上（用户可自行浏览气泡）。
+            val spoken = if (text.length > 500) text.take(500) + "……完整回复已显示在屏幕上" else text
+            ViewCompat.announceForAccessibility(view, spoken)
+        }
 
         // 【M-修断链】搜索高亮的自动消除。
         //   高亮是「瞬时提示」：用户看到哪一条被找到就够了，不该一直挂着。
@@ -594,12 +661,38 @@ object ChatUi {
         //   `气泡内 4 < 同角色 6 < 换人 8`，用户靠间距差分辨「同一人连说」与「换人」。
         //   6dp 不是设计令牌档位（Space 只有 4/8/12…），故显式写 6 —— 它只在紧凑档出现。
         val compact = LocalCompactHeight
+        // 【背景图可读性·玻璃底】消息流是聊天页面积最大的一块，之前**完全裸在背景图上**：
+        //   气泡自己有底，但日期 / 「加载更早」药丸之外的行间、以及滚动到任意位置时的
+        //   整体底子都是照片本身。用户报的「加了背景之后容易字看不清」就落在这里。
+        //
+        //   【为什么复用它而不是新写一层 background】`readableSheet` 是本工程既有的
+        //   「正文区雾面」构件（`ChatListScreen` / `SocialPage` 的列表已用它），
+        //   默认 alpha = TOP_BAND_ALPHA(0.88)、顶部 12dp 渐隐、有图才画、无图原样返回 this。
+        //   与顶栏带同款浓淡，本页两块雾面才连得起来；自己另写一层 82% 会多出第二套观感。
+        //
+        //   【实测为什么是 88% 而不是 82%】最坏情况（纯黑照片、图不透明度 92%、遮罩 0）：
+        //     只用 SUB 字色：82% → 3.23、88% → 3.69（**都不到 AA 4.5**）
+        //     SUB 换成 subOnPhoto（页面底上 6.5:1）：82% → 4.56（余量只剩 0.06）、88% → 5.21
+        //   即「玻璃底」单独够不到 AA，必须与压图专用字色**一起**用 —— 本页顶栏那条
+        //   状态行（`:392` 的「正在回复…/在线」）已经是这个组合。气泡与药丸自带底色，不受影响。
+        //
+        //   【cornerDp = 0】本页是全屏面板（窗口本身裁 16dp 圆角），面板再收圆角会
+        //   在四个角漏出照片的三角 —— 与顶栏带 `photoTopBand(onPhoto, cornerDp = 0)`
+        //   同一条理由。
+        val onPhoto = DhKit.hasPhotoBackdrop()
+        val padV = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
         LazyColumn(
             state = listState,
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier
+                .fillMaxWidth()
+                .readableSheet(onPhoto, fill = Color(UiKit.SOFT), cornerDp = 0),
             contentPadding = PaddingValues(
-                horizontal = DhDesign.Space.lg.dp,
-                vertical = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
+                start = DhDesign.Space.lg.dp,
+                end = DhDesign.Space.lg.dp,
+                // 【配套约定】`readableSheet` 顶部 12dp 是渐隐区，首条消息不能落在里面
+                //   （与顶栏带「渐隐那几 dp 由调用方补进 padding」同一条约定）。
+                top = padV + (if (onPhoto) DhKit.TOP_BAND_FADE_DP.dp else 0.dp),
+                bottom = padV
             ),
             verticalArrangement = Arrangement.spacedBy(
                 if (compact) 6.dp else DhDesign.Space.sm.dp
@@ -1035,7 +1128,7 @@ object ChatUi {
                 contentDescription = "图片附件",
                 modifier = Modifier
                     .widthIn(max = maxW)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp)),
                 contentScale = ContentScale.Fit
             )
         }
@@ -1066,27 +1159,29 @@ object ChatUi {
                 .then(if (text.trim().isNotEmpty()) Modifier.pressable { open = true } else Modifier),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 左线：主色 50% 透明，1dp（对齐 Operit 的 primary.copy(alpha=0.5f) / thickness 1.dp）。
+            // 【强调色收敛】左右两条 1dp 线是"分割线"（几何元素），不是强调位 —— 用 line 色。
+            //   原先是主色 50%，一屏里出现两道彩色发丝线，属于纯装饰的强调。
             Box(
                 Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(c.acc.copy(alpha = 0.5f))
+                    .background(c.line)
             )
             // 中间徽标：主色 10% 淡底 + 12dp 圆角 + 图标 + 主色小字。
             Row(
                 modifier = Modifier
                     .padding(horizontal = DhDesign.Space.sm.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.acc.copy(alpha = 0.1f))
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                    // 【强调色收敛】徽标是"次要标签"，不是主操作/选中态 → 软底。
+                    .background(c.soft)
                     .padding(horizontal = DhDesign.Space.sm.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.acc)
+                DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.sub)
                 Spacer(Modifier.width(DhDesign.Space.xs.dp))
                 Text(
                     text = "历史对话摘要",
-                    color = c.acc,
+                    color = c.sub,
                     fontSize = UiKit.FS_CHIP.sp,
                     fontFamily = DhTokens.fonts,
                     fontWeight = FontWeight.Medium
@@ -1096,7 +1191,7 @@ object ChatUi {
                 Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(c.acc.copy(alpha = 0.5f))
+                    .background(c.line)
             )
         }
         if (open) {
@@ -1322,7 +1417,7 @@ object ChatUi {
                 .fillMaxWidth()
                 .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 2.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                 .background(c.card)
                 .padding(start = DhDesign.Space.sm.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1462,7 +1557,7 @@ object ChatUi {
                 .fillMaxWidth()
                 .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 10.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                 .background(c.card)
                 .padding(start = 10.dp, top = DhDesign.Space.sm.dp, end = 6.dp, bottom = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically

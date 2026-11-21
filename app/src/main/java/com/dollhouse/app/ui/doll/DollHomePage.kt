@@ -27,14 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.MainActivity
@@ -45,7 +42,6 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
-import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -180,9 +176,9 @@ object DollHomePage {
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存位置") { PageStack.popIfTopStartsWith(act, PREFIX) }
+                DhKit.CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存位置") { PageStack.popIfTopStartsWith(act, PREFIX) }
                 Spacer(Modifier.width(28.dp))
-                CircleButton(Icons.IC_CHECK, c.acc, "确认人偶位置") {
+                DhKit.CircleButton(Icons.IC_CHECK, c.acc, "确认人偶位置") {
                     DollProfile.setHomePivot(act, id, rx, ry)
                     PageStack.popIfTopStartsWith(act, PREFIX)
                 }
@@ -195,32 +191,4 @@ object DollHomePage {
         return (v * 100f).roundToInt().toString()
     }
 
-    /**
-     * 圆形图标按钮：CARD 底 + 描边，保证铺在浅色小人底图上也能看清。
-     * 【为什么不用 [DhKit.IconButton]】那个是透明底、为顶栏设计；这里是主操作按钮，
-     *   需要实心底才不至于和背景糊在一起。
-     *
-     * @param name 无障碍名（读屏朗读）。**做成必填参数**：本按钮内部只有一枚图标、
-     *   没有任何文字，漏传就等于读屏只念「按钮」。同页成对出现「取消 / 确认」，
-     *   两句如果都念「按钮」，读屏用户无法区分哪个是哪一个 ——
-     *   这类「漏传不报错」的坑，靠必填参数在编译期挡掉，比靠人记可靠。
-     */
-    @Composable
-    private fun CircleButton(iconRes: Int, tint: Color, name: String, onClick: () -> Unit) {
-        val c = DhTokens.colors
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
-                .background(c.card)
-                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
-                // 语义挂在外层可点区域上（与 ui/kit 的 DhIconButton 同一写法），
-                // 顺序在 pressable 之前：语义描述「这块可点区域是什么」，与手势处理无关。
-                .semantics { contentDescription = name }
-                .pressable(onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            DhKit.Icon(iconRes, Design.SZ_LG, tint)
-        }
-    }
 }

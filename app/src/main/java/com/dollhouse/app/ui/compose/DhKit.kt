@@ -78,6 +78,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -781,8 +782,10 @@ object DhKit {
             }
             Column(modifier = Modifier.weight(1f)) {
                 // E16-ALLOW: 顶栏 `title`：单行页面标题（FS_TITLE）
+                // 【P2-c·读屏】页面标题 = heading（无参，Compose 无 level）；本节点不与 merge 同存
                 Text(
                     text = title,
+                    modifier = Modifier.semantics { heading() },
                     color = DhTokens.colors.title,
                     fontSize = UiKit.FS_TITLE.sp,
                     fontFamily = DhTokens.fontsBold,
@@ -850,7 +853,7 @@ object DhKit {
             // E16-ALLOW: Tab 顶栏 `title`：单行大标题（26sp），Tab 固定区
             Text(
                 text = title,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).semantics { heading() },
                 color = DhTokens.colors.title,
                 fontSize = TAB_TITLE_SP.sp,
                 fontFamily = DhTokens.fontsBold,
@@ -1315,7 +1318,8 @@ object DhKit {
                 .size(34.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(c.cardUp)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                // 【P1-b·描边统一】同 OutlineChip / BarButton，统一用 stroke（55% 透明）。
+                .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
             contentAlignment = Alignment.Center
         ) {
@@ -1335,7 +1339,10 @@ object DhKit {
         if (iconRes == 0) {
             Text(
                 text = text,
-                modifier = modifier.padding(top = 12.dp, bottom = 4.dp),
+                // 【分组感·2026-11】顶部留白 12→20：与上一块内容拉开距离，
+                //   让「这是新的一组」一眼可辨。12 是卡片内元素间距档，用作组间隔太近。
+                //   对齐 MAA 的 sectionGap(20dp)；下方 bottom 保持 4 不变（标题与内容要贴近）。
+                modifier = modifier.semantics { heading() }.padding(top = 20.dp, bottom = 4.dp),
                 color = c.sub,
                 // 【M3】分组小标题走 label 档（11sp/600 + 0.44 字距）。
                 //   改造前用 FS_SUB（13sp 常规字重），与行内说明文字同字号同字重 ——
@@ -1351,7 +1358,8 @@ object DhKit {
             Row(
                 modifier = modifier
                     .fillMaxWidth()
-                    .padding(top = 12.dp, bottom = 2.dp),
+                    // 【分组感】与无图标分支同值（top=20），两条分支不能一个松一个紧。
+                    .padding(top = 20.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 【r16·修·防溢出】图标必须 shrink 不出去，文字拿 weight 占满剩余宽并允许换行。
@@ -1361,7 +1369,7 @@ object DhKit {
                 Spacer(Modifier.width(GAP_ICON.dp))
                 Text(
                     text = text,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).semantics { heading() },
                     color = c.sub,
                     fontSize = DhTokens.type.label.fontSize,
                     lineHeight = 16.sp,
@@ -1595,12 +1603,17 @@ object DhKit {
         val button: @Composable () -> Unit = {
         Row(
             modifier = modifier
-                // **【v0.1.5·K-03】命中区补到 48dp（视觉尺寸不变）。**
+                // **【v0.1.5·K-03】命中区补到 48dp。**
                 //   【顺序很关键】必须先 minTouchTarget 再 size：
-                //   `size` 是**强制**尺寸（会覆盖外层约束），如果先 size(40) 再 sizeIn(48)，
-                //   内层 40dp 会把外层 48dp 的可用空间占满而图标仍居中 —— 但点击区仍是 40。
-                //   反过来（sizeIn 在前、size 在后）size 定死 40，外层 minTouchTarget 的
-                //   48dp 下限依然生效，于是 40dp 的图标被包在 48dp 的透明可点区域里。
+                //   `size` 是**强制**尺寸（会覆盖外层约束），若先 size 再 sizeIn，
+                //   内层尺寸会把外层的可用空间占满 —— 点击区仍是内层那个值。
+                //   反过来（sizeIn 在前、size 在后），外层 minTouchTarget 的下限先立住，
+                //   size 再在内侧定尺寸。
+                //
+                //   【P1-b·注释订正】原文举的例是 `size(40)/sizeIn(48)`，但**当前代码两侧
+                //   都是 48**（`minTouchTarget()` 走 `MIN_TOUCH=48`，下方 `size(HIT.dp)`
+                //   的 `HIT` 也是 48）。实例值已统一，原数字会误导后来者以为
+                //   「视觉 40 / 命中 48」还有差异。这里只保留机制说明，不写死的数字。
                 .minTouchTarget()
                 .then(
                     if (hasLabel) Modifier.height(HIT.dp)
@@ -1848,6 +1861,15 @@ object DhKit {
      *   那正好违反同一条需求里的「不裁切文字」。两者取后者，视觉等值、极端情况不坏。
      */
     const val NAV_ITEM_H = 54
+
+    /**
+     * 悬浮窗圆形按钮直径（dp）。
+     *
+     * 【为什么是 52 而不是 48】[IconButton] 的 48 是 M3 的**最小命中区**（为孤小图标兜底），
+     *   而本圆钮是桌面悬浮控件：它直接压在壁纸上、周围没有别的可点元素，
+     *   52 才算「指尖能稳稳点中」。两者语境不同，故各留各的值。
+     */
+    private const val CIRCLE_BTN_DP = 52
 
     /**
      * 导航项最小宽度（dp）。
@@ -2194,6 +2216,44 @@ object DhKit {
      *   [UiKit.FS_CHIP]=12 与 [UiKit.FS_BTN]=15 两档）。同一层级的按钮视觉重量不一致，
      *   正是「看着毛」的来源；收口到一处后不会再分叉。
      *
+    /**
+     * 悬浮窗里的圆形图标按钮（52dp）。
+     *
+     * 【P1-b·合并重复实现】`DollHomePage` 与 `DollRangePage` 各有一份**逐字相同**的
+     *   私有 `CircleButton`（连注释都一致）—— 两个悬浮窗同族的控件写了两遍，
+     *   将来改一处漏一处就会出现「两个悬浮窗的圆钮不一样大」。
+     *   收口到本函数，两处改为调用它。
+     *
+     * 【尺寸 52dp 为什么独立于按钮三档】它不是表单按钮，是**桌面悬浮控件**：
+     *   在壁纸上要够大才点得中（52 ≈ 指尖接触面），且与 48dp 的 [IconButton]
+     *   不是同一语境。故不并入 44dp 主按钮档。
+     *
+     * 【形状】`Radius.pill` 全圆 + `card` 底 + `hairline` 描边，
+     *   与 [IconButton] 的圆形浅底同族（只是更大、描边更明确）。
+     *
+     * @param name 无障碍名（读屏念「返回」「关闭」这类动词）。**必填** ——
+     *   漏掉它读屏只会念「按钮」，而这个圆钮上没有可见文字可作兜底。
+     */
+    @Composable
+    fun CircleButton(iconRes: Int, tint: Color, name: String, onClick: () -> Unit) {
+        val c = DhTokens.colors
+        val shape = RoundedCornerShape(DhDesign.Radius.pill.dp)
+        Box(
+            modifier = Modifier
+                .size(CIRCLE_BTN_DP.dp)
+                .clip(shape)
+                .background(c.card)
+                .border(DhDesign.Size.hairline, c.line, shape)
+                // 语义挂在外层可点区域上（与 ui/kit 的 DhIconButton 同一写法），
+                // 顺序在 pressable 之前：语义描述「这块可点区域是什么」，与手势处理无关。
+                .semantics { contentDescription = name }
+                .pressable(onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(iconRes = iconRes, sizeDp = Design.SZ_LG, color = tint)
+        }
+    }
+
      * 【尺寸】图标走 [Design.SZ_MD]，文字走 [UiKit.FS_CHIP]，与既有药丸同族。
      */
     @Composable
