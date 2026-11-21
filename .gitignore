@@ -48,6 +48,8 @@ __pycache__/
 #   不随版本化的话，clone 下来的人没法重新生成、CI 也没法跑 --check 门禁。
 #   （2026-11 审计：手写维护导致漏 83 条、30 条版本过时，故改为脚本生成。）
 !tools/gen_notices.py
+# 【Lucide 图标生成/校验】待确认 CI 网络可访问 SVG 源后再接进门禁
+!tools/gen_lucide.py
 /rstub/
 
 # 回归测试日志

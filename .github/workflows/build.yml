@@ -141,7 +141,10 @@ jobs:
       - name: 静态门禁（备份往返 / 图标 / 输入框 / 组件库转发）
         run: |
           python3 tools/backup_roundtrip_check.py
-          python3 tools/gen_lucide.py --check
+          # 【gen_lucide 暂不接入】它的文件未被 git 跟踪（.gitignore 的 *.py 规则 +
+          #   例外清单里没有它），且内部用 urllib 联网下载 Lucide SVG，CI 上不可靠。
+          #   要恢复：① 在 .gitignore 加 `!tools/gen_lucide.py` ② git add 该文件
+          #   ③ 确认 CI runner 能访问 lucide 的 SVG 源。
           python3 tools/input_audit.py --quiet
           python3 tools/kit_usage_audit.py --quiet
 
