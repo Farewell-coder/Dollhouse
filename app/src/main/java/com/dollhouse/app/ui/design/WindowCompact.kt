@@ -47,3 +47,60 @@ val LocalCompactHeight: Boolean
     @Composable
     @ReadOnlyComposable
     get() = isCompactHeight(LocalConfiguration.current.screenHeightDp)
+
+/* ======================================================================
+ * 宽度分档（P2-b 平板双栏的前置）
+ * ==================================================================== */
+
+/**
+ * 窗口宽度档位。
+ *
+ * 【为什么是 Material 3 的三档口径】`Compact < 600` / `Medium 600–840` / `Expanded ≥ 840`
+ *   与 M3 `WindowSizeClass` 的断点一致，也正好是 dsh-Go 与 Bettbox 两家独立采用的同一组值
+ *   （`005-dsh-go.md` §3.1：compact < 600 / medium 600–840 / expanded ≥ 840；
+ *   `006-bettbox.md` §2.5：maxMobileWidth 600 / maxLaptopWidth 840）。
+ *   三家收敛到同一组断点，说明这不是偏好而是当前平台的共识值。
+ *
+ * 【为什么不直接用 material3 的 WindowSizeClass】它需要 `androidx.compose.material3:material3-window-size-class`
+ *   这个额外依赖，且返回的是包装类；本工程只需要两个整数比较，引入一个依赖不划算
+ *   （本文件其余部分一直坚持零依赖，见 [LocalCompactHeight] 的注释）。
+ */
+enum class WindowWidthClass {
+    /** < 600dp：手机竖屏。单栏，本工程当前唯一的形态。 */
+    Compact,
+
+    /** 600–840dp：小平板 / 手机横屏 / 小分屏。宽度足够但双栏仍显挤。 */
+    Medium,
+
+    /** ≥ 840dp：大平板 / 折叠屏展开 / 大分屏。双栏的收益起点。 */
+    Expanded
+}
+
+/** 宽度档位下限（dp）。与 M3 `WindowSizeClass` 同名常量一致。 */
+const val MEDIUM_WIDTH_DP = 600
+
+/** 双栏起点（dp）。 */
+const val EXPANDED_WIDTH_DP = 840
+
+/**
+ * 纯函数版：给定屏幕宽度（dp）返回宽度档位。
+ *
+ * 与 [isCompactHeight] 同样保留纯函数，便于单元测试与 View 侧复用。
+ */
+fun windowWidthClass(screenWidthDp: Int): WindowWidthClass = when {
+    screenWidthDp < MEDIUM_WIDTH_DP -> WindowWidthClass.Compact
+    screenWidthDp < EXPANDED_WIDTH_DP -> WindowWidthClass.Medium
+    else -> WindowWidthClass.Expanded
+}
+
+/** 当前窗口的宽度档位。Compose 会在配置变化（旋转 / 分屏 / 折叠）时自动重组。 */
+val LocalWindowWidthClass: WindowWidthClass
+    @Composable
+    @ReadOnlyComposable
+    get() = windowWidthClass(LocalConfiguration.current.screenWidthDp)
+
+/** 当前是否为「宽度足够做双栏」的档位（[WindowWidthClass.Expanded]）。 */
+val LocalExpandedWidth: Boolean
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalWindowWidthClass == WindowWidthClass.Expanded

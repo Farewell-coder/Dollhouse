@@ -197,9 +197,9 @@ object DollHomeOverlay {
                         )
                     }
                     .size(DOT_DP.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.acc)
-                    .border(2.dp, c.card, RoundedCornerShape(999.dp))
+                    .border(2.dp, c.card, RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .pointerInput(wPx, hPx) {
                         detectDragGestures { change, drag ->
                             change.consume()
@@ -219,9 +219,9 @@ object DollHomeOverlay {
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 72.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.card)
-                    .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                    .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically

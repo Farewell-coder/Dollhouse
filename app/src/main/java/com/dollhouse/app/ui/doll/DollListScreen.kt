@@ -710,7 +710,7 @@ onCover = {
                 DollSizeSpec.reset(act, dollId)
                 HomeUi.notifyPetReload(act)
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(DhDesign.Space.xs.dp))
             Text(
                 text = "提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。",
                 color = c.sub,
@@ -1123,7 +1123,7 @@ onCover = {
             modifier = Modifier
                 .padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
                 .width(32.dp)
-                .height(4.dp)
+                .height(DhDesign.Space.xs.dp)
                 // 【圆角·刻意保留 2dp，不进 Radius 阶梯】
                 //   这是 32×4dp 的**拖动把手**：高度只有 4dp，圆角 2dp 刚好等于半高
                 //   → 视觉上是纯半圆胶囊。若改成 Radius.sm(8)/md(12)，圆角会**大于**

@@ -96,11 +96,12 @@ internal object ImportAssistantKit {
                             fontSize = UiKit.FS_TITLE.sp,
                             fontFamily = DhTokens.fontsBold,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
                         Text(
                             text = desc,
                             color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
+                            lineHeight = DhTokens.type.sub.lineHeight,
                             fontFamily = DhTokens.fontsBody
                         )
                         if (extra.isNotEmpty()) {
@@ -111,6 +112,7 @@ internal object ImportAssistantKit {
                                 text = extra,
                                 color = c.sub,
                                 fontSize = UiKit.FS_TINY.sp,
+                                lineHeight = DhTokens.type.sub.lineHeight,
                                 fontFamily = DhTokens.fontsBody
                             )
                         }
@@ -382,6 +384,7 @@ internal object ImportAssistantKit {
                 text = text,
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -412,6 +415,7 @@ internal object ImportAssistantKit {
                 modifier = Modifier.weight(1f),
                 color = c.err,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -639,11 +643,12 @@ internal object ImportAssistantKit {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(Icons.IC_GRIP, Design.SZ_XS, c.sub)
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     Text(
                         text = "可以拖动，拖到边缘看看",
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }

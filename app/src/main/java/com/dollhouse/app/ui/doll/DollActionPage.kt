@@ -270,13 +270,13 @@ object DollActionPage {
             DhKit.Segmented(
                 items = segItems,
                 selectedKey = tab,
-                modifier = Modifier.padding(top = DhDesign.Space.sm.dp, bottom = 4.dp)
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.xs.dp)
             ) { tab = it }
 
             // ---------- ① 固定位：三张卡并排（本轮需求 2 的核心）----------
             if (tab == TAB_FIXED) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp),
                     horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
                 ) {
                     for (g in DollAnim.FIXED_GROUPS.filter { it != DollAnim.GROUP_EDGE_IN }) {
@@ -499,6 +499,7 @@ object DollActionPage {
                     text = msg,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
+                    lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -549,6 +550,7 @@ object DollActionPage {
                         text = "⚠ 它现在还被这些地方用着：",
                         color = DhTokens.colors.title,
                         fontSize = UiKit.FS_SUB.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBold
                     )
                     for (r in refs) {
@@ -556,6 +558,7 @@ object DollActionPage {
                             text = "· " + r.label,
                             color = DhTokens.colors.sub,
                             fontSize = UiKit.FS_TINY.sp,
+                            lineHeight = DhTokens.type.sub.lineHeight,
                             fontFamily = DhTokens.fontsBody
                         )
                     }
@@ -673,6 +676,7 @@ object DollActionPage {
                     text = expMsg,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
+                    lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -767,9 +771,9 @@ object DollActionPage {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height((SLOT_SIZE - 34).dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                     .background(c.soft)
-                    .border(1.dp, c.line, RoundedCornerShape(8.dp)),
+                    .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val b = thumb
@@ -880,9 +884,9 @@ object DollActionPage {
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                     .background(c.cardUp)
-                    .border(1.dp, c.line, RoundedCornerShape(8.dp)),
+                    .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val b = thumb

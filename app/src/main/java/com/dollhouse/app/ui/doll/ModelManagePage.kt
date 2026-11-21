@@ -190,7 +190,7 @@ object ModelManagePage {
             }
 
             // ---------- 两个动作（8.9 规定的按钮） ----------
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(DhDesign.Space.xs.dp))
             DhKit.MiniChip("更换模型", iconRes = Icons.IC_REFRESH) {
                 // 【19.2.3】换模型 = 在当前角色内替换视觉模型，不新建角色。
                 ReplaceModelPage.open(act, dollId)

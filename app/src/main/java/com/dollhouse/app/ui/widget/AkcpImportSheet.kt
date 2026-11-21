@@ -188,6 +188,7 @@ object AkcpImportSheet {
             text = "文件：" + fileName,
             color = c.title,
             fontSize = UiKit.FS_BTN.sp,
+            lineHeight = DhTokens.type.body.lineHeight,
             fontFamily = DhTokens.fontsBold
         )
         Text(
@@ -218,6 +219,7 @@ object AkcpImportSheet {
                 modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -314,6 +316,7 @@ object AkcpImportSheet {
                 configs.forEach { cfg -> PreviewRow(cfg) }
             }
             if (hasExtra) {
+                // E16-ALLOW: 可点链接，恒单行（"查看保存范围说明"）
                 Text(
                     text = "查看保存范围说明",
                     modifier = Modifier
@@ -336,6 +339,7 @@ object AkcpImportSheet {
                 }
             }
             if (conflicts > 0) {
+                // E16-ALLOW: 分组小标题，恒单行（"同名供应商处理方式"）
                 Text(
                     text = "同名供应商处理方式",
                     modifier = Modifier.padding(top = 12.dp),
@@ -359,6 +363,7 @@ object AkcpImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -416,6 +421,7 @@ object AkcpImportSheet {
                 text = cfg.configName,
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold
             )
         }

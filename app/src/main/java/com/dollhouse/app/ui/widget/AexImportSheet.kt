@@ -404,6 +404,7 @@ object AexImportSheet {
             text = "文件：" + fileName,
             color = c.title,
             fontSize = UiKit.FS_BTN.sp,
+            lineHeight = DhTokens.type.body.lineHeight,
             fontFamily = DhTokens.fontsBold
         )
         Text(
@@ -434,6 +435,7 @@ object AexImportSheet {
                 modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -486,6 +488,7 @@ object AexImportSheet {
         val c = DhTokens.colors
         var cred by remember { mutableStateOf("") }
         var error by remember { mutableStateOf<String?>(null) }
+        // E16-ALLOW: 单行计数（"共 N 个文件"，不换行）
         Text(
             text = "共 " + list.size + " 个文件",
             color = c.title,
@@ -529,6 +532,7 @@ object AexImportSheet {
                 modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -885,6 +889,7 @@ object AexImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -1189,6 +1194,7 @@ object AexImportSheet {
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 自绘勾选框：工程里没有现成 checkbox 组件，用字符保持视觉一致、零依赖。
+            // E16-ALLOW: 单字符勾选框字形（☑/☐），恒单行
             Text(
                 text = if (checked) "☑" else "☐",
                 color = if (checked) c.acc else c.sub,
@@ -1200,6 +1206,7 @@ object AexImportSheet {
                 text = p.name + if (p.provider.isNotEmpty() && p.provider != p.name) "（" + p.provider + "）" else "",
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold
             )
         }

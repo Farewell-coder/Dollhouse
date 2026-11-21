@@ -332,7 +332,7 @@ object ProviderEditPage {
                         )
                         Text(
                             text = "共 " + suggestList.size + " 个可用模型；也可以稍后到「模型」页逐个挑。",
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                             color = c.sub,
                             fontSize = UiKit.FS_TINY.sp,
                             fontFamily = DhTokens.fontsBody,

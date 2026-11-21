@@ -139,7 +139,7 @@ object ContactScreen {
                     DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分组") {
                         DollGroupPage.open(act) { grpRev++ }
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     // 新手偶：建一个新角色。
                     DhKit.IconButton(Icons.IC_USER_PLUS, Design.SZ_MD, c.title, label = "新建") {
                         DollListScreen.open(act)
@@ -231,9 +231,9 @@ object ContactScreen {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = DhDesign.Space.xl.dp, bottom = DhDesign.Space.xs.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                 .pressable(onClick)
-                .padding(vertical = 4.dp),
+                .padding(vertical = DhDesign.Space.xs.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(
@@ -296,14 +296,14 @@ object ContactScreen {
                 .fillMaxWidth()
                 .clip(shape)
                 .pressable(onClick)
-                .padding(horizontal = 4.dp, vertical = DhDesign.Space.sm.dp),
+                .padding(horizontal = DhDesign.Space.xs.dp, vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 头像
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.soft),
                 contentAlignment = Alignment.Center
             ) {
@@ -342,7 +342,7 @@ object ContactScreen {
                         Box(
                             modifier = Modifier
                                 .size(7.dp)
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                                 .background(c.ok)
                         )
                     }

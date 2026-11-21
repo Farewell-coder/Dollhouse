@@ -328,7 +328,7 @@ object DollGroupPage {
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.cardUp),
                 contentAlignment = Alignment.Center
             ) {

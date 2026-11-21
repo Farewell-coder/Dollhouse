@@ -46,6 +46,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import kotlin.math.roundToInt
@@ -150,9 +151,9 @@ object DollHomePage {
                             )
                         }
                         .size(DOT)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.acc)
-                        .border(2.dp, c.card, RoundedCornerShape(999.dp))
+                        .border(2.dp, c.card, RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .pointerInput(wPx, hPx) {
                             detectDragGestures { change, drag ->
                                 change.consume()
@@ -210,9 +211,9 @@ object DollHomePage {
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 // 语义挂在外层可点区域上（与 ui/kit 的 DhIconButton 同一写法），
                 // 顺序在 pressable 之前：语义描述「这块可点区域是什么」，与手势处理无关。
                 .semantics { contentDescription = name }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.core.Logs
@@ -43,6 +45,8 @@ import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.update.UpdateChannel
 import com.dollhouse.app.update.UpdateCheckResult
 import com.dollhouse.app.update.UpdateChecker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.dollhouse.app.update.UpdatePrefs
 import android.content.Intent
 
@@ -158,6 +162,16 @@ object AboutPage {
                     iconRes = Icons.IC_SHIELD_CHECK,
                     desc = "本地日志、错误详情与诊断包"
                 ) { DeveloperOptionsPage.open(act) }
+                // 【B4·合规】开源许可入口。
+                //   【为什么必须有】审计发现：`licenses/` 与 `THIRD_PARTY_NOTICES.md` 原先
+                //   **都不在 APK 内**，应用里也没有任何入口 —— 只下载 APK 的用户拿不到任何
+                //   第三方许可文本。现在文本随包（见 app/build.gradle 的 syncLicenseAssets），
+                //   这个入口负责让用户**找得到**。
+                DhKit.ActionRow(
+                    label = "开源许可",
+                    iconRes = Icons.IC_LIBRARY,
+                    desc = "第三方组件清单与许可原文"
+                ) { OpenSourceLicensesPage.open(act) }
             }
         }
     }
@@ -348,9 +362,9 @@ object AboutPage {
             //   「稳定版」「公测版」这两个按钮就是这么偏的。
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(if (selected) c.acc else c.cardUp)
-                .then(if (selected) Modifier else Modifier.border(1.dp, c.line, RoundedCornerShape(999.dp)))
+                .then(if (selected) Modifier else Modifier.border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp)))
                 .pressable(onClick)
                 .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
         ) {
@@ -534,6 +548,181 @@ object AboutPage {
             pi.versionName ?: "?"
         } catch (t: Throwable) {
             "?"
+        }
+    }
+}
+
+/**
+ * 【B4·合规】「开源许可」页：把**随 APK 分发**的第三方许可文本呈现给用户。
+ *
+ * ## 为什么需要这一页
+ *
+ * 2026-11 的许可证审计发现：`licenses/` 与 `THIRD_PARTY_NOTICES.md` 原先**只存在于仓库**，
+ * APK 里一个都没有（`packaging.resources.excludes` 早就把 `META-INF/LICENSE*` 剔掉了，
+ * 见 `app/build.gradle` 的 packaging 块）。结果是「只下载 APK 的用户拿到的许可文本约等于零」——
+ * 对 GPL-3.0 项目这是实质缺口，对 Apache-2.0 §4(a)（须随分发提供许可副本）也不合格。
+ *
+ * 现在文本由 `app/build.gradle` 的 `syncLicenseAssets` 任务在**构建时**同步进
+ * `assets/licenses/`（源仍是仓库根的那份，所以不会漂移），本页只负责**读出来给用户看**。
+ *
+ * ## 为什么不做 Markdown 渲染
+ *
+ * 不引新依赖。`THIRD_PARTY_NOTICES.md` 里的表格按纯文本显示会略丑，但**内容完整、可读、
+ * 可复制** —— 在这个场景里「原文一字不差」比「排版好看」重要（许可声明的价值在于文本可核验）。
+ *
+ * ## 为什么单独做「C/C++/随附声明」分组
+ *
+ * `assets/licenses/bundled/` 里的 34 份来自 Google（ML Kit / Play services / ODML）的
+ * `third_party_licenses.txt`，是**上游要求随分发转交**的文本；单份最大 2.3 MB。
+ * 所以放二级分组里，并且对超大文件做**截断+明示**（见 [MAX_CHARS]），绝不静默吞掉。
+ */
+object OpenSourceLicensesPage {
+
+    const val TAG_PAGE = "settings:licenses"
+
+    /** assets 下的许可目录（由 `syncLicenseAssets` 生成）。 */
+    private const val DIR = "licenses"
+
+    /**
+     * 单次渲染的字符上限。
+     *
+     * 【为什么必须限】ML Kit 那几份 `third_party_licenses.txt` 单份 2.3 MB，整段塞进一个
+     *   `Text` 会让布局/测量在低端机上卡死甚至 ANR。截断时**明确告诉用户**被截断了、
+     *   完整文本在包内哪个路径 —— 而不是假装那就是全文。
+     */
+    private const val MAX_CHARS = 120_000
+
+    private data class Entry(val path: String, val label: String, val desc: String)
+
+    @JvmStatic
+    fun open(ctx: Context) {
+        PageStack.push(ctx, TAG_PAGE) { buildPage(ctx) }
+    }
+
+    @JvmStatic
+    fun buildPage(ctx: Context): View? {
+        val act = UiKit.findActivity(ctx) ?: return null
+        // Compose 运行所需 owner（原生 Activity 不自动装），幂等。
+        ComposeHost.installForActivity(act)
+        return ComposeHost.createView(act) { Content(act) }
+    }
+
+    @Composable
+    private fun Content(act: Activity) {
+        val ctx = LocalContext.current.applicationContext
+        var groups by remember { mutableStateOf<List<Pair<String, List<Entry>>>?>(null) }
+        // null = 列表态；非 null = 正在读这一份
+        var reading by remember { mutableStateOf<Entry?>(null) }
+        var body by remember { mutableStateOf<String?>(null) }
+        var bodyFailed by remember { mutableStateOf(false) }
+
+        // —— 列表：assets 里有什么就列什么（不写死文件名，跟着构建产物走）——
+        LaunchedEffect(Unit) {
+            groups = withContext(Dispatchers.IO) {
+                runCatching {
+                    val out = ArrayList<Pair<String, List<Entry>>>()
+                    val top = ctx.assets.list(DIR).orEmpty()
+                        .filter { it.contains('.') }          // 只要文件，跳过子目录
+                        .sorted()
+                    val notices = top.filter { it.endsWith(".md") }
+                    val texts = top.filterNot { it.endsWith(".md") }
+                    if (notices.isNotEmpty()) {
+                        out += "第三方声明（完整清单）" to notices.map {
+                            Entry("$DIR/$it", "第三方声明", "第三方组件清单与许可条款汇总")
+                        }
+                    }
+                    if (texts.isNotEmpty()) {
+                        out += "许可原文" to texts.map {
+                            Entry("$DIR/$it", it, "随 APK 分发的许可文本")
+                        }
+                    }
+                    val bundled = ctx.assets.list("$DIR/bundled").orEmpty().sorted()
+                    if (bundled.isNotEmpty()) {
+                        out += "随附声明（来自依赖 AAR，共 ${bundled.size} 份）" to bundled.map {
+                            Entry("$DIR/bundled/$it", it, "上游要求随分发转交")
+                        }
+                    }
+                    out
+                }.getOrElse { emptyList() }
+            }
+        }
+
+        // —— 正文：读选中那一份 ——
+        LaunchedEffect(reading) {
+            val e = reading ?: return@LaunchedEffect
+            body = null
+            bodyFailed = false
+            val r = withContext(Dispatchers.IO) {
+                runCatching { ctx.assets.open(e.path).bufferedReader().use { it.readText() } }
+            }
+            if (r.isSuccess) {
+                body = r.getOrNull().orEmpty()
+            } else {
+                bodyFailed = true
+                Logs.w("Dollhouse", "开源许可读取失败: " + e.path, r.exceptionOrNull())
+            }
+        }
+
+        val cur = reading
+        DhKit.Page(
+            title = "开源许可",
+            // 【为什么阅读态的 sub 不直接用文件名】bundled 那批文件名长达 70+ 字符
+            //   （`com.google.mlkit-text-recognition-bundled-common-17.0.0-third_party_licenses.txt`），
+            //   塞进页头会把标题行撑变形。改成固定短语，完整路径放到正文第一行给用户核对。
+            sub = if (cur == null) "随 APK 分发的第三方许可文本" else "许可原文",
+            // 阅读态时返回键**先回列表**，再退回设置页 —— 与用户对「二级页」的预期一致。
+            onBack = { if (cur != null) reading = null else PageStack.pop(act) }
+        ) {
+            if (cur == null) {
+                val g = groups
+                when {
+                    g == null -> DhLoadingState(state = LoadingState.FirstLoad, label = "正在读取许可文本…")
+                    g.isEmpty() -> com.dollhouse.app.ui.kit.DhState(
+                        title = "没有找到许可文本",
+                        body = "这次构建没有把 licenses/ 同步进 APK。如果你是从源码自行构建的，" +
+                            "请确认 app/build.gradle 里的 syncLicenseAssets 任务执行过。",
+                        iconRes = Icons.IC_CIRCLE_ALERT
+                    )
+                    else -> g.forEach { (title, items) ->
+                        DhKit.SectionLabel(title, iconRes = Icons.IC_CLIPBOARD)
+                        items.forEach { e ->
+                            DhKit.ActionRow(
+                                label = e.label,
+                                iconRes = if (e.path.contains("/bundled/")) Icons.IC_PACKAGE else Icons.IC_NEWSPAPER,
+                                desc = e.desc
+                            ) { reading = e }
+                        }
+                    }
+                }
+            } else {
+                val text = body
+                when {
+                    bodyFailed -> com.dollhouse.app.ui.kit.DhState(
+                        title = "这一份读不出来",
+                        body = "文件可能在这次构建里没有被同步进 APK：" + cur.path,
+                        iconRes = Icons.IC_CIRCLE_ALERT
+                    )
+                    text == null -> DhLoadingState(state = LoadingState.FirstLoad, label = "正在读取…")
+                    else -> {
+                        // 完整资源路径：用户报障时能直接对上包内文件，也方便开发者自查。
+                        DhForm.Note("文件：assets/" + cur.path)
+                        if (text.length > MAX_CHARS) {
+                            DhForm.Note(
+                                "这份文本共 " + text.length + " 字符，下面只显示前 " + MAX_CHARS +
+                                    " 字符（完整原文随包在 assets/" + cur.path + "）。"
+                            )
+                        }
+                        Text(
+                            text = if (text.length > MAX_CHARS) text.substring(0, MAX_CHARS) else text,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = DhTokens.colors.sub,
+                            fontSize = UiKit.FS_TINY.sp,
+                            fontFamily = DhTokens.fontsBody,
+                            lineHeight = (UiKit.FS_TINY + 6f).sp
+                        )
+                    }
+                }
+            }
         }
     }
 }

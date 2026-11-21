@@ -28,6 +28,18 @@ from pathlib import Path
 SRC = Path("app/src/main/java")
 QUIET = "--quiet" in sys.argv
 
+# 【E16 分阶段启用·警告模式】
+#   E16（多行文本缺行高）是一次**存量清零**型的规则：004 实测 181 处没有 lineHeight，
+#   它正在逐批补。若现在就让 E16 决定退出码，CI 会立刻红 95 处，把别人的批次一起堵死 ——
+#   而「CI 常年红」比「没有门禁」更糟：绿灯失去信号意义，大家会开始忽略它。
+#   所以默认**只警告不阻塞**（不影响 exit code），等存量清完再一键转阻塞：
+#       python3 tools/kotlin_precheck.py --e16-block
+#   转阻塞的时机：**E16 警告数降到 ≤5 处时**，把 CI（.github/workflows/build.yml）
+#   里的调用加上 `--e16-block`。这样 004 收尾时不用改脚本，只改 CI 一行。
+#   为什么是 5 而不是 0：剩余的极少数通常是「静态判不准」的案例（短字面量、固定高度容器），
+#   为了它们卡死 CI 不划算；留 5 的余量后，新代码再漏就会被立刻拦下。
+E16_BLOCK = "--e16-block" in sys.argv
+
 # Compose / Kotlin 常见函数 → 需要的 import（只收录「用了没导入就会编译失败」的那批）
 # 依据：本工程实际用到的 API。宁可少列，也不要有误报噪音。
 IMPORT_MAP = {
@@ -428,6 +440,118 @@ def top_level_arg_count(args):
         if d == 0 and not ch.isspace():
             has = True
     return 0 if not has else commas + 1
+
+
+
+def block_span(code, open_brace_idx):
+    """从 `{` 下标起做花括号配对，返回块内文本（不含外层括号）；配不上返回 None。"""
+    d = 0
+    j = open_brace_idx
+    while j < len(code):
+        if code[j] == "{":
+            d += 1
+        elif code[j] == "}":
+            d -= 1
+            if d == 0:
+                return code[open_brace_idx + 1:j]
+        j += 1
+    return None
+
+
+def check_type_sp_consistency(path):
+    """E15：`DhDesign.TypeSp` 的 8 个字号常量必须与 `Type.of` 里各档 `fontSize` 逐一相等。
+
+    【为什么这条必须绕过 check_file 的 EXEMPT】`DesignSystem.kt` 在 EXEMPT 里（它是
+      设计系统本体，E11/E12 等规则对它没意义），所以 `main()` 根本不会把文件交给
+      `check_file`。E15 是**针对这一个文件**的专项校验，只能在 main() 里单独调。
+
+    【为什么用「括号配对解析」而不是正则扫行】作者改字号时很可能顺手重排格式
+      （一行拆成多行、加注释、调缩进）。按「`name = TextStyle( … )` 的括号区间」
+      取 fontSize，对排版变化免疫；纯正则按行扫一旦格式变了就会静默失效 ——
+      而静默失效的防漂移门禁比没有更糟（让人误以为有保护）。
+
+    【解析对象】
+      · TypeSp：块内 `const val NAME = 22f`
+      · Type.of：`= Type(...)` 的实参里，深度 0 的 `name = TextStyle(...)` 中的 `fontSize = 22.sp`
+    两边按**名字**配对（BRAND ↔ brand），不依赖书写顺序。
+
+    【已知边界（宁可漏报不误报）】
+      · 若 `fontSize =` 后面不是数字字面量（例如改成引用常量），该档直接跳过，
+        不报错 —— 静态期解析不了，硬报会误伤。
+      · 不检查 `rowTitle` / `numeric`：它们是 `body.copy(...)` 派生档，字号随 body 走。
+    """
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    code = strip_code(raw)
+    probs = []
+
+    m = re.search(r"\bobject\s+TypeSp\s*\{", code)
+    if not m:
+        return ["E15 找不到 `object TypeSp` —— DesignSystem.kt 结构变了，本规则需同步更新"]
+    ts_body = block_span(code, code.find("{", m.end() - 1))
+    if ts_body is None:
+        return ["E15 TypeSp 的花括号配不上（结构性损坏）"]
+    ts = {}
+    for mm in re.finditer(r"const\s+val\s+([A-Z][A-Z0-9_]*)\s*=\s*([0-9]+(?:\.[0-9]+)?)f\b", ts_body):
+        ts[mm.group(1)] = float(mm.group(2))
+    if not ts:
+        return ["E15 TypeSp 里一个 `const val X = Nf` 都没解析到 —— 格式变了，请同步规则"]
+
+    mo = re.search(r"fun\s+of\s*\(", code)
+    if not mo:
+        return ["E15 找不到 `fun of(` —— Type 的构造入口变了，本规则需同步更新"]
+    mt = re.search(r"=\s*Type\s*\(", code[mo.start():])
+    if not mt:
+        return ["E15 `fun of` 里找不到 `= Type(` —— 结构变了，本规则需同步更新"]
+    _type_open = mo.start() + mt.end() - 1
+    type_args = call_args(code, _type_open)
+    if type_args is None:
+        return ["E15 `Type(...)` 的括号配不上（结构性损坏）"]
+
+    type_fs = {}
+    _d = 0
+    _i = 0
+    while _i < len(type_args):
+        _ch = type_args[_i]
+        if _ch in "([{":
+            _d += 1
+        elif _ch in ")]}":
+            _d -= 1
+        elif _d == 0:
+            _mm = re.match(r"([a-zA-Z_]\w*)\s*=\s*TextStyle\s*\(", type_args[_i:])
+            if _mm:
+                _name = _mm.group(1)
+                _inner = call_args(type_args, _i + _mm.end() - 1)
+                _fm = re.search(r"fontSize\s*=\s*([0-9]+(?:\.[0-9]+)?)\.sp", _inner or "")
+                if _fm:
+                    type_fs[_name] = float(_fm.group(1))
+                # 【关键】停到 `(` 上，让下一轮按正常深度逻辑吃掉整个 TextStyle(...)。
+                #   早先写成 `_i += _mm.end()`（越过 `(`）会让 depth 少加 1，
+                #   于是 TEXTSTYLE 的 `)` 把 depth 减成 -1，后面 7 档全部掉在 depth<0 里被跳过
+                #   —— 实测只解析出 brand 一档。
+                _i += _mm.end() - 1
+                continue
+        _i += 1
+
+    for _k in sorted(ts):
+        _v = ts[_k]
+        _low = _k.lower()
+        if _low not in type_fs:
+            probs.append(
+                f"E15 TypeSp.{_k} 在 Type.of 里没有同名档 `{_low}`："
+                f"常量是孤立的（要么删常量，要么 Type 里补这一档）"
+            )
+        elif abs(type_fs[_low] - _v) > 1e-6:
+            probs.append(
+                f"E15 字号漂移：TypeSp.{_k} = {_v:g}f，但 Type.of 的 {_low} 是 "
+                f"{type_fs[_low]:g}.sp —— 两边必须同步（改字号就要改 TypeSp）"
+            )
+    for _name in sorted(type_fs):
+        if _name.upper() not in ts:
+            probs.append(
+                f"E15 Type.of 有档位 `{_name}`（{type_fs[_name]:g}sp），但 TypeSp 缺常量："
+                f"请补 `const val {_name.upper()} = {type_fs[_name]:g}f`"
+            )
+    return probs
 
 
 def check_file(path: Path):
@@ -944,6 +1068,100 @@ def check_file(path: Path):
                 f"`// E14-ALLOW: <理由>`"
             )
 
+    # E16 `Text(fontSize = …, 但缺 lineHeight)`：多行文本会按默认 ~1.2× 行高排版，
+    #     一旦统一到令牌的 1.4~1.6× 就会**变高 30~36%**，撑破/裁切固定布局。
+    #
+    # 【与 E11 的区别】E11 查的是「文字用了几何色」；E16 查的是「字号给了、行高没给」。
+    #   两者都用「括号配对取 Text( 的实参区间」的手法，但判据完全不同，故不合并。
+    #
+    # 【本规则最可能静默失效的三个地方（写之前先想，写完逐个验证）】
+    #   ① **调用写法**：`androidx.compose.material3.Text(` 这种全限定名会被
+    #      `(?<![A-Za-z0-9_.])Text` 直接挡掉 —— E14 就栽在这上面（6 处漏报）。
+    #      所以前缀写成 `(?:[A-Za-z_][\w]*\.)*` 显式允许任意包名。
+    #   ② **深度算错**：取 TextStyle/Text 实参时若跳过 `(` 却没记深度，`)` 会把
+    #      depth 减成 −1，后面的实参全部"看不见" —— E15 踩过（8 档只解析出 1 档）。
+    #      本规则全程只用 `call_args` / 顶层扫描，不手写跳位。
+    #   ③ **排除项过宽把自己关死**：例如把「任何 `style =`」都当"已有行高"，
+    #      就会把 90% 的真实案例一起放行。所以只认 `DhTokens.type.*` 这一种。
+    _E16_TEXT_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:[A-Za-z_][\w]*\.)*Text\s*\(")
+    # 【排除 #3】图表刻度 / 数字统计：这两处字号是「读数」而非「段落」，
+    #   行高按令牌统一会把刻度挤歪。按文件排除（004 点名的 MiniChart、
+    #   以及同类的 TokenStat 统计页）。
+    _E16_SKIP_FILES = ("MiniChart.kt", "TokenStat.kt")
+    # 【排除 #3 补充】等宽数字（tnum）同理：它是数字，不是段落。
+    # 【排除 #4】微对位文本：004 说「DeveloperOptionsPage 有注释说明」。判据就取
+    #   「紧邻上方 3 行注释里写明是微调/基线」——文档化了才放行，否则照报。
+    _E16_MICRO_WORDS = ("微对位", "微调", "基线", "不参与行高", "不统一行高")
+    _e16_raw_lines = raw.split("\n")
+    _e16_lines = code.split("\n")
+    _e16_funs = [(m.start(), m.group(1).split(".")[-1], m.end())
+                 for m in re.finditer(r"\bfun\s+([A-Za-z_][\w.]*)\s*\(", code)]
+    if path.name not in _E16_SKIP_FILES:
+        for _m in _E16_TEXT_RE.finditer(code):
+            _open = code.rfind("(", 0, _m.end())
+            _args = call_args(code, _open)
+            if _args is None:
+                continue
+            # 声明体本身不是调用（`fun Text(` 极少见，但别自报）
+            if re.search(r"fun\s+(?:[\w.]*\.)?\s*$", code[max(0, _m.start() - 30):_m.start()]):
+                continue
+            _found_fs, _fs_val = top_level_named_value(_args, "fontSize")
+            if not _found_fs:
+                continue                      # 没给 fontSize → 不在本条范围（走 style 的人自带宽高）
+            if top_level_named_value(_args, "lineHeight")[0]:
+                continue                      # 排除 #5 的另一半：显式给了行高
+            # 排除 #5：`style = DhTokens.type.*` / `DhDesign.Type.*` —— 令牌自带 lineHeight
+            if re.search(r"style\s*=\s*[^,)\n]*(?:DhTokens\.type|DhDesign\.Type|\btype\.)",
+                         _args):
+                continue
+            # 排除 #1：单行。maxLines = 1 / singleLine = true / softWrap = false
+            if (re.search(r"maxLines\s*=\s*1\b", _args)
+                    or re.search(r"singleLine\s*=\s*true", _args)
+                    or re.search(r"softWrap\s*=\s*false", _args)):
+                continue
+            # 排除 #3 补充：等宽数字。
+            # 【必须查 raw 而不是 _args】`strip_code` 会把字符串字面量抹成空格，
+            #   而 tnum 恰恰写在字符串里（`fontFeatureSettings = "tnum"`）——
+            #   查 strip 后的文本会**永远匹配不到**（实测这条曾静默失效）。
+            #   strip_code 保持长度与换行不变，所以用同一个下标区间去 raw 里取，
+            #   拿到的是带字符串原文的实参。
+            _raw_args = raw[_open + 1:_open + 1 + len(_args)]
+            if re.search(r"fontFeatureSettings\s*=\s*[^,)\n]*tnum", _raw_args):
+                continue
+            _ln = code.count("\n", 0, _m.start())
+            # 排除 #4：上方 3 行注释里写明是微对位/微调
+            _micro = False
+            for _k in range(max(0, _ln - 3), _ln):
+                if any(w in _e16_raw_lines[_k] for w in _E16_MICRO_WORDS):
+                    _micro = True
+                    break
+            if _micro:
+                continue
+            if allow_marker_above(_e16_raw_lines, _e16_lines, _ln, ("// E16-ALLOW:",)):
+                continue
+            # 排除 #2：固定高度容器。静态期看不到「谁包着它」，退一步用
+            #   「所在函数体里出现固定 .height(N.dp) / .size(N.dp)」近似 ——
+            #   这是个**粗粒度、偏漏报**的抑制（宁可漏报不误报），
+            #   代价是同一个函数里别的自由高度文本也被一起放过。
+            _fn = None
+            for _st, _nm, _en in _e16_funs:
+                if _st < _m.start():
+                    _fn = (_nm, _en)
+                else:
+                    break
+            if _fn:
+                _br = code.find("{", _fn[1])
+                _body = block_span(code, _br) if _br > 0 else None
+                if _body and (re.search(r"\.height\(\s*[0-9]+", _body)
+                              or re.search(r"\.size\(\s*[0-9]+", _body)):
+                    continue
+            problems.append(
+                f"E16 第 {_ln + 1} 行 Text(fontSize = {_fs_val}) 缺 lineHeight："
+                f"多行时按默认 ~1.2× 排版，与令牌 1.4~1.6× 差 30%+ 会导致撑破/裁切。"
+                f"请补 `lineHeight = N.sp`（或用 `style = DhTokens.type.*`）；"
+                f"确属单行/固定高度/微对位，请在上方加 `// E16-ALLOW: <理由>`"
+            )
+
     return problems
 
 
@@ -951,22 +1169,56 @@ def main():
     files = sorted(SRC.rglob("*.kt"))
     total = 0
     bad_files = 0
+    warn_total = 0      # E16 警告条数（不阻塞）
+    warn_files = 0      # E16 警告涉及的文件数
     for f in files:
         rel = "/" + str(f).replace("\\", "/")
         if any(rel.endswith(e) or e in rel for e in EXEMPT):
             continue
         probs = check_file(f)
-        if probs:
+        if not probs:
+            continue
+        # 【E16 分阶段启用】未开 --e16-block 时把 E16 从「错误」里摘出来，
+        #   既不进 bad_files 也不进 total → 退出码完全不受它影响。
+        hard = [p for p in probs if E16_BLOCK or not p.startswith("E16")]
+        warn = [] if E16_BLOCK else [p for p in probs if p.startswith("E16")]
+        if hard:
             bad_files += 1
             print(f"FAIL {f}")
-            for p in probs:
+            for p in hard:
                 print(f"       {p}")
                 total += 1
+        if warn:
+            warn_files += 1
+            print(f"WARN {f}")
+            for p in warn:
+                print(f"       WARN {p}")
+                warn_total += 1
+    # E15 专项：DesignSystem.kt 在 EXEMPT 里（check_file 不会跑它），
+    #   而「TypeSp 必须与 Type.of 同步」恰恰只能在这个文件内部校验，故单独调一次。
+    # 用 rglob 定位而不是写死路径：早先写死 `SRC / "ui/design/DesignSystem.kt"` 少了
+    # `com/dollhouse/app` 前缀，文件不存在 → `if _ds.exists()` 为假 → E15 静默从未执行。
+    # 这种「门禁自己悄悄不跑」是最危险的形态，所以这里按文件名在所有源文件里找。
+    for _ds in [f for f in files if f.name == "DesignSystem.kt"]:
+        _e15 = check_type_sp_consistency(_ds)
+        if _e15:
+            bad_files += 1
+            print(f"FAIL {_ds}")
+            for _p in _e15:
+                print(f"       {_p}")
+                total += 1
+
+    if warn_total:
+        print(f"\nE16 警告 {warn_total} 处（不阻塞，待行高补齐后转阻塞）"
+              f" —— 涉及 {warn_files} 个文件；降到 ≤5 处时给 CI 加 `--e16-block`")
     if bad_files:
         print(f"\n检查 {len(files)} 个文件：{bad_files} 个有问题，共 {total} 处")
         return 1
     if not QUIET:
-        print(f"检查 {len(files)} 个文件：未发现问题")
+        if warn_total:
+            print(f"检查 {len(files)} 个文件：0 个错误，E16 警告 {warn_total} 处（不阻塞）")
+        else:
+            print(f"检查 {len(files)} 个文件：未发现问题")
     return 0
 
 

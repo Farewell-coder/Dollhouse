@@ -636,7 +636,7 @@ object TokenStat {
             )
             Text(
                 text = v,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                 color = c.title,
                 fontSize = 18.sp,
                 fontFamily = DhTokens.fontsBold,

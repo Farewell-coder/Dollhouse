@@ -91,6 +91,8 @@ import com.dollhouse.app.ui.kit.IconSeat
 import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.GlobalBackground
+import com.dollhouse.app.ui.settings.SettingsSpot
+import com.dollhouse.app.ui.settings.SettingsSpots
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
@@ -873,7 +875,17 @@ object DhKit {
      */
     @Composable
     fun ValueRow(
-        label: String,
+        /**
+         * 行标签。
+         *
+         * 【为什么可空且默认 null】配合 [spot] 实现「标题唯一真源 + 自纠错」：
+         *   已接线的行**不再写标题字面量**，只传 [spot]，标题从索引表取；
+         *   两者都没有时标题为**空串** —— 空标题在界面上肉眼可见，比"忘了登记但显示正常文案"
+         *   更容易被发现。详见 [SettingsSpots.spotTitle]。
+         *   【对既有调用零影响】原参数是 `String`，收窄成 `String? = null` 后，
+         *   所有传字符串的调用点行为逐字不变。
+         */
+        label: String? = null,
         value: String? = null,
         valueTint: Color? = null,
         modifier: Modifier = Modifier,
@@ -881,8 +893,11 @@ object DhKit {
         desc: String? = null,
         /** 【v3.1】画真箭头，替代用字符 `›` 冒充图标的写法。 */
         showChevron: Boolean = false,
+        /** 【P1-e·设置索引】设置项登记。传了就由索引表提供标题（见 [SettingsSpots.spotTitle]）。 */
+        spot: SettingsSpot? = null,
         onClick: (() -> Unit)? = null
     ) {
+        val title = SettingsSpots.spotTitle(spot, label)
         // 【M-收口·转发到规范实现】本函数有 38 处调用点，改造它等于一次性让
         //   38 个页面的"信息行"对齐设计规范（圆角/行高/字号/图标尺寸/可点反馈）。
         //   【为什么用转发而不是复制样式】`ui/kit.DhRow` 是规范源，复制一份就又回到
@@ -892,11 +907,11 @@ object DhKit {
         //     · 旧调用不带箭头（showChevron=false），保持原观感
         if (valueTint != null) {
             // 需要自定义右值颜色 → 走旧实现（少量调用点，观感不变）
-            LegacyValueRow(label, value, valueTint, modifier, iconRes, desc, onClick)
+            LegacyValueRow(title, value, valueTint, modifier, iconRes, desc, onClick)
             return
         }
         com.dollhouse.app.ui.kit.DhRow(
-            title = label,
+            title = title,
             modifier = modifier,
             desc = desc,
             value = value,
@@ -1069,7 +1084,15 @@ object DhKit {
      */
     @Composable
     fun SwitchRow(
-        name: String,
+        /**
+         * 行名称。
+         *
+         * 【为什么可空且默认 null】与 [ValueRow.label] 同一套自纠错口径：
+         *   已接线的行不写标题字面量、只传 [spot]，标题由索引表提供；
+         *   两者皆空 → 标题为空串（肉眼可见）。
+         *   【对既有调用零影响】`String` → `String? = null`，传字符串的调用点行为不变。
+         */
+        name: String? = null,
         checked: Boolean,
         modifier: Modifier = Modifier,
         /** 【v0.1.4】第二行说明；null / 空 = 单行。 */
@@ -1078,8 +1101,11 @@ object DhKit {
         iconRes: Int = 0,
         /** 【v0.1.4】false 时整行降透明度且不接收点击（与 ActionRow 的禁用口径一致）。 */
         enabled: Boolean = true,
+        /** 【P1-e·设置索引】设置项登记；传了则由索引表提供标题。 */
+        spot: SettingsSpot? = null,
         onCheckedChange: (Boolean) -> Unit
     ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         // 【参数适配】name→title、desc→desc、iconRes→iconRes（旧实现的 0 与 `DhRow` 的
         //   "不占位"是同一个约定，不需要归一）。
         //
@@ -1102,7 +1128,7 @@ object DhKit {
         val toggle: () -> Unit = { onCheckedChange(!checked) }
         val onRowClick: (() -> Unit)? = if (enabled) toggle else null
         com.dollhouse.app.ui.kit.DhRow(
-            title = name,
+            title = title,
             modifier = rowModifier,
             desc = desc,
             iconRes = iconRes,
@@ -1114,7 +1140,7 @@ object DhKit {
                     // 【P0-1b·名字】把行标题作为开关的朗读名：
                     //   读屏聚焦到开关时念「莫奈主题色，开关，已关闭」而不是「开关，已关闭」。
                     //   40 处 SwitchRow 调用点因此**零改动**自动获得名字。
-                    a11yName = name,
+                    a11yName = title,
                     onCheckedChange = { if (enabled) onCheckedChange(it) }
                 )
             }
@@ -1135,15 +1161,32 @@ object DhKit {
      */
     @Composable
     fun PermRow(
-        name: String,
+        /**
+         * 行名称。
+         *
+         * 【为什么可空且默认 null】与 [ActionRow.label] 同一套自纠错口径：已接线的行
+         *   不写标题字面量、只传 [spot]，标题由索引表提供；两者皆空 → 空串（肉眼可见）。
+         *   对 4 处既有调用零影响（`String` → `String? = null`）。
+         */
+        name: String? = null,
         state: Int,
         modifier: Modifier = Modifier,
         /** 【v0.1.4】行首图标（Icons.IC_*）；0 = 不占位。 */
         iconRes: Int = 0,
         /** 【v0.1.4】第二行说明（例如「申请后会跳到系统设置」）。 */
         desc: String? = null,
+        /**
+         * 【P1-e·设置索引】设置项登记。
+         *
+         * 【参数位置·必须】放在 `onClick` **之前**。本函数的 `onClick: () -> Unit` 是
+         *   非空且位于末位，调用方普遍写成尾随 lambda；Kotlin 的尾随 lambda 绑定**最后一个**
+         *   参数，若把 `spot` 追加在末尾，`PermRow(...) { … }` 里的 lambda 会被当成 spot 实参
+         *   → 整片编译失败（ActionRow 那轮踩过同一个坑）。
+         */
+        spot: SettingsSpot? = null,
         onClick: () -> Unit
     ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         val c = DhTokens.colors
         val granted = state == 0
         val tint = if (granted) c.ok else c.err
@@ -1159,7 +1202,7 @@ object DhKit {
         //   注意这里只降"可点性"，**不降透明度**：旧实现也没有 alpha，
         //   已授权的行仍要能正常读出"已授权"三个字。
         com.dollhouse.app.ui.kit.DhRow(
-            title = name,
+            title = title,
             modifier = modifier,
             desc = desc,
             iconRes = iconRes,
@@ -1188,14 +1231,28 @@ object DhKit {
      */
     @Composable
     fun StepperRow(
-        name: String,
+        /**
+         * 行名称。
+         *
+         * 【为什么可空且默认 null】自纠错口径同 [ActionRow.label]：已接线的行不写标题字面量、
+         *   只传 [spot]。注意 `value` 仍是必填（它是"当前值"，不是标题）。
+         */
+        name: String? = null,
         value: String,
         canMinus: Boolean,
         canPlus: Boolean,
         modifier: Modifier = Modifier,
+        /**
+         * 【P1-e·设置索引】设置项登记。
+         *
+         * 【参数位置·必须】放在 `onMinus` **之前**：`onPlus` 在末位，尾随 lambda 会绑定
+         *   最后一个参数；把 spot 追加到末尾会让 lambda 被当成 spot 实参而编译失败。
+         */
+        spot: SettingsSpot? = null,
         onMinus: () -> Unit,
         onPlus: () -> Unit
     ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         val c = DhTokens.colors
         // 【M-收口·转发到规范实现·结论是"不必给 DhRow 加参数"】
         //   本函数此前是**最后一行自带 soft 底 + 圆角 12 的行**（其余行早已转发走）。
@@ -1219,7 +1276,7 @@ object DhKit {
         //   故这里 onClick 传 null —— DhRow 因此不挂 pressable，可点面只剩两枚按钮。
         //   StepButton 自己的 enabled / alpha(0.35f) / 34dp 圆形实底描边全部不动。
         com.dollhouse.app.ui.kit.DhRow(
-            title = name,
+            title = title,
             modifier = modifier,
             showChevron = false,
             onClick = null,
@@ -1616,7 +1673,14 @@ object DhKit {
      */
     @Composable
     fun ActionRow(
-        label: String,
+        /**
+         * 行标签。
+         *
+         * 【为什么可空且默认 null】自纠错口径同 [ValueRow.label]：已接线的行不写标题字面量，
+         *   只传 [spot]，标题从索引表取；两者皆空 → 标题为空串（界面上肉眼可见）。
+         *   【对既有 87 处调用零影响】`String` → `String? = null`，传字符串的调用点不变。
+         */
+        label: String? = null,
         modifier: Modifier = Modifier,
         iconRes: Int? = null,
         desc: String? = null,
@@ -1631,8 +1695,11 @@ object DhKit {
          * 再叠上文楷，每一行的宽度与粗细都不一致 —— 这正是用户说的「符号错位」。
          */
         showChevron: Boolean = false,
+        /** 【P1-e·设置索引】设置项登记；传了则由索引表提供标题。 */
+        spot: SettingsSpot? = null,
         onClick: (() -> Unit)? = null
     ) {
+        val title = SettingsSpots.spotTitle(spot, label)
         // 【M-收口·转发到规范实现】本函数有 87 处调用点（全 App 用得最多的行组件），
         //   改造它等于一次性让 87 个页面的"可点行"对齐设计规范。
         //   【为什么用转发而不是复制样式】`ui/kit.DhRow` 是规范源。改造前这里自带
@@ -1661,11 +1728,11 @@ object DhKit {
             modifier.alpha(0.35f)
         }
         if (!tooltip.isNullOrBlank()) {
-            LegacyActionRow(label, modifier, iconRes, desc, trailing, enabled, tooltip, onClick)
+            LegacyActionRow(title, modifier, iconRes, desc, trailing, enabled, tooltip, onClick)
             return
         }
         com.dollhouse.app.ui.kit.DhRow(
-            title = label,
+            title = title,
             modifier = rowModifier,
             desc = desc,
             value = trailing,

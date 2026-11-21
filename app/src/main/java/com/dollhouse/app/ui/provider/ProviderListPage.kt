@@ -295,7 +295,7 @@ object ProviderListPage {
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.field),
                     contentAlignment = Alignment.Center
                 ) {

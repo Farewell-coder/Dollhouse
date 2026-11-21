@@ -206,9 +206,9 @@ object DollRangePage {
             modifier = Modifier
                 .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                 .size(HANDLE)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(2.dp, tint, RoundedCornerShape(999.dp))
+                .border(2.dp, tint, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()
@@ -220,7 +220,7 @@ object DollRangePage {
             Box(
                 modifier = Modifier
                     .size(DhDesign.Space.sm.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(tint)
             )
         }
@@ -239,9 +239,9 @@ object DollRangePage {
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 // 语义挂在可点区域上、置于 pressable 之前（与 DhIconButton 同写法）。
                 .semantics { contentDescription = name }
                 .pressable(onClick),

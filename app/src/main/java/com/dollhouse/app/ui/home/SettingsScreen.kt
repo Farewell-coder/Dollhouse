@@ -790,7 +790,7 @@ object SettingsScreen {
 
             // ---------- 组 1：对外连接 ----------
             DhKit.SectionLabel("对外连接")
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "lamda 设备控制",
                 iconRes = Icons.IC_GAMEPAD_2,
                 desc = "用手机控制另一台设备",
@@ -804,7 +804,7 @@ object SettingsScreen {
 
             // ---------- 组 2：人偶行为 ----------
             DhKit.SectionLabel("人偶行为")
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "随机走位",
                 iconRes = Icons.IC_WAYPOINTS,
                 desc = "人偶自己在屏幕上缓慢游走",
@@ -831,7 +831,7 @@ object SettingsScreen {
 
             // ---------- 组 3：对话与模型 ----------
             DhKit.SectionLabel("对话与模型")
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "对话显示",
                 iconRes = Icons.IC_MESSAGE_SQUARE_HEART,
                 desc = "流式输出、思考过程",
@@ -844,7 +844,7 @@ object SettingsScreen {
                 ChatSettingsPage.open(act)
             }
             DhKit.RowDivider(insetStart = ICON_ROW_INSET)
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "识图模型",
                 iconRes = Icons.IC_BOT,
                 desc = "用哪个模型来看图片",
@@ -856,7 +856,7 @@ object SettingsScreen {
                 VisionModelPage.open(act)
             }
             DhKit.RowDivider(insetStart = ICON_ROW_INSET)
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "记忆库设置",
                 iconRes = Icons.IC_BOOK_OPEN,
                 desc = "抽取与检索策略",
@@ -927,11 +927,12 @@ object SettingsScreen {
         //   进页读一次即是最新；这与既有 `PermissionRow` 的口径一致（它也是进页算一次）。
         //   若将来要「配置完返回立即更新」，把 key 换成对应信号即可。
         //
-        //   【「查看 Token」这一行**没有**补值，原因】`TokenStat` 的统计读取
-        //   （`prefs()` / `readDays()` / `readHours()`）全是 private，没有对外汇总接口。
-        //   补它需要**新增状态采集**（在 `TokenStat` 上开公开读取函数），
-        //   按任务约定属于扩大范围 —— 已报给 lead，等确认后再做。
+        //   【「查看 Token」这一行】原先 `TokenStat` 的读取全是 private，
+        //   本轮已新增 `TokenStat.todayTotal(ctx)`（只暴露今日 in+out 一个数，
+        //   与页面「当日总览」同一口径）。同样用 `remember` 缓存一次：
+        //   它要解析最多 31 条日记录，滚动时每帧读纯属浪费。
         val providerCount = remember { ProviderStore.providers(act).size }
+        val todayTokens = remember { TokenStat.todayTotal(act) }
         DhKit.Card(collapsibleTitle = "聊天", titleIcon = Icons.IC_MESSAGE_SQUARE_HEART) {
             DhKit.ValueRow(
                 label = "供应商",
@@ -949,6 +950,14 @@ object SettingsScreen {
                 label = "查看 Token",
                 iconRes = Icons.IC_GAUGE,
                 desc = "查看模型使用统计",
+                // 【值：今日 in+out】与页面「当日总览」同一口径（`TokenStat` 的
+                //   `fmt(inTok + outTok)`），点进去看到的第一个大数字就是它。
+                //   【为什么是"今日"而不是"累计"】入口行的用途是「今天花了多少」——
+                //   累计数只会一直涨，没有"今天"那么有行动含义。
+                //   【没有数据时显示 `—`】不用 "0"：0 是「今天真的没用过」，
+                //   而 `—` 是「还没有任何记录」。本 App 新装时两者都成立，
+                //   但 `—` 不会让用户误以为统计坏了（0 容易被读成"没在计数"）。
+                value = if (todayTokens <= 0L) "—" else fmtTokenShort(todayTokens),
                 showChevron = true
             ) {
                 TokenStat.open(act)
@@ -962,6 +971,39 @@ object SettingsScreen {
             //   新的全局策略（自动保存开关 / 间隔 / 提取规则 / 检索权重）统一收到
             //   「实验 → 记忆库设置」页里；对话显示相关（流式 / 思考过程）在「实验 → 对话显示」。
         }
+    }
+
+    /**
+     * 把 token 数压成入口行能塞下的一小段：`1.2k` / `3.4M`。
+     *
+     * 【为什么放在页面侧而不是 `TokenStat`】
+     *   `TokenStat` 的职责是**统计与存储**，它的 `fmt()` 是「1,234,567」那种完整千分位
+     *   （页面大数字用）。入口行要的是**另一种格式**（短、带单位）。
+     *   把短格式放进 `TokenStat` 会让它同时背两种展示口径；
+     *   而放在这里，它只服务这一个入口行，将来别处要另一种格式也不会互相牵扯。
+     *
+     * 【阈值口径】
+     *   · < 1000        → 原样数字（"823"）
+     *   · < 1_000_000   → "x.yk"（一位小数，"12.3k"）
+     *   · 其余          → "x.yM"
+     *   【为什么保留一位小数】token 数是几万量级时，"12k" 与 "12.3k" 的信息量差别
+     *   对用户没意义，但一位小数能让**相邻两次查看**的差异可见（"12.3k"→"13.1k"）。
+     *
+     * 【为什么用整数运算而不是 String.format】入口行每次进设置页算一次，
+     *   但格式化仍走整数除法可避免 Locale 差异导致某些地区出现「12,3k」这种逗号小数。
+     */
+    private fun fmtTokenShort(n: Long): String {
+        if (n < 1000L) {
+            return n.toString()
+        }
+        if (n < 1_000_000L) {
+            // 12345 → "12.3k"：先除 100 得 123，再拆成整数部分 12 与小数位 3。
+            val tenths = n / 100L
+            return (tenths / 10L).toString() + "." + (tenths % 10L).toString() + "k"
+        }
+        // 3456789 → "3.4M"：同理先除 100000 得 34，再拆成 3 与 4。
+        val tenths = n / 100_000L
+        return (tenths / 10L).toString() + "." + (tenths % 10L).toString() + "M"
     }
 
     /* ============================ 人偶 ============================ */
@@ -988,7 +1030,7 @@ object SettingsScreen {
             //   【为什么不用 Unit】那会让数字停在进页那一刻，与既有 `ProfileCard`
             //   读 `ProfileState.tick` 的口径不一致。
             val dollCount = remember(DollState.rev) { DollStore.all(act).size }
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "管理人偶",
                 iconRes = Icons.IC_LAYERS,
                 desc = "封面、动作、启停、删除",
@@ -1019,7 +1061,7 @@ object SettingsScreen {
     private fun LookCard(act: MainActivity) {
         DhKit.Card(collapsibleTitle = "外观", titleIcon = Icons.IC_PALETTE) {
             // 【状态摘要】让用户不用点进去就知道当前是什么状态。
-            DhKit.ActionRow(
+            DhKit.ValueRow(
                 label = "外观设置",
                 iconRes = Icons.IC_PALETTE,
                 desc = "主题 · 背景 · 聊天气泡 · 弹窗",

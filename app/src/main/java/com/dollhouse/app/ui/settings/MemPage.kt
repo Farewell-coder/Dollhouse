@@ -1001,7 +1001,7 @@ object MemPage {
             modifier = Modifier
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .pressable(onClick)
-                .padding(horizontal = DhDesign.Space.sm.dp, vertical = 4.dp),
+                .padding(horizontal = DhDesign.Space.sm.dp, vertical = DhDesign.Space.xs.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
@@ -1318,7 +1318,7 @@ object MemPage {
                                     renaming = f
                                     renameText = f
                                 }
-                                .padding(horizontal = 7.dp, vertical = 4.dp),
+                                .padding(horizontal = 7.dp, vertical = DhDesign.Space.xs.dp),
                             color = c.acc,
                             fontSize = UiKit.FS_SUB.sp,
                             fontFamily = DhTokens.fonts
@@ -1331,7 +1331,7 @@ object MemPage {
                                     refresh++
                                     onChanged()
                                 }
-                                .padding(horizontal = 7.dp, vertical = 4.dp),
+                                .padding(horizontal = 7.dp, vertical = DhDesign.Space.xs.dp),
                             color = c.err,
                             fontSize = UiKit.FS_SUB.sp,
                             fontFamily = DhTokens.fonts
@@ -1389,7 +1389,7 @@ object MemPage {
     @Composable
     private fun DetailLine(label: String, value: String) {
         val c = DhTokens.colors
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp)) {
             Text(
                 text = label,
                 modifier = Modifier.width(60.dp),

@@ -82,7 +82,7 @@ object ConversationHistoryPage {
                        的成员扩展，作用在 item 的**根**上；包一层 Box 让根节点明确、且不影响
                        内部原有的 padding 语义。 */
                     Box(Modifier.animateItem()) {
-                        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = DhDesign.Space.xs.dp)) {
                             DhKit.ActionRow(entry.second, modifier = Modifier, iconRes = Icons.IC_MESSAGE_SQUARE, onClick = {
                                 ChatSessions.switchTo(act, entry.first)
                                 ChatListScreen.openConv(act, entry.first)

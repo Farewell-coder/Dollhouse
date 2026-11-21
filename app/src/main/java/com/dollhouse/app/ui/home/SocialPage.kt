@@ -491,7 +491,7 @@ object SocialPage {
                         modifier = Modifier
                             .padding(top = 7.dp)
                             .size(3.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                             .background(p.line)
                     )
                     Spacer(Modifier.width(DhDesign.Space.sm.dp))
@@ -605,8 +605,8 @@ object SocialPage {
                 // 头像：32dp 小圆，与名字同一行 —— 时间线的「谁」要一眼可辨。
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .size(DhDesign.Size.avatarXs)
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(p.soft),
                     contentAlignment = Alignment.Center
                 ) {
@@ -691,7 +691,7 @@ object SocialPage {
                             fontFamily = DhTokens.fontsBody,
                             maxLines = 1,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                                 .background(p.soft)
                                 .padding(horizontal = DhDesign.Space.sm.dp, vertical = 2.dp)
                         )

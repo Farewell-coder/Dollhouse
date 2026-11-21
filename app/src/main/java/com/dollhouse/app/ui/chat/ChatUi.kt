@@ -336,7 +336,7 @@ object ChatUi {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 4.dp)
+                    .padding(start = DhDesign.Space.xs.dp)
                     // 【r19·聊天搜索】长按标题唤出搜索框（不占布局空间）。
                     .pressable(
                         onClick = {
@@ -350,8 +350,8 @@ object ChatUi {
                 // 头像：与气泡 / 列表同一取图口径；没有图就退回内置形象。
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .size(DhDesign.Size.avatarXs)
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.soft),
                     contentAlignment = Alignment.Center
                 ) {
@@ -757,7 +757,7 @@ object ChatUi {
         Box(
             modifier = Modifier
                 .size(BUBBLE_AVATAR_DP.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.soft),
             contentAlignment = Alignment.Center
         ) {
@@ -1079,7 +1079,7 @@ object ChatUi {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.acc)
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(DhDesign.Space.xs.dp))
                 Text(
                     text = "历史对话摘要",
                     color = c.acc,
@@ -1136,7 +1136,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp),
+                .padding(bottom = DhDesign.Space.xs.dp),
             horizontalArrangement = Arrangement.Center
         ) {
             Box(
@@ -1195,7 +1195,7 @@ object ChatUi {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp)
+                .padding(bottom = DhDesign.Space.xs.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -1286,7 +1286,7 @@ object ChatUi {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.chatChipMute)
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(DhDesign.Space.xs.dp))
             Text(
                 text = text,
                 color = c.chatChipMute,
@@ -1333,7 +1333,7 @@ object ChatUi {
                         contentDescription = null,
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .clip(RoundedCornerShape(DhDesign.Radius.xs.dp)),
                         contentScale = ContentScale.Crop
                     )
                     Spacer(Modifier.width(DhDesign.Space.sm.dp))
@@ -1398,7 +1398,7 @@ object ChatUi {
                 val n = MultiSelect.picked().size
                 Text(
                     text = "已选 " + n,
-                    modifier = Modifier.padding(end = 4.dp),
+                    modifier = Modifier.padding(end = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts,
@@ -1422,7 +1422,7 @@ object ChatUi {
                 ) {
                     MultiSelect.reset()
                 }
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(DhDesign.Space.xs.dp))
             }
             ChatState.memoText?.let { msg ->
                 Text(
@@ -1492,14 +1492,14 @@ object ChatUi {
                 decorationBox = { inner ->
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                             .background(inputFill)
                             .then(
                                 if (inputStroke.alpha > 0f) {
                                     Modifier.border(
                                         1.dp,
                                         inputStroke,
-                                        RoundedCornerShape(8.dp)
+                                        RoundedCornerShape(DhDesign.Radius.xs.dp)
                                     )
                                 } else {
                                     Modifier
@@ -1526,7 +1526,7 @@ object ChatUi {
             Box(
                 modifier = Modifier
                     .size(UiKit.HIT_DP.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.acc)
                     .pressable {
                         if (ChatState.waiting) {

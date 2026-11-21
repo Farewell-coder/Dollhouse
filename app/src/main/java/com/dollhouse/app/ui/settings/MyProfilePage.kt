@@ -165,7 +165,7 @@ object MyProfilePage {
                 Box(
                     modifier = Modifier
                         .size(PREVIEW_DP.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.soft),
                     contentAlignment = Alignment.Center
                 ) {
@@ -206,7 +206,7 @@ object MyProfilePage {
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fontsBody,
-                        modifier = Modifier.padding(top = 4.dp, start = 2.dp)
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp, start = 2.dp)
                     )
                     if (canRemove) {
                         DhKit.ActionRow(

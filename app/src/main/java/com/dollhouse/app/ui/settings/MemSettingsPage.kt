@@ -38,6 +38,12 @@ import com.dollhouse.app.ui.theme.Icons
 object MemSettingsPage {
     const val TAG_PAGE = "feiyu_mem_settings_page"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     /** 返回键用：本页在栈顶就退一层并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
@@ -90,7 +96,7 @@ object MemSettingsPage {
             DhKit.Card(collapsibleTitle = "自动保存") {
                 DhForm.Note("开着她才会在聊天里自己记东西；关掉后只能手动加。")
                 DhKit.SwitchRow(
-                    name = "自动保存记忆",
+                    spot = spot("mem.autosave"),
                     iconRes = Icons.IC_SAVE,
                     checked = remember(tick) { PetPrefs.mem2Auto(act) }
                 ) { on ->
@@ -99,7 +105,7 @@ object MemSettingsPage {
                 }
                 val idx = remember(tick) { PetPrefs.mem2IntervalIndex(act) }
                 DhKit.StepperRow(
-                    name = "保存间隔",
+                    spot = spot("mem.interval"),
                     value = PetPrefs.MEM2_INTERVALS[idx].toString() + " 分钟",
                     canMinus = idx > 0,
                     canPlus = idx < PetPrefs.MEM2_INTERVALS.size - 1,
@@ -128,7 +134,7 @@ object MemSettingsPage {
                 )
                 Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.ActionRow(
-                    label = "保存规则",
+                    spot = spot("mem.rule"),
                     iconRes = Icons.IC_CHECK,
                     showChevron = true
                 ) {
@@ -141,7 +147,7 @@ object MemSettingsPage {
             DhKit.Card(collapsibleTitle = "检索") {
                 DhForm.Note("开着时，每次开口前按相关性挑几条记忆带上；关掉就只按时间取最近的。")
                 DhKit.SwitchRow(
-                    name = "记忆检索",
+                    spot = spot("mem.retrieve"),
                     iconRes = Icons.IC_SCAN,
                     checked = remember(tick) { PetPrefs.mem2Search(act) }
                 ) { on ->
@@ -152,7 +158,7 @@ object MemSettingsPage {
                 // 模式：一键预设三档权重。
                 val mode = remember(tick) { PetPrefs.mem2Mode(act) }
                 DhKit.StepperRow(
-                    name = "检索模式",
+                    spot = spot("mem.mode"),
                     value = MODE_NAMES[mode],
                     canMinus = mode > 0,
                     canPlus = mode < MODE_NAMES.size - 1,
@@ -170,7 +176,7 @@ object MemSettingsPage {
                 // 权重细调：0~10。
                 val wk = remember(tick) { PetPrefs.mem2KeywordWeight(act) }
                 WRow(
-                    name = "关键词权重",
+                    spot = spot("mem.wKeyword"),
                     value = wk,
                     onMinus = { PetPrefs.setMem2KeywordWeight(act, wk - 1); tick++ },
                     onPlus = { PetPrefs.setMem2KeywordWeight(act, wk + 1); tick++ },
@@ -180,7 +186,7 @@ object MemSettingsPage {
                 )
                 val wt = remember(tick) { PetPrefs.mem2TagWeight(act) }
                 WRow(
-                    name = "标签权重",
+                    spot = spot("mem.wTag"),
                     value = wt,
                     onMinus = { PetPrefs.setMem2TagWeight(act, wt - 1); tick++ },
                     onPlus = { PetPrefs.setMem2TagWeight(act, wt + 1); tick++ },
@@ -190,7 +196,7 @@ object MemSettingsPage {
                 )
                 val we = remember(tick) { PetPrefs.mem2EdgeWeight(act) }
                 WRow(
-                    name = "关联权重",
+                    spot = spot("mem.wLink"),
                     value = we,
                     onMinus = { PetPrefs.setMem2EdgeWeight(act, we - 1); tick++ },
                     onPlus = { PetPrefs.setMem2EdgeWeight(act, we + 1); tick++ },
@@ -209,7 +215,7 @@ object MemSettingsPage {
     /** 一条权重行 + 一行说明。 */
     @Composable
     private fun WRow(
-        name: String,
+        spot: SettingsSpot?,
         value: Int,
         canMinus: Boolean,
         canPlus: Boolean,
@@ -218,7 +224,7 @@ object MemSettingsPage {
         onPlus: () -> Unit
     ) {
         DhKit.StepperRow(
-            name = name,
+            spot = spot,
             value = value.toString(),
             canMinus = canMinus,
             canPlus = canPlus,

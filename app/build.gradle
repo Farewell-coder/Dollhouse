@@ -149,6 +149,28 @@ android {
         }
     }
 
+    /**
+     * 【合规·B4】把许可文本作为 **assets** 随 APK 分发。
+     *
+     * 【为什么必须做】审计发现：`packaging.resources.excludes`（上面那段）早就把
+     *   `META-INF/LICENSE*` / `NOTICE*` 剔掉了 —— 那对体积是对的，但代价是
+     *   **只下载 APK 的用户拿不到任何第三方许可文本**（实测 0.2.8 的 APK 里只剩 6 个），
+     *   而 `licenses/` 与 `THIRD_PARTY_NOTICES.md` 原先只存在于仓库。
+     *   对 GPL-3.0 项目这是实质缺口；对 Apache-2.0 §4(a)（须随分发提供许可副本）也不合格。
+     *
+     * 【为什么是 assets 而不是 resources】assets 不走 `packaging.resources.excludes`，
+     *   与上面那套瘦身策略互不干扰。
+     *
+     * 【为什么指向 build/ 下的生成目录】见下面 `syncLicenseAssets` 任务：
+     *   源仍然是仓库根的 `licenses/` 与 `THIRD_PARTY_NOTICES.md`（单一真源），
+     *   构建时复制一份进 build/，**不往源码树里塞副本** —— 副本进版本库必然与源漂移。
+     */
+    sourceSets {
+        main {
+            assets.srcDirs += layout.buildDirectory.dir("generated/licensesAssets").get().asFile
+        }
+    }
+
     // 【Jetpack Compose】常规 UI 迁移到 Compose。
     buildFeatures {
         compose true
@@ -168,6 +190,45 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+/**
+ * 【合规·B4】把仓库根的许可文本同步成 APK assets。
+ *
+ * 产出（`build/generated/licensesAssets/`，已在上面 `sourceSets` 里登记为 assets 源）：
+ * ```
+ * assets/licenses/THIRD_PARTY_NOTICES.md          ← 第三方组件清单（155 个制品）
+ * assets/licenses/Apache-2.0.txt  …               ← 各许可原文（11 份）
+ * assets/licenses/bundled/<组件>-third_party_licenses.txt   ← 上游要求随分发转交（34 份）
+ * ```
+ * 应用内入口：设置 → 关于 → **开源许可**（`ui/settings/AboutPage.kt` 的 OpenSourceLicensesPage）。
+ *
+ * 【为什么用 Copy 任务而不是把副本提交进版本库】
+ *   副本一旦进 git 就必然与 `licenses/` 漂移（本项目刚因为"手写许可证声明表"吃过一次教训：
+ *   漏 83 条、30 条版本过时）。这里每次构建都从**单一真源**重新复制，结构上不可能不一致。
+ *
+ * 【体积】原始 9.6 MB，deflate 后约 **1.15 MB**（压缩率 12%，因为大量重复文本）；
+ *   通用 APK 约 +3.4%，按 ABI 分包约 +5.2%。实测数据见 `ui-research/014-license-audit.md`。
+ */
+def syncLicenseAssets = tasks.register('syncLicenseAssets', Copy) {
+    group = 'build'
+    description = '把 THIRD_PARTY_NOTICES.md 与 licenses/ 同步进 assets，供应用内「开源许可」读取'
+    // 【路径形态】两者都落到 `licenses/` 前缀下，与源码里的相对路径一致，
+    //   于是页面里的 `assets.list("licenses")` / `assets.open("licenses/bundled/x.txt")` 直接可用。
+    from(rootProject.file('THIRD_PARTY_NOTICES.md')) { into 'licenses' }
+    from(rootProject.file('licenses')) { into 'licenses' }
+    into(layout.buildDirectory.dir('generated/licensesAssets'))
+}
+
+// 【依赖接线·两条都接，任一成立就不会缺资源】
+//  ① `merge*Assets` 是真正把 assets 合进 APK 的任务 —— 它依赖本任务，资源必然就绪；
+//     用 `tasks.matching{}.configureEach` 而不是 `named()`，AGP 变更任务名时不会在配置期直接抛。
+//  ② `preBuild` 是变体任务图里最早的一环，接上它让 IDE / 单任务构建也能拿到资源。
+tasks.matching { it.name.startsWith('merge') && it.name.endsWith('Assets') }.configureEach {
+    dependsOn syncLicenseAssets
+}
+tasks.matching { it.name == 'preBuild' }.configureEach {
+    dependsOn syncLicenseAssets
 }
 
 dependencies {

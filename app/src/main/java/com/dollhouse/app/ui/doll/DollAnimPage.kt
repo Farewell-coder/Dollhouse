@@ -519,7 +519,7 @@ object DollAnimPage {
                         fontFamily = DhTokens.fontsBody
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
@@ -561,17 +561,17 @@ object DollAnimPage {
                         DollProfile.setFrameOffset(act, dollId, off[0] - FINE_STEP, off[1])
                         offTick++
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title, a11yName = "上移") {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] - FINE_STEP)
                         offTick++
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title, a11yName = "下移") {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] + FINE_STEP)
                         offTick++
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title, a11yName = "右移") {
                         DollProfile.setFrameOffset(act, dollId, off[0] + FINE_STEP, off[1])
                         offTick++
@@ -1041,7 +1041,7 @@ object DollAnimPage {
                         dispTick++
                         HomeUi.notifyPetReload(act)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title, label = "上移") {
                         com.dollhouse.app.data.ActionWorkbench.setDisplay(
                             act, dollId, actionId,
@@ -1053,7 +1053,7 @@ object DollAnimPage {
                         dispTick++
                         HomeUi.notifyPetReload(act)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title, label = "下移") {
                         com.dollhouse.app.data.ActionWorkbench.setDisplay(
                             act, dollId, actionId,
@@ -1065,7 +1065,7 @@ object DollAnimPage {
                         dispTick++
                         HomeUi.notifyPetReload(act)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title, label = "右移") {
                         com.dollhouse.app.data.ActionWorkbench.setDisplay(
                             act, dollId, actionId,
@@ -1472,7 +1472,7 @@ object DollAnimPage {
                     RoundedCornerShape(DhKit.R_ROW.dp)
                 )
                 .pressable(onClick)
-                .padding(4.dp),
+                .padding(DhDesign.Space.xs.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(

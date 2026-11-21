@@ -193,7 +193,7 @@ object LamdaPage {
                 .alpha(if (enabled) 1f else 0.38f)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .then(if (enabled) Modifier.pressable(onClick) else Modifier)
-                .padding(horizontal = 4.dp, vertical = 12.dp),
+                .padding(horizontal = DhDesign.Space.xs.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 【r12】18f 不在 [Design] 的图标五档内 → 归到 SZ_MD(20)。
@@ -300,7 +300,7 @@ object LamdaPage {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                     .pressable { refresh(st, null) }
-                    .padding(horizontal = 4.dp, vertical = DhDesign.Space.sm.dp),
+                    .padding(horizontal = DhDesign.Space.xs.dp, vertical = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 【v0.1.0·修·图标偏小】这是状态行主图标（右侧文字 15sp），按 [Design] 口径走 SZ_SM。

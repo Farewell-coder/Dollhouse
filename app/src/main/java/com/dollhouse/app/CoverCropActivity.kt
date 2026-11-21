@@ -49,6 +49,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.UiKit
@@ -359,9 +360,9 @@ class CoverCropActivity : Activity() {
         //   「上一个」，外面已加 alpha 0.35）就**不挂点击修饰符** —— 与 clickable(enabled=false)
         //   的可见行为一致（都不响应点击），但不会留下裸 clickable。
         val visual = modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
             .background(bg)
-            .border(1.dp, line, RoundedCornerShape(999.dp))
+            .border(1.dp, line, RoundedCornerShape(DhDesign.Radius.pill.dp))
         val press = if (enabled) Modifier.pressable(onClick = onClick) else Modifier
         Box(
             modifier = visual

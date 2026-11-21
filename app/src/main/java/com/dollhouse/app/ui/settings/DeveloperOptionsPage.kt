@@ -44,6 +44,16 @@ import java.util.Locale
 /** 诊断中心：首页统计、列表、详情与导出共用真实本地数据源。 */
 object DeveloperOptionsPage {
     const val TAG_PAGE = "feiyu_dev_options_page"
+
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     *
+     * 【自纠错】rowId 写错 / 忘了传 spot 时，`SettingsSpots.spotTitle` 会退回空串 ——
+     * 那一行的标题变成空白，肉眼可见。**不要**在这里补 `?: "兜底文案"`，
+     * 那会把「漏登记」重新隐藏起来，正是这套机制要消灭的东西。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     private enum class Screen { HOME, LOGS, DETAIL, SETTINGS }
     @JvmStatic fun closeIfOpen(ctx: Context): Boolean = PageStack.popIfTop(ctx, TAG_PAGE)
     @JvmStatic fun buildPage(ctx: Context): View? {
@@ -158,7 +168,7 @@ object DeveloperOptionsPage {
         // 查看全部统一由下方诊断工具进入。
         DhKit.SectionLabel("诊断工具", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
         DhKit.Card {
-            DhKit.ActionRow("查看全部日志", iconRes = Icons.IC_TERMINAL, desc = "搜索、筛选与错误详情") { navigate(Screen.LOGS) }
+            DhKit.ActionRow(spot = spot("diag.logs"), iconRes = Icons.IC_TERMINAL, desc = "搜索、筛选与错误详情") { navigate(Screen.LOGS) }
             // 【v0.1.4·导出不跳二级页】用户要求「点一下就直接导出」。
             //   原先进「导出诊断包」页后还要再点一次「生成 ZIP」，中间那页只是一个按钮。
             //   现在直接在这里触发，进度就地回显（文案随 exporting 变化、期间不可再点）。
@@ -272,7 +282,7 @@ object DeveloperOptionsPage {
                 DiagnosticPanel("关联日志", e.context, contextOpen, enabled = e.context.isNotBlank()) { contextOpen = !contextOpen }
             }
         }
-        DhKit.ActionRow("复制错误详情", iconRes = Icons.IC_COPY, desc = "复制结构化摘要、堆栈与关联日志") {
+        DhKit.ActionRow(spot = spot("diag.copy"), iconRes = Icons.IC_COPY, desc = "复制结构化摘要、堆栈与关联日志") {
             runCatching { act.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("Dollhouse 错误详情", e.readable())); AppToast.show(act, "错误详情已复制") }.onFailure { AppToast.show(act, "复制失败：" + (it.message ?: it.javaClass.simpleName)) }
         }
         var exporting by remember { mutableStateOf(false) }
@@ -341,11 +351,11 @@ object DeveloperOptionsPage {
         var clearing by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         DhKit.Card {
-            DhKit.SwitchRow("记录详细运行日志", detailed, iconRes = Icons.IC_TERMINAL) { detailed = it; Logs.setOn(act, it); changed() }
+            DhKit.SwitchRow(spot = spot("diag.detailed"), checked = detailed, iconRes = Icons.IC_TERMINAL) { detailed = it; Logs.setOn(act, it); changed() }
             DhForm.Note("关闭时停止可选普通日志的持久化；警告、错误和未捕获崩溃仍保留基础记录。")
-            DhKit.ValueRow("严重错误基础记录", "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow("错误前后关键事件", "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
-            DhKit.ValueRow("自动轮转保留", "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
-            DhKit.ActionRow("清理 15 天前的诊断记录", iconRes = Icons.IC_TRASH, desc = "最近 15 天的日志与崩溃记录保持不变") { clear = true }
+            DhKit.ValueRow(spot = spot("diag.baseRecord"), value = "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow(spot = spot("diag.contextBuffer"), value = "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
+            DhKit.ValueRow(spot = spot("diag.rotation"), value = "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
+            DhKit.ActionRow(spot = spot("diag.clear"), iconRes = Icons.IC_TRASH, desc = "最近 15 天的日志与崩溃记录保持不变") { clear = true }
         }
         if (clear) DhForm.Alert("清理 15 天前的诊断记录？", { if (!clearing) clear = false }, "清理", {
             clearing = true
