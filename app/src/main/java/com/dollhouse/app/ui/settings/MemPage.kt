@@ -246,7 +246,78 @@ object MemPage {
         //   列表模式把每条记忆的标题 + 正文摘要 + 来源 + 分类直接铺开，点一下即编辑。
         // 【v0.2.7·定位】带 anchorId 进来时直接开列表模式：图谱节点上只有标题，
         //   看不到正文，定位到那里等于没定位。不带 anchorId 时仍是图谱（原行为逐像素一致）。
-        var listMode by remember { mutableStateOf(anchorId != null) }
+        //
+        /*
+         * 【P2-c·无障碍：读屏用户默认进「列表模式」，而不是图谱】
+         *
+         * ── 为什么这是「通道没接上」而不是「要做新功能」──
+         *   图谱 `MemGraphView` 是 `onDraw` 自绘 View，全仓 **0 处语义**：
+         *   200 个节点散布在 Canvas 上，读屏**一个字都读不到** ——
+         *   不知道有多少条记忆、也不知道任何一条的内容。
+         *   而本页**已经有完整的列表模式**（`MemListRow`：标题 + 正文摘要 2 行 +
+         *   来源徽标 + 分类徽标），信息量不低于图谱节点、且有天然线性阅读顺序。
+         *   所以读屏用户缺的不是功能，是**默认落在哪个模式**。
+         *
+         * ── 为什么用 `isTouchExplorationEnabled` 而不是 `isEnabled` ──
+         *   `isEnabled` 在「只有放大手势」等场景也返回 true（那时并不需要线性朗读）；
+         *   `isTouchExplorationEnabled` 才是 TalkBack / 触摸探索真正开启的标志 ——
+         *   那正是「用户靠逐项聚焦来用 App」的场景。
+         *
+         * ── 为什么必须监听变化，不能只在组合时读一次 ──
+         *   TalkBack 可以在 App 运行期间被用户开关（下拉快捷开关 / 无障碍设置）。
+         *   只读一次的话：用户开着 TalkBack 进来时已经进了图谱，之后再打开 TalkBack
+         *   也不会切过去。用 `TouchExplorationStateChangeListener` 订阅，
+         *   状态一变就更新 —— 而且**只在「用户还没手动选过模式」时**才跟随。
+         *
+         * ── 【关键：绝不锁定】──
+         *   `listMode` 仍是普通可变状态，顶栏的「图谱 / 列表」切换按钮照旧可用。
+         *   读屏只影响**默认值**；用户手动切回图谱后，本监听不再改动它
+         *   （见 `userPickedMode` 标志）。图谱对部分低视力用户仍有价值 ——
+         *   他们能看图形、只是需要更大的字，锁死在列表反而是剥夺。
+         */
+        val a11yCtx = act.applicationContext
+        // 读屏（触摸探索）当前是否开启；初值取一次，之后由监听器更新。
+        var touchExploration by remember {
+            mutableStateOf(
+                runCatching {
+                    (a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager)
+                        .isTouchExplorationEnabled
+                }.getOrDefault(false)
+            )
+        }
+        // 【用户是否已经手动选过模式】一旦点过顶栏切换，就永久尊重用户选择，
+        //   本文件的监听器不再覆盖它。用 rememberSaveable 会更严谨，但本页无
+        //   rememberSaveable 依赖、且切换后同一次页面生命周期内足够 —— 见下方说明。
+        var userPickedMode by remember { mutableStateOf(false) }
+        // 订阅 TalkBack 开关变化：进入组合时注册、离开时注销（DisposableEffect 保证不泄漏）。
+        DisposableEffect(a11yCtx) {
+            val am = runCatching {
+                a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+            }.getOrNull()
+            if (am == null) {
+                onDispose { }
+            } else {
+                val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled ->
+                    touchExploration = enabled
+                    // 【只改默认、不覆盖用户选择】用户手动切过就不再自动跟随。
+                    if (!userPickedMode) {
+                        listMode = anchorId != null || enabled
+                    }
+                }
+                runCatching { am.addTouchExplorationStateChangeListener(listener) }
+                onDispose {
+                    runCatching { am.removeTouchExplorationStateChangeListener(listener) }
+                }
+            }
+        }
+        var listMode by remember {
+            mutableStateOf(
+                anchorId != null || runCatching {
+                    (a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager)
+                        .isTouchExplorationEnabled
+                }.getOrDefault(false)
+            )
+        }
 
         // 【v0.2.7·定位】列表滚动状态 + 一次性高亮。
         //   原先 LazyColumn 没有 state（Compose 内部自管），要滚到指定下标就必须显式持有它。
@@ -976,7 +1047,7 @@ object MemPage {
     @Composable
     private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
-        // E16-ALLOW: 图标 + 文字提示行 `text`（"还没有关联"等短提示）：1 句 5~8 字
+        // E16-ALLOW: 筛选 chip 文案 `text`（"全部"/"有标签"…）：2~4 字固定词，chip 定高
         Text(
             text = text,
             modifier = Modifier
@@ -1175,6 +1246,7 @@ object MemPage {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DhKit.Icon(iconRes = Icons.IC_LINK_2, sizeDp = Design.SZ_XS, color = c.sub)
                     Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
+                    // E16-ALLOW: "关联到其它记忆"：7 字固定标签，`weight(1f)` 单行
                     Text(
                         text = "关联到其它记忆",
                         modifier = Modifier.weight(1f),
@@ -1376,7 +1448,6 @@ object MemPage {
             onDismiss = onDismiss,
             posText = "关闭"
         ) {
-            // E16-ALLOW: 标签列 `label`（"类型"/"创建"/"更新"）：`width(60.dp)` 定宽 2 字
             Text(
                 text = m.content,
                 color = c.title,
@@ -1399,7 +1470,7 @@ object MemPage {
     private fun DetailLine(label: String, value: String) {
         val c = DhTokens.colors
         Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp)) {
-            // E16-ALLOW: 值列 `value`：时间戳/类型名，纯数字与短代号，`weight(1f)`
+            // E16-ALLOW: 标签列 `label`（"类型"/"创建"/"更新"）：`width(60.dp)` 定宽 2 字
             Text(
                 text = label,
                 modifier = Modifier.width(60.dp),
@@ -1407,11 +1478,13 @@ object MemPage {
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBody
             )
+            // 【E16·真问题】value 可能是 folderPath / tags 拼接（可长）→ 补行高
             Text(
                 text = value,
                 modifier = Modifier.weight(1f),
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }

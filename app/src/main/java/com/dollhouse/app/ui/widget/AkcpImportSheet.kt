@@ -154,7 +154,7 @@ object AkcpImportSheet {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp),
+                        .padding(top = DhDesign.Space.lg.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
@@ -200,7 +200,7 @@ object AkcpImportSheet {
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
             DhForm.Input(
                 value = cred,
                 onValueChange = {
@@ -226,7 +226,7 @@ object AkcpImportSheet {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp),
+                .padding(top = DhDesign.Space.lg.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
@@ -342,7 +342,7 @@ object AkcpImportSheet {
                 // E16-ALLOW: 分组小标题，恒单行（"同名供应商处理方式"）
                 Text(
                     text = "同名供应商处理方式",
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -370,7 +370,7 @@ object AkcpImportSheet {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp),
+                    .padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
@@ -392,7 +392,7 @@ object AkcpImportSheet {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp),
+                    .padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))

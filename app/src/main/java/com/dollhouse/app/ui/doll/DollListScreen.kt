@@ -756,7 +756,7 @@ onCover = {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(horizontal = DhDesign.Space.xl.dp, vertical = DhDesign.Space.lg.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 DhKit.IconButton(Icons.IC_LAYOUT_TEMPLATE, 24f, c.title, label = "模板", onClick = onTemplate)
@@ -860,7 +860,7 @@ onCover = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
+                    .padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.sm.dp)
             ) {
                 var i = 0
                 while (i < all.size) {
@@ -988,7 +988,7 @@ onCover = {
         Box(
             modifier = Modifier
                 .padding(end = DhDesign.Space.sm.dp)
-                .size(72.dp)
+                .size(DhDesign.Size.avatarXl)
                 .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
                 .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
@@ -1043,7 +1043,7 @@ onCover = {
             contentAlignment = Alignment.TopEnd
         ) {
             Row(
-                modifier = Modifier.padding(top = 64.dp, end = 12.dp),
+                modifier = Modifier.padding(top = 64.dp, end = DhDesign.Space.md.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 // 二级卡片（列数）：在主卡片左边。

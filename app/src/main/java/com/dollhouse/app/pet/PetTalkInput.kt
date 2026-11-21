@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.dollhouse.app.R
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -394,7 +395,7 @@ class PetTalkInput internal constructor(
                         // 【尺寸对齐原图】ic_send 的固有尺寸就是 24dp，原 ImageView 是
                         //   scaleType=CENTER（按固有尺寸原样画、不缩放），
                         //   所以这里必须写 24dp —— 写 20dp 会把图标缩小 17%。
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(DhDesign.Size.iconLg)
                     )
                 }
             }

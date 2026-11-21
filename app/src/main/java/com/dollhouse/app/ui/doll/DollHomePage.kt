@@ -176,7 +176,7 @@ object DollHomePage {
             // 【r13 保存语义】rx / ry 只是本地草稿，点「确认」才写盘；
             //   「取消」与系统返回键都直接退出、不写任何键。
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {

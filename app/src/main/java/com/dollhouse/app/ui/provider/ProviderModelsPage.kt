@@ -259,7 +259,7 @@ object ProviderModelsPage {
                     .pressable(onClick)
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.acc)
-                    .padding(start = 20.dp, top = 12.dp, end = 22.dp, bottom = 12.dp),
+                    .padding(start = 20.dp, top = DhDesign.Space.md.dp, end = 22.dp, bottom = DhDesign.Space.md.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(Icons.IC_PLUS, 18f, c.onAcc)

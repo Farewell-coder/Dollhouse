@@ -37,7 +37,7 @@ import androidx.compose.ui.Alignment
 @Composable private fun CardBlock(block: Block.Card) {
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.md.dp),
         // 【修·图标与文字错位】Row 默认 Top 对齐，而文字有行高 —— 图标会浮在上面、
         //   文字沉在下面，看起来就是「符号错位」。图标座与文字必须 CenterVertically。
         verticalAlignment = Alignment.CenterVertically

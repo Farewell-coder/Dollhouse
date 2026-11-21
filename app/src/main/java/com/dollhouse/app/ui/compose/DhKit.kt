@@ -445,23 +445,15 @@ object DhKit {
                         Modifier
                     } else {
                         Modifier
-                            // 【e1 轻浮起】这是全 App 唯一「卡片有没有立体感」的地方 ——
-                            //   15 个文件约 50 张卡片都走这里，改这一行就是全局生效。
-                            //   【为什么 2dp 而不是更大】用户取向是「安静居所」：层级主要由
-                            //   留白与发丝线承担，阴影只做「几乎看不出、但大脑能感到」的纵深。
-                            //   2dp 在浅色档几乎不可见，只在暗色档边缘有极淡的一圈 —— 这正是要的效果。
-                            //   【clip = false】阴影必须画在形状**外侧**；先 clip 再 shadow 会被裁掉。
-                            // 【染色是轻拟物的关键】Compose 默认阴影是纯黑，
-                            //   在浅蓝底上会显脏、显硬。把 ambient（环境光）与 spot（投影）
-                            //   都染成蓝灰，阴影就有了「柔和」的观感而不是「一圈灰」。
-                            //   ambientColor/spotColor 需要 API 28+，低版本自动退回黑色，不会崩。
-                            .shadow(
-                                elevation = com.dollhouse.app.ui.design.DhDesign.Elevation.e1,
-                                shape = RoundedCornerShape(R_CARD.dp),
-                                clip = false,
-                                ambientColor = DhTokens.palette.shadowTint,
-                                spotColor = DhTokens.palette.shadowTint
-                            )
+                            // 【方案B·去投影，2026-11】这里原本挂 `e1`(6dp) 染色投影，
+                            //   注释还写着「15 个文件约 50 张卡片都走这里」——
+                            //   **那句已经过时了**：53 处 `DhKit.Card` 早就转发到
+                            //   `ui/kit.DhGroup`（规范实现，0 阴影 + hairline 描边），
+                            //   而本函数只剩 `flat = true` 一种形态在用，flat 分支返回
+                            //   裸 `Modifier`（连底和描边都不画）→ 下面这个 else 分支
+                            //   **全仓 0 处到达**。投影属于死代码，一并去掉，
+                            //   避免将来有人"修回"非 flat 形态时把投影又带回来。
+                            //   卡片的层级统一由 `.border(1.dp, c.line)` 承担。
                             .clip(RoundedCornerShape(R_CARD.dp))
                             .background(c.card)
                             // 【M3】描边改 `line`（1dp 发丝线）。改造前用 `stroke`（一种更实的

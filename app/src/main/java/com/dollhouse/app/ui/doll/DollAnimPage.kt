@@ -437,7 +437,7 @@ object DollAnimPage {
                     val bmp = cache[curPath]
                     if (previewRenderer != null) {
                         previewTick.let { }
-                        Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        Canvas(modifier = Modifier.fillMaxSize().padding(DhDesign.Space.md.dp)) {
                             previewRenderer.draw(drawContext.canvas.nativeCanvas)
                         }
                     } else if (bmp != null) {
@@ -446,7 +446,7 @@ object DollAnimPage {
                             contentDescription = null,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(12.dp)
+                                .padding(DhDesign.Space.md.dp)
                                 .offset { IntOffset((oxPx * previewW).roundToInt(), (oyPx * previewH).roundToInt()) },
                             contentScale = ContentScale.Fit
                         )
@@ -584,7 +584,6 @@ object DollAnimPage {
                         offTick++
                     }
                 }
-                // E16-ALLOW: 帧计数（"3 / 12" / "-- / --"）：纯数字与斜杠，无换行可能
                 Text(
                     text = "微调：横向拖动预览可粗调（纵向拖动会让页面滚），方向键精调；" +
                         "「居中」把偏移清零。当前偏移 " + pct(off[0]) + " / " + pct(off[1]),
@@ -626,6 +625,7 @@ object DollAnimPage {
                         }
                     }
                     Spacer(Modifier.width(14.dp))
+                    // E16-ALLOW: 帧计数（"3 / 12" / "-- / --"）：纯数字与斜杠，无换行可能
                     Text(
                         text = if (frames.isEmpty()) "-- / --"
                         else (frameIdx + 1).toString() + " / " + frames.size,
@@ -802,7 +802,6 @@ object DollAnimPage {
                         color = c.sub,
                         // 【E16·真问题，补行高而非 ALLOW】`bind.triggers` 数量不设上限，
                         //   用户勾得越多这一行越长；窄屏下三四个触发器就会折行。
-                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontSize = UiKit.FS_SUB.sp,
                         lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
@@ -1224,7 +1223,6 @@ object DollAnimPage {
                 negText = "关闭"
             ) {
                 val cur = a ?: return@Alert
-                // E16-ALLOW: 导出结果提示 `em`：由 `AnimExport` 生成的 1~2 句短结论，渲染在 Alert 正文区
                 Text(
                     text = "引擎：" + cur.engine + "\n" +
                         "路径：" + cur.assetPath.ifEmpty { "（未指定）" } + "\n" +
@@ -1256,10 +1254,12 @@ object DollAnimPage {
                 posText = "知道了",
                 onPos = { exportMsg = null }
             ) {
+                // 【E16·真问题】em = 结果消息 + "\n" + zipPath，结构上必然多行（含路径）。
                 Text(
                     text = em,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Note(

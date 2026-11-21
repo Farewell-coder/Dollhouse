@@ -289,7 +289,7 @@ object AexImportSheet {
                     lineHeight = (UiKit.FS_BTN + 5f).sp
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
@@ -416,7 +416,7 @@ object AexImportSheet {
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
             DhForm.Input(
                 value = cred,
                 onValueChange = {
@@ -440,7 +440,7 @@ object AexImportSheet {
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
@@ -513,7 +513,7 @@ object AexImportSheet {
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
             DhForm.Input(
                 value = cred,
                 onValueChange = {
@@ -537,7 +537,7 @@ object AexImportSheet {
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
@@ -868,7 +868,7 @@ object AexImportSheet {
             if (conflicts > 0) {
                 Text(
                     text = "同名供应商处理方式",
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -894,7 +894,7 @@ object AexImportSheet {
                 )
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
@@ -936,7 +936,7 @@ object AexImportSheet {
                 lineHeight = (UiKit.FS_BTN + 5f).sp
             )
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))

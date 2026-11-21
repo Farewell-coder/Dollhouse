@@ -275,6 +275,7 @@ object LamdaPage {
                 .padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // E16-ALLOW: 值行标签 `label`：固定项名（"设备地址"/"端口"），`weight(1f)` 单行
             Text(
                 text = label,
                 modifier = Modifier.weight(1f),
@@ -332,10 +333,14 @@ object LamdaPage {
                 // 【v0.1.0·修·图标偏小】这是状态行主图标（右侧文字 15sp），按 [Design] 口径走 SZ_SM。
                 DhKit.Icon(iconRes = icon, sizeDp = Design.SZ_SM, color = color)
                 Spacer(Modifier.width((Design.GAP_ICON / 2).dp))
+                // E16-ALLOW: 测试按钮文字 `text`（"测试连接"/"发送"）：2~4 字按钮文案，药丸定高
+                // 【E16·真问题】text 可能来自 hint.text（job 返回值 / 异常 / 下载进度 / 路径），
+                //   无长度上限 → 会换行，补行高。
                 Text(
                     text = text,
                     color = color,
                     fontSize = UiKit.FS_BTN.sp,
+                    lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }

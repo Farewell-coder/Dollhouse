@@ -1033,20 +1033,12 @@ fun IconSeat(
     Box(
         modifier = modifier
             .size(sizeDp.dp)
-            // ③ 阴影先于 clip（顺序不可换）
-            .then(
-                if (circle) {
-                    Modifier.shadow(
-                        elevation = DhDesign.Elevation.e1,
-                        shape = sh,
-                        clip = false,
-                        ambientColor = p.line,
-                        spotColor = p.line
-                    )
-                } else {
-                    Modifier
-                }
-            )
+            // 【方案B·去投影，2026-11】原本圆形座位挂 `e1`(6dp) 投影（还用 p.line 染色）。
+            //   投影在这里的作用是「把圆从卡片上抬起来」；但同色投影在浅色底上几乎只增加
+            //   一圈模糊的脏边，而层级本来就可以由一圈发丝线表达（与 DhGroup 同一口径）。
+            //   实测对比度：发丝线/卡片 = 1.50:1（浅）/ 1.32:1（暗），正是「刚好看得见一条线」。
+            //   【为什么描边只给 circle】投影本来也只在 circle 分支挂；ROUNDED 形态
+            //   没有投影，若也补描边就是**凭空多一圈线**，属于本次改动之外的视觉变更。
             .clip(sh)
             .background(lifted)
             // ④ 顶部内高光：垂直渐变，只在圆形形态、且有底色时叠加
@@ -1059,6 +1051,14 @@ fun IconSeat(
                             0.6f to Color.Transparent
                         )
                     )
+                } else {
+                    Modifier
+                }
+            )
+            // ⑤ 发丝线：写在背景/高光之后才画在最上层（写前面会被 background 盖住）
+            .then(
+                if (circle) {
+                    Modifier.border(DhDesign.Size.hairline, p.line, sh)
                 } else {
                     Modifier
                 }

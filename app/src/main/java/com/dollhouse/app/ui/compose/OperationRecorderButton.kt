@@ -16,12 +16,13 @@ import androidx.compose.ui.unit.sp
 import com.dollhouse.app.core.Logs
 import com.dollhouse.app.core.OperationRecorder
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 
 /** 仅应用内显示，不使用系统悬浮窗权限，也不会覆盖其他应用。 */
 @Composable fun OperationRecorderButton() {
     if (!Logs.isOn()) return
     val ctx = LocalContext.current
-    Box(Modifier.fillMaxSize().padding(end = 16.dp, bottom = 100.dp), contentAlignment = Alignment.BottomEnd) {
+    Box(Modifier.fillMaxSize().padding(end = DhDesign.Space.lg.dp, bottom = 100.dp), contentAlignment = Alignment.BottomEnd) {
         Box(Modifier.size(56.dp).background(DhTokens.colors.acc, CircleShape).pressable {
             OperationRecorder.toggle(ctx)
         }, contentAlignment = Alignment.Center) {

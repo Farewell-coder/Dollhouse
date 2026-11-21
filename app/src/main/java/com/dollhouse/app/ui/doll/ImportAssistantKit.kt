@@ -249,6 +249,7 @@ internal object ImportAssistantKit {
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
                 )
+                // E16-ALLOW: 槽位状态值（"12 帧"/"未设置"）：数字 + 固定词，单行
                 Text(
                     text = if (has) frames.toString() + " 帧" else "未设置",
                     color = c.sub,
@@ -483,6 +484,7 @@ internal object ImportAssistantKit {
                 if (has) c.acc else c.sub
             )
             Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            // E16-ALLOW: 步骤胶囊文字 `label`：定高药丸容器，2~4 字
             Text(
                 text = label,
                 color = c.title,
@@ -687,7 +689,6 @@ internal object ImportAssistantKit {
                 ) {
                     DhKit.Icon(Icons.IC_GRIP, Design.SZ_XS, c.sub)
                     Spacer(Modifier.width(DhDesign.Space.xs.dp))
-                    // E16-ALLOW: "大小检查"固定功能名 + 右侧数值：2~4 字标签行
                     Text(
                         text = "可以拖动，拖到边缘看看",
                         color = c.sub,
@@ -727,6 +728,7 @@ internal object ImportAssistantKit {
             ) {
                 DhKit.Icon(Icons.IC_RULER, Design.SZ_SM, c.acc)
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                // E16-ALLOW: "大小检查"固定功能名 + 右侧数值：4 字标签行
                 Text(
                     text = "大小检查",
                     modifier = Modifier.weight(1f),

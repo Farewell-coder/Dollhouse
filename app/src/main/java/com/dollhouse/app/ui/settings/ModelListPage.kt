@@ -144,12 +144,13 @@ object ModelListPage {
                 onValueChange = { query = it },
                 hint = "按名称筛选"
             )
-            // E16-ALLOW: 状态行 `status`（"检测到 12 个可用模型"）：单句结论，1 行内
+            // 【E16·真问题】status 失败时是 `error`（服务端/网络错误文案，无长度上限）→ 补行高
             Text(
                 text = status,
                 modifier = Modifier.padding(start = 2.dp, top = DhDesign.Space.sm.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
             if (feedback.isNotEmpty()) {

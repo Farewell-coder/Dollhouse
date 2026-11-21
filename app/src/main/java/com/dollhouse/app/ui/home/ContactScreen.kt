@@ -158,9 +158,9 @@ object ContactScreen {
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = 16.dp,
+                        start = DhDesign.Space.lg.dp,
                         end = 34.dp,
-                        bottom = BottomNav.HEIGHT_DP.dp + 16.dp
+                        bottom = BottomNav.HEIGHT_DP.dp + DhDesign.Space.lg.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {

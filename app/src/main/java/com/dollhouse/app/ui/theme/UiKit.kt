@@ -919,7 +919,8 @@ object UiKit {
         val g = round(card(), c, 16f)
         g.setStroke(1, STROKE)
         v.background = g
-        v.elevation = dp(c, 2).toFloat()
+        // 【方案B·去投影】`card(v, c)` 全仓 **0 处调用**（App 已迁 Compose 的 DhGroup）。
+        //   层级继续由上面那圈 1px STROKE 描边承担 —— 与 DhGroup「0 阴影 + 发丝线」同一口径。
     }
 
     /** 主按钮：紫渐变 + 白字 + 微光。 */
@@ -932,7 +933,7 @@ object UiKit {
         b.background = g
         b.setTextColor(ON_ACC)
         b.gravity = Gravity.CENTER
-        b.elevation = dp(c, 3).toFloat()
+        // 【方案B·去投影】本函数只有 `btn()` / `showDialog()` 两个调用者，而两者全仓 0 处活调用。
         press(b)
     }
 
@@ -959,7 +960,7 @@ object UiKit {
         b.scaleType = ImageView.ScaleType.CENTER
         b.isClickable = true
         b.setPadding(0, 0, 0, 0)
-        b.elevation = dp(c, 3).toFloat()
+        // 【方案B·去投影】`sendButton()` 全仓 0 处调用。
         press(b)
     }
 
@@ -969,7 +970,7 @@ object UiKit {
         b.background = roundStroke(card(), LINE, c, 12f)
         b.setTextColor(TITLE)
         b.gravity = Gravity.CENTER
-        b.elevation = dp(c, 1).toFloat()
+        // 【方案B·去投影】`secondary()` 仅被 `dialogButton()` 调用，后者 0 处活调用；底色 + LINE 描边已足够分层。
         press(b)
     }
 
@@ -983,7 +984,7 @@ object UiKit {
         b.background = roundStroke(sheetUp(), LINE, c, 12f)
         b.setTextColor(TITLE)
         b.gravity = Gravity.CENTER
-        b.elevation = dp(c, 1).toFloat()
+        // 【方案B·去投影】同上：仅 `dialogButton()` 调用，0 处活调用。
         press(b)
     }
 
@@ -1295,7 +1296,7 @@ object UiKit {
 
         init {
             setBackground(UiKit.round(UiKit.SWITCH_OFF, ctx, 999f))
-            elevation = UiKit.dp(ctx, 1).toFloat()
+            // 【方案B·去投影】`UiKit.Switch` 全仓 0 处实例化（已换 Compose 版 DhKit.Switch）。
 
             knob = View(ctx)
             val k = UiKit.dp(ctx, (H_DP - PAD_DP * 2).toFloat())
@@ -1303,7 +1304,7 @@ object UiKit {
             klp.gravity = Gravity.CENTER_VERTICAL
             klp.leftMargin = UiKit.dp(ctx, PAD_DP.toFloat())
             knob.setBackground(UiKit.round(0xFFFFFFFF.toInt(), ctx, 999f))
-            knob.elevation = UiKit.dp(ctx, 3).toFloat()
+            // 【方案B·去投影】同上：滑块不再投影，轨道/滑块的实色差已足够表达状态。
             addView(knob, klp)
         }
 

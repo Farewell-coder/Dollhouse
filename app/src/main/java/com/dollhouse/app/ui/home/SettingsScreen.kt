@@ -163,10 +163,48 @@ object SettingsScreen {
         return ComposeHost.createView(act) { SettingsContent(act) }
     }
 
+    /**
+     * 顶栏里的「搜索设置」入口（单栏与双栏共用同一个组合件）。
+     *
+     * 【为什么用顶栏图标而不是常驻搜索框】设置页是「卡片流 + 折叠」，顶部常驻一个
+     *   56dp 搜索框会永久挤掉一屏高度、且与卡片的圆角/间距节奏打架；图标点一下进
+     *   独立的搜索页，输入框能自动聚焦、结果区能占满全屏，两件事各自纯粹。
+     *   与 012 方案 §4「设置首页搜索胶囊入口」同一取向，只是落点选在顶栏 ——
+     *   这样双栏布局（`SettingsTwoPane` 自带 TopBar）也能复用同一处入口。
+     *
+     * 【图标为什么用 IC_ZOOM_IN】工程里没有 ic_search 矢量图，`IC_ZOOM_IN` 是现成的
+     *   放大镜字形 —— 视觉上就是「搜索」。新增 ic_search 属于 res 层改动，留给后续。
+     *
+     * 【无障碍】挂 `a11yName`，读屏念「搜索设置」而不是"按钮"。
+     */
+    @Composable
+    private fun SearchAction() {
+        DhKit.IconButton(
+            iconRes = Icons.IC_ZOOM_IN,
+            sizeDp = Design.SZ_MD,
+            color = DhTokens.colors.title,
+            a11yName = "搜索设置"
+        ) {
+            com.dollhouse.app.ui.settings.SettingsSearchState.open = true
+        }
+    }
+
     @Composable
     private fun SettingsContent(act: MainActivity) {
         // 进页对一次真实状态（从系统设置页返回后立即刷新权限行）。
         LaunchedEffect(Unit) { HomeUi.syncAll(act) }
+
+        // 【P1-e·设置搜索】搜索覆盖层：展开时**整页替换**为搜索页。
+        //   放在双栏判断之前 —— 手机/平板两种布局都要能被搜索覆盖，
+        //   否则平板上点搜索会「搜索页只在右栏里出现」。
+        //   为什么不做成独立 PageStack 页：那要动路由白名单（NavKeyCodec / PageRegistry /
+        //   新 Route 三处联动），而搜索页没有「被系统重建后要还原」的需求。详见 SettingsSearchPage 头注释。
+        if (com.dollhouse.app.ui.settings.SettingsSearchState.open) {
+            com.dollhouse.app.ui.settings.SettingsSearchPage(act) {
+                com.dollhouse.app.ui.settings.SettingsSearchState.open = false
+            }
+            return
+        }
 
         // 【P2-b·平板双栏】Expanded（≥840dp）时改成「左分组导航 + 右内容」。
         //   Compact / Medium 完全走原来的单栏路径（见下方 early return），
@@ -182,7 +220,8 @@ object SettingsScreen {
                 // 【返回】设置页是覆盖层，退层即可露出它下面的主页 ——
                 //   不再需要「切回首页」那种底座级操作。
                 com.dollhouse.app.ui.compose.PageStack.pop(act)
-            }
+            },
+            actions = { SearchAction() }
         ) {
             // 【本轮·补设计稿要求的资料卡】设计稿 §4.6 的设置页是「资料卡 + 分组导航行」结构：
             //   顶部一张 Profile card（头像 56 + 我的资料 + 说明 + 箭头），下面是分组入口。
@@ -276,7 +315,8 @@ object SettingsScreen {
             // 顶栏：与单栏版同一个 DhKit.Page 的标题口径（20sp / 600 / 返回键）。
             DhKit.TopBar(
                 title = "设置",
-                onBack = { com.dollhouse.app.ui.compose.PageStack.pop(act) }
+                onBack = { com.dollhouse.app.ui.compose.PageStack.pop(act) },
+                actions = { SearchAction() }
             )
             Row(modifier = Modifier.fillMaxSize()) {
                 SettingsRail(

@@ -476,12 +476,13 @@ object AboutPage {
             },
             negText = "稍后",
             content = {
-                // E16-ALLOW: 版本对照 "v0.2.7 → v0.2.8（稳定版）"：版本号拼接，最长约 20 字符且无中文
+                // 【E16·真问题（原 ALLOW 理由错：含 channel.label 中文，≈22 视觉字）】补行高
                 Text(
                     text = "v" + available.currentVersion + "  →  v" + available.candidate.versionName +
                             "（" + available.channel.label + "）",
                     color = c.acc,
                     fontSize = UiKit.FS_BTN.sp,
+                    lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
                 )

@@ -542,11 +542,14 @@ object DhForm {
                 decorationBox = { inner ->
                     Box {
                         if (value.isEmpty() && hint.isNotEmpty()) {
-                            // E16-ALLOW: 输入框占位 hint，同 :435 的短提示
+                            // 【E16·真问题】多行输入框的 hint 最长 ≈28 视觉字
+                            //   （如「例：故事发生在一个虚构的 GalGame 世界里，与现实无关」），
+                            //   一行放不下 → 会换行，故补行高而非 ALLOW。
                             Text(
                                 text = hint,
                                 color = c.sub,
                                 fontSize = UiKit.FS_BTN.sp,
+                                lineHeight = DhTokens.type.body.lineHeight,
                                 fontFamily = DhTokens.fonts
                             )
                         }

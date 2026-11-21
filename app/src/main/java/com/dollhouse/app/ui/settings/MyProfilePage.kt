@@ -207,11 +207,13 @@ object MyProfilePage {
                         }
                     }
                     // 【r19·引导】用户反馈「找不到头像入口」，加一行小字说明点击哪里。
-                    // E16-ALLOW: "个性签名"字段标签：4 字固定
+                    // 【E16】15 汉字+符号 ≈18 视觉字：360dp 单行、320dp 小屏会换行 → 补行高，
+                    //   并移除此前放错位置、理由不符的 E16-ALLOW。
                     Text(
                         text = "点击「更换头像」→ 从相册选一张",
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody,
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp, start = 2.dp)
                     )
@@ -260,6 +262,7 @@ object MyProfilePage {
                 label = "个性签名",
                 hint = "一句话介绍自己",
                 trailing = {
+                    // E16-ALLOW: 字数计数（"3/40"）：数字与斜杠，单行
                     Text(
                         text = bio.length.toString() + "/" + MyProfile.BIO_MAX,
                         // 【修·可读性】原来用 c.line（分隔线色）：压在输入框的 p.field 底上只有 1.30:1，

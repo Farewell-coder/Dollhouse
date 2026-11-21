@@ -367,7 +367,7 @@ class CoverCropActivity : Activity() {
         Box(
             modifier = visual
                 .then(press)
-                .padding(horizontal = 16.dp, vertical = 7.dp),
+                .padding(horizontal = DhDesign.Space.lg.dp, vertical = 7.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(

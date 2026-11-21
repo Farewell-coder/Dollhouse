@@ -57,6 +57,15 @@ data class SettingsSpot(
      * 这类技术名词天然带英文。不做登记，用户输入 `monet`、`overlay`、`stream` 一律搜不到。
      */
     val keywordsEn: List<String> = emptyList(),
+    /**
+     * B 类页面的**内部路由**（仅 `ProviderNav` 族需要）；A 类页恒为 null。
+     *
+     * 【为什么需要】`ProviderNav` 在页面栈里只占**一层**（key 恒为 `feiyu_cfg_page`），
+     *   真正落在哪张子页由它自己的内部路由栈决定（`R_LIST` / `R_LAMDA` / …）。
+     *   搜索跳转时只 push 外层 key 会落到默认的「供应商列表」，
+     *   所以要对这类行额外给出 `route`，由 `ProviderNav.openAt(act, route)` 精确落地。
+     */
+    val route: String? = null,
     /** 当前是否可用。不可用时**照列**（不隐藏），并在结果里展示 [unavailableHint]。 */
     val available: () -> Boolean = { true },
     /** 不可用的原因文案。仅在 [available] 返回 false 时有意义。 */
@@ -104,7 +113,8 @@ object SettingsSpots {
         available: () -> Boolean = { true },
         hint: String = "",
         value: () -> String? = { null },
-        freq: Int = 0
+        freq: Int = 0,
+        route: String? = null
     ): SettingsSpot = SettingsSpot(
         rowId = rowId,
         pageKey = pageKey,
@@ -115,7 +125,8 @@ object SettingsSpots {
         available = available,
         unavailableHint = hint,
         value = value,
-        freq = freq
+        freq = freq,
+        route = route
     )
 
     /* ============================ 1. 权限与保活（8 行） ============================ */
@@ -559,13 +570,15 @@ object SettingsSpots {
             "lamda.download", K_PROVIDER, "下载服务器包（约 204 MB）", "lamda 设备控制 › 安装",
             zh = listOf("lamda", "服务器包", "下载运行环境", "204mb"),
             en = listOf("lamda", "download runtime", "server package"),
-            freq = 5
+            freq = 5,
+            route = "lamda"
         ),
         spot(
             "lamda.unpack", K_PROVIDER, "解包安装", "lamda 设备控制 › 安装",
             zh = listOf("解包", "安装运行环境", "安装服务"),
             en = listOf("unpack", "install runtime"),
-            freq = 5
+            freq = 5,
+            route = "lamda"
         ),
         spot(
             "lamda.start", K_PROVIDER, "启动服务", "lamda 设备控制 › 服务",
@@ -573,7 +586,8 @@ object SettingsSpots {
             en = listOf("start service", "start runtime"),
             available = { HomeState.shizuku == ShizukuBridge.S_GRANTED },
             hint = "Shizuku 授权后可用",
-            freq = 5
+            freq = 5,
+            route = "lamda"
         ),
         spot(
             "lamda.stop", K_PROVIDER, "停止服务", "lamda 设备控制 › 服务",
@@ -581,7 +595,8 @@ object SettingsSpots {
             en = listOf("stop service", "stop runtime"),
             available = { HomeState.shizuku == ShizukuBridge.S_GRANTED },
             hint = "Shizuku 授权后可用",
-            freq = 2
+            freq = 2,
+            route = "lamda"
         ),
         spot(
             "lamda.keepAlive", K_PROVIDER, "自动保活", "lamda 设备控制 › 服务",
@@ -589,13 +604,15 @@ object SettingsSpots {
             en = listOf("keepalive", "auto restart"),
             available = { HomeState.shizuku == ShizukuBridge.S_GRANTED },
             hint = "Shizuku 授权后可用",
-            freq = 2
+            freq = 2,
+            route = "lamda"
         ),
         spot(
             "lamda.remove", K_PROVIDER, "删除已安装的服务与下载的包", "lamda 设备控制 › 安装",
             zh = listOf("卸载运行环境", "删除服务器包", "清理"),
             en = listOf("uninstall runtime", "delete package"),
-            freq = 0
+            freq = 0,
+            route = "lamda"
         )
     )
 
