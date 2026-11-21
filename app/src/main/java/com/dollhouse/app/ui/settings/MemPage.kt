@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -275,31 +277,41 @@ object MemPage {
          *   （见 `userPickedMode` 标志）。图谱对部分低视力用户仍有价值 ——
          *   他们能看图形、只是需要更大的字，锁死在列表反而是剥夺。
          */
-        val a11yCtx = act.applicationContext
-        // 读屏（触摸探索）当前是否开启；初值取一次，之后由监听器更新。
-        var touchExploration by remember {
-            mutableStateOf(
-                runCatching {
-                    (a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager)
-                        .isTouchExplorationEnabled
-                }.getOrDefault(false)
-            )
-        }
-        // 【用户是否已经手动选过模式】一旦点过顶栏切换，就永久尊重用户选择，
-        //   本文件的监听器不再覆盖它。用 rememberSaveable 会更严谨，但本页无
-        //   rememberSaveable 依赖、且切换后同一次页面生命周期内足够 —— 见下方说明。
-        var userPickedMode by remember { mutableStateOf(false) }
-        // 订阅 TalkBack 开关变化：进入组合时注册、离开时注销（DisposableEffect 保证不泄漏）。
-        DisposableEffect(a11yCtx) {
-            val am = runCatching {
+        /*
+         * ── 实现：三个状态 + 一个监听 ──
+         *   · `a11yMgr`  —— 只取一次，供初值与监听器复用；
+         *   · `listMode` —— **先声明**（下面监听器的 lambda 要写它）；
+         *   · `userPickedMode` —— 用户是否手动点过顶栏的「图谱/列表」；
+         *   · `DisposableEffect` —— 订阅 TalkBack 开关变化，进入注册、离开注销。
+         *
+         * 【为什么 listMode 必须声明在 DisposableEffect 之前】
+         *   Kotlin 的局部变量必须先声明后使用。监听器的 lambda 里要 `listMode = ...`，
+         *   写在后面会 Unresolved reference（本工程历史上踩过同类"顺序"坑）。
+         *
+         * 【为什么 `touchExploration` 不作为独立状态存下来】
+         *   第一版我存了一个 `touchExploration` 状态，但**没有任何 UI 读它** ——
+         *   它只用于「监听器内部判断」。多一个无人观察的 Compose 状态是纯浪费
+         *   （每次赋值都触发一次无效重组检查）。这里改为直接用 lambda 的 `enabled` 参数。
+         */
+        val a11yMgr = remember(a11yCtx) {
+            runCatching {
                 a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
             }.getOrNull()
+        }
+        // 用户是否手动切过模式：一旦切过，监听器不再覆盖他的选择（绝不锁定）。
+        var userPickedMode by remember { mutableStateOf(false) }
+        // 默认值 = 带定位参数（必须列表）**或** 读屏开启（图谱读不到）。
+        var listMode by remember {
+            mutableStateOf(anchorId != null || (a11yMgr?.isTouchExplorationEnabled == true))
+        }
+        // 订阅 TalkBack 开关变化。
+        DisposableEffect(a11yMgr) {
+            val am = a11yMgr
             if (am == null) {
                 onDispose { }
             } else {
                 val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled ->
-                    touchExploration = enabled
-                    // 【只改默认、不覆盖用户选择】用户手动切过就不再自动跟随。
+                    // 【只改默认、不覆盖用户选择】用户手动切过就永久尊重他。
                     if (!userPickedMode) {
                         listMode = anchorId != null || enabled
                     }
@@ -309,14 +321,6 @@ object MemPage {
                     runCatching { am.removeTouchExplorationStateChangeListener(listener) }
                 }
             }
-        }
-        var listMode by remember {
-            mutableStateOf(
-                anchorId != null || runCatching {
-                    (a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager)
-                        .isTouchExplorationEnabled
-                }.getOrDefault(false)
-            )
         }
 
         // 【v0.2.7·定位】列表滚动状态 + 一次性高亮。
@@ -414,6 +418,9 @@ object MemPage {
                 // 【r15·图标+文字】顶栏右侧空间宽裕 → 加文字。
                 // 【v0.2.6】图谱 / 列表切换。默认仍是图谱（保持原主视觉），
                 //   列表只作为「逐条读」的补充，不替换图谱。
+                // 【P2-c·无障碍补充】读屏开启时默认落在列表（见文件上方 listMode 的初值）。
+                //   这个按钮是**用户唯一的手动出口**，所以点它时必须置 `userPickedMode = true` ——
+                //   否则 TalkBack 开关一变，监听器会把用户刚切到的图谱又推回列表。
                 DhKit.IconButton(
                     if (listMode) Icons.IC_WAYPOINTS else Icons.IC_LIST_CHECKS,
                     Design.SZ_MD,
@@ -421,6 +428,7 @@ object MemPage {
                     label = if (listMode) "图谱" else "列表"
                 ) {
                     listMode = !listMode
+                    userPickedMode = true
                 }
                 DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分类") {
                     folderMgr = true

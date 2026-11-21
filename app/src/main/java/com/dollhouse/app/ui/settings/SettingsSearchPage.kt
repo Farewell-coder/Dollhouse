@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -112,6 +113,25 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
     }
     val results = remember(query) { SettingsSpots.search(query) }
 
+    // 【系统返回键】搜索是设置页的**覆盖状态**、不是栈里的一层，
+    //   所以 `handleBack` 会直接弹掉整个设置页。这里登记返回拦截器：
+    //   key 必须是「宿主页」的 key（`MainActivity` 只在 `isTop(key)` 成立时才询问），
+    //   拦截后只收起搜索、不退页。与 DeveloperOptionsPage / AboutPage 的子屏返回同一套机制。
+    PageStack.backInterceptor = PageStack.BackInterceptor(
+        com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE
+    ) {
+        onClose()
+        true
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            // 【必须自清】单槽拦截器留着不清，会在下一次压栈后巧合命中 isTop 吃掉别人的返回。
+            if (PageStack.backInterceptor?.key == com.dollhouse.app.ui.home.SettingsScreen.TAG_PAGE) {
+                PageStack.backInterceptor = null
+            }
+        }
+    }
+
     DhKit.Page(
         title = "搜索设置",
         sub = "输入名称、旧叫法或英文词",
@@ -193,7 +213,9 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
             )
 
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = DhDesign.Space.xl.dp),
                 verticalArrangement = Arrangement.spacedBy(DhDesign.Space.xs.dp)
             ) {

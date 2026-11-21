@@ -504,6 +504,8 @@ object ChatUi {
                     .pressable { host.openMain() }
                     .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
+                // E16-ALLOW: 提示条文案来自 ChatState.hint，全仓唯一赋值是写死的 18 字
+                //   「还没有可用的供应商模型，点这里去设置」，容器约 300dp 一行放得下
                 Text(
                     text = text,
                     color = c.hintFg,
@@ -707,6 +709,7 @@ object ChatUi {
         ) {
             DhKit.Icon(Icons.IC_MESSAGE_SQUARE_HEART, Design.SZ_XL, c.line)
             Spacer(Modifier.height(DhDesign.Space.md.dp))
+            // E16-ALLOW: 空态固定文案「还没有聊过，说点什么吧」11 字，居中单行
             Text(
                 text = "还没有聊过，说点什么吧",
                 color = c.sub,
@@ -1148,6 +1151,7 @@ object ChatUi {
                     .pressable { host.loadEarlier() }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
+                // E16-ALLOW: 固定文案「点击加载更早的历史记录」11 字，单行药丸
                 Text(
                     text = "点击加载更早的历史记录",
                     color = c.chatChipFg,
@@ -1174,6 +1178,7 @@ object ChatUi {
                     .background(c.chatActionBg)
                     .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
             ) {
+                // E16-ALLOW: 思考占位短标「思考中…」等（≤4 字），单行药丸
                 Text(
                     text = label,
                     color = c.chatChipMute,
@@ -1210,6 +1215,7 @@ object ChatUi {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_BRAIN, sizeDp = Design.SZ_XS, color = c.chatChipMute)
+                    // E16-ALLOW: thinkCostText 产出「思考了 x.x 秒」，≤9 字单行
                     Text(
                         text = thinkCostText(box.costMs),
                         modifier = Modifier.padding(start = 6.dp),
@@ -1288,6 +1294,7 @@ object ChatUi {
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.chatChipMute)
             Spacer(Modifier.width(DhDesign.Space.xs.dp))
+            // E16-ALLOW: 操作药丸文案「重新生成」/「复制」/「清空」，固定 2~4 字单行
             Text(
                 text = text,
                 color = c.chatChipMute,
@@ -1509,6 +1516,7 @@ object ChatUi {
                             .padding(horizontal = 10.dp, vertical = DhDesign.Space.sm.dp)
                     ) {
                         if (ChatState.input.isEmpty()) {
+                            // E16-ALLOW: 输入框占位「跟她说点什么…」8 字，单行
                             Text(
                                 text = "跟她说点什么…",
                                 color = c.sub,
