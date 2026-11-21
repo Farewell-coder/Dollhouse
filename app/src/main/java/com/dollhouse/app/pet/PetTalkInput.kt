@@ -9,6 +9,8 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -301,6 +304,12 @@ class PetTalkInput internal constructor(
         val inputStyle = bodyStyle.copy(fontFamily = DhTokens.fonts, color = palette.title)
         val hintStyle = bodyStyle.copy(fontFamily = DhTokens.fonts, color = palette.sub)
         val tick = focusTick.value
+        // 【聚焦态】input_audit I6：自建 BasicTextField 必须传 interactionSource，
+        //   否则 BasicTextField 内部自建一个源，外面观察不到聚焦事件 —— 表现是
+        //   「点进来/自动聚焦了，但看不出这条栏现在是活的」。
+        //   这里把聚焦反馈做成描边变色（线色 → 强调色），与聊天输入框同口径。
+        val interaction = remember { MutableInteractionSource() }
+        val inputFocused = interaction.collectIsFocusedAsState().value
         LaunchedEffect(tick) {
             if (tick > 0) {
                 runCatching { focusRequester.requestFocus() }
@@ -312,7 +321,11 @@ class PetTalkInput internal constructor(
                 .shadow(6.dp, RoundedCornerShape(RADIUS_DP.dp))
                 .clip(RoundedCornerShape(RADIUS_DP.dp))
                 .background(palette.card)
-                .border(DhDesign.Size.hairline, palette.line, RoundedCornerShape(RADIUS_DP.dp))
+                .border(
+                    DhDesign.Size.hairline,
+                    if (inputFocused) palette.acc else palette.line,
+                    RoundedCornerShape(RADIUS_DP.dp)
+                )
                 .padding(PAD_DP.dp)
         ) {
             Row(
@@ -325,6 +338,7 @@ class PetTalkInput internal constructor(
                         text.value = it
                         scheduleAutoHide()
                     },
+                    interactionSource = interaction,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()

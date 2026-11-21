@@ -99,7 +99,12 @@ jobs:
         run: |
           python3 tools/align_audit.py --quiet
           python3 tools/radius_audit.py --quiet
-          python3 tools/kotlin_precheck.py
+          # 【--e16-block】E16（多行文本缺 lineHeight）已从警告转为**阻塞**：
+          #   004 把存量 181 处全部补齐，本地实测 E16 警告 = 0、exit 0。
+          #   脚本里留了 ≤5 的余量设计，现在 0 处已低于阈值，可以开阻塞。
+          #   以后新代码再漏 lineHeight 会在这里（编译前）立刻红，而不用等 8 分钟编译。
+          #   若要临时放宽，去掉这个参数即可退回「只警告不阻塞」。
+          python3 tools/kotlin_precheck.py --e16-block
           python3 tools/comment_balance.py
 
       # 【静态门禁·A 档】上面 4 项只覆盖「居中 / 圆角 / Kotlin 规约 / 注释括号」，

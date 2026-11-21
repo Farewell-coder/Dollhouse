@@ -1059,7 +1059,10 @@ object MemPage {
     @Composable
     private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
-        // E16-ALLOW: 筛选 chip 文案 `text`（"全部"/"有标签"…）：2~4 字固定词，chip 定高
+        // E16-ALLOW: 筛选 chip 文案 `text`。常规取值 2~4 字（"全部"/"未分类"/"确定"），
+        //   但 `shortFolder` 会截到 8 字 + 省略号、`"#" + t` 的 t 是用户自定义标签。
+        //   【待真机确认】用户输入超长标签（如 10+ 字）时本 chip 会不会换行撑高 ——
+        //   chip 是 `padding` 撑高而非定高，多行会变高。真机未验，暂保留 ALLOW。
         Text(
             text = text,
             modifier = Modifier

@@ -269,7 +269,8 @@ object ProviderListPage {
                 DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
-            // E16-ALLOW: 供应商名首字母头像内的单字符：圆形 38dp 容器内一个字
+            // E16-ALLOW: 弹窗菜单项文字 `text`（"重命名"/"删除"）：
+            //   `MenuItem` 只有这 2 个调用点，固定 2~3 字
             Text(
                 text = text,
                 color = c.title,

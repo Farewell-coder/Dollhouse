@@ -268,9 +268,14 @@ class DesignScreenshotTest {
     @Test
     fun settingsFragment_rendersPalette() {
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        // 【为什么要在 setContent 里捕获】DhTokens.palette 是 @Composable get()，
+        //   只能在组合作用域读；@Test 函数体不是 @Composable，直接读会编译失败
+        //   （Composable invocations can only happen from the context of a @Composable function）。
+        var capturedP: DhDesign.Palette? = null
         val cv = ComposeView(activity).apply {
             setContent {
                 DollhouseTheme {
+                    capturedP = DhTokens.palette
                     DhKit.Page(title = "设置", onBack = {}) {
                         DhKit.SectionLabel("通用", iconRes = Icons.IC_SETTINGS)
                         DhKit.Card {
@@ -320,7 +325,7 @@ class DesignScreenshotTest {
         save(bmp, "03-settings")
 
         // ② 关键语义色必须出现（从当前调色板现读，不写死 —— 换主题/莫奈都不会误报）
-        val p = DhTokens.palette
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
         assertColors(
             bmp, "03-settings", mapOf(
                 p.card.toArgbForTest() to 1,     // 卡片底：DhKit.Card 转发 kit.DhGroup
@@ -349,10 +354,12 @@ class DesignScreenshotTest {
     @Test
     fun chatBubbleFragment_rendersPalette() {
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        var capturedP: DhDesign.Palette? = null
         val cv = ComposeView(activity).apply {
             setContent {
                 DollhouseTheme {
                     val p = DhTokens.palette
+                    capturedP = p
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -374,7 +381,7 @@ class DesignScreenshotTest {
         val bmp = renderToBitmap(cv)
         save(bmp, "04-chatbubble")
 
-        val p = DhTokens.palette
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
         // 【为什么这里容差给 3】chatBubbleUser(#DCE9FA) 与 bg(#E8EFF7) 的最大通道差只有 12、
         //   card(#FAFCFE) 与 bg 只有 18 —— 用默认的 6 会让「气泡底」与「页面底」互相误中，
         //   于是气泡底缺失也可能被 bg 的命中数顶过阈值，断言形同虚设。

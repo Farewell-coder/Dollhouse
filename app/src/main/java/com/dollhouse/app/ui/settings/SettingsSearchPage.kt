@@ -1,6 +1,9 @@
 package com.dollhouse.app.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextStyle
@@ -106,6 +110,12 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
     //   `ChatState.items` 在界面层的用法一致。
     val query: String = SettingsSearchState.query
     val focus = remember { FocusRequester() }
+    // 【聚焦态】input_audit 的 I6 判据：绕过规范入口自建 BasicTextField 时**必须**传
+    //   interactionSource —— 不传时 BasicTextField 会自己 new 一个内部源，外面永远观察不到
+    //   聚焦事件，于是「点了/进来了却看不出现在在打字」。
+    //   这里顺手把它变成可见反馈：聚焦时底色从 soft 提亮到 card、描边由透明变强调色。
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     // 【自动聚焦】进页即弹键盘：搜索页的全部意义就是"马上打字"，
     //   让用户再点一次输入框是多余的一步。
     LaunchedEffect(Unit) {
@@ -144,7 +154,12 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
                 .fillMaxWidth()
                 .padding(top = DhDesign.Space.xs.dp)
                 .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
-                .background(c.soft)
+                .background(if (focused) c.card else c.soft)
+                .border(
+                    width = DhDesign.Size.hairline,
+                    color = if (focused) c.acc else Color.Transparent,
+                    shape = RoundedCornerShape(DhDesign.Radius.pill.dp)
+                )
                 .padding(horizontal = DhDesign.Space.md.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -173,6 +188,7 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
                         .fillMaxWidth()
                         .focusRequester(focus),
                     singleLine = true,
+                    interactionSource = interaction,
                     textStyle = TextStyle(
                         color = c.title,
                         fontSize = t.body.fontSize,
