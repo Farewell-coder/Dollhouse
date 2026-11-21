@@ -139,23 +139,36 @@ IMPORT_MAP = {
 EXEMPT = ("/ui/design/DesignSystem.kt",)
 
 
-def strip_code(text):
-    """把字符串与注释替换成空格，返回等长文本，用于括号平衡与引用检测。"""
+def strip_code(text, state=None):
+    """把字符串与注释替换成空格，返回等长文本，用于括号平衡与引用检测。
+
+    【参数 state（可选）】传入一个 dict，函数会把「块注释的最终嵌套深度」与
+      「尚未闭合的 `/*` 位置栈」写进去，供 E1 使用：
+          state["depth"] = 到文件末尾仍未闭合的层数（正常应为 0）
+          state["opens"] = 未闭合的 `/*` 起始下标列表（由外到内）
+      **不传时行为与从前完全一致**（现有 12 处调用零影响）——这样 E1 不必复制
+      一套字符串/注释状态机（两套必然分叉，E12/E16 的教训）。
+    """
     out = list(text)
     i = 0
     n = len(text)
     depth = 0
+    _opens = [] if state is not None else None
     while i < n:
         c = text[i]
         # 块注释（可嵌套）
         if depth > 0:
             if text.startswith("/*", i):
                 depth += 1
+                if _opens is not None:
+                    _opens.append(i)
                 out[i] = out[i + 1] = " "
                 i += 2
                 continue
             if text.startswith("*/", i):
                 depth -= 1
+                if _opens is not None and _opens:
+                    _opens.pop()
                 out[i] = out[i + 1] = " "
                 i += 2
                 continue
@@ -165,6 +178,8 @@ def strip_code(text):
             continue
         if text.startswith("/*", i):
             depth = 1
+            if _opens is not None:
+                _opens.append(i)
             out[i] = out[i + 1] = " "
             i += 2
             continue
@@ -212,6 +227,9 @@ def strip_code(text):
             i = j + 1
             continue
         i += 1
+    if state is not None:
+        state["depth"] = depth
+        state["opens"] = _opens
     return "".join(out)
 
 
@@ -575,8 +593,30 @@ def paren_map(code):
 
 def check_file(path: Path):
     raw = path.read_text(encoding="utf-8", errors="replace")
-    code = strip_code(raw)
+    _strip_state = {}
+    code = strip_code(raw, _strip_state)
     problems = []
+
+    # E1 块注释未闭合（Kotlin 块注释**可嵌套**，注释里写 `/*` 会吞掉后面整段代码）
+    #
+    # 【为什么这条此前是空的】文件头 docstring 从第一版就写着 E1，但 `strip_code`
+    #   内部虽然一直在维护 `depth`，却**从不报告**它 —— 于是长期"文档说有 17 条、
+    #   实际只有 16 条在跑"。这是"验证本身没生效"的第七个案例。
+    # 【为什么不在 strip_code 里直接报】它要返回字符串、且被 12 处调用，
+    #   在里面塞"报错"会污染底座。改成**可选出参**把状态带出来，E1 自己判断。
+    # 【为什么必须复用 strip_code 的状态机】字符串里出现 `/*`（`val s = "a /* b"`）
+    #   不能被当成注释起点；自己再写一份扫描器必然与它分叉。
+    if _strip_state.get("depth", 0) > 0:
+        _opens = _strip_state.get("opens") or []
+        # 报**最外层**那个未闭合的 `/*`：它才是根因（后面的嵌套都因为它没关）
+        _pos = _opens[0] if _opens else 0
+        _line = raw.count("\n", 0, _pos) + 1
+        problems.append(
+            f"E1 第 {_line} 行块注释未闭合（到文件末尾仍差 "
+            f"{_strip_state['depth']} 层 `*/`）：Kotlin 块注释可嵌套，"
+            f"里面写 `/*` 会把后面整段代码吞进注释 —— 编译期报的往往是别处的"
+            f"Unresolved reference，很难反查到这里"
+        )
 
     # E3 括号平衡
     for open_ch, close_ch, name in (("{", "}", "花括号"), ("(", ")", "圆括号"), ("[", "]", "方括号")):

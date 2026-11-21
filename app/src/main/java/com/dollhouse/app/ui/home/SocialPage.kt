@@ -690,6 +690,7 @@ object SocialPage {
                             lineHeight = t.caption.lineHeight,
                             fontFamily = DhTokens.fontsBody,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                                 .background(p.soft)

@@ -392,7 +392,8 @@ object SettingsScreen {
                         fontSize = UiKit.FS_BTN.sp,
                         fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
                         fontWeight = FontWeight.Normal,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

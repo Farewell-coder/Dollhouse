@@ -323,7 +323,7 @@ class PetTalkInput internal constructor(
                 .background(palette.card)
                 .border(
                     DhDesign.Size.hairline,
-                    if (inputFocused) palette.acc else palette.line,
+                    if (inputFocused) palette.accent else palette.line,
                     RoundedCornerShape(RADIUS_DP.dp)
                 )
                 .padding(PAD_DP.dp)

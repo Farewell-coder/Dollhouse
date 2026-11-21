@@ -1216,6 +1216,8 @@ object DhKit {
                     color = tint,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
+                    // 【故意不加 overflow】三档状态文案是固定的（最长 3 字），
+                    //   且这一行右侧还有图标与间距，实测不可能触到边界。
                     maxLines = 1
                 )
                 Spacer(Modifier.width(4.dp))
@@ -1648,7 +1650,10 @@ object DhKit {
                     fontSize = UiKit.FS_CHIP.sp,
                     fontFamily = DhTokens.fonts,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 1
+                    // 【调用方标签】label 由调用方传入（如「分组」「新建」），
+                    //   加省略号避免极端窄槽里被硬切半个字。
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1909,7 +1914,22 @@ object DhKit {
                  *     换掉会让这类导航项在全 App 里手感变干。所以这里保留 pressable、
                  *     手动补语义，视觉与手感一字不变。
                  */
-                .semantics {
+                /*
+                 * 【P2-c·无障碍补：mergeDescendants = true】
+                 *   补这个参数之前，本节点与内部的 `Text(label)` 是**两个独立可聚焦节点** ——
+                 *   读屏用户要划两次才过一个导航项，第一次还只有孤零零的文字。
+                 *   合并后一次念清：「聊天，标签页，已选中」。
+                 *
+                 *   【与本文件其它两处的口径一致】
+                 *     · `BottomNav.TabItem`  —— 内部 `Text` + `Badge` 裸数字，必须合并；
+                 *     · `AppearancePage.TabCell` / `ImportAssistantKit.SlotTab` —— 内部单个 `Text`，
+                 *       合并只为把聚焦次数降到 1；
+                 *     · 本处同属「单个 Text」，补齐后**全 App 所有 Tab 形态的聚焦次数统一为 1**。
+                 *
+                 *   【合并的代价】子 `Text` 不再单独可聚焦。但导航项本来就是「一个可点整体」，
+                 *   子文字没有独立交互语义 —— 这是正确的粒度（与 TabItem 同理）。
+                 */
+                .semantics(mergeDescendants = true) {
                     this.selected = selected
                     role = Role.Tab
                     // 名字：图标无文字描述，读屏需要知道这是哪个 Tab。

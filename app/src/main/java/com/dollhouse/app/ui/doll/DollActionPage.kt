@@ -763,6 +763,8 @@ object DollActionPage {
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = FontWeight.Normal,
+                    // 【故意不加 overflow】group 来自 DollAnim 的固定分组常量
+                    //   （GROUP_ALWAYS / GROUP_IDLE …），不是用户输入，宽度有上界。
                     maxLines = 1
                 )
             }

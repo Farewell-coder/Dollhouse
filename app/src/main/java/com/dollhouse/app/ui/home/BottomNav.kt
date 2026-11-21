@@ -212,6 +212,9 @@ object BottomNav {
                 lineHeight = 16.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
                 letterSpacing = 0.44.sp,
+                // 【故意不加 overflow】标签来自 `labelOf(tab)`，是全 App 仅三个的固定文案
+                //   （聊天 / 人偶 / 说说），宽度远小于 Tab 的 72dp 下限，永远不会被裁。
+                //   加省略号只会让审计脚本误以为这里处理过长文本。
                 maxLines = 1
             )
         }

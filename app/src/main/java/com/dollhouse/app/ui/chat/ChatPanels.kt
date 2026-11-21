@@ -224,7 +224,8 @@ object ChatPanels {
                         text = name,
                         color = if (active) p.accent else p.title,
                         style = t.rowTitle,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (active) {
                         Spacer(Modifier.width(DhDesign.Space.sm.dp))
@@ -285,7 +286,8 @@ object ChatPanels {
                 modifier = Modifier.weight(1f),
                 color = if (selected) p.accent else p.title,
                 style = t.body,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             if (selected) {
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))

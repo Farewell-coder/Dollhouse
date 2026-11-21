@@ -891,7 +891,10 @@ object DhForm {
                 fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
                 fontFamily = DhTokens.fonts,
                 fontWeight = FontWeight.SemiBold,
+                // 【调用方文案】IDLE 态直接显示调用方传入的 text（如「全部加入 (12)」），
+                //   拼接后长度不可控；加省略号防止在窄按钮里被硬切半个字。
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -1123,7 +1126,9 @@ object DhForm {
                         fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
                         fontFamily = DhTokens.fonts,
                         fontWeight = FontWeight.SemiBold,
+                        // 【调用方文案】text 由调用方传入，长度不可控；加省略号防止硬切。
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

@@ -401,7 +401,8 @@ object ChatUi {
                         },
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBody,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1353,7 +1354,8 @@ object ChatUi {
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fonts,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             // 【v0.1.0·修·图标偏小】全工程唯一还写着字面量 14f 的按钮图标（旁侧文字 12sp，
             //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 48dp 命中区里像个针尖）。
@@ -1410,6 +1412,9 @@ object ChatUi {
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts,
+                    // 【故意不加 overflow】文案是「已选 + 数字」，位数由选中条数决定、
+                    //   实测最多两位数；加省略号会让它在极端窄行里显示成「已选 1…」，
+                    //   比硬切更难懂。若将来支持上百条选中，改为 Ellipsis 或缩写（99+）。
                     maxLines = 1
                 )
                 DhKit.IconButton(
@@ -1439,7 +1444,8 @@ object ChatUi {
                     color = c.chatChipMute,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fontsBody,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
