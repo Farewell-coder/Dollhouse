@@ -19,6 +19,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Icons
 
 /**
@@ -125,7 +126,7 @@ object MemSettingsPage {
                     hint = "留空表示不加额外规则",
                     minHeight = 80
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.ActionRow(
                     label = "保存规则",
                     iconRes = Icons.IC_CHECK,

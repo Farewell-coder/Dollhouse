@@ -409,7 +409,7 @@ object AexImportSheet {
         Text(
             text = "请输入 Aivora 生成这个文件时给出的凭据。\n" +
                 "凭据只在本机用于解密：不保存、不上传、不写日志。",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
@@ -431,7 +431,7 @@ object AexImportSheet {
         if (err != null) {
             Text(
                 text = err,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBody
@@ -504,7 +504,7 @@ object AexImportSheet {
         Text(
             text = "请输入 Aivora 生成这些文件时给出的凭据。\\n" +
                 "凭据只在本机用于解密：不保存、不上传、不写日志。",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
@@ -526,7 +526,7 @@ object AexImportSheet {
         if (err != null) {
             Text(
                 text = err,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBody
@@ -843,7 +843,7 @@ object AexImportSheet {
             if (hasExtra) {
                 Text(
                     text = "查看保存范围说明",
-                    modifier = Modifier.padding(top = 8.dp).pressable { showExtra = !showExtra },
+                    modifier = Modifier.padding(top = DhDesign.Space.sm.dp).pressable { showExtra = !showExtra },
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -871,9 +871,9 @@ object AexImportSheet {
                 )
                 Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                     ModeChip("跳过", mode == MODE_SKIP) { mode = MODE_SKIP }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("覆盖", mode == MODE_OVERWRITE) { mode = MODE_OVERWRITE }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("另存副本", mode == MODE_DUPLICATE) { mode = MODE_DUPLICATE }
                 }
                 Text(
@@ -1195,7 +1195,7 @@ object AexImportSheet {
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fontsBody
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = p.name + if (p.provider.isNotEmpty() && p.provider != p.name) "（" + p.provider + "）" else "",
                 color = c.title,

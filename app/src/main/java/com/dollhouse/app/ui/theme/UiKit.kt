@@ -1882,22 +1882,27 @@ object UiKit {
      *   于是「说明文字」和「注脚」一样大，全 App 都偏小偏淡。
      */
 
-    /** 页面标题字号 ← [DhTokens.type.title]。 */
-    const val FS_TITLE = 20.0f
+    /** 页面标题字号 ← [DhTokens.type.title]（= [DhDesign.TypeSp.TITLE]）。 */
+    const val FS_TITLE = DhDesign.TypeSp.TITLE
 
-    /** 副标题 / 注脚字号 ← [DhTokens.type.sub]。 */
-    const val FS_SUB = 13.0f
+    /** 副标题 / 注脚字号 ← [DhTokens.type.sub]（= [DhDesign.TypeSp.SUB]）。 */
+    const val FS_SUB = DhDesign.TypeSp.SUB
 
-    /** 底部说明文字号 ← [DhTokens.type.sub]。
+    /** 底部说明文字号 ← [DhTokens.type.sub]（= [DhDesign.TypeSp.SUB]）。
      *  【需求】11sp 在浅底上偏小偏淡（用户实测反馈「底部小字看不清」），
-     *   M1 再上调到 13sp，与 [FS_SUB] 同档 —— 两者本来就是「说明文字」这一种语义。 */
-    const val FS_TINY = 13.0f
+     *   M1 再上调到 13sp，与 [FS_SUB] 同档 —— 两者本来就是「说明文字」这一种语义。
+     *  【别名】值与 [FS_SUB] 完全相同，故同指向 [DhDesign.TypeSp.SUB]（零视觉变化）。
+     *   注意：其中约一半是「真注脚/计数」，语义上最终应降 caption(12)，但那会改观感，
+     *   属独立一步（见 P1-a 计划），此处**先不拆**、只做别名。 */
+    const val FS_TINY = DhDesign.TypeSp.SUB
 
-    /** 标准按钮字号 ← [DhTokens.type.body]。 */
-    const val FS_BTN = 15.0f
+    /** 标准按钮字号 ← [DhTokens.type.body]（= [DhDesign.TypeSp.BODY]）。 */
+    const val FS_BTN = DhDesign.TypeSp.BODY
 
-    /** 小药丸 / 状态标签字号 ← [DhTokens.type.caption]。 */
-    const val FS_CHIP = 12.0f
+    /** 小药丸 / 状态标签字号 ← [DhTokens.type.caption]（= [DhDesign.TypeSp.CAPTION]）。
+     *  【借用】设计系统暂无独立「chip」档，数值恰好等于 caption(12)，先借用该档；
+     *   语义上是「药丸文字」而非「注脚」，将来若加 chip 档再拆。 */
+    const val FS_CHIP = DhDesign.TypeSp.CAPTION
 
     /** 顶栏图标字号 ← [DhDesign.Size.iconMd]。 */
     const val FS_ICON = 20.0f

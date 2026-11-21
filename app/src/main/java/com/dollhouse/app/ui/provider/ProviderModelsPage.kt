@@ -237,7 +237,7 @@ object ProviderModelsPage {
     ) {
         SwipeToDelete(
             onDelete = onDelete,
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             onContentClick = onOpen,
             // 长按 = 读屏用户的等效删除入口（横向拖动在 TalkBack 下做不出来）。
             onLongPress = onLongPress
@@ -263,7 +263,7 @@ object ProviderModelsPage {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(Icons.IC_PLUS, 18f, c.onAcc)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Text(
                     text = "添加模型",
                     color = c.onAcc,

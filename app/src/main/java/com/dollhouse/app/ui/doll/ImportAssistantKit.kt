@@ -154,7 +154,7 @@ internal object ImportAssistantKit {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         DhKit.Icon(iconRes, Design.SZ_SM, c.acc)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         Text(
                             text = title,
                             modifier = Modifier.weight(1f),
@@ -175,7 +175,7 @@ internal object ImportAssistantKit {
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBody
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DhKit.MiniChip(
                             if (picked.isEmpty()) "选择图片" else "重新选择",
@@ -225,7 +225,7 @@ internal object ImportAssistantKit {
                     // 未设置用中性灰（R-064 / R-107），不用红色。
                     if (has) c.acc else c.sub
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Text(
                     text = label,
                     modifier = Modifier.weight(1f),
@@ -352,7 +352,7 @@ internal object ImportAssistantKit {
             } else {
                 val k = Math.max(0.1f, sizePercent / 100f)
                 Box(
-                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                    modifier = Modifier.fillMaxSize().padding(DhDesign.Space.sm.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -377,7 +377,7 @@ internal object ImportAssistantKit {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(Icons.IC_SPINNER, Design.SZ_SM, c.acc)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = text,
                 color = c.sub,
@@ -406,7 +406,7 @@ internal object ImportAssistantKit {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(Icons.IC_CIRCLE_ALERT, Design.SZ_SM, c.err)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = text,
                 modifier = Modifier.weight(1f),
@@ -435,7 +435,7 @@ internal object ImportAssistantKit {
                 Design.SZ_SM,
                 if (has) c.acc else c.sub
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = label,
                 color = c.title,
@@ -616,7 +616,7 @@ internal object ImportAssistantKit {
             } else {
                 val k = Math.max(0.1f, sizePercent / 100f)
                 val density = androidx.compose.ui.platform.LocalDensity.current
-                Box(Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().padding(DhDesign.Space.sm.dp), contentAlignment = Alignment.Center) {
                     Image(
                         bitmap = b,
                         contentDescription = "预览人偶，可以拖动",
@@ -677,7 +677,7 @@ internal object ImportAssistantKit {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(Icons.IC_RULER, Design.SZ_SM, c.acc)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Text(
                     text = "大小检查",
                     modifier = Modifier.weight(1f),
@@ -691,7 +691,7 @@ internal object ImportAssistantKit {
                 )
             }
             if (open) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.MiniChip("全部统一到待机", iconRes = Icons.IC_LIST_CHECKS) { onFixAll() }
                 Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.MiniChip(
@@ -715,7 +715,7 @@ internal object ImportAssistantKit {
                     Box(Modifier.weight(1f)) {
                         DhKit.MiniChip("对齐脚底", iconRes = Icons.IC_FOOTPRINTS) { onAlignBottom() }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Box(Modifier.weight(1f)) {
                         DhKit.MiniChip("对齐头顶", iconRes = Icons.IC_ALIGN_START_VERTICAL) { onAlignTop() }
                     }

@@ -69,6 +69,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhKit.photoTopBand
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.design.LocalCompactHeight
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -220,8 +221,8 @@ object ChatUi {
                 .windowInsetsPadding(WindowInsets.displayCutout)
                 // 有带子时底部多留出渐隐那 12dp，文字不会落在半透明的渐隐区里。
                 .padding(
-                    start = 6.dp, end = 8.dp, top = 6.dp,
-                    bottom = if (onPhoto) 8.dp + DhKit.TOP_BAND_FADE_DP.dp else 8.dp
+                    start = 6.dp, end = DhDesign.Space.sm.dp, top = 6.dp,
+                    bottom = if (onPhoto) DhDesign.Space.sm.dp + DhKit.TOP_BAND_FADE_DP.dp else DhDesign.Space.sm.dp
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -366,7 +367,7 @@ object ChatUi {
                         DhKit.Icon(Icons.IC_CIRCLE_USER, Design.SZ_SM, c.sub)
                     }
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Column {
                     // 人偶名：会话绑定的人偶名；未绑定（自由会话）时退回产品名，不显示空白。
                     val name = doll?.name?.takeIf { it.isNotEmpty() } ?: "Dollhouse"
@@ -581,11 +582,25 @@ object ChatUi {
         //   改造前的叠加方式是「spacedBy(3) + item.padding(top=6) [+ 换人 5]」，
         //   即同角色 9 / 换人 14 —— 两者只差 5，而且间距被拆在两个地方，
         //   调一处漏一处就会前功尽弃。现在统一收到 spacedBy 一处。
+        // 【P2-a·紧凑高度】横屏 / 小屏（窗口高 < 480dp）时收紧**纵向**间距，
+        //   让一屏能多看几条消息；横向 12dp 内边距保持不变（横屏宽度本来就够）。
+        //   取舍：只动「消息之间」和「上下留白」，不动气泡自身的内部留白与字号 ——
+        //   那两项属于阅读密度，压了会显拥挤；行距才是「一屏几条」的直接决定项。
+        //   【三级层次必须保住】同角色行距取 6dp（不是 4dp）：若取 4 就会与气泡内留白
+        //   相等，分组感只剩「换人 8」一级。紧凑档仍维持
+        //   `气泡内 4 < 同角色 6 < 换人 8`，用户靠间距差分辨「同一人连说」与「换人」。
+        //   6dp 不是设计令牌档位（Space 只有 4/8/12…），故显式写 6 —— 它只在紧凑档出现。
+        val compact = LocalCompactHeight
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
+            contentPadding = PaddingValues(
+                horizontal = 12.dp,
+                vertical = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(
+                if (compact) 6.dp else DhDesign.Space.sm.dp
+            )
         ) {
             if (ChatState.hasPrev) {
                 item(key = "loadEarlier") { LoadEarlierRow(host) }
@@ -632,7 +647,13 @@ object ChatUi {
                     if (prevRole != null && prevRole != item.role) {
                         // 【绝对值对齐】目标：换角色 = md(12)。spacedBy 已给 sm(8)，
                         //   故这里只补差额 xs(4) —— 8 + 4 = 12。
-                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
+                        //   【P2-a·紧凑档】spacedBy 降到 6，这里补 2 ⇒ 换人仍为 8，
+                        //   保住「气泡内 4 < 同角色 6 < 换人 8」三级（补 4 会变 10，层级被拉大）。
+                        Spacer(
+                            Modifier.height(
+                                if (compact) 2.dp else DhDesign.Space.xs.dp
+                            )
+                        )
                     }
                     // 【r13·思考过程】每条助手回复都在自己的气泡上方挂思考框 ——
                     //   不再只限最后一条（本轮改造前，历史里的回复一律看不到思考）。
@@ -1051,10 +1072,10 @@ object ChatUi {
             // 中间徽标：主色 10% 淡底 + 12dp 圆角 + 图标 + 主色小字。
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 8.dp)
+                    .padding(horizontal = DhDesign.Space.sm.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(c.acc.copy(alpha = 0.1f))
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = DhDesign.Space.sm.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.acc)
@@ -1151,7 +1172,7 @@ object ChatUi {
                 modifier = Modifier
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.chatActionBg)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
             ) {
                 Text(
                     text = label,
@@ -1180,7 +1201,7 @@ object ChatUi {
                 modifier = Modifier
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.chatActionBg)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -1294,7 +1315,7 @@ object ChatUi {
                 .padding(bottom = 2.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)
-                .padding(start = 8.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
+                .padding(start = DhDesign.Space.sm.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (img != null) {
@@ -1315,7 +1336,7 @@ object ChatUi {
                             .clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 }
             }
             Text(
@@ -1429,7 +1450,7 @@ object ChatUi {
                 .padding(bottom = 10.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)
-                .padding(start = 10.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
+                .padding(start = 10.dp, top = DhDesign.Space.sm.dp, end = 6.dp, bottom = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 【本轮·补聚焦态】这是聊天页的主输入框 —— 全 App 最常用的输入位置，
@@ -1484,7 +1505,7 @@ object ChatUi {
                                     Modifier
                                 }
                             )
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .padding(horizontal = 10.dp, vertical = DhDesign.Space.sm.dp)
                     ) {
                         if (ChatState.input.isEmpty()) {
                             Text(
@@ -1500,7 +1521,7 @@ object ChatUi {
                     }
                 }
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             // 发送按钮统一走 pressable，固定 48dp 圆形命中区。
             Box(
                 modifier = Modifier

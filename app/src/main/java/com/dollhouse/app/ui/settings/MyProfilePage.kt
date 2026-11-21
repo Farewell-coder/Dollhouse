@@ -142,7 +142,7 @@ object MyProfilePage {
             //   （MainActivity.onBackPressed → PageStack.handleBack → pop）。
             onBack = {
                 discard()
-                PageStack.pop(act)
+                PageStack.popIfTop(act, KEY)
             },
             actions = {
                 // 【右上角保存 = 落盘并返回】图标按钮（Lucide save），语义与左上角返回明确区分。
@@ -153,7 +153,7 @@ object MyProfilePage {
                     label = "保存"
                 ) {
                     commit()
-                    PageStack.pop(act)
+                    PageStack.popIfTop(act, KEY)
                 }
             }
         ) {

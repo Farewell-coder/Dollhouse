@@ -16,6 +16,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.doll.DollListScreen
+import com.dollhouse.app.ui.doll.DollState
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.ChatSettingsPage
 import com.dollhouse.app.ui.settings.AppearancePage
@@ -51,7 +52,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.MyProfile
+import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhLoadingState
@@ -790,7 +793,11 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "lamda 设备控制",
                 iconRes = Icons.IC_GAMEPAD_2,
-                desc = "用手机控制另一台设备"
+                desc = "用手机控制另一台设备",
+                // 【P1-e·补当前值】只报「开机自启」这一个有独立开关的状态，
+                //   因为 lamda 的其它配置（设备地址等）在 `LamdaPage` 内部，本页读不到。
+                value = if (PetPrefs.lamdaAutoStart(act)) "自启开启" else "自启关闭",
+                showChevron = true
             ) {
                 ProviderNav.openAt(act, ProviderNav.R_EXPERIMENT)
             }
@@ -800,7 +807,10 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "随机走位",
                 iconRes = Icons.IC_WAYPOINTS,
-                desc = "人偶自己在屏幕上缓慢游走"
+                desc = "人偶自己在屏幕上缓慢游走",
+                value = if (PetPrefs.wanderEnabled(act)) "已开启" else "已关闭",
+                valueTint = if (PetPrefs.wanderEnabled(act)) DhTokens.colors.ok else null,
+                showChevron = true
             ) {
                 WanderSettingsPage.open(act)
             }
@@ -808,7 +818,13 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "睡觉模式",
                 iconRes = Icons.IC_MOON,
-                desc = "人偶低功耗休眠，点击唤醒"
+                desc = "人偶低功耗休眠，点击唤醒",
+                // 【这一行**刻意不补值**】睡觉模式没有独立开关 —— 它由快捷菜单触发
+                //   （见 SleepSettingsPage.kt:48 原文「睡觉模式没有独立开关」）。
+                //   能显示的只有「安静时段」，那是同一页里的**另一件事**，
+                //   把它当这行的值会让用户以为"睡觉模式=安静时段"。
+                //   宁可没有值，也不给一个会误导读者的值。
+                showChevron = true
             ) {
                 SleepSettingsPage.open(act)
             }
@@ -818,7 +834,12 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "对话显示",
                 iconRes = Icons.IC_MESSAGE_SQUARE_HEART,
-                desc = "流式输出、思考过程"
+                desc = "流式输出、思考过程",
+                // 【值：两档开关合成一句】"流式 · 思考" 比 "已开启/已关闭" 信息量大，
+                //   且用户能一眼看出**具体是哪两项**。长度 6 字 + 分隔符，不挤标题。
+                value = (if (PetPrefs.streamOutput(act)) "流式" else "非流式") + " · " +
+                    (if (PetPrefs.showThinking(act)) "思考" else "无思考"),
+                showChevron = true
             ) {
                 ChatSettingsPage.open(act)
             }
@@ -826,7 +847,11 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "识图模型",
                 iconRes = Icons.IC_BOT,
-                desc = "用哪个模型来看图片"
+                desc = "用哪个模型来看图片",
+                // 【值：未设置时给动作暗示】`visionModel()` 返回空串 = 跟随当前模型能力，
+                //   报"跟随当前模型"而不是"未设置"——后者听起来像缺配置，其实是默认行为。
+                value = PetPrefs.visionModel(act).ifBlank { "跟随当前模型" },
+                showChevron = true
             ) {
                 VisionModelPage.open(act)
             }
@@ -834,7 +859,15 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "记忆库设置",
                 iconRes = Icons.IC_BOOK_OPEN,
-                desc = "抽取与检索策略"
+                desc = "抽取与检索策略",
+                // 【值：自动开关 + 间隔】关掉时只说"自动关闭"，
+                //   因为间隔此时无意义（不给用户一个用不上的数字）。
+                value = if (PetPrefs.mem2Auto(act)) {
+                    "自动 · " + PetPrefs.mem2IntervalMinutes(act) + " 分"
+                } else {
+                    "自动关闭"
+                },
+                showChevron = true
             ) {
                 MemSettingsPage.open(act)
             }
@@ -886,11 +919,28 @@ object SettingsScreen {
 
     @Composable
     private fun ChatCard(act: MainActivity) {
+        // 【P1-e·入口行补当前值】「供应商」原来只有名词 + 静态 desc。
+        //   【为什么用 remember 而不是直接调】`ProviderStore.providers()` 每次都会
+        //   `purgeLegacy` + 解析整份 JSON —— 放进组合体每帧读，滚动设置页会明显卡。
+        //   这里按「进入设置页」缓存一次。
+        //   【为什么 key 是 Unit】本页每次进都是新组合（`PageStack` 压栈），
+        //   进页读一次即是最新；这与既有 `PermissionRow` 的口径一致（它也是进页算一次）。
+        //   若将来要「配置完返回立即更新」，把 key 换成对应信号即可。
+        //
+        //   【「查看 Token」这一行**没有**补值，原因】`TokenStat` 的统计读取
+        //   （`prefs()` / `readDays()` / `readHours()`）全是 private，没有对外汇总接口。
+        //   补它需要**新增状态采集**（在 `TokenStat` 上开公开读取函数），
+        //   按任务约定属于扩大范围 —— 已报给 lead，等确认后再做。
+        val providerCount = remember { ProviderStore.providers(act).size }
         DhKit.Card(collapsibleTitle = "聊天", titleIcon = Icons.IC_MESSAGE_SQUARE_HEART) {
             DhKit.ValueRow(
                 label = "供应商",
                 iconRes = Icons.IC_SERVER,
                 desc = "接口地址、密钥与模型列表",
+                // 【值：宁可说"未配置"也不报 0】0 个供应商对用户是"还没开始"，
+                //   不是"有 0 个东西"，措辞要给出下一步。
+                value = if (providerCount == 0) "未配置" else providerCount.toString() + " 个",
+                valueTint = if (providerCount == 0) DhTokens.colors.err else null,
                 showChevron = true
             ) {
                 ProviderNav.open(act)
@@ -931,10 +981,21 @@ object SettingsScreen {
             //   用户定案原文：「不要了 从设置的人偶下级进」——
             //   人偶页每一行都要用来展示角色（QQ 联系人形态），
             //   在列表尾部再挂一条「管理人偶」会破坏那个信息结构。
+            // 【P1-e·补当前值】原来只有名词 + 静态 desc，用户不知道"我有几只"。
+            //   【为什么用 DollState.rev 作 key】人偶数是**可变**的（新建 / 删除后要变）。
+            //   `DollState.rev` 是既有的变更版本号（`DollState.kt:29`），
+            //   任何写操作后 `bump()` —— 拿它当 key，删掉一只返回设置页时数字会跟着变。
+            //   【为什么不用 Unit】那会让数字停在进页那一刻，与既有 `ProfileCard`
+            //   读 `ProfileState.tick` 的口径不一致。
+            val dollCount = remember(DollState.rev) { DollStore.all(act).size }
             DhKit.ActionRow(
                 label = "管理人偶",
                 iconRes = Icons.IC_LAYERS,
-                desc = "封面、动作、启停、删除"
+                desc = "封面、动作、启停、删除",
+                // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
+                value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
+                valueTint = if (dollCount == 0) DhTokens.colors.err else null,
+                showChevron = true
             ) { DollListScreen.open(act) }
             // 【r10】全局「调整比例」已移除：比例改到「每只人偶」的编辑页（活动 → 比例大小），
             //   现场调整只作用于当前启用的那几只，放在全局设置里既不准也容易误改。
@@ -962,6 +1023,16 @@ object SettingsScreen {
                 label = "外观设置",
                 iconRes = Icons.IC_PALETTE,
                 desc = "主题 · 背景 · 聊天气泡 · 弹窗",
+                // 【P1-e·补当前值】下一行「当前主题」已经单独显示了主题名，
+                //   这里再重复一次就是冗余。改为报**背景**状态：
+                //   "外观设置"这行是入口，用户最想知道"我现在套了什么背景"。
+                //   【为什么不报"气泡/弹窗"】那两项各有滑条，取值是百分比，
+                //   塞进 8 字以内会变成一串数字噪声；背景是唯一有明确"有/无"状态的。
+                value = when {
+                    !HomeState.bgSet -> "无背景"
+                    PetPrefs.bgEnabled(act) -> "有背景"
+                    else -> "背景已关"
+                },
                 showChevron = true
             ) { AppearancePage.open(act) }
             DhKit.ValueRow(

@@ -172,7 +172,7 @@ kotlin {
 
 dependencies {
     // 【沉浸状态栏】WindowInsetsControllerCompat / WindowCompat / ViewCompat 所需。
-    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.core:core:1.16.0'
     // Shizuku 官方客户端库：api 提供 Shizuku.* 调用面，provider 提供接收 server binder 的 ContentProvider。
     // 两者都是 aar，传递依赖里带 androidx.annotation（仅注解，非运行时必需）——
     // 【r16·修正】本工程 gradle.properties 里 android.useAndroidX=true；
@@ -195,7 +195,7 @@ dependencies {
     // 不引入任何第三方保活 SDK。
     implementation 'com.google.dagger:hilt-android:2.57.2'
     kapt 'com.google.dagger:hilt-android-compiler:2.57.2'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 
     // 【Jetpack Compose】常规 UI 迁移到 Compose（版本由 BOM 统一，不写死单件版本）。
     // 【r17·导航架构升级】BOM 2024.06.00 → 2026.01.01：Navigation3 1.1.0 硬依赖

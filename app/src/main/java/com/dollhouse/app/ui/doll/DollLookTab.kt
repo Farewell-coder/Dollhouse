@@ -284,7 +284,7 @@ object DollLookTab {
 
         // 小色块预览：让用户不用点开就知道当前是什么颜色。
         Row(
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = Icons.IC_DROPLET, sizeDp = Design.SZ_XS, color = c.line)

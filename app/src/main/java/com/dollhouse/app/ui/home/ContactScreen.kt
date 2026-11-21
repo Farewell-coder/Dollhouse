@@ -170,22 +170,32 @@ object ContactScreen {
                         //   给它们不同的 contentType，Compose 才会各自复用各自的槽位，
                         //   而不是滚动一次就把整个槽位重建。
                         item(key = "h_" + groupName, contentType = "header") {
-                            GroupHeader(
-                                name = groupName,
-                                count = dolls.size,
-                                isNone = groupName == DollStore.GROUP_NONE,
-                                folded = collapsed.value.contains(groupName)
-                            ) {
-                                collapsed.value = if (collapsed.value.contains(groupName)) {
-                                    collapsed.value - groupName
-                                } else {
-                                    collapsed.value + groupName
+                            /* 【v0.2.8·P2-e 条目动画】分组头也要动画：新建/删除一个分组时，
+                               后面的分组头与成员行会整体上下位移；只给成员行加动画的话，
+                               标题会"瞬间跳"而内容在滑，看起来是错位的。 */
+                            Box(Modifier.animateItem()) {
+                                GroupHeader(
+                                    name = groupName,
+                                    count = dolls.size,
+                                    isNone = groupName == DollStore.GROUP_NONE,
+                                    folded = collapsed.value.contains(groupName)
+                                ) {
+                                    collapsed.value = if (collapsed.value.contains(groupName)) {
+                                        collapsed.value - groupName
+                                    } else {
+                                        collapsed.value + groupName
+                                    }
                                 }
                             }
                         }
                         if (!collapsed.value.contains(groupName)) {
                             items(dolls, key = { "d_" + it.id }, contentType = { "contact" }) { doll ->
-                                ContactRow(act, doll) { openChatWith(act, doll.id) }
+                                /* 【v0.2.8·P2-e 条目动画】删除人偶 / 把人偶移到别的分组 /
+                                   新建人偶时，行平滑让位。`ContactRow` 没有 modifier 形参，
+                                   故包一层 Box 承载 `animateItem()`（不改它的签名）。 */
+                                Box(Modifier.animateItem()) {
+                                    ContactRow(act, doll) { openChatWith(act, doll.id) }
+                                }
                             }
                         }
                     }
@@ -286,7 +296,7 @@ object ContactScreen {
                 .fillMaxWidth()
                 .clip(shape)
                 .pressable(onClick)
-                .padding(horizontal = 4.dp, vertical = 8.dp),
+                .padding(horizontal = 4.dp, vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 头像

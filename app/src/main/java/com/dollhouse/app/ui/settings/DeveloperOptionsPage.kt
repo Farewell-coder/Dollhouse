@@ -141,9 +141,9 @@ object DeveloperOptionsPage {
         DhKit.Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DhKit.Icon(Icons.IC_SHIELD_CHECK, Design.SZ_MD, if (s.corrupted == 0) DhTokens.colors.ok else DhTokens.colors.err)
-                Spacer(Modifier.width(8.dp)); Text(if (s.corrupted == 0) "日志采集已就绪" else "部分日志需要检查", color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
+                Spacer(Modifier.width(DhDesign.Space.sm.dp)); Text(if (s.corrupted == 0) "日志采集已就绪" else "部分日志需要检查", color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
             }
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                 Stat("错误", s.errors, DhTokens.colors.err, Modifier.weight(1f), all)
                 Stat("警告", s.warnings, DhTokens.colors.sub, Modifier.weight(1f), all)
                 Stat("崩溃", s.crashes, DhTokens.colors.err, Modifier.weight(1f), all)
@@ -266,7 +266,7 @@ object DeveloperOptionsPage {
             DhKit.ValueRow("关联操作 ID", e.operationId.ifEmpty { "未采集" }, iconRes = Icons.IC_LINK_2); DhKit.ValueRow("应用版本", e.appVersion.ifEmpty { "未采集" }, iconRes = Icons.IC_PACKAGE)
             // 【间距收敛】ValueRow 块 → 三个诊断面板组：**组间距** → Space.md(12)。
             //   组内三个面板之间已有 Arrangement.spacedBy(8)，与这里 12 形成「组间 > 组内」的正确层级。
-            Column(Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp), verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                 DiagnosticPanel("详情", e.readable(), detailsOpen, enabled = true) { detailsOpen = !detailsOpen }
                 DiagnosticPanel("堆栈", e.stackTrace, stackOpen, enabled = e.stackTrace.isNotBlank()) { stackOpen = !stackOpen }
                 DiagnosticPanel("关联日志", e.context, contextOpen, enabled = e.context.isNotBlank()) { contextOpen = !contextOpen }

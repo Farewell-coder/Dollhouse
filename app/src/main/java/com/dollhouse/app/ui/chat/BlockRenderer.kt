@@ -22,7 +22,7 @@ import androidx.compose.ui.Alignment
 /** 只增强卡片；普通段落由 ChatUi 的原文渲染路径显示。 */
 @Composable fun BlockRenderer(text: String, enhanced: Boolean) {
     val blocks = remember(text) { BlockParser.parse(text) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
         blocks.forEach { block -> key(block.blockId) {
             when (block) {
                 is Block.Card -> CardBlock(block)
@@ -46,8 +46,8 @@ import androidx.compose.ui.Alignment
         Box(Modifier.size(52.dp).background(DhTokens.colors.soft, RoundedCornerShape(DhDesign.Radius.md.dp)), contentAlignment = androidx.compose.ui.Alignment.Center) {
             DhKit.Icon(Icons.IC_PACKAGE_CHECK, Design.SZ_MD, DhTokens.colors.acc)
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (block.title.isNotBlank()) Text(block.title, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
+            if (block.title.isNotBlank()) Text(block.title, Modifier.background(DhTokens.colors.soft, RoundedCornerShape(8.dp)).padding(horizontal = DhDesign.Space.sm.dp, vertical = 4.dp), color = DhTokens.colors.title, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             if (block.body.isNotBlank()) Text(block.body, color = DhTokens.colors.title, fontFamily = DhTokens.fontsBody, lineHeight = 26.sp)
             block.sources.forEach { s -> Text(s.name + if (s.count > 0) " +${s.count}" else "", Modifier.background(DhTokens.colors.soft, RoundedCornerShape(DhDesign.Radius.pill.dp)).padding(horizontal = 9.dp, vertical = 4.dp), color = DhTokens.colors.sub, fontSize = DhTokens.type.caption.fontSize) }
             // 【v0.2.3·不加行高】来源药丸是单行短标签，高度由 padding 决定；

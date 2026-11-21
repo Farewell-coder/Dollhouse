@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -79,8 +80,8 @@ fun MiniChart(
                 .pointerInput(vals, labels) {
                     detectTapGestures { off: Offset ->
                         val pick = onPick ?: return@detectTapGestures
-                        val padL = 8.dp.toPx()
-                        val padR = 8.dp.toPx()
+                        val padL = DhDesign.Space.sm.dp.toPx()
+                        val padR = DhDesign.Space.sm.dp.toPx()
                         val left = padL
                         val right = size.width - padR
                         var step = if (n > 1) (right - left) / (n - 1) else 1f
@@ -100,8 +101,8 @@ fun MiniChart(
                     }
                 }
         ) {
-            val padL = 8.dp.toPx()
-            val padR = 8.dp.toPx()
+            val padL = DhDesign.Space.sm.dp.toPx()
+            val padR = DhDesign.Space.sm.dp.toPx()
             // 【不收敛·D5】Canvas 内绘图留白（px 值），与轴标签排版配套，不是行间距
             val padT = 10.dp.toPx()
             val padB = 18.dp.toPx()
@@ -147,7 +148,7 @@ fun MiniChart(
         // 峰值小结（左上）。
         Text(
             text = "峰值 " + max.toLong(),
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp),
+            modifier = Modifier.align(Alignment.TopStart).padding(start = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fonts,
@@ -160,7 +161,7 @@ fun MiniChart(
             if (ls[0].isNotEmpty()) {
                 Text(
                     text = ls[0],
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 3.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = DhDesign.Space.sm.dp, bottom = 3.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -169,7 +170,7 @@ fun MiniChart(
             if (n > 1 && ls[n - 1].isNotEmpty()) {
                 Text(
                     text = ls[n - 1],
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 3.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = DhDesign.Space.sm.dp, bottom = 3.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts

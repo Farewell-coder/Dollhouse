@@ -307,7 +307,7 @@ object DollAnimPage {
         DhKit.Page(
             title = action?.name ?: "动作",
             sub = (if (fixed) group + " · 固定" else group) + " · 共 " + frames.size + " 帧",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false,
             actions = {
                 if (action != null) {
@@ -328,7 +328,7 @@ object DollAnimPage {
                             } else {
                                 HomeUi.notifyPetReload(act)
                                 DollState.bump()
-                                PageStack.pop(act)
+                                PageStack.popIfTopStartsWith(act, PREFIX)
                             }
                         }
                     }
@@ -485,7 +485,7 @@ object DollAnimPage {
 
                 // ---------- 贴边：同一画板切换两种动作，不叠加预览与编辑控件 ----------
                 if (isEdge) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                         DhForm.SelectChip("贴边循环 · 必选", actionId != DollAnim.SLOT_EDGE_IN_ID, Modifier.weight(1f)) {
                             actionId = DollAnim.SLOT_EDGE_ID
                         }
@@ -531,12 +531,12 @@ object DollAnimPage {
                             DollAnim.setEdgeInset(act, dollId, actionId, edgeInset - 0.02f)
                             insetTick++
                         }
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Button("露出更少", primary = false, leadingIcon = Icons.IC_MINIMIZE) {
                             DollAnim.setEdgeInset(act, dollId, actionId, edgeInset + 0.02f)
                             insetTick++
                         }
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Button("恢复默认", primary = false) {
                             DollAnim.setEdgeInset(act, dollId, actionId, DollAnim.EDGE_INSET_DEFAULT)
                             insetTick++
@@ -897,7 +897,7 @@ object DollAnimPage {
                             }
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("删除当前帧", iconRes = Icons.IC_TRASH) {
                             if (frames.size <= 1) {
@@ -939,7 +939,7 @@ object DollAnimPage {
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("前移一帧", iconRes = Icons.IC_ARROW_LEFT) {
@@ -950,7 +950,7 @@ object DollAnimPage {
                             }
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("后移一帧", iconRes = Icons.IC_ARROW_RIGHT) {
                             moveFrame(act, dollId, action, frames, frameIdx, 1) { a2, f2, i2 ->
@@ -1462,7 +1462,7 @@ object DollAnimPage {
         }
         Column(
             modifier = Modifier
-                .padding(end = 8.dp)
+                .padding(end = DhDesign.Space.sm.dp)
                 .width(72.dp)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(c.cardUp)

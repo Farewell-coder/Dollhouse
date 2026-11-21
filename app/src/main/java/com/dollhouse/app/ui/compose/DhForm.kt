@@ -165,6 +165,54 @@ object DhForm {
          */
         a11yName: String? = null
     ) {
+        /*
+         * 【P0-2·无障碍：a11yName 为空时自动从 label / hint 派生】
+         *
+         * ── 原来错在哪 ──
+         *   全仓 67 个输入框，只有 **4 个**显式传了 `a11yName`。剩下 63 个里
+         *   55 个「有 label」、58 个「有 hint」—— 但**两者都不进语义树**：
+         *     · `label` 由本层的 `FieldLabel(label)` 渲染成一个**独立的 Text 节点**，
+         *       它是"视觉邻居"，不是输入框的语义属性；
+         *     · `hint` 传给 `DhField(placeholder = ...)`，而 Compose 1.10.2 的
+         *       `ui-android` 只暴露 setContentDescription、没有 setHintText，
+         *       所以 placeholder **没有任何路径**进语义树。
+         *   结果：读屏聚焦输入框时只念「编辑框」，用户不知道该填什么 ——
+         *   而输入框是任务的入口（搜索、改名、填规则、填 API Key）。
+         *
+         * ── 派生规则（显式优先，绝不覆盖调用方意图）──
+         *   1. `a11yName` 非空 → **原样使用**（4 个既有显式点行为零变化）；
+         *   2. 否则 `label` 非空 → 用 label（字段名，最贴近"这个框填什么"）；
+         *   3. 否则 `hint` 非空 → 用 hint（此时 hint 是唯一说明）；
+         *   4. 都为空 → 不设（保持无名，与改造前一致）。
+         *
+         * ── 【重复播报】为什么可以接受（本次最需要说清的一点）──
+         *   担心：label 已是独立 Text 节点，再给输入框设 contentDescription，
+         *   读屏会不会念两遍？
+         *
+         *   实际是两个**不同的**语义节点，遍历顺序是「label 文本 → 输入框」：
+         *       「昵称」  「昵称，编辑框」
+         *   有"说了两遍"的观感，但这是**标准表单的无障碍惯例** ——
+         *   原生 Android 的 `android:labelFor` 解决的正是同一件事（标签既可见、又当输入框名）。
+         *   多数 TalkBack 版本会把「紧邻的 label + 输入框」合念一次。
+         *
+         *   【为什么不把 label 从语义树摘掉（clearAndSetSemantics）】
+         *     那会让「朗读全部内容」的读屏用法**听不到字段名**，制造新的"视觉有、语义无"。
+         *     正确做法是两边都留：视觉标签照旧，输入框另有名字。
+         *
+         *   【已知取舍·需真机确认】若真机上念两遍且显得啰嗦，**正解**是评估
+         *     `mergeDescendants` 把 label+field 合成一个可聚焦单元。但那会改变
+         *     「点 label 能否聚焦输入框」的现有行为，必须真机验证 —— P0 阶段不做。
+         *
+         * ── 视觉零变化 ──
+         *   本改动只在**语义层**派生一个字符串；`FieldLabel` 的渲染、字号、间距、
+         *   输入框外观全部不动。派生变量只喂给 `DhField(a11yName = ...)`。
+         */
+        val effectiveA11y: String? = when {
+            !a11yName.isNullOrEmpty() -> a11yName          // ① 显式优先
+            !label.isNullOrEmpty() -> label                // ② 用字段名
+            hint.isNotEmpty() -> hint                      // ③ 用占位说明
+            else -> null                                   // ④ 都无 → 保持无名
+        }
         // 【分派条件】只有「带尾部内容」这一种情况必须走旧实现（理由见 KDoc）。
         //   其余 47 处一律委托 DhField —— 这正是本任务要的「规范真正落地」。
         //   `compactTrailing` 只影响 trailing 那条分支，无 trailing 时传什么都不参与渲染，
@@ -182,7 +230,8 @@ object DhForm {
                 imeAction = imeAction,
                 trailing = trailing,
                 compactTrailing = compactTrailing,
-                a11yName = a11yName
+                // 【P0-2】传派生值而不是原始 a11yName —— 否则带 trailing 的框仍然无名。
+                a11yName = effectiveA11y
             )
             return
         }
@@ -202,7 +251,8 @@ object DhForm {
                 keyboard = keyboard,
                 imeAction = imeAction,
                 password = password,
-                a11yName = a11yName
+                // 【P0-2】同上游派生值。
+                a11yName = effectiveA11y
             )
         }
     }
@@ -391,7 +441,7 @@ object DhForm {
                                 }
                                 inner()
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(DhDesign.Space.sm.dp))
                             // 【见 compactTrailing 说明】为 true 时把尾部内容压回视觉尺寸，
                             //   不让它的 48dp 命中区把输入框整体撑高成椭圆。
                             if (compactTrailing) {
@@ -414,9 +464,20 @@ object DhForm {
         modifier: Modifier = Modifier,
         label: String? = null,
         hint: String = "",
+        /** 【P0-2】同 [Input]：显式优先，其次 label，再次 hint。 */
+        a11yName: String? = null,
         minHeight: Int = 96
     ) {
         val c = DhTokens.colors
+        // 【P0-2·派生规则与 Input 完全一致】见 [Input] 的详细说明。
+        //   多行框承载的是「人格 / 系统提示词 / 记忆内容」这类长文本，更需要名字 ——
+        //   读屏用户聚焦到一个无名的大输入框时完全不知道自己在编辑什么。
+        val effectiveA11y: String? = when {
+            !a11yName.isNullOrEmpty() -> a11yName
+            !label.isNullOrEmpty() -> label
+            hint.isNotEmpty() -> hint
+            else -> null
+        }
         Column(modifier = modifier.fillMaxWidth()) {
             if (!label.isNullOrEmpty()) {
                 Text(
@@ -457,7 +518,16 @@ object DhForm {
                     //   【注意】多行框高度由 minHeight 撑开，内阴影按实际绘制尺寸算，
                     //   所以框变高时内凹会自然拉长（`drawBehind` 用的是实时 size，不是常量）。
                     .dhFieldInset(shape = multiShape, focused = focused, glowColor = stroke)
-                    .padding(12.dp),
+                    .padding(12.dp)
+                    // 【P0-2】名字只用 contentDescription 一个属性；editableText /
+                    //   SetText / imeAction 由 BasicTextField 内部语义提供，此处不覆盖。
+                    .then(
+                        if (effectiveA11y.isNullOrEmpty()) {
+                            Modifier
+                        } else {
+                            Modifier.semantics { contentDescription = effectiveA11y }
+                        }
+                    ),
                 textStyle = TextStyle(
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
@@ -518,7 +588,7 @@ object DhForm {
     fun Note(text: String, modifier: Modifier = Modifier, color: Color? = null) {
         Text(
             text = boldMarkup(text),
-            modifier = modifier.padding(start = 2.dp, top = 8.dp, end = 2.dp),
+            modifier = modifier.padding(start = 2.dp, top = DhDesign.Space.sm.dp, end = 2.dp),
             color = color ?: DhTokens.colors.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
@@ -570,7 +640,7 @@ object DhForm {
             modifier = modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(bg)
-                .padding(horizontal = 8.dp, vertical = 3.dp),
+                .padding(horizontal = DhDesign.Space.sm.dp, vertical = 3.dp),
             color = fg,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fonts
@@ -627,7 +697,7 @@ object DhForm {
                 )
                 .then(if (dimmed) Modifier.alpha(0.45f) else Modifier)
                 .pressable(onClick)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = DhDesign.Space.sm.dp),
             color = if (selected) c.onAcc else c.title,
             fontSize = UiKit.FS_CHIP.sp,
             fontFamily = DhTokens.fonts
@@ -649,7 +719,7 @@ object DhForm {
             .background(c.card)
             .border(1.dp, c.line, RoundedCornerShape(999.dp))
             .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
         if (iconRes == 0) {
             Text(
                 text = text,

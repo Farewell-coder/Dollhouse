@@ -146,7 +146,7 @@ object ModelListPage {
             )
             Text(
                 text = status,
-                modifier = Modifier.padding(start = 2.dp, top = 8.dp),
+                modifier = Modifier.padding(start = 2.dp, top = DhDesign.Space.sm.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fonts

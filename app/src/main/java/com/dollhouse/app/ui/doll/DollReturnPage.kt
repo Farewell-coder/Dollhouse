@@ -69,7 +69,7 @@ object DollReturnPage {
             //   保证「改了没生效」不可能发生。
             onBack = {
                 commit(text)
-                PageStack.pop(act)
+                PageStack.popIfTopStartsWith(act, PREFIX)
             }
         ) {
             DhForm.Input(

@@ -63,7 +63,7 @@ object DollAwayPage {
         DhKit.Page(
             title = "暂离",
             sub = "自动恢复时长",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             DhForm.Input(
                 value = text,

@@ -64,6 +64,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.design.LocalCompactHeight
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Icons
@@ -162,7 +163,7 @@ object DollListScreen {
         }
         DhKit.Page(
             title = "人偶",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTop(act, KEY) },
             scrollable = false,
             actions = {
                 // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
@@ -182,11 +183,17 @@ object DollListScreen {
             }
         ) {
             // 【r12】按列数换排布：一列 / 两列 / 三列。
+            // 【P2-a·紧凑高度】横屏 / 小屏（窗口高 < 480dp）时只收紧**纵向**行距
+            //   （cardGap 12 → sm 8），横向列距保持 cardGap —— 横屏宽度充足，压缩列距
+            //   反而会让卡片更挤；真正受限的是垂直方向「一屏能放几行卡片」。
+            val compact = LocalCompactHeight
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),
-                verticalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp)
+                verticalArrangement = Arrangement.spacedBy(
+                    (if (compact) DhDesign.Space.sm else DhDesign.Space.cardGap).dp
+                )
             ) {
                 items(dolls, key = { it.id }, contentType = { "doll" }) { doll ->
                     /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
@@ -853,7 +860,7 @@ onCover = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
             ) {
                 var i = 0
                 while (i < all.size) {
@@ -980,7 +987,7 @@ onCover = {
         }
         Box(
             modifier = Modifier
-                .padding(end = 8.dp)
+                .padding(end = DhDesign.Space.sm.dp)
                 .size(72.dp)
                 .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
@@ -1049,7 +1056,7 @@ onCover = {
                             ) { onPickCols(n) }
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 }
                 // 主卡片。
                 MenuCard {

@@ -31,6 +31,7 @@ import com.dollhouse.app.pet.DollHomeOverlay
 import com.dollhouse.app.pet.DollPreviewOverlay
 import com.dollhouse.app.pet.DollRangeOverlay
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeState
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.settings.MemPage
@@ -146,7 +147,7 @@ object DollEditScreen {
         DhKit.Page(
             title = "编辑人偶",
             sub = original.name,
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false,
             actions = {
                 // 【r13 预览 = 这只人偶的独立小开关】用户定案：
@@ -203,7 +204,7 @@ object DollEditScreen {
                     else -> DollLookTab.Content(act, id)
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             // 【r20】底部胶囊导航改成「数据驱动」：调用方只交一份清单，布局 / 等高 / 滚动 /
             //   选中自动定位全在 DhKit.NavBar 里统一处理。以后加第五、第六格只需往 TABS 里加一条。
             //   【必须显式命名 onSelect】NavBar 的最后一个参数是 modifier（不是函数类型），

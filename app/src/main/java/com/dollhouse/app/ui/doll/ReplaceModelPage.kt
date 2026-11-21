@@ -20,6 +20,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.kit.DhLoadingState
 import com.dollhouse.app.ui.kit.LoadingState
@@ -165,7 +166,7 @@ object ReplaceModelPage {
         fun leave() {
             session?.discard()
             session = null
-            PageStack.pop(act)
+            PageStack.popIfTopStartsWith(act, PREFIX)
         }
 
         val s = session
@@ -221,7 +222,7 @@ object ReplaceModelPage {
                         offsetX = 0f,
                         offsetY = 0f
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     ImportAssistantKit.SlotTabRow(
                         slots = ImportPlan.FIXED_SLOTS,
                         selected = previewSlot,
@@ -267,7 +268,7 @@ object ReplaceModelPage {
 
             Step.DONE -> DhKit.Page(
                 title = "换好了",
-                onBack = { PageStack.pop(act) }
+                onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
             ) {
                 for (slot in ImportPlan.FIXED_SLOTS) {
                     ImportAssistantKit.StatusRow(
@@ -278,7 +279,7 @@ object ReplaceModelPage {
                 DhForm.Note("她的人格、记忆和聊天记录都没变，人偶库里也没有多出人。")
                 Spacer(Modifier.height(12.dp))
                 DhKit.MiniChip("回人偶列表", iconRes = Icons.IC_CHECK) {
-                    PageStack.pop(act)
+                    PageStack.popIfTopStartsWith(act, PREFIX)
                 }
             }
         }

@@ -293,14 +293,14 @@ object ImportAssistantPage {
             }
             session?.discard()
             session = null
-            PageStack.pop(act)
+            PageStack.popIfTop(act, PREFIX)
         }
 
         /** 真正退出（中断弹窗里点「重新选择」也走这条）。 */
         fun leaveForReal() {
             session?.discard()
             session = null
-            PageStack.pop(act)
+            PageStack.popIfTop(act, PREFIX)
         }
 
         // 系统返回与顶栏返回共用页内路由：素材页先回选择页，不整页退出。
@@ -370,13 +370,13 @@ object ImportAssistantPage {
                     }
                     PickFileActivity.startFiles(act, true)
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 // 【R-112 五.1】次按钮：示例角色（不经识别流程，直接给默认模板）。
                 DhKit.MiniChip("先用示例角色试试", iconRes = Icons.IC_WAND_SPARKLES) {
                     DollStore.addTemplate(act, "示例角色")
                     DollState.bump()
                     HomeUi.notifyPetReload(act)
-                    PageStack.pop(act)
+                    PageStack.popIfTop(act, PREFIX)
                 }
                 if (busy) {
                     // 【B4·接入加载态】改造前这里是 `ImportAssistantKit.BusyHint(busyText)` ——
@@ -401,7 +401,7 @@ object ImportAssistantPage {
                 failure?.let { ImportAssistantKit.FailureBox(it) }
                 // 【R-070-6】识别失败的三个出口：重选 / 支持格式 / 示例角色。
                 if (showFailureActions) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     DhKit.MiniChip("重新选择", iconRes = Icons.IC_REFRESH) {
                         showFailureActions = false
                         failure = null
@@ -416,7 +416,7 @@ object ImportAssistantPage {
                         DollStore.addTemplate(act, "示例角色")
                         DollState.bump()
                         HomeUi.notifyPetReload(act)
-                        PageStack.pop(act)
+                        PageStack.popIfTop(act, PREFIX)
                     }
                 }
             }
@@ -618,7 +618,7 @@ object ImportAssistantPage {
                             s.offsetY = DollSizeSpec.Spec.clampOffset(oy)
                         }
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     ImportAssistantKit.SlotTabRow(
                         slots = ImportPlan.FIXED_SLOTS,
                         selected = previewSlot,
@@ -671,7 +671,7 @@ object ImportAssistantPage {
                                 s.offsetY = 0f
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         Box(Modifier.weight(1f)) {
                             DhKit.MiniChip("底部", iconRes = Icons.IC_ALIGN_END_VERTICAL) {
                                 s.offsetX = 0f
@@ -774,7 +774,7 @@ object ImportAssistantPage {
 
             Step.DONE -> DhKit.Page(
                 title = "她住进来了",
-                onBack = { PageStack.pop(act) }
+                onBack = { PageStack.popIfTop(act, PREFIX) }
             ) {
                 for (slot in ImportPlan.FIXED_SLOTS) {
                     ImportAssistantKit.StatusRow(
@@ -796,11 +796,11 @@ object ImportAssistantPage {
                     }
                     HomeUi.notifyPetReload(act)
                     DollState.bump()
-                    PageStack.pop(act)
+                    PageStack.popIfTop(act, PREFIX)
                 }
                 // 【R-112 五.4】次按钮：不强制现在就把四个状态配齐。
                 DhKit.MiniChip("以后再补动作", iconRes = Icons.IC_LAYERS) {
-                    PageStack.pop(act)
+                    PageStack.popIfTop(act, PREFIX)
                 }
                 DhForm.Note("也可以直接返回，她会留在人偶库里。")
             }

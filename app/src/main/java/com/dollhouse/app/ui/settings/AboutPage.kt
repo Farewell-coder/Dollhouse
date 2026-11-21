@@ -262,7 +262,7 @@ object AboutPage {
                 channel = UpdateChannel.STABLE
                 UpdatePrefs.setChannel(act, UpdateChannel.STABLE)
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             ChannelChip(
                 text = UpdateChannel.BETA.label,
                 selected = channel == UpdateChannel.BETA
@@ -352,7 +352,7 @@ object AboutPage {
                 .background(if (selected) c.acc else c.cardUp)
                 .then(if (selected) Modifier else Modifier.border(1.dp, c.line, RoundedCornerShape(999.dp)))
                 .pressable(onClick)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
         ) {
             Text(
                 text = text,

@@ -262,7 +262,7 @@ object ProviderListPage {
             modifier = Modifier
                 .fillMaxWidth()
                 .pressable(onClick)
-                .padding(horizontal = 8.dp, vertical = 14.dp),
+                .padding(horizontal = DhDesign.Space.sm.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (iconRes != 0) {

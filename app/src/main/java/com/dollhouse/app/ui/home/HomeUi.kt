@@ -42,6 +42,7 @@ import com.dollhouse.app.ui.compose.AppDialog
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
@@ -1376,7 +1377,7 @@ object HomeUi {
                 blocking = baseGate.blocking,
                 modifier = Modifier.fillMaxSize(),
                 edgeSwipeEnabled = true,
-                edgeMargin = 8.dp,
+                edgeMargin = DhDesign.Space.sm.dp,
                 edgeWidth = 32.dp,
                 onSwipeStart = { ProfileDrawer.beginDrag() },
                 onSwipeMove = { p -> ProfileDrawer.dragTo(p) },

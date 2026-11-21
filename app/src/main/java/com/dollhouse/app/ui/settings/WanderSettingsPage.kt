@@ -32,7 +32,7 @@ object WanderSettingsPage {
 
     @Composable
     private fun Content(act: MainActivity) {
-        DhKit.Page(title = "随机走位", onBack = { PageStack.pop(act) }) {
+        DhKit.Page(title = "随机走位", onBack = { PageStack.popIfTop(act, TAG_PAGE) }) {
             DhKit.Card(collapsibleTitle = "开关", titleIcon = Icons.IC_SPARKLES) {
                 DhKit.SwitchRow(
                     name = "启用随机走位",

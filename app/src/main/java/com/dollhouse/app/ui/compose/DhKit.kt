@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -75,7 +76,10 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -799,7 +803,7 @@ object DhKit {
                 }
             }
             if (actions != null) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 actions()
             }
         }
@@ -1107,6 +1111,10 @@ object DhKit {
             trailing = {
                 Switch(
                     checked = checked,
+                    // 【P0-1b·名字】把行标题作为开关的朗读名：
+                    //   读屏聚焦到开关时念「莫奈主题色，开关，已关闭」而不是「开关，已关闭」。
+                    //   40 处 SwitchRow 调用点因此**零改动**自动获得名字。
+                    a11yName = name,
                     onCheckedChange = { if (enabled) onCheckedChange(it) }
                 )
             }
@@ -1562,7 +1570,7 @@ object DhKit {
                     else Modifier.semantics { contentDescription = a11yText }
                 )
                 .pressable(onClick)
-                .then(if (hasLabel) Modifier.padding(horizontal = 8.dp) else Modifier),
+                .then(if (hasLabel) Modifier.padding(horizontal = DhDesign.Space.sm.dp) else Modifier),
             // 【修·图标不在圆心】改造前只有 `verticalAlignment`，而 `Row` 的
             //   `horizontalArrangement` 默认是 **Start** —— 于是 40dp 圆底里 20dp 的图标
             //   贴在左侧，右侧空出 20dp。用户看到的就是「返回键不在最中心」。
@@ -1805,6 +1813,36 @@ object DhKit {
                 .widthIn(min = NAV_ITEM_W.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(if (selected) c.option else Color.Transparent)
+                /*
+                 * 【P0-3·无障碍：补 selected 语义】
+                 *   原来 `selected` 只用来上色（`tint` / `option` 底 / 加粗），
+                 *   **完全没有进语义树** —— 读屏把三个 Tab 念成三个普通按钮，
+                 *   用户不知道自己当前在哪一页。这是「导航基础信息缺失」，不是打磨项。
+                 *
+                 *   【为什么是 `selected` 而不是 `contentDescription` 拼字】
+                 *     Compose 的 `SemanticsPropertyReceiver.selected` 是**状态属性**，
+                 *     读屏会念「已选中 / 未选中」（TalkBack 还会在选中项上给提示音）。
+                 *     若把「已选中」拼进 contentDescription，它就成了名字的一部分，
+                 *     每读一次都念，且与真实状态脱钩（状态变了名字不会自动变）。
+                 *
+                 *   【为什么配 `role = Role.Tab`】Compose 没有 `Role.TabButton`，用 `Role.Tab`
+                 *     让读屏念「标签页」，从而被归入 tab 组、可用「切换标签」手势浏览。
+                 *     【位置】`.semantics` 排在 `.pressable` **之前**：语义描述的是
+                 *     「这个可点区域是什么」这个**节点属性**，与它内部如何处理手势无关
+                 *     （与 DhKit.IconButton 里 semantics 在 pressable 之前的写法一致）。
+                 *
+                 *   【为什么不改成 `selectable()`】`selectable` 会自动带 `selected` +
+                 *     `Role.Tab`，比手写 semantics 更规范。但它会**替换掉 `pressable`
+                 *     的按压反馈（0.98 缩放）** —— 本工程的手感统一靠 pressable，
+                 *     换掉会让这类导航项在全 App 里手感变干。所以这里保留 pressable、
+                 *     手动补语义，视觉与手感一字不变。
+                 */
+                .semantics {
+                    this.selected = selected
+                    role = Role.Tab
+                    // 名字：图标无文字描述，读屏需要知道这是哪个 Tab。
+                    contentDescription = label
+                }
                 .pressable(onClick)
                 .padding(horizontal = NAV_ITEM_PAD_H.dp, vertical = 6.dp /* 不收敛·D4：与 NAV_ITEM_H(54) 配套，决定底栏总高 */),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -2160,7 +2198,7 @@ object DhKit {
                 //     不需要再靠透明区域补命中区：改用不带 48dp 下限的点击，
                 //     并保留同一套按压缩放（复用 pressable 的手感，但跳过尺寸下限）。
                 .then(if (onClick != null) Modifier.pressScaleClick(onClick) else Modifier)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (iconRes != 0) {
@@ -2294,6 +2332,17 @@ object DhKit {
     fun Switch(
         checked: Boolean,
         modifier: Modifier = Modifier,
+        /**
+         * 【P0-1b·无障碍】开关的朗读名（"这个开关是干什么的"）。
+         *
+         * 【为什么需要它】`toggleable` 能播报开/关，但播报的是「开关，已关闭」——
+         *   **没有主语**。设置页一屏可能有 5 个开关，读屏用户听到五个「开关，已关闭」
+         *   完全分不清哪个是哪个。名字必须由调用方给（构件层不知道业务语义）。
+         *
+         * 【默认 null 的行为】不挂语义 → 与改造前完全一致（既有调用点零影响）。
+         *   `SwitchRow` 会自动把行标题传进来（那 40 处调用点因此自动获得名字）。
+         */
+        a11yName: String? = null,
         onCheckedChange: (Boolean) -> Unit
     ) {
         val c = DhTokens.colors
@@ -2333,20 +2382,66 @@ object DhKit {
         // 【改造前的毛病】`clickable` 直接挂在 44×24 的 Box 上 —— 用户点轨道上下 1dp
         //   之外就没反应，手指略偏就"点了没反应"（需求书 K-04 / R-091 / N-010）。
         //
-        // 【修法】外面包一层 48×48 的透明 Box，把 `clickable` 提到它上面：
+        // 【修法】外面包一层 48×48 的透明 Box，把点击提到它上面：
         //   · 视觉（轨道 + 白球）尺寸一点不变，只是居中放在更大的可点区域里；
         //   · 点在轨道上下左右各 12dp / 2dp 以内的空白处也算点中；
         //   · `contentAlignment = Center` 保证视觉位置与改造前完全一致。
         //
         // 【为什么不直接 `size(48.dp, 48.dp)` 给轨道】那会把轨道撑成 48 高，
         //   与设计稿（24dp 轨道）不符，且开关行的行高会跟着变。
+        //
+        // ---------------------------------------------------------------
+        // 【P0-1·无障碍：`clickable` → `toggleable`】
+        //   原来用 `clickable`：读屏只知道「这是个按钮」，**既听不出开还是关，
+        //   也听不出点一下会发生什么**。全 App 所有开关（≈40 处，经 SwitchRow 转发）
+        //   都受影响 —— 等于设置页对读屏用户不可用。
+        //
+        //   改用 `toggleable(value = checked, role = Role.Switch, onValueChange = ...)`：
+        //     · `value` 会让 CheckableState 进语义树 → 读屏自动念「已开启 / 已关闭」；
+        //     · `role = Role.Switch` 让它念「开关」而不是默认的「复选框」；
+        //     · 不需要再手写 `stateDescription`（那是 native View 的写法）。
+        //
+        //   ⚠️ **【双重取反陷阱 —— 这一行是本次改动最危险的地方，勿"顺手优化"】**
+        //     `toggleable` 的 `onValueChange` 收到的是**目标值（!value）**，不是当前值。
+        //     证据不是我凭记忆断言，而是从实际依赖 `foundation-android:1.10.2` 的
+        //     字节码里反读出来的（`ToggleableNode._onClick$lambda$0`）：
+        //         getfield value
+        //         ifne → iconst_1 / else → iconst_0      ← 先自行取反
+        //         invoke  onValueChange(!value)          ← 再传给回调
+        //     所以正确写法是 **直接透传 `onCheckedChange`**：
+        //         onValueChange = onCheckedChange        ✅ 内部已取反，净效果 = 切换
+        //     而写成下面这样就**双重取反，开关永远点不动**：
+        //         onValueChange = { onCheckedChange(!it) }   ❌ 千万别这么写
+        //     （改前的 `clickable { onCheckedChange(!checked) }` 之所以对，是因为
+        //       `clickable` 没有这个内建取反；换 API 后取反的**负责方变了**，所以那层
+        //       手动 `!` 必须**删掉**，而不是照抄过去。）
+        //
+        //   【`indication = null` 与 `interactionSource` 保留】行为与改造前一致：
+        //     仍走同一个 `MutableInteractionSource`，仍不画涟漪（自绘卡片上涟漪会溢出圆角）。
+        //     `toggleable` 的重载 `toggleable(value, interactionSource, indication, ...)`
+        //     正好接住这两个参数。
+        // ---------------------------------------------------------------
         Box(
             modifier = modifier
                 .size(MIN_TOUCH.dp, MIN_TOUCH.dp)
-                .clickable(
+                // 【P0-1b·名字】放在 toggleable **之前**：
+                //   语义属性描述「这个可点区域是什么」，与它内部怎么处理手势无关。
+                //   传 null 时整个 Modifier 不挂语义（`then` 保证零行为变化）。
+                .then(
+                    if (a11yName.isNullOrEmpty()) {
+                        Modifier
+                    } else {
+                        Modifier.semantics { contentDescription = a11yName }
+                    }
+                )
+                .toggleable(
+                    value = checked,
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onCheckedChange(!checked) },
+                    indication = null,
+                    role = Role.Switch,
+                    // ⚠️ 直接透传（toggleable 内部已取反）—— 见上方「双重取反陷阱」
+                    onValueChange = onCheckedChange
+                ),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -2502,6 +2597,25 @@ fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
         animationSpec = spec,
         label = "press"
     )
+    // 【P2-d·触觉反馈】只在**长按确认**时震一下，普通点击一律不震。
+    //   为什么只给长按：长按没有视觉上的"到底按够了没有"的即时反馈（松手才弹菜单），
+    //   用户常因不确定而提前抬手；一次短震正好补上这个确认信号。
+    //   而单击已有 PRESS_SCALE 的缩放反馈，再叠加震动在 125 处调用点上会变成持续打扰。
+    //
+    // 【为什么收在这个重载里而不是逐个调用点加】本重载全仓只有 5 个入口
+    //   （ChatListScreen 会话长按、ChatUi 搜索/消息菜单、MemPage 记忆删除、DhSwipe 行长按），
+    //   改这一处即全覆盖，且**不会影响**单参 pressable 的那 125 处普通按钮。
+    //
+    // 【minSdk 24 可用性】Compose 的 PlatformHapticFeedback 走
+    //   `ViewCompat.performHapticFeedback(view, HapticFeedbackConstants.LONG_PRESS)`，
+    //   底层是 Android 1.0 就有的 View.performHapticFeedback，不依赖高版本系统 API；
+    //   HapticFeedbackType.LongPress 是 Compose 侧的常量，无版本门槛。
+    //   未开启系统触感反馈 / 设备无振动马达时系统自行忽略，不需要自己 try。
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val onLongConfirmed: () -> Unit = {
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        onLongClick()
+    }
     return this
         // 【v0.2.0·与单参重载同口径】触摸目标下限一并收进来，见上方注释。
         .minTouchTarget()
@@ -2510,7 +2624,7 @@ fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
             interactionSource = source,
             indication = null,
             onClick = onClick,
-            onLongClick = onLongClick
+            onLongClick = onLongConfirmed
         )
 }
 

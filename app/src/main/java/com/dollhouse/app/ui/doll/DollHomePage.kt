@@ -99,7 +99,7 @@ object DollHomePage {
         DhKit.Page(
             title = "初始位置",
             sub = if (doll == null) null else doll.name,
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false
         ) {
             DhForm.Note("拖动中心点选位置（人偶会跟着走）；点「确认」才保存，点「取消」不记录。")
@@ -179,11 +179,11 @@ object DollHomePage {
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存位置") { PageStack.pop(act) }
+                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存位置") { PageStack.popIfTopStartsWith(act, PREFIX) }
                 Spacer(Modifier.width(28.dp))
                 CircleButton(Icons.IC_CHECK, c.acc, "确认人偶位置") {
                     DollProfile.setHomePivot(act, id, rx, ry)
-                    PageStack.pop(act)
+                    PageStack.popIfTopStartsWith(act, PREFIX)
                 }
             }
         }

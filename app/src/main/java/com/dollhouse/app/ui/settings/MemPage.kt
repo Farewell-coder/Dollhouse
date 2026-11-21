@@ -7,7 +7,6 @@ import android.view.View
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -392,8 +391,8 @@ object MemPage {
             )
 
             // ---- 分类条（全部 / 未分类 / 各文件夹）----
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                 FilterChip("全部", filter == FILTER_ALL) { filter = FILTER_ALL }
                 FilterChip("未分类", filter == FILTER_NONE) { filter = FILTER_NONE }
                 if (folders.size > 0) {
@@ -423,7 +422,7 @@ object MemPage {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp),
                     ) {
                         items(shownMems, key = { it.id }, contentType = { "mem" }) { m ->
                             // 【定位高亮】只有目标那一条会从 1 淡到 0；其余条目恒为 0，
@@ -607,12 +606,12 @@ object MemPage {
 
                 // ---- 图例（右上角小字，说明连线上的字是什么意思）----
                 Legend(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                    modifier = Modifier.align(Alignment.TopEnd).padding(DhDesign.Space.sm.dp)
                 )
             }
 
             // ---- 底部工具条 ----
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ToolAction(Icons.IC_MAXIMIZE, "适配") {
                     viewRef.value?.fitToView()
@@ -859,7 +858,7 @@ object MemPage {
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Normal
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             if (link.description.isNotEmpty()) {
                 Text(
                     text = link.description,
@@ -867,7 +866,7 @@ object MemPage {
                     fontSize = UiKit.FS_SUB.sp,
                     fontFamily = DhTokens.fontsBody
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
             }
             DetailLine("强度", pct(link.weight))
             Spacer(Modifier.height(DhDesign.Space.md.dp))
@@ -1126,7 +1125,7 @@ object MemPage {
             //   也支持一键复用已有分类（避免手打错字产生「生活」和「生活 」两个文件夹）。
             if (knownFolders.isNotEmpty()) {
                 Spacer(Modifier.height(DhDesign.Space.sm.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                     knownFolders.take(3).forEach { f ->
                         FilterChip(shortFolder(f), folder == f) { folder = f }
                     }
@@ -1140,7 +1139,7 @@ object MemPage {
             )
             if (knownTags.isNotEmpty()) {
                 Spacer(Modifier.height(DhDesign.Space.sm.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                     knownTags.take(3).forEach { t ->
                         FilterChip("#" + t, false) {
                             val cur = splitTags(tags)
@@ -1192,7 +1191,7 @@ object MemPage {
             }
             // 【为什么放最后】它是只读信息，不参与编辑。
             if (!isNew && m.updatedAt > 0) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 Text(
                     text = "上次修改：" + fmtTime(m.updatedAt),
                     color = c.sub,
@@ -1270,7 +1269,7 @@ object MemPage {
             //   大留白，直接塞进 Alert 会把对话框撑得很高（它原本只有一行小字）。
             //   这里收窄上下留白，保持弹窗紧凑。
             if (folders.isEmpty()) {
-                Box(modifier = Modifier.padding(vertical = 8.dp)) {
+                Box(modifier = Modifier.padding(vertical = DhDesign.Space.sm.dp)) {
                     com.dollhouse.app.ui.kit.DhState(
                         title = "还没有文件夹。在下面新建一个吧。",
                         iconRes = Icons.IC_FOLDER_OPEN
@@ -1286,7 +1285,7 @@ object MemPage {
                         hint = "新名字"
                     )
                     Spacer(Modifier.height(DhDesign.Space.sm.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                         FilterChip("确定", true) {
                             if (renameFolder(act, dollId, f, renameText.trim())) {
                                 renaming = null
@@ -1298,11 +1297,11 @@ object MemPage {
                     }
                 } else {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         DhKit.Icon(Icons.IC_FOLDER_OPEN, Design.SZ_XS, c.sub)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         Text(
                             text = f,
                             modifier = Modifier.weight(1f),

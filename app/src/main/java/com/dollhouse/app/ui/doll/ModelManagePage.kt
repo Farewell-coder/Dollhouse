@@ -133,7 +133,7 @@ object ModelManagePage {
         DhKit.Page(
             title = "模型",
             sub = doll?.name ?: "这只人偶",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             DhKit.Card {
                 DhKit.CardTitle("当前模型", iconRes = Icons.IC_IMAGE)
@@ -148,7 +148,7 @@ object ModelManagePage {
                         offsetY = 0f
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.ValueRow(
                     label = "名字",
                     value = doll?.name ?: "未命名"
@@ -196,7 +196,7 @@ object ModelManagePage {
                 ReplaceModelPage.open(act, dollId)
                 version++
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhKit.MiniChip(
                 if (pkgBusy) "正在检查…" else "导入模型包",
                 iconRes = Icons.IC_PACKAGE_CHECK
@@ -243,7 +243,7 @@ object ModelManagePage {
                 Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhForm.Note(msg)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhKit.MiniChip("调整位置", iconRes = Icons.IC_MOVE) {
                 showSize = true
             }
@@ -302,7 +302,7 @@ object ModelManagePage {
                         fontFamily = DhTokens.fonts
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhForm.Note("只替换这只人偶的模型。她的人格、记忆和聊天记录不会变。")
             }
         }

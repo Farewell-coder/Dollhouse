@@ -223,6 +223,46 @@ object DhDesign {
         }
     }
 
+    /**
+     * 【TypeSp】字号阶梯的**纯数值常量表**（单位 sp 的数值，不含 `.sp` 后缀）。
+     *
+     * 【为什么需要它 —— 这是 P1-a 的「地基」】
+     *   目标是让 `UiKit.FS_BTN` 之类的写死字号变成「引用设计令牌」而不是字面量。
+     *   但 `const val FS_BTN = DhDesign.Type.body.fontSize` **在 Kotlin 里不成立**（005 预研已证）：
+     *     ① `Type.body` 是 data class 的**实例属性**，不是编译期常量；
+     *     ② `Type.of(...)` 需要 `FontFamily` 运行时参数；
+     *     ③ `fontSize` 是 `TextUnit`(sp)，不是 `Float`。
+     *   唯一能 `const val` 引用、又能被 `const val` 引用的形态，是 **`const val` → `const val`**。
+     *   所以这里把 `[Type]` 各档的 `fontSize.value` 抽成一组编译期常量。
+     *
+     * 【硬约束·必须与 [Type] 逐一相等】下面的值必须与 [Type.of] 里对应档的
+     *   `fontSize = N.sp` 完全一致（brand=22 / display=28 / title=20 / section=16 /
+     *   body=15 / sub=13 / caption=12 / label=11）。改 [Type.of] 的字号时必须**同步改这里**，
+     *   否则别名会悄悄和真实令牌漂移 —— 这正是本表唯一的风险点。
+     *   校验方式：`grep -n "fontSize = [0-9]*\.sp" DesignSystem.kt` 对一遍。
+     *
+     * 【为什么放进 DhDesign 而不是顶层】与 [Type]/[Space]/[Radius] 同命名空间，
+     *   调用方写 `DhDesign.TypeSp.BODY` 一看就知道是设计令牌体系里的东西。
+     */
+    object TypeSp {
+        /** [Type.brand].fontSize = 22sp。 */
+        const val BRAND = 22f
+        /** [Type.display].fontSize = 28sp。 */
+        const val DISPLAY = 28f
+        /** [Type.title].fontSize = 20sp。 */
+        const val TITLE = 20f
+        /** [Type.section].fontSize = 16sp。 */
+        const val SECTION = 16f
+        /** [Type.body].fontSize = 15sp。 */
+        const val BODY = 15f
+        /** [Type.sub].fontSize = 13sp。 */
+        const val SUB = 13f
+        /** [Type.caption].fontSize = 12sp。 */
+        const val CAPTION = 12f
+        /** [Type.label].fontSize = 11sp。 */
+        const val LABEL = 11f
+    }
+
     /* ================================================================
      * 2. 间距阶梯
      * ================================================================ */

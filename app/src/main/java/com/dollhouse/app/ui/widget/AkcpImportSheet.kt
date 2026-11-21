@@ -193,7 +193,7 @@ object AkcpImportSheet {
         Text(
             text = "请输入这个文件导出时生成的凭据（52 位 Base32，可带连字符）。\n" +
                 "凭据只在本机用于解密，不会被保存。",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
@@ -215,7 +215,7 @@ object AkcpImportSheet {
         if (err != null) {
             Text(
                 text = err,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBody
@@ -317,7 +317,7 @@ object AkcpImportSheet {
                 Text(
                     text = "查看保存范围说明",
                     modifier = Modifier
-                        .padding(top = 8.dp)
+                        .padding(top = DhDesign.Space.sm.dp)
                         .pressable { showExtra = !showExtra },
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
@@ -345,9 +345,9 @@ object AkcpImportSheet {
                 )
                 Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                     ModeChip("跳过", mode == MODE_SKIP) { mode = MODE_SKIP }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("覆盖", mode == MODE_OVERWRITE) { mode = MODE_OVERWRITE }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("另存副本", mode == MODE_DUPLICATE) { mode = MODE_DUPLICATE }
                 }
                 Text(

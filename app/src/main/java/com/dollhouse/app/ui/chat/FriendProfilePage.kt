@@ -136,7 +136,7 @@ object FriendProfilePage {
         DhKit.Page(
             title = "好友资料",
             sub = name,
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             Header(name = name, bio = bio, avatar = avatar)
 

@@ -174,7 +174,7 @@ object LamdaPage {
     private fun CardHead(text: String, iconRes: Int) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             DhKit.Icon(iconRes = iconRes, sizeDp = 16f, color = DhTokens.colors.acc)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             DhKit.CardTitle(text)
         }
     }

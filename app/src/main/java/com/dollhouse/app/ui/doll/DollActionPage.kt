@@ -172,7 +172,7 @@ object DollActionPage {
         DhKit.Page(
             title = "动作",
             sub = if (doll == null) null else doll.name,
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             actions = {
                 // 【本轮·修顶栏挤压】改造前三个入口都带文字（「恢复内置」「导入资源」「新建」），
                 //   合计约 250dp，而 `DhKit.TopBar` 让标题占满剩余宽后再放 actions ——
@@ -270,14 +270,14 @@ object DollActionPage {
             DhKit.Segmented(
                 items = segItems,
                 selectedKey = tab,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp, bottom = 4.dp)
             ) { tab = it }
 
             // ---------- ① 固定位：三张卡并排（本轮需求 2 的核心）----------
             if (tab == TAB_FIXED) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
                 ) {
                     for (g in DollAnim.FIXED_GROUPS.filter { it != DollAnim.GROUP_EDGE_IN }) {
                         val fixedAction = remember(groups, g) {
@@ -544,7 +544,7 @@ object DollActionPage {
                     fontFamily = DhTokens.fontsBody
                 )
                 if (refs.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     Text(
                         text = "⚠ 它现在还被这些地方用着：",
                         color = DhTokens.colors.title,
@@ -746,7 +746,7 @@ object DollActionPage {
                 .border(1.dp, if (empty) c.line else c.acc.copy(alpha = 0.35f),
                     RoundedCornerShape(DhKit.R_CARD.dp))
                 .pressable(onOpen)
-                .padding(8.dp),
+                .padding(DhDesign.Space.sm.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 图标 + 组名（固定位的身份标识）
@@ -945,7 +945,7 @@ object DollActionPage {
             Box(modifier = Modifier.weight(1f)) {
                 DhKit.MiniChip("复制", iconRes = Icons.IC_COPY, onClick = onDuplicate)
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Box(modifier = Modifier.weight(1f)) {
                 DhKit.MiniChip("导出", iconRes = Icons.IC_DOWNLOAD, onClick = onExport)
             }

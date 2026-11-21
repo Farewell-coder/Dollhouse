@@ -29,6 +29,7 @@ import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 
@@ -80,7 +81,7 @@ object BottomNav {
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = DhDesign.Space.sm.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(

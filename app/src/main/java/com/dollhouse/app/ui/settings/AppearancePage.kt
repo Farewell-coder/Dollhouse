@@ -104,7 +104,7 @@ object AppearancePage {
         DhKit.Page(
             title = "外观",
             sub = "主题 · 背景 · 聊天气泡 · 弹窗",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTop(act, KEY) },
             // 【自带滚动】四个 Tab 各自是独立滚动区（内容长度不同），
             //   外层再滚一层会导致「滚到底才切 Tab」的错位感。
             scrollable = false
@@ -179,7 +179,7 @@ object AppearancePage {
                 //   与设置页多选项 / 底栏选中态同一套语义色，全 App 一致。
                 .background(if (selected) c.option else Color.Transparent)
                 .pressable(onClick)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = DhDesign.Space.sm.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -475,7 +475,7 @@ object AppearancePage {
             //   否则用户会当成 bug（Android 12 以下没有 Window 背景模糊这个能力）。
             if (android.os.Build.VERSION.SDK_INT < 31) {
                 Row(
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_WARNING, sizeDp = Design.SZ_XS, color = c.err)

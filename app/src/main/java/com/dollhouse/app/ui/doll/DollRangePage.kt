@@ -40,6 +40,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import kotlin.math.roundToInt
@@ -88,7 +89,7 @@ object DollRangePage {
         DhKit.Page(
             title = "屏幕范围",
             sub = if (land) "横屏" else "竖屏",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false
         ) {
             DhForm.Note("拖动四条边，框内就是人偶可活动的范围。横屏与竖屏各存一套，转屏自动切换。")
@@ -163,7 +164,7 @@ object DollRangePage {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 取消 = 直接退出，不写任何键（与悬浮窗同一语义）。
-                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存") { PageStack.pop(act) }
+                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存") { PageStack.popIfTopStartsWith(act, PREFIX) }
                 Spacer(Modifier.width(20.dp))
                 // 重置：只把**本地草稿**拨回整屏（0,0,1,1），**不落盘** ——
                 //   【r13 修 bug】原来这里立刻 setBounds，用户点取消时框已经被改掉了。
@@ -177,7 +178,7 @@ object DollRangePage {
                 // 确认 = 把草稿写盘后退出。
                 CircleButton(Icons.IC_CHECK, c.acc, "确认范围") {
                     DollProfile.setBounds(act, id, orient, l, t, r, b)
-                    PageStack.pop(act)
+                    PageStack.popIfTopStartsWith(act, PREFIX)
                 }
             }
         }
@@ -218,7 +219,7 @@ object DollRangePage {
         ) {
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(DhDesign.Space.sm.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(tint)
             )

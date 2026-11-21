@@ -224,7 +224,7 @@ object ModelEditPage {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = 8.dp),
+                    .padding(top = 14.dp, bottom = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhForm.Button("取消", primary = false) { ProviderNav.back(act) }

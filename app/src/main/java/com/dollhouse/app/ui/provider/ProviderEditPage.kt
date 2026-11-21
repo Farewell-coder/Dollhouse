@@ -338,7 +338,7 @@ object ProviderEditPage {
                             fontFamily = DhTokens.fontsBody,
                             lineHeight = 18.sp,
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(DhDesign.Space.sm.dp))
                         Row {
                             DhForm.Button("用它", primary = false) {
                                 val id = pid
@@ -362,7 +362,7 @@ object ProviderEditPage {
                                 hintOk = true
                                 hintText = "已把「" + pick + "」设为默认模型，可以直接去聊天了"
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(DhDesign.Space.sm.dp))
                             DhForm.Button("看全部", primary = false) {
                                 val id = pid
                                 if (id.isNotEmpty()) {
@@ -378,7 +378,7 @@ object ProviderEditPage {
                             fontFamily = DhTokens.fontsBody,
                             lineHeight = 18.sp,
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(DhDesign.Space.sm.dp))
                         DhForm.Button("自己去看", primary = false) {
                             val id = pid
                             if (id.isNotEmpty()) {
@@ -393,7 +393,7 @@ object ProviderEditPage {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = 8.dp),
+                    .padding(top = 14.dp, bottom = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhForm.Button(if (embedded) "返回列表" else "取消", primary = false) { ProviderNav.back(act) }
@@ -427,7 +427,7 @@ object ProviderEditPage {
                         }
                     }
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 DhForm.Button(if (saving) "保存中…" else "保存", leadingIcon = Icons.IC_SAVE) {
                     if (saving || testing) return@Button
                     saving = true

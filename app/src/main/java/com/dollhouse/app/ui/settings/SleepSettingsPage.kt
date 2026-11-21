@@ -37,7 +37,7 @@ object SleepSettingsPage {
 
     @Composable
     private fun Content(act: MainActivity) {
-        DhKit.Page(title = "睡觉模式", onBack = { PageStack.pop(act) }) {
+        DhKit.Page(title = "睡觉模式", onBack = { PageStack.popIfTop(act, TAG_PAGE) }) {
             // 【v0.2.6·安静时段】与睡觉模式并列但语义不同：
             //   睡觉 = 省电休眠；安静 = 到点不主动开口（问候、随机台词、通知）。
             //   放在同一页是因为用户心智里它们都属于「别在晚上烦我」。

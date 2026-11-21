@@ -293,30 +293,37 @@ object SocialPage {
                         //   contentType 分开，Compose 才会各自复用各自的槽位。
                         contentType = { row -> row.contentType }
                     ) { row ->
-                        when (row) {
-                            is Entry.Header -> DayHeader(row.label, subColor)
-                            is Entry.Post -> PostCard(
-                                item = row.item,
-                                avatar = avatarOf[row.item.dollId],
-                                subColor = subColor,
-                                timeColor = timeColor,
-                                // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
-                                //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
-                                //   聊天是「现在」，记忆库才是这条内容的上下文。
-                                //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
-                                //   anchorId（= 这条记忆的 id）决定落在哪一条上。
-                                onClick = {
-                                    // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
-                                    //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
-                                    //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
-                                    //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
-                                    //   所以每次点卡都重新登记一次。
-                                    PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
-                                    MemPage.open(act, row.item.dollId, row.item.memId)
-                                }
-                            )
-                            is Entry.More -> MoreRow(moreCount) { shown += PAGE }
-                            is Entry.Foot -> FootNote(timeColor)
+                        /* 【v0.2.8·P2-e 条目动画】本页有三种会改动集合的操作：点「加载更多」
+                           追加一批、从记忆库删掉某条后返回（reload++）、切人偶/切筛选。
+                           此前这些都会让整列瞬间跳变。`animateItem()` 只管**当前已组合**的
+                           条目（约一屏 10~15 项），所以切筛选那种"整列换集合"也不会几十项
+                           同时动画 —— 开销由可见项数封顶，与总条数无关。 */
+                        Box(Modifier.animateItem()) {
+                            when (row) {
+                                is Entry.Header -> DayHeader(row.label, subColor)
+                                is Entry.Post -> PostCard(
+                                    item = row.item,
+                                    avatar = avatarOf[row.item.dollId],
+                                    subColor = subColor,
+                                    timeColor = timeColor,
+                                    // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
+                                    //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
+                                    //   聊天是「现在」，记忆库才是这条内容的上下文。
+                                    //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
+                                    //   anchorId（= 这条记忆的 id）决定落在哪一条上。
+                                    onClick = {
+                                        // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
+                                        //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
+                                        //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
+                                        //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
+                                        //   所以每次点卡都重新登记一次。
+                                        PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
+                                        MemPage.open(act, row.item.dollId, row.item.memId)
+                                    }
+                                )
+                                is Entry.More -> MoreRow(moreCount) { shown += PAGE }
+                                is Entry.Foot -> FootNote(timeColor)
+                            }
                         }
                     }
                 }

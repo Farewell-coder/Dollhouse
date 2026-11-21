@@ -210,7 +210,7 @@ object DollImportWizardPage {
         DhKit.Page(
             title = "导入动作资源",
             sub = "选文件 → 检查 → 选方式 → 确认",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             // ============ ① 选文件 ============
             DhKit.SectionLabel("① 选择文件", iconRes = Icons.IC_FOLDER_OPEN)
@@ -219,7 +219,7 @@ object DollImportWizardPage {
                     "Lottie 动画（.json）、动图（gif / webp / apng）、压缩包（zip）。" +
                     "扩展名被改错也没关系，按文件内容识别。"
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhKit.MiniChip("选择文件", iconRes = Icons.IC_PLUS) {
                 com.dollhouse.app.PickFileActivity.setFileListener { paths, failed ->
                     if (paths.isEmpty()) {
@@ -286,7 +286,7 @@ object DollImportWizardPage {
                             Design.SZ_SM,
                             if (it.canImport) c.acc else c.err
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = it.fileName,
@@ -356,7 +356,7 @@ object DollImportWizardPage {
                     Image(
                         bitmap = bmp,
                         contentDescription = null,
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(DhDesign.Space.sm.dp),
                         contentScale = ContentScale.Fit
                     )
                 }

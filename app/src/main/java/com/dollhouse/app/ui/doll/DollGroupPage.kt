@@ -93,7 +93,7 @@ object DollGroupPage {
         DhKit.Page(
             title = "分组管理",
             sub = "把 " + groups.sumOf { it.second.size } + " 只人偶分组归置",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTop(act, KEY) },
             actions = {
                 // 新建分组：右上角 +。【r15·图标+文字】顶栏空间宽裕 → 加文字。
                 DhKit.IconButton(Icons.IC_FOLDER_PLUS, Design.SZ_MD, c.title, label = "新建分组") {
@@ -144,7 +144,7 @@ object DollGroupPage {
                                 input = name
                                 renaming = name
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(DhDesign.Space.sm.dp))
                             DhForm.Button(text = "删除分组", primary = false, leadingIcon = Icons.IC_TRASH) {
                                 deleting = name
                             }

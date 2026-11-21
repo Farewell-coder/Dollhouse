@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.dollhouse.app.ui.design.DhDesign
 import kotlin.math.abs
 
 /**
@@ -64,7 +65,7 @@ fun ComposeLayerShield(
     modifier: Modifier = Modifier,
     edgeSwipeEnabled: Boolean = false,
     edgeWidth: Dp = 32.dp,
-    edgeMargin: Dp = 8.dp,
+    edgeMargin: Dp = DhDesign.Space.sm.dp,
     drawerWidth: Dp = 300.dp,
     onSwipeStart: (() -> Unit)? = null,
     onSwipeMove: ((Float) -> Unit)? = null,

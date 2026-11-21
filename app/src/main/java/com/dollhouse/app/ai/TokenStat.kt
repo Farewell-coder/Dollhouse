@@ -146,6 +146,43 @@ object TokenStat {
         }
     }
 
+    /**
+     * 【供设置页入口行】今日 token 总量 = 当日输入 + 当日输出。
+     *
+     * ## 为什么是这两个相加
+     * `TokenContent` 的「当日总览」主数值就是 `fmt(inTok + outTok)`（本文件 :551），
+     * 页面上那句「输入 X · 输出 Y」是它的拆解。入口行必须与页面**同一个口径**，
+     * 否则用户点进去发现数字对不上，会先怀疑自己在错的页面。
+     *
+     * ## 为什么不返回整个 stats 数组
+     * 入口行只需要**一个数**。把 `LongArray(5)` 暴露出去，等于把
+     * 「in/out/req/cache/peak」的内部下标约定也变成公开契约 ——
+     * 以后调整数组顺序会静默打断调用方。只给一个 Long 最稳。
+     *
+     * ## 开销（决定调用方要不要缓存）
+     * 走 `prefs()`（一次 getSharedPreferences）+ `readDays()`（解析最多
+     * [KEEP_DAYS]=31 条日记录）+ 读一个 optJSONObject。**不触发任何写入、
+     * 不跑 `PetPrefs` 那 4 项清理迁移**。单次是微秒级，但调用方仍应
+     * 用 `remember {}` 缓存：设置页滚动时每帧读一次纯属浪费。
+     *
+     * @return 今日总量；无记录时为 0（不是 null —— 「今天还没用」与「读失败」
+     *   对入口行是同一个显示，见 `SettingsScreen` 的 `—` 处理）。
+     */
+    fun todayTotal(ctx: Context?): Long {
+        if (ctx == null) {
+            return 0L
+        }
+        return try {
+            val p = prefs(ctx)
+            // mode = 0（按日）+ offset = 0（今天），与页面「当日总览」同一入口。
+            val st = stats(p, 0, 0)
+            st[0] + st[1]
+        } catch (t: Throwable) {
+            Logs.w(LOG_TAG, "todayTotal failed", t)
+            0L
+        }
+    }
+
     @Synchronized
     private fun add(ctx: Context, inTok: Int, outTok: Int, cache: Int) {
         val p = prefs(ctx)
@@ -430,7 +467,7 @@ object TokenStat {
                     DhForm.OutlineChip(text = names[i], onClick = { onPick(i) })
                 }
                 if (i != names.size - 1) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 }
             }
         }
@@ -529,18 +566,18 @@ object TokenStat {
             )
             Text(
                 text = "费用约 ￥" + money(cost(inTok + outTok, unit)),
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Normal
             )
             Row(
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhForm.Chip(text = "请求 " + req + " 次")
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 DhForm.Chip(text = "￥" + money(unit) + " / 百万", onClick = onEditPrice)
             }
             MiniChart(
