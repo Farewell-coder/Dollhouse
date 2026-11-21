@@ -595,7 +595,8 @@ object ProviderEditPage {
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
-                // E16-ALLOW: 供应商名 `name`：`SwitchRow` 的行标题，单行且右侧有 Switch 占位
+                // E16-ALLOW: `SwitchRow` 的开关名 `name`（"启用"/"Response API"）：
+                //   调用点全为固定短名（最长 "Response API" = 12 字符），有 `weight(1f)` 单行
                 Text(text = name, color = c.title, fontSize = UiKit.FS_BTN.sp, fontFamily = DhTokens.fonts)
                 if (desc != null && desc.isNotEmpty()) {
                     Text(

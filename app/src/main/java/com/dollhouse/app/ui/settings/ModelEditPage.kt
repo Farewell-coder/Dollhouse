@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ai.AiModel
@@ -280,11 +281,17 @@ object ModelEditPage {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                // E16-ALLOW: 模型名 `name`：列表行标题，`weight` 单行（长名由调用方省略号处理）
+                // 【E16·真问题（原 ALLOW 理由错：说"由调用方省略号处理"，实测这里既无
+                //   maxLines 也无 overflow）】`name` 是模型标识，来自供应商 `/models` 返回，
+                //   长度不受本 App 控制（常见 `deepseek-reasoner`、长名可达 40+ 字符）。
+                //   补 maxLines + Ellipsis 而非行高 —— 单行截断比多行撑开更适合列表行。
                 Text(
                     text = name,
+                    modifier = Modifier.weight(1f),
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     fontFamily = DhTokens.fonts
                 )
                 if (desc != null && desc.isNotEmpty()) {

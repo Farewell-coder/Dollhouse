@@ -307,7 +307,7 @@ object DeveloperOptionsPage {
             ),
             label = "diagnosticArrow"
         )
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).border(1.dp, DhTokens.colors.stroke, RoundedCornerShape(12.dp))) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).border(DhDesign.Size.hairline, DhTokens.colors.stroke, RoundedCornerShape(12.dp))) {
             Row(Modifier.fillMaxWidth().then(if (enabled && content.isNotBlank()) Modifier.pressable(onClick) else Modifier).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f), color = if (enabled && content.isNotBlank()) DhTokens.colors.title else DhTokens.colors.sub, fontFamily = DhTokens.fontsBold)
                 if (enabled && content.isNotBlank()) DhKit.Icon(Icons.IC_CHEVRON_DOWN, Design.SZ_SM, DhTokens.colors.sub, Modifier.rotate(arrowRotation))

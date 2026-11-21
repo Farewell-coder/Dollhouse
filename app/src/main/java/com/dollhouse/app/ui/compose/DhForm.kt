@@ -433,11 +433,19 @@ object DhForm {
                                 contentAlignment = Alignment.CenterStart,
                             ) {
                                 if (value.isEmpty() && hint.isNotEmpty()) {
-                                    // E16-ALLOW: 输入框占位 hint：`hint` 是调用方传入的短提示（"请输入"/"按名称筛选"），且渲染在单行 `Box` 的 CenterStart 里
+                                    // 【E16·真问题（原 ALLOW 理由错：说"短提示"，实测最长 68 字）】
+                                    //   `hint` 由调用方传入，实际最长的是
+                                    //   「数字越大越靠后（越靠近对话，模型越容易照做）」= 70 视觉字。
+                                    //   它渲染在 `Box(contentAlignment = CenterStart)` 里、外层是
+                                    //   定高 40dp 的输入框 —— 不补行高再折行，文字会顶出框外。
                                     Text(
                                         text = hint,
                                         color = c.sub,
                                         fontSize = UiKit.FS_BTN.sp,
+                                        // 单行截断：占位提示本来就该短，超出让用户从 label/desc 补信息，
+                                        // 而不是把 40dp 的输入框撑高。
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         fontFamily = DhTokens.fonts
                                     )
                                 }

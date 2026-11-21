@@ -361,7 +361,7 @@ object DollAnimPage {
                         .aspectRatio(1.1f)
                         .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                         .background(c.soft)
-                        .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
+                        .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
                         .onSizeChanged { sz ->
                             previewW = Math.max(1f, sz.width.toFloat())
                             previewH = Math.max(1f, sz.height.toFloat())

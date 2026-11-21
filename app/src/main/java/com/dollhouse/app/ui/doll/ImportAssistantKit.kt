@@ -197,7 +197,8 @@ internal object ImportAssistantKit {
                         ) { onPick() }
                         if (picked.isNotEmpty()) {
                             Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                            // E16-ALLOW: 槽位行主标签（"站着的她"/"贴入瞬间"）：ImportPlan.Slot 的固定枚举名
+                            // E16-ALLOW: 「已选 N 张 / N 帧」计数：数字 + 两个固定量词，
+                            //   且本 Text 自带 maxLines = 1 + Ellipsis，不可能撑成多行
                             Text(
                                 text = "已选 " + picked.size + " 张 / " + frames + " 帧",
                                 color = c.acc,
@@ -241,7 +242,7 @@ internal object ImportAssistantKit {
                     if (has) c.acc else c.sub
                 )
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                // E16-ALLOW: 槽位状态值（"12 帧"/"未设置"）：数字 + 固定词
+                // E16-ALLOW: 槽位名 `label`（"站着的她"/"贴入瞬间"/"待机"）：ImportPlan.Slot 的固定枚举名，2~4 字
                 Text(
                     text = label,
                     modifier = Modifier.weight(1f),
@@ -249,7 +250,7 @@ internal object ImportAssistantKit {
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
                 )
-                // E16-ALLOW: 槽位状态值（"12 帧"/"未设置"）：数字 + 固定词，单行
+                // E16-ALLOW: 槽位状态值（"12 帧"/"未设置"）：数字 + 固定量词，最长 5 字
                 Text(
                     text = if (has) frames.toString() + " 帧" else "未设置",
                     color = c.sub,
@@ -289,7 +290,7 @@ internal object ImportAssistantKit {
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(if (selected) c.option else c.soft)
                 .border(
-                    1.dp,
+                    DhDesign.Size.hairline,
                     if (selected) c.acc else c.line,
                     RoundedCornerShape(DhKit.R_ROW.dp)
                 )
@@ -383,7 +384,7 @@ internal object ImportAssistantKit {
                 .height(240.dp)
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
             contentAlignment = Alignment.Center
         ) {
             val b = bmp
@@ -588,7 +589,7 @@ internal object ImportAssistantKit {
                 .height(240.dp)
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
                 .pointerInput(files) {
                     detectDragGestures(
                         onDragStart = { atEdge = false },

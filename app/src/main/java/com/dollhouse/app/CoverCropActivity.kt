@@ -362,7 +362,7 @@ class CoverCropActivity : Activity() {
         val visual = modifier
             .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
             .background(bg)
-            .border(1.dp, line, RoundedCornerShape(DhDesign.Radius.pill.dp))
+            .border(DhDesign.Size.hairline, line, RoundedCornerShape(DhDesign.Radius.pill.dp))
         val press = if (enabled) Modifier.pressable(onClick = onClick) else Modifier
         Box(
             modifier = visual

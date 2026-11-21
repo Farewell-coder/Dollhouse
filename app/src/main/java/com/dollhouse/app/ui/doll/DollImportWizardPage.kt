@@ -331,7 +331,7 @@ object DollImportWizardPage {
                         .height(180.dp)
                         .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                         .background(c.soft)
-                        .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
+                        .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     DhLoadingState(
@@ -350,7 +350,7 @@ object DollImportWizardPage {
                         .height(180.dp)
                         .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                         .background(c.soft)
-                        .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
+                        .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(

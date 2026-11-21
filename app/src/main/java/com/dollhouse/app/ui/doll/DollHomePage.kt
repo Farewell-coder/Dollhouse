@@ -213,7 +213,7 @@ object DollHomePage {
                 .size(52.dp)
                 .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 // 语义挂在外层可点区域上（与 ui/kit 的 DhIconButton 同一写法），
                 // 顺序在 pressable 之前：语义描述「这块可点区域是什么」，与手势处理无关。
                 .semantics { contentDescription = name }

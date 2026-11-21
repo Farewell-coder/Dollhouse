@@ -554,6 +554,25 @@ def check_type_sp_consistency(path):
     return probs
 
 
+def paren_map(code):
+    """一次 O(n) 预处理：把每个 `(` 的下标映射到配对的 `)` 下标。
+
+    【为什么需要】E17 要枚举**全仓 2.4 万个调用点**。若每个调用都用 `call_args`
+      从头扫到配对的 `)`，复杂度是「调用数 × 平均实参长度」，实测慢一倍多（11.1s → 6.2s）。
+      一次建表后每个调用 O(1) 取区间。
+    【配对不上】`(` 多于 `)` 时该键不存在，调用方必须显式处理（不能静默跳过）——
+      否则就会重演「门禁自己悄悄不跑」。
+    """
+    m = {}
+    st = []
+    for i, ch in enumerate(code):
+        if ch == "(":
+            st.append(i)
+        elif ch == ")" and st:
+            m[st.pop()] = i
+    return m
+
+
 def check_file(path: Path):
     raw = path.read_text(encoding="utf-8", errors="replace")
     code = strip_code(raw)
@@ -1161,6 +1180,98 @@ def check_file(path: Path):
                 f"请补 `lineHeight = N.sp`（或用 `style = DhTokens.type.*`）；"
                 f"确属单行/固定高度/微对位，请在上方加 `// E16-ALLOW: <理由>`"
             )
+
+    # E17 同一个调用的**具名实参重复**（如 `Text(lineHeight = …, lineHeight = …)`）。
+    #
+    # 【为什么必须有这一条】2026-11 一天里 CI 挂了三次，其中一次的根因就是
+    #   两个人并发改同一处、各加了一个 `lineHeight =`，位置不同所以都留下了：
+    #       Text(
+    #           lineHeight = DhTokens.type.sub.lineHeight,   // 003 加的
+    #           fontSize = UiKit.FS_SUB.sp,
+    #           lineHeight = DhTokens.type.sub.lineHeight,   // 004 加的
+    #       )
+    #   编译器报的是 `None of the following candidates is applicable` —— 完全看不出
+    #   是「重复参数」。E5 查的是重复**顶层声明**，管不到具名实参。
+    #   这条规则成本极低（一次 O(n) 括号表 + 2.4 万次区间扫描），却能省掉一整轮 CI。
+    #
+    # 【判定：只看「同一个调用」的「深度 0」】
+    #   `outer(a = 1, inner(a = 2))` 不是重复 —— 后者在自己那层括号里，深度 > 0。
+    #   用「按括号/方括号/花括号同步升降的深度」实现：只有 depth == 0 的 `name =`
+    #   才是**这个调用**的具名实参；lambda（`{ … }`）与嵌套调用里的一律不算。
+    #
+    # 【为什么用 strip_code 后的文本（和 E16 的 tnum 相反）】
+    #   本条要规避的正是「字符串/注释里出现 `a=1, a=2`」这种假阳性 →
+    #   用 strip 后文本（字符串与注释已抹成空格）**天然正确**。
+    #   E16 那条要判断的是字符串**内容**（tnum），才必须回 raw 里取 —— 两者方向相反。
+    #
+    # 【最可能失效的三个地方（写之前先列，写完逐个反向验证）】
+    #   ① 括号配对失败 → 该调用被跳过。故统计失败数，非 0 就单独报一条，
+    #      不让「整条规则静默不跑」（E15 的教训）。
+    #   ② 深度算错把嵌套当同层（E15 踩过：跳过 `(` 却没记深度）。
+    #      这里每个字符都过一遍升降，不手写跳位。
+    #   ③ 把**声明体的默认值**误判成具名实参：
+    #      `fun F(a: Int = 0, b: Int = 1)` 里两个 `Int = ` 会被看成同名实参 `Int`。
+    #      所以：函数/类/构造声明整条跳过；另外对每个 `name =` 检查「本段逗号之后
+    #      到名字之间是否出现过 `:`」（`name: Type = v` 就是声明形态）→ 跳过。
+    _E17_CALL_RE = re.compile(r"(?<![A-Za-z0-9_.])([A-Za-z_][\w.]*)\s*\(")
+    _E17_KEYWORDS = {"if", "for", "while", "when", "catch", "return", "switch",
+                     "super", "this", "fun", "else", "do", "try", "throw", "in", "is"}
+    _e17_pm = paren_map(code)
+    _e17_pairfail = 0
+    for _m in _E17_CALL_RE.finditer(code):
+        _cname = _m.group(1).split(".")[-1]
+        if _cname in _E17_KEYWORDS:
+            continue
+        # 声明体跳过（函数 / 类 / 接口 / 对象 / 次构造函数）
+        if re.search(r"\b(fun|class|interface|object|constructor)\s+(?:[\w.]*\.)?\s*$",
+                     code[max(0, _m.start() - 40):_m.start()]):
+            continue
+        _open = code.rfind("(", 0, _m.end())
+        _close = _e17_pm.get(_open)
+        if _close is None:
+            _e17_pairfail += 1
+            continue
+        _args = code[_open + 1:_close]
+        # 快速通道：实参里没有 `=` 就不可能有具名实参（2.4 万 → 2686，省 2 秒）
+        if "=" not in _args:
+            continue
+        _seen = {}
+        _d = 0
+        _i = 0
+        _seg = 0                     # 本段（顶层逗号之后）的起点，用于判断 `name: Type =`
+        while _i < len(_args):
+            _ch = _args[_i]
+            if _ch in "([{":
+                _d += 1
+            elif _ch in ")]}":
+                _d -= 1
+            elif _ch == "," and _d == 0:
+                _seg = _i + 1
+            elif _d == 0:
+                _nm = re.match(r"([A-Za-z_]\w*)\s*=(?!=)", _args[_i:])
+                if _nm and (_i == 0 or not (_args[_i - 1].isalnum() or _args[_i - 1] in "_.")):
+                    if ":" in _args[_seg:_i]:
+                        _i += _nm.end()      # 声明形态 `name: Type = v`，不是具名实参
+                        continue
+                    _key = _nm.group(1)
+                    _line = code.count("\n", 0, _open + 1 + _i) + 1
+                    if _key in _seen:
+                        problems.append(
+                            f"E17 第 {_line} 行调用 {_cname}(…) 的具名实参 `{_key} =` 重复"
+                            f"（首次出现在第 {_seen[_key]} 行）：编译器的报错形如 "
+                            f"`None of the following candidates is applicable`，很难看出根因。"
+                            f"大概率是两人并发改同一处各加了一次 —— 删掉其中一处。"
+                        )
+                    else:
+                        _seen[_key] = _line
+                    _i += _nm.end()
+                    continue
+            _i += 1
+    if _e17_pairfail:
+        problems.append(
+            f"E17 有 {_e17_pairfail} 个调用的括号配对失败、无法检查重复实参："
+            f"说明源码括号不平衡（E3 会另外报）；本条在这些调用上**没生效**"
+        )
 
     return problems
 

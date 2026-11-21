@@ -550,6 +550,7 @@ object DhKit {
     fun CardTitle(text: String, modifier: Modifier = Modifier, iconRes: Int = 0) {
         val c = DhTokens.colors
         if (iconRes == 0) {
+            // E16-ALLOW: 卡片标题 `text`：单行标题，Card 内部 wrap，无换行
             Text(
                 text = text,
                 modifier = modifier,
@@ -569,6 +570,7 @@ object DhKit {
                 //   按 [Design] 自己的口径，行首主图标是 SZ_SM(16)，SZ_XS 只留给备注/次级标记。
                 Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.sub)
                 Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
+                // E16-ALLOW: 卡片标题（图标+文字分支）`text`：单行标题
                 Text(
                     text = text,
                     modifier = Modifier.weight(1f),
@@ -778,6 +780,7 @@ object DhKit {
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: 顶栏 `title`：单行页面标题（FS_TITLE）
                 Text(
                     text = title,
                     color = DhTokens.colors.title,
@@ -785,6 +788,7 @@ object DhKit {
                     fontFamily = DhTokens.fontsBold,
                 )
                 if (!sub.isNullOrEmpty()) {
+                    // E16-ALLOW: 顶栏 `sub`：单行副标题，调用方传短句
                     Text(
                         text = sub,
                         modifier = Modifier.padding(top = 2.dp),
@@ -843,6 +847,7 @@ object DhKit {
                 left()
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
+            // E16-ALLOW: Tab 顶栏 `title`：单行大标题（26sp），Tab 固定区
             Text(
                 text = title,
                 modifier = Modifier.weight(1f),
@@ -941,6 +946,7 @@ object DhKit {
                 Spacer(Modifier.width(GAP_ICON.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: `LegacyValueRow` 标签 `label`：单行行标题
                 Text(
                     text = label,
                     color = c.title,
@@ -953,12 +959,14 @@ object DhKit {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = FS_ROW_DESC.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fonts
                     )
                 }
             }
             if (!value.isNullOrEmpty()) {
                 Spacer(Modifier.width(12.dp))
+                // E16-ALLOW: `LegacyValueRow` 值 `value`：时间/计数等短值，weight 1.35 单行
                 Text(
                     text = value,
                     modifier = Modifier.weight(1.35f),
@@ -1274,6 +1282,7 @@ object DhKit {
             onClick = null,
             trailing = {
                 StepButton(iconRes = Icons.IC_MINUS, enabled = canMinus, onClick = onMinus)
+                // E16-ALLOW: `StepperRow` 值 `value`：刻度值（数字），单行
                 Text(
                     text = value,
                     modifier = Modifier.width(62.dp),
@@ -1429,6 +1438,7 @@ object DhKit {
                 modifier = Modifier.padding(top = 4.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -1467,6 +1477,7 @@ object DhKit {
                 text = text,
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -1798,11 +1809,13 @@ object DhKit {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = FS_ROW_DESC.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fonts
                     )
                 }
             }
             if (!trailing.isNullOrEmpty()) {
+                // E16-ALLOW: `LegacyActionRow` 尾部 `trailing`：状态短标，单行
                 Text(
                     text = trailing,
                     color = c.sub,
@@ -2065,6 +2078,7 @@ object DhKit {
                 modifier = Modifier.weight(1f),
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
+                lineHeight = DhTokens.type.body.lineHeight,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
             )
             if (selected) {
@@ -2174,6 +2188,7 @@ object DhKit {
         ) {
             Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = tint)
             Spacer(Modifier.width(5.dp))
+            // E16-ALLOW: `BarButton` 标签 `label`：2~4 字按钮文字，固定工具条
             Text(
                 text = label,
                 color = c.title,
@@ -2264,6 +2279,7 @@ object DhKit {
                     Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
                     Spacer(Modifier.width(5.dp))
                 }
+                // E16-ALLOW: `OutlineChip` 药丸 `text`：2~4 字 chip，定高药丸
                 Text(
                     text = text,
                     // 选中态用反白色（压在主色实底上）；未选中沿用原来的 title。
@@ -2360,6 +2376,7 @@ object DhKit {
                 Icon(iconRes = item.iconRes, sizeDp = Design.SZ_SM, color = tint)
                 Spacer(Modifier.width(5.dp))
             }
+            // E16-ALLOW: `SegCell` 选项 `item.label`：2~4 字分段选项，定高
             Text(
                 text = item.label,
                 color = tint,
@@ -2369,6 +2386,7 @@ object DhKit {
             // 计数：用「· N」而不是纯数字，避免和标签粘成一个词读不通。
             if (item.badge > 0) {
                 Spacer(Modifier.width(4.dp))
+                // E16-ALLOW: `SegCell` 徽标 "· "+badge：数字徽标，单行
                 Text(
                     text = "· " + item.badge,
                     color = tint.copy(alpha = 0.75f),

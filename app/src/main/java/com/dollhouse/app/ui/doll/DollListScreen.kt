@@ -991,7 +991,7 @@ onCover = {
                 .size(DhDesign.Size.avatarXl)
                 .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
                 // 名字挂在可点区域上；里面的 Image 继续是 null（否则同一张图会被念两遍）。
                 .semantics { contentDescription = name }
                 .pressable(onClick),
@@ -1077,7 +1077,7 @@ onCover = {
             modifier = Modifier
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.card)
-                .border(1.dp, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
+                .border(DhDesign.Size.hairline, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
                 .padding(vertical = DhDesign.Space.sm.dp)
         ) {
             content()

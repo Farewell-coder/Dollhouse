@@ -747,7 +747,7 @@ object DollActionPage {
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.cardUp)
-                .border(1.dp, if (empty) c.line else c.acc.copy(alpha = 0.35f),
+                .border(DhDesign.Size.hairline, if (empty) c.line else c.acc.copy(alpha = 0.35f),
                     RoundedCornerShape(DhKit.R_CARD.dp))
                 .pressable(onOpen)
                 .padding(DhDesign.Space.sm.dp),
@@ -773,7 +773,7 @@ object DollActionPage {
                     .height((SLOT_SIZE - 34).dp)
                     .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                     .background(c.soft)
-                    .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val b = thumb
@@ -886,7 +886,7 @@ object DollActionPage {
                     .size(48.dp)
                     .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                     .background(c.cardUp)
-                    .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val b = thumb

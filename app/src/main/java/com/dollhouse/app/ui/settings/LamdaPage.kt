@@ -253,7 +253,9 @@ object LamdaPage {
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBody
                 )
-                // E16-ALLOW: 值行右值 `value`：IP/端口/开关状态，纯数字与符号
+                // 【E16·真问题（原 ALLOW 理由错：这里不是 value 而是 desc）】
+                //   `desc` 是能力说明，例如「返回屏幕的层级与可点元素，据此判断该点哪里」
+                //   实测 42 视觉字，窄屏必然 2~3 行。补行高（下方已有，见 lineHeight）。
                 Text(
                     text = desc,
                     modifier = Modifier.padding(top = 2.dp),
@@ -283,7 +285,7 @@ object LamdaPage {
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBody
             )
-            // E16-ALLOW: 测试按钮文字 `text`（"测试连接"/"发送"）：2~4 字按钮文案
+            // E16-ALLOW: 值行右值 `value`（"已连接"/"未连接"/IP:端口）：短状态串，`weight` 单行
             Text(
                 text = value,
                 color = c.title,

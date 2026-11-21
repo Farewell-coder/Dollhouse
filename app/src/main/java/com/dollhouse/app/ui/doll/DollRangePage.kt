@@ -113,7 +113,7 @@ object DollRangePage {
                             width = with(density) { ((r - l) * wPx).toDp() },
                             height = with(density) { ((b - t) * hPx).toDp() }
                         )
-                        .border(1.dp, c.acc, RoundedCornerShape(DhKit.R_ROW.dp))
+                        .border(DhDesign.Size.hairline, c.acc, RoundedCornerShape(DhKit.R_ROW.dp))
                 )
 
                 // 上边手柄：拖动改 top（不能越过 bottom - 0.1）。
@@ -241,7 +241,7 @@ object DollRangePage {
                 .size(52.dp)
                 .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 // 语义挂在可点区域上、置于 pressable 之前（与 DhIconButton 同写法）。
                 .semantics { contentDescription = name }
                 .pressable(onClick),

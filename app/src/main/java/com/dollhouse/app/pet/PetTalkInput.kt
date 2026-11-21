@@ -312,7 +312,7 @@ class PetTalkInput internal constructor(
                 .shadow(6.dp, RoundedCornerShape(RADIUS_DP.dp))
                 .clip(RoundedCornerShape(RADIUS_DP.dp))
                 .background(palette.card)
-                .border(1.dp, palette.line, RoundedCornerShape(RADIUS_DP.dp))
+                .border(DhDesign.Size.hairline, palette.line, RoundedCornerShape(RADIUS_DP.dp))
                 .padding(PAD_DP.dp)
         ) {
             Row(

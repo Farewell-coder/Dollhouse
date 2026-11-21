@@ -595,12 +595,16 @@ object AppearancePage {
             },
             modifier = Modifier.fillMaxWidth()
         )
-        // E16-ALLOW: 滑条说明 `hint`：单句短说明（"值越大越不透明"），`fillMaxWidth` 上一行
+        // 【E16·真问题（原 ALLOW 理由错：说"单句短说明"）】`hint` 由
+        //   HomeUi.alphaHint / blurHint / scrimHint / cardAlphaHint 生成，实测最长
+        //   「背景图不透明度　（图偏淡，文字最稳）」= 36 视觉字 —— 360dp 勉强一行，
+        //   320dp 小屏必换行。补行高。
         Text(
             text = hint,
             modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
             color = c.sub,
             fontSize = UiKit.FS_SUB.sp,
+            lineHeight = DhTokens.type.sub.lineHeight,
             fontFamily = DhTokens.fontsBody
         )
     }
@@ -657,7 +661,7 @@ object AppearancePage {
                                 .size(26.dp)
                                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                                 .background(fontPreview(draft))
-                                .border(1.dp, DhTokens.colors.line, RoundedCornerShape(DhKit.R_ROW.dp))
+                                .border(DhDesign.Size.hairline, DhTokens.colors.line, RoundedCornerShape(DhKit.R_ROW.dp))
                         )
                     }
                 )

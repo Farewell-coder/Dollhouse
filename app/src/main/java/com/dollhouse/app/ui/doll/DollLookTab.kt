@@ -112,7 +112,7 @@ object DollLookTab {
                             .size(PREVIEW_DP.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(c.soft)
-                            .border(1.dp, c.line, RoundedCornerShape(12.dp)),
+                            .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (bmp != null && !bmp.isRecycled) {
@@ -296,7 +296,7 @@ object DollLookTab {
                     .background(
                         if (cur == 0) c.chatBubbleUser else androidx.compose.ui.graphics.Color(cur)
                     )
-                    .border(1.dp, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
             )
         }
 

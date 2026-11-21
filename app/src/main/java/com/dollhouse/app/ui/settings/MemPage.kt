@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.core.Logs
@@ -293,6 +294,9 @@ object MemPage {
          *   它只用于「监听器内部判断」。多一个无人观察的 Compose 状态是纯浪费
          *   （每次赋值都触发一次无效重组检查）。这里改为直接用 lambda 的 `enabled` 参数。
          */
+        // 【a11yCtx】读屏检测所需的 Context。第一版漏了这行定义（只有使用、没有声明），
+        //   CI 报 Unresolved reference 'a11yCtx' —— 与前面两次漏 import 是同一类失误。
+        val a11yCtx = LocalContext.current
         val a11yMgr = remember(a11yCtx) {
             runCatching {
                 a11yCtx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
@@ -1066,7 +1070,7 @@ object MemPage {
                     } else {
                         Modifier
                             .background(c.soft)
-                            .border(1.dp, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
+                            .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
                     }
                 )
                 .pressable(onClick)
@@ -1092,7 +1096,8 @@ object MemPage {
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
             Spacer(Modifier.width(5.dp))
-            // E16-ALLOW: "关联到其它记忆"：7 字固定标签，`weight(1f)`
+            // E16-ALLOW: 工具条按钮文字 `text`（"适配"/"放大"/"缩小"/"导入"）：
+            //   4 个调用点全是 2 字固定词，无换行可能
             Text(
                 text = text,
                 color = c.sub,

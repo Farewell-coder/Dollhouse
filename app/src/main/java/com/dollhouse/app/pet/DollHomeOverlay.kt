@@ -221,7 +221,7 @@ object DollHomeOverlay {
                     .padding(bottom = 72.dp)
                     .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.card)
-                    .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
