@@ -51,6 +51,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -1278,7 +1279,9 @@ object DhForm {
                 //   按钮文字比 chip 大一档是应有的层级；12sp 在高 44 的按钮里显得空。
                 fontSize = com.dollhouse.app.ui.design.DhDesign.Type.fallback().body.fontSize,
                 fontFamily = if (primary) DhTokens.fontsBold else DhTokens.fonts,
-                maxLines = 1
+                // 【调用方文案】text 由调用方传入，长度不可控；加省略号防止硬切。
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

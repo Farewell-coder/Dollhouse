@@ -456,7 +456,13 @@ fun DhRow(
                 text = value,
                 color = p.sub,
                 style = t.sub,
+                // 【修·长 model 名/供应商名硬切】原实现只有 maxLines 没有 overflow，
+                //   超长时按字符硬裁（用户看到半个字）。补省略号。
+                //   注意：仅补 overflow 不够 —— 左标题有 weight(1f) 让位，而本 Text
+                //   没有任何宽度约束，会先按固有宽度占满并把标题压到极小。
+                //   003 报告（O2）已记录这一点，属后续单独处理项。
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.End
             )
         }
@@ -696,7 +702,7 @@ fun DhChip(
             .padding(horizontal = ChipPadH),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = fg, style = t.caption, maxLines = 1)
+        Text(text = text, color = fg, style = t.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -717,7 +723,7 @@ fun DhTag(
             .padding(horizontal = TagPadH),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = tint ?: p.sub, style = t.label, maxLines = 1)
+        Text(text = text, color = tint ?: p.sub, style = t.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
