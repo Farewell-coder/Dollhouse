@@ -172,7 +172,7 @@ object DollActionPage {
         DhKit.Page(
             title = "动作",
             sub = if (doll == null) null else doll.name,
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             actions = {
                 // 【本轮·修顶栏挤压】改造前三个入口都带文字（「恢复内置」「导入资源」「新建」），
                 //   合计约 250dp，而 `DhKit.TopBar` 让标题占满剩余宽后再放 actions ——
@@ -270,14 +270,14 @@ object DollActionPage {
             DhKit.Segmented(
                 items = segItems,
                 selectedKey = tab,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.xs.dp)
             ) { tab = it }
 
             // ---------- ① 固定位：三张卡并排（本轮需求 2 的核心）----------
             if (tab == TAB_FIXED) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp),
+                    horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
                 ) {
                     for (g in DollAnim.FIXED_GROUPS.filter { it != DollAnim.GROUP_EDGE_IN }) {
                         val fixedAction = remember(groups, g) {
@@ -499,6 +499,7 @@ object DollActionPage {
                     text = msg,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
+                    lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -544,11 +545,12 @@ object DollActionPage {
                     fontFamily = DhTokens.fontsBody
                 )
                 if (refs.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     Text(
                         text = "⚠ 它现在还被这些地方用着：",
                         color = DhTokens.colors.title,
                         fontSize = UiKit.FS_SUB.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBold
                     )
                     for (r in refs) {
@@ -556,6 +558,7 @@ object DollActionPage {
                             text = "· " + r.label,
                             color = DhTokens.colors.sub,
                             fontSize = UiKit.FS_TINY.sp,
+                            lineHeight = DhTokens.type.sub.lineHeight,
                             fontFamily = DhTokens.fontsBody
                         )
                     }
@@ -673,6 +676,7 @@ object DollActionPage {
                     text = expMsg,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_BTN.sp,
+                    lineHeight = DhTokens.type.body.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -743,10 +747,10 @@ object DollActionPage {
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.cardUp)
-                .border(1.dp, if (empty) c.line else c.acc.copy(alpha = 0.35f),
+                .border(DhDesign.Size.hairline, if (empty) c.line else c.acc.copy(alpha = 0.35f),
                     RoundedCornerShape(DhKit.R_CARD.dp))
                 .pressable(onOpen)
-                .padding(8.dp),
+                .padding(DhDesign.Space.sm.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 图标 + 组名（固定位的身份标识）
@@ -759,6 +763,8 @@ object DollActionPage {
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fontsBold,
                     fontWeight = FontWeight.Normal,
+                    // 【故意不加 overflow】group 来自 DollAnim 的固定分组常量
+                    //   （GROUP_ALWAYS / GROUP_IDLE …），不是用户输入，宽度有上界。
                     maxLines = 1
                 )
             }
@@ -767,9 +773,9 @@ object DollActionPage {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height((SLOT_SIZE - 34).dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                     .background(c.soft)
-                    .border(1.dp, c.line, RoundedCornerShape(8.dp)),
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val b = thumb
@@ -807,7 +813,7 @@ object DollActionPage {
             //   改造前这里是「清空」独占一行、下面再排两个 —— 同一种小按钮在一张卡里
             //   出现两种排法（一列 + 一行），卡片高度被拉高，视觉上也比别处松散。
             //   【为什么改成三列等分】固定位卡片宽度足够放三个 2 字按钮；
-            //   等分后每个命中区都 ≥ 40dp，比原来「清空」整行的超宽按钮更均匀。
+            //   等分后每个命中区都 ≥ 48dp，比原来「清空」整行的超宽按钮更均匀。
             if (!empty && dollId != DollStore.DEFAULT_ID) {
                 Spacer(Modifier.height(DhDesign.Space.md.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -880,9 +886,9 @@ object DollActionPage {
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                     .background(c.cardUp)
-                    .border(1.dp, c.line, RoundedCornerShape(8.dp)),
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.xs.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 val b = thumb
@@ -945,7 +951,7 @@ object DollActionPage {
             Box(modifier = Modifier.weight(1f)) {
                 DhKit.MiniChip("复制", iconRes = Icons.IC_COPY, onClick = onDuplicate)
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Box(modifier = Modifier.weight(1f)) {
                 DhKit.MiniChip("导出", iconRes = Icons.IC_DOWNLOAD, onClick = onExport)
             }

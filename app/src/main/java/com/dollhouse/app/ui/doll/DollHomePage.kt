@@ -46,6 +46,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import kotlin.math.roundToInt
@@ -99,7 +100,7 @@ object DollHomePage {
         DhKit.Page(
             title = "初始位置",
             sub = if (doll == null) null else doll.name,
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false
         ) {
             DhForm.Note("拖动中心点选位置（人偶会跟着走）；点「确认」才保存，点「取消」不记录。")
@@ -150,9 +151,9 @@ object DollHomePage {
                             )
                         }
                         .size(DOT)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.acc)
-                        .border(2.dp, c.card, RoundedCornerShape(999.dp))
+                        .border(2.dp, c.card, RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .pointerInput(wPx, hPx) {
                             detectDragGestures { change, drag ->
                                 change.consume()
@@ -175,15 +176,15 @@ object DollHomePage {
             // 【r13 保存语义】rx / ry 只是本地草稿，点「确认」才写盘；
             //   「取消」与系统返回键都直接退出、不写任何键。
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存位置") { PageStack.pop(act) }
+                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存位置") { PageStack.popIfTopStartsWith(act, PREFIX) }
                 Spacer(Modifier.width(28.dp))
                 CircleButton(Icons.IC_CHECK, c.acc, "确认人偶位置") {
                     DollProfile.setHomePivot(act, id, rx, ry)
-                    PageStack.pop(act)
+                    PageStack.popIfTopStartsWith(act, PREFIX)
                 }
             }
         }
@@ -210,9 +211,9 @@ object DollHomePage {
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 // 语义挂在外层可点区域上（与 ui/kit 的 DhIconButton 同一写法），
                 // 顺序在 pressable 之前：语义描述「这块可点区域是什么」，与手势处理无关。
                 .semantics { contentDescription = name }

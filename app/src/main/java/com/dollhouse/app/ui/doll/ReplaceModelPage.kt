@@ -20,7 +20,10 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Icons
 import java.io.File
 
@@ -163,7 +166,7 @@ object ReplaceModelPage {
         fun leave() {
             session?.discard()
             session = null
-            PageStack.pop(act)
+            PageStack.popIfTopStartsWith(act, PREFIX)
         }
 
         val s = session
@@ -191,7 +194,15 @@ object ReplaceModelPage {
                     PickFileActivity.startFiles(act, true)
                 }
                 if (busy) {
-                    ImportAssistantKit.BusyHint(busyText)
+                    // 【B4·接入加载态·识别阶段】改造前是 `BusyHint(busyText)`（自成一套的行内加载）。
+                    //   此刻 `session` 仍为 null（analyzeAsync 先置 busy，Thread 里才 create），
+                    //   本页除这行提示外没有任何该展示的内容 → 符合 MAA 硬规则 1，用 FirstLoad。
+                    DhLoadingState(
+                        state = LoadingState.FirstLoad,
+                        rows = 3,
+                        lines = 2,
+                        label = busyText
+                    )
                 }
                 failure?.let { ImportAssistantKit.FailureBox(it) }
             }
@@ -211,7 +222,7 @@ object ReplaceModelPage {
                         offsetX = 0f,
                         offsetY = 0f
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     ImportAssistantKit.SlotTabRow(
                         slots = ImportPlan.FIXED_SLOTS,
                         selected = previewSlot,
@@ -243,7 +254,13 @@ object ReplaceModelPage {
                         }
                     }
                     if (busy) {
-                        ImportAssistantKit.BusyHint(busyText)
+                        // 【B4·接入加载态·提交阶段】这里是"更换模型"的写盘提交中，
+                        //   页面上方的预览与槽位**仍然可见**（用户正在核对）。
+                        //   按 MAA 硬规则 1 不许遮挡已有内容 → Refreshing。
+                        DhLoadingState(
+                            state = LoadingState.Refreshing,
+                            label = busyText
+                        )
                     }
                     failure?.let { ImportAssistantKit.FailureBox(it) }
                 }
@@ -251,7 +268,7 @@ object ReplaceModelPage {
 
             Step.DONE -> DhKit.Page(
                 title = "换好了",
-                onBack = { PageStack.pop(act) }
+                onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
             ) {
                 for (slot in ImportPlan.FIXED_SLOTS) {
                     ImportAssistantKit.StatusRow(
@@ -262,7 +279,7 @@ object ReplaceModelPage {
                 DhForm.Note("她的人格、记忆和聊天记录都没变，人偶库里也没有多出人。")
                 Spacer(Modifier.height(12.dp))
                 DhKit.MiniChip("回人偶列表", iconRes = Icons.IC_CHECK) {
-                    PageStack.pop(act)
+                    PageStack.popIfTopStartsWith(act, PREFIX)
                 }
             }
         }

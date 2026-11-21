@@ -106,18 +106,20 @@ object ProviderListPage {
                 //   选错后缀也能走对，比摆两个长得一样的按钮更好懂。
                 Box(
                     modifier = Modifier
+                        // 【E13】pressable 在前：它内置 sizeIn(min=48dp)，
+                        //   外层 size(40) 会把约束上限夹回 40，48dp 命中区就失效。
+                        .pressable { com.dollhouse.app.ui.widget.AexImportSheet.show(act) }
                         .size(40.dp)
-                        .semantics { contentDescription = "导入配置文件" }
-                        .pressable { com.dollhouse.app.ui.widget.AexImportSheet.show(act) },
+                        .semantics { contentDescription = "导入配置文件" },
                     contentAlignment = Alignment.Center
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_DOWNLOAD, sizeDp = UiKit.FS_ICON, color = c.sub)
                 }
                 Box(
                     modifier = Modifier
+                        .pressable { ProviderNav.openNewProvider(act) }
                         .size(40.dp)
-                        .semantics { contentDescription = "新建供应商" }
-                        .pressable { ProviderNav.openNewProvider(act) },
+                        .semantics { contentDescription = "新建供应商" },
                     contentAlignment = Alignment.Center
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_PLUS, sizeDp = UiKit.FS_ICON, color = c.acc)
@@ -260,13 +262,15 @@ object ProviderListPage {
             modifier = Modifier
                 .fillMaxWidth()
                 .pressable(onClick)
-                .padding(horizontal = 8.dp, vertical = 14.dp),
+                .padding(horizontal = DhDesign.Space.sm.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (iconRes != 0) {
                 DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
+            // E16-ALLOW: 弹窗菜单项文字 `text`（"重命名"/"删除"）：
+            //   `MenuItem` 只有这 2 个调用点，固定 2~3 字
             Text(
                 text = text,
                 color = c.title,
@@ -293,7 +297,7 @@ object ProviderListPage {
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.field),
                     contentAlignment = Alignment.Center
                 ) {
@@ -336,11 +340,11 @@ object ProviderListPage {
                 }
                 Box(
                     modifier = Modifier
+                        .pressable(onMore)
                         .size(36.dp)
                         // 名字里点明「供应商」：同一屏可能有别的「更多」，
                         // 只写「更多」在朗读里无法判断作用域。
-                        .semantics { contentDescription = "更多供应商操作" }
-                        .pressable(onMore),
+                        .semantics { contentDescription = "更多供应商操作" },
                     contentAlignment = Alignment.Center
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_MORE, sizeDp = UiKit.FS_ICON, color = c.sub)

@@ -30,6 +30,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
@@ -96,11 +102,12 @@ internal object ImportAssistantKit {
                             fontSize = UiKit.FS_TITLE.sp,
                             fontFamily = DhTokens.fontsBold,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
                         Text(
                             text = desc,
                             color = c.sub,
                             fontSize = UiKit.FS_SUB.sp,
+                            lineHeight = DhTokens.type.sub.lineHeight,
                             fontFamily = DhTokens.fontsBody
                         )
                         if (extra.isNotEmpty()) {
@@ -111,6 +118,7 @@ internal object ImportAssistantKit {
                                 text = extra,
                                 color = c.sub,
                                 fontSize = UiKit.FS_TINY.sp,
+                                lineHeight = DhTokens.type.sub.lineHeight,
                                 fontFamily = DhTokens.fontsBody
                             )
                         }
@@ -154,7 +162,8 @@ internal object ImportAssistantKit {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         DhKit.Icon(iconRes, Design.SZ_SM, c.acc)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                        // E16-ALLOW: 卡片标题 `title`（"新手"/"高手"）：固定 2 字档位名
                         Text(
                             text = title,
                             modifier = Modifier.weight(1f),
@@ -162,6 +171,7 @@ internal object ImportAssistantKit {
                             fontSize = UiKit.FS_BTN.sp,
                             fontFamily = DhTokens.fontsBold,
                         )
+                        // E16-ALLOW: "必需"/"可跳过"二选一标记：固定 2~3 字
                         Text(
                             text = if (required) "必需" else "可跳过",
                             color = c.sub,
@@ -173,9 +183,13 @@ internal object ImportAssistantKit {
                         text = desc,
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
+                        // 【E16·真问题，补行高而非 ALLOW】`desc` 是导入向导卡片里的说明，
+                        //   内容由 ImportPlan 按识别结果生成，长度不可预知（例如
+                        //   "检测到 12 张同尺寸 PNG，已按帧序列分组"这类会到 2~3 行）。
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DhDesign.Space.sm.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DhKit.MiniChip(
                             if (picked.isEmpty()) "选择图片" else "重新选择",
@@ -183,6 +197,8 @@ internal object ImportAssistantKit {
                         ) { onPick() }
                         if (picked.isNotEmpty()) {
                             Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                            // E16-ALLOW: 「已选 N 张 / N 帧」计数：数字 + 两个固定量词，
+                            //   且本 Text 自带 maxLines = 1 + Ellipsis，不可能撑成多行
                             Text(
                                 text = "已选 " + picked.size + " 张 / " + frames + " 帧",
                                 color = c.acc,
@@ -225,7 +241,8 @@ internal object ImportAssistantKit {
                     // 未设置用中性灰（R-064 / R-107），不用红色。
                     if (has) c.acc else c.sub
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                // E16-ALLOW: 槽位名 `label`（"站着的她"/"贴入瞬间"/"待机"）：ImportPlan.Slot 的固定枚举名，2~4 字
                 Text(
                     text = label,
                     modifier = Modifier.weight(1f),
@@ -233,6 +250,7 @@ internal object ImportAssistantKit {
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
                 )
+                // E16-ALLOW: 槽位状态值（"12 帧"/"未设置"）：数字 + 固定量词，最长 5 字
                 Text(
                     text = if (has) frames.toString() + " 帧" else "未设置",
                     color = c.sub,
@@ -272,10 +290,38 @@ internal object ImportAssistantKit {
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(if (selected) c.option else c.soft)
                 .border(
-                    1.dp,
+                    DhDesign.Size.hairline,
                     if (selected) c.acc else c.line,
                     RoundedCornerShape(DhKit.R_ROW.dp)
                 )
+                /*
+                 * 【P0-3·无障碍：四态页签补 selected / Tab 语义】
+                 *   原来 `selected` 只改底/描边/字重，`enabled` 只改字色 —— **零语义**。
+                 *   读屏把四个页签念成四个普通按钮，用户不知道：
+                 *     · 当前停在哪一态（selected 没进语义）；
+                 *     · 哪几态还没设置（enabled=false 只把字压到 55% alpha，读屏无感）。
+                 *
+                 *   【mergeDescendants = true —— 本处只有 1 个子 Text，为什么仍合并】
+                 *     不合并时：父节点（有 contentDescription + selected）与内部 `Text(label)`
+                 *     是**两个**可聚焦节点，用户要划两次才过一个页签，第一次还是重复信息。
+                 *     合并后一次念清：「待机，标签页，已选中」。
+                 *     【与 BottomNav.TabItem 的差别】那边有 badge 裸数字（非合并不可），
+                 *     这边只有单个 Text —— 不合并不会丢信息，但会**多一次聚焦**。
+                 *     既然底栏与外观页都合并了，这里保持一致，全 App 的 Tab 聚焦次数统一为 1。
+                 *
+                 *   【enabled=false 怎么表达】用 `stateDescription` 说「未设置」，
+                 *     而不是把 alpha 0.55 的视觉弱化当成唯一信号 —— 读屏看不到 alpha。
+                 *     `stateDescription` 会比 `selected` 更容易被念出来（TalkBack 念
+                 *     「<名字>，<状态描述>」），正好承担「这一态还没配」的提示。
+                 */
+                .semantics(mergeDescendants = true) {
+                    this.selected = selected
+                    role = Role.Tab
+                    contentDescription = label
+                    if (!enabled) {
+                        stateDescription = "未设置"
+                    }
+                }
                 .pressable(onClick),
             contentAlignment = Alignment.Center
         ) {
@@ -338,7 +384,7 @@ internal object ImportAssistantKit {
                 .height(240.dp)
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp)),
             contentAlignment = Alignment.Center
         ) {
             val b = bmp
@@ -352,7 +398,7 @@ internal object ImportAssistantKit {
             } else {
                 val k = Math.max(0.1f, sizePercent / 100f)
                 Box(
-                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                    modifier = Modifier.fillMaxSize().padding(DhDesign.Space.sm.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -377,11 +423,12 @@ internal object ImportAssistantKit {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(Icons.IC_SPINNER, Design.SZ_SM, c.acc)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = text,
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -406,12 +453,14 @@ internal object ImportAssistantKit {
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(Icons.IC_CIRCLE_ALERT, Design.SZ_SM, c.err)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            // E16-ALLOW: 步骤胶囊文字 `label`：DialogButton 式药丸，定高容器
             Text(
                 text = text,
                 modifier = Modifier.weight(1f),
                 color = c.err,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
@@ -435,7 +484,8 @@ internal object ImportAssistantKit {
                 Design.SZ_SM,
                 if (has) c.acc else c.sub
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            // E16-ALLOW: 步骤胶囊文字 `label`：定高药丸容器，2~4 字
             Text(
                 text = label,
                 color = c.title,
@@ -539,7 +589,7 @@ internal object ImportAssistantKit {
                 .height(240.dp)
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
                 .pointerInput(files) {
                     detectDragGestures(
                         onDragStart = { atEdge = false },
@@ -616,7 +666,7 @@ internal object ImportAssistantKit {
             } else {
                 val k = Math.max(0.1f, sizePercent / 100f)
                 val density = androidx.compose.ui.platform.LocalDensity.current
-                Box(Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().padding(DhDesign.Space.sm.dp), contentAlignment = Alignment.Center) {
                     Image(
                         bitmap = b,
                         contentDescription = "预览人偶，可以拖动",
@@ -639,11 +689,12 @@ internal object ImportAssistantKit {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(Icons.IC_GRIP, Design.SZ_XS, c.sub)
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     Text(
                         text = "可以拖动，拖到边缘看看",
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }
@@ -677,7 +728,8 @@ internal object ImportAssistantKit {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(Icons.IC_RULER, Design.SZ_SM, c.acc)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                // E16-ALLOW: "大小检查"固定功能名 + 右侧数值：4 字标签行
                 Text(
                     text = "大小检查",
                     modifier = Modifier.weight(1f),
@@ -691,7 +743,7 @@ internal object ImportAssistantKit {
                 )
             }
             if (open) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.MiniChip("全部统一到待机", iconRes = Icons.IC_LIST_CHECKS) { onFixAll() }
                 Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.MiniChip(
@@ -715,7 +767,7 @@ internal object ImportAssistantKit {
                     Box(Modifier.weight(1f)) {
                         DhKit.MiniChip("对齐脚底", iconRes = Icons.IC_FOOTPRINTS) { onAlignBottom() }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Box(Modifier.weight(1f)) {
                         DhKit.MiniChip("对齐头顶", iconRes = Icons.IC_ALIGN_START_VERTICAL) { onAlignTop() }
                     }

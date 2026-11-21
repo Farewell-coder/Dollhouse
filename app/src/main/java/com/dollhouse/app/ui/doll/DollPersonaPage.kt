@@ -123,7 +123,7 @@ object DollPersonaPage {
         DhKit.Page(
             title = "角色设定",
             sub = if (name.isNotEmpty()) name else "这只人偶的人设",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             /* ==================== ① 基础 ==================== */
             DhKit.Card(collapsibleTitle = "基础", titleIcon = Icons.IC_BOOK_HEART) {

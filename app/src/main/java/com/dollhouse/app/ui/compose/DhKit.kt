@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -75,7 +76,10 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -87,6 +91,8 @@ import com.dollhouse.app.ui.kit.IconSeat
 import com.dollhouse.app.ui.kit.IconSeatShape
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.GlobalBackground
+import com.dollhouse.app.ui.settings.SettingsSpot
+import com.dollhouse.app.ui.settings.SettingsSpots
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
@@ -103,7 +109,7 @@ import com.dollhouse.app.ui.design.DhDesign
  * 【参数来源】不是拍的，全部抄自既有 View 实现：
  *   - 卡片：圆角 16dp / 描边 1dp(STROKE) / 卡片间距 10dp / 内边距 16dp ← `UiKit.card` + `HomeCards.buildCard`
  *   - 行：圆角 10dp / SOFT 底 / 内边距 12dp / 行距 8dp ← `HomeCards.valueRow`
- *   - 顶栏：标题 20sp 粗 / 副标题 12sp / 命中区 40dp ← `UiKit.topBar` + `UiKit.FS_*` + `UiKit.HIT_DP`
+ *   - 顶栏：标题 20sp 粗 / 副标题 12sp / 命中区 48dp ← `UiKit.topBar` + `UiKit.FS_*` + `UiKit.HIT_DP`
  *   - 开关：44×24dp / 滑块内缩 3dp ← `UiKit.Switch` 的 `W_DP/H_DP/PAD_DP`
  *   - 药丸：圆角 999 / 内边距 12×8 / 12sp ← `UiKit.outlineChip`
  */
@@ -439,23 +445,15 @@ object DhKit {
                         Modifier
                     } else {
                         Modifier
-                            // 【e1 轻浮起】这是全 App 唯一「卡片有没有立体感」的地方 ——
-                            //   15 个文件约 50 张卡片都走这里，改这一行就是全局生效。
-                            //   【为什么 2dp 而不是更大】用户取向是「安静居所」：层级主要由
-                            //   留白与发丝线承担，阴影只做「几乎看不出、但大脑能感到」的纵深。
-                            //   2dp 在浅色档几乎不可见，只在暗色档边缘有极淡的一圈 —— 这正是要的效果。
-                            //   【clip = false】阴影必须画在形状**外侧**；先 clip 再 shadow 会被裁掉。
-                            // 【染色是轻拟物的关键】Compose 默认阴影是纯黑，
-                            //   在浅蓝底上会显脏、显硬。把 ambient（环境光）与 spot（投影）
-                            //   都染成蓝灰，阴影就有了「柔和」的观感而不是「一圈灰」。
-                            //   ambientColor/spotColor 需要 API 28+，低版本自动退回黑色，不会崩。
-                            .shadow(
-                                elevation = com.dollhouse.app.ui.design.DhDesign.Elevation.e1,
-                                shape = RoundedCornerShape(R_CARD.dp),
-                                clip = false,
-                                ambientColor = DhTokens.palette.shadowTint,
-                                spotColor = DhTokens.palette.shadowTint
-                            )
+                            // 【方案B·去投影，2026-11】这里原本挂 `e1`(6dp) 染色投影，
+                            //   注释还写着「15 个文件约 50 张卡片都走这里」——
+                            //   **那句已经过时了**：53 处 `DhKit.Card` 早就转发到
+                            //   `ui/kit.DhGroup`（规范实现，0 阴影 + hairline 描边），
+                            //   而本函数只剩 `flat = true` 一种形态在用，flat 分支返回
+                            //   裸 `Modifier`（连底和描边都不画）→ 下面这个 else 分支
+                            //   **全仓 0 处到达**。投影属于死代码，一并去掉，
+                            //   避免将来有人"修回"非 flat 形态时把投影又带回来。
+                            //   卡片的层级统一由 `.border(1.dp, c.line)` 承担。
                             .clip(RoundedCornerShape(R_CARD.dp))
                             .background(c.card)
                             // 【M3】描边改 `line`（1dp 发丝线）。改造前用 `stroke`（一种更实的
@@ -552,6 +550,7 @@ object DhKit {
     fun CardTitle(text: String, modifier: Modifier = Modifier, iconRes: Int = 0) {
         val c = DhTokens.colors
         if (iconRes == 0) {
+            // E16-ALLOW: 卡片标题 `text`：单行标题，Card 内部 wrap，无换行
             Text(
                 text = text,
                 modifier = modifier,
@@ -571,6 +570,7 @@ object DhKit {
                 //   按 [Design] 自己的口径，行首主图标是 SZ_SM(16)，SZ_XS 只留给备注/次级标记。
                 Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.sub)
                 Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
+                // E16-ALLOW: 卡片标题（图标+文字分支）`text`：单行标题
                 Text(
                     text = text,
                     modifier = Modifier.weight(1f),
@@ -780,6 +780,7 @@ object DhKit {
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: 顶栏 `title`：单行页面标题（FS_TITLE）
                 Text(
                     text = title,
                     color = DhTokens.colors.title,
@@ -787,6 +788,7 @@ object DhKit {
                     fontFamily = DhTokens.fontsBold,
                 )
                 if (!sub.isNullOrEmpty()) {
+                    // E16-ALLOW: 顶栏 `sub`：单行副标题，调用方传短句
                     Text(
                         text = sub,
                         modifier = Modifier.padding(top = 2.dp),
@@ -799,7 +801,7 @@ object DhKit {
                 }
             }
             if (actions != null) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 actions()
             }
         }
@@ -845,6 +847,7 @@ object DhKit {
                 left()
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
+            // E16-ALLOW: Tab 顶栏 `title`：单行大标题（26sp），Tab 固定区
             Text(
                 text = title,
                 modifier = Modifier.weight(1f),
@@ -869,7 +872,17 @@ object DhKit {
      */
     @Composable
     fun ValueRow(
-        label: String,
+        /**
+         * 行标签。
+         *
+         * 【为什么可空且默认 null】配合 [spot] 实现「标题唯一真源 + 自纠错」：
+         *   已接线的行**不再写标题字面量**，只传 [spot]，标题从索引表取；
+         *   两者都没有时标题为**空串** —— 空标题在界面上肉眼可见，比"忘了登记但显示正常文案"
+         *   更容易被发现。详见 [SettingsSpots.spotTitle]。
+         *   【对既有调用零影响】原参数是 `String`，收窄成 `String? = null` 后，
+         *   所有传字符串的调用点行为逐字不变。
+         */
+        label: String? = null,
         value: String? = null,
         valueTint: Color? = null,
         modifier: Modifier = Modifier,
@@ -877,8 +890,11 @@ object DhKit {
         desc: String? = null,
         /** 【v3.1】画真箭头，替代用字符 `›` 冒充图标的写法。 */
         showChevron: Boolean = false,
+        /** 【P1-e·设置索引】设置项登记。传了就由索引表提供标题（见 [SettingsSpots.spotTitle]）。 */
+        spot: SettingsSpot? = null,
         onClick: (() -> Unit)? = null
     ) {
+        val title = SettingsSpots.spotTitle(spot, label)
         // 【M-收口·转发到规范实现】本函数有 38 处调用点，改造它等于一次性让
         //   38 个页面的"信息行"对齐设计规范（圆角/行高/字号/图标尺寸/可点反馈）。
         //   【为什么用转发而不是复制样式】`ui/kit.DhRow` 是规范源，复制一份就又回到
@@ -888,11 +904,11 @@ object DhKit {
         //     · 旧调用不带箭头（showChevron=false），保持原观感
         if (valueTint != null) {
             // 需要自定义右值颜色 → 走旧实现（少量调用点，观感不变）
-            LegacyValueRow(label, value, valueTint, modifier, iconRes, desc, onClick)
+            LegacyValueRow(title, value, valueTint, modifier, iconRes, desc, onClick)
             return
         }
         com.dollhouse.app.ui.kit.DhRow(
-            title = label,
+            title = title,
             modifier = modifier,
             desc = desc,
             value = value,
@@ -930,6 +946,7 @@ object DhKit {
                 Spacer(Modifier.width(GAP_ICON.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: `LegacyValueRow` 标签 `label`：单行行标题
                 Text(
                     text = label,
                     color = c.title,
@@ -942,12 +959,14 @@ object DhKit {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = FS_ROW_DESC.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fonts
                     )
                 }
             }
             if (!value.isNullOrEmpty()) {
                 Spacer(Modifier.width(12.dp))
+                // E16-ALLOW: `LegacyValueRow` 值 `value`：时间/计数等短值，weight 1.35 单行
                 Text(
                     text = value,
                     modifier = Modifier.weight(1.35f),
@@ -1065,7 +1084,15 @@ object DhKit {
      */
     @Composable
     fun SwitchRow(
-        name: String,
+        /**
+         * 行名称。
+         *
+         * 【为什么可空且默认 null】与 [ValueRow.label] 同一套自纠错口径：
+         *   已接线的行不写标题字面量、只传 [spot]，标题由索引表提供；
+         *   两者皆空 → 标题为空串（肉眼可见）。
+         *   【对既有调用零影响】`String` → `String? = null`，传字符串的调用点行为不变。
+         */
+        name: String? = null,
         checked: Boolean,
         modifier: Modifier = Modifier,
         /** 【v0.1.4】第二行说明；null / 空 = 单行。 */
@@ -1074,8 +1101,11 @@ object DhKit {
         iconRes: Int = 0,
         /** 【v0.1.4】false 时整行降透明度且不接收点击（与 ActionRow 的禁用口径一致）。 */
         enabled: Boolean = true,
+        /** 【P1-e·设置索引】设置项登记；传了则由索引表提供标题。 */
+        spot: SettingsSpot? = null,
         onCheckedChange: (Boolean) -> Unit
     ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         // 【参数适配】name→title、desc→desc、iconRes→iconRes（旧实现的 0 与 `DhRow` 的
         //   "不占位"是同一个约定，不需要归一）。
         //
@@ -1098,7 +1128,7 @@ object DhKit {
         val toggle: () -> Unit = { onCheckedChange(!checked) }
         val onRowClick: (() -> Unit)? = if (enabled) toggle else null
         com.dollhouse.app.ui.kit.DhRow(
-            title = name,
+            title = title,
             modifier = rowModifier,
             desc = desc,
             iconRes = iconRes,
@@ -1107,6 +1137,10 @@ object DhKit {
             trailing = {
                 Switch(
                     checked = checked,
+                    // 【P0-1b·名字】把行标题作为开关的朗读名：
+                    //   读屏聚焦到开关时念「莫奈主题色，开关，已关闭」而不是「开关，已关闭」。
+                    //   40 处 SwitchRow 调用点因此**零改动**自动获得名字。
+                    a11yName = title,
                     onCheckedChange = { if (enabled) onCheckedChange(it) }
                 )
             }
@@ -1127,15 +1161,32 @@ object DhKit {
      */
     @Composable
     fun PermRow(
-        name: String,
+        /**
+         * 行名称。
+         *
+         * 【为什么可空且默认 null】与 [ActionRow.label] 同一套自纠错口径：已接线的行
+         *   不写标题字面量、只传 [spot]，标题由索引表提供；两者皆空 → 空串（肉眼可见）。
+         *   对 4 处既有调用零影响（`String` → `String? = null`）。
+         */
+        name: String? = null,
         state: Int,
         modifier: Modifier = Modifier,
         /** 【v0.1.4】行首图标（Icons.IC_*）；0 = 不占位。 */
         iconRes: Int = 0,
         /** 【v0.1.4】第二行说明（例如「申请后会跳到系统设置」）。 */
         desc: String? = null,
+        /**
+         * 【P1-e·设置索引】设置项登记。
+         *
+         * 【参数位置·必须】放在 `onClick` **之前**。本函数的 `onClick: () -> Unit` 是
+         *   非空且位于末位，调用方普遍写成尾随 lambda；Kotlin 的尾随 lambda 绑定**最后一个**
+         *   参数，若把 `spot` 追加在末尾，`PermRow(...) { … }` 里的 lambda 会被当成 spot 实参
+         *   → 整片编译失败（ActionRow 那轮踩过同一个坑）。
+         */
+        spot: SettingsSpot? = null,
         onClick: () -> Unit
     ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         val c = DhTokens.colors
         val granted = state == 0
         val tint = if (granted) c.ok else c.err
@@ -1151,7 +1202,7 @@ object DhKit {
         //   注意这里只降"可点性"，**不降透明度**：旧实现也没有 alpha，
         //   已授权的行仍要能正常读出"已授权"三个字。
         com.dollhouse.app.ui.kit.DhRow(
-            title = name,
+            title = title,
             modifier = modifier,
             desc = desc,
             iconRes = iconRes,
@@ -1165,6 +1216,8 @@ object DhKit {
                     color = tint,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBold,
+                    // 【故意不加 overflow】三档状态文案是固定的（最长 3 字），
+                    //   且这一行右侧还有图标与间距，实测不可能触到边界。
                     maxLines = 1
                 )
                 Spacer(Modifier.width(4.dp))
@@ -1180,14 +1233,28 @@ object DhKit {
      */
     @Composable
     fun StepperRow(
-        name: String,
+        /**
+         * 行名称。
+         *
+         * 【为什么可空且默认 null】自纠错口径同 [ActionRow.label]：已接线的行不写标题字面量、
+         *   只传 [spot]。注意 `value` 仍是必填（它是"当前值"，不是标题）。
+         */
+        name: String? = null,
         value: String,
         canMinus: Boolean,
         canPlus: Boolean,
         modifier: Modifier = Modifier,
+        /**
+         * 【P1-e·设置索引】设置项登记。
+         *
+         * 【参数位置·必须】放在 `onMinus` **之前**：`onPlus` 在末位，尾随 lambda 会绑定
+         *   最后一个参数；把 spot 追加到末尾会让 lambda 被当成 spot 实参而编译失败。
+         */
+        spot: SettingsSpot? = null,
         onMinus: () -> Unit,
         onPlus: () -> Unit
     ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         val c = DhTokens.colors
         // 【M-收口·转发到规范实现·结论是"不必给 DhRow 加参数"】
         //   本函数此前是**最后一行自带 soft 底 + 圆角 12 的行**（其余行早已转发走）。
@@ -1211,12 +1278,13 @@ object DhKit {
         //   故这里 onClick 传 null —— DhRow 因此不挂 pressable，可点面只剩两枚按钮。
         //   StepButton 自己的 enabled / alpha(0.35f) / 34dp 圆形实底描边全部不动。
         com.dollhouse.app.ui.kit.DhRow(
-            title = name,
+            title = title,
             modifier = modifier,
             showChevron = false,
             onClick = null,
             trailing = {
                 StepButton(iconRes = Icons.IC_MINUS, enabled = canMinus, onClick = onMinus)
+                // E16-ALLOW: `StepperRow` 值 `value`：刻度值（数字），单行
                 Text(
                     text = value,
                     modifier = Modifier.width(62.dp),
@@ -1240,11 +1308,14 @@ object DhKit {
         val c = DhTokens.colors
         Box(
             modifier = Modifier
+                // 【E13·顺序关键】pressable 必须写在 size 之前：它内置 sizeIn(min=48dp)，
+                //   而 size(34) 会把传入约束的上限夹到 34，写在外层就把 48dp 下限压回去。
+                //   现在 pressable 在外 → 传入 min=48，内层 size(34) 被抬到 48，命中区 48×48。
+                .then(if (enabled) Modifier.pressable(onClick) else Modifier)
                 .size(34.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(c.cardUp)
                 .border(1.dp, c.line, RoundedCornerShape(999.dp))
-                .then(if (enabled) Modifier.pressable(onClick) else Modifier)
                 .then(if (enabled) Modifier else Modifier.alpha(0.35f)),
             contentAlignment = Alignment.Center
         ) {
@@ -1369,6 +1440,7 @@ object DhKit {
                 modifier = Modifier.padding(top = 4.dp),
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -1385,12 +1457,29 @@ object DhKit {
             modifier = modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.line)
+            /*
+             * 【修·可读性】原来图标与文字都用 `c.line`（分隔线色）：
+             *   压在 CARD 上只有 1.50:1（浅色档），14dp 图标与 13sp 文字**都看不见**。
+             *
+             * 【为什么图标也一起改，而不是「图标是装饰、只改文字」】
+             *   本行的图标不是装饰，它是**这行文字的语义锚点**：调用点只有
+             *   `DollLookTab:250/254`（「全局背景 / 你的气泡 / 弹窗 → 设置 → 外观」
+             *   「聊天里看到的背景与她的气泡，跟随这里的设置」），图标（调色板 / 气泡）
+             *   负责把「这一行在讲哪一块设置」一句话说清。1.5:1 的图标等于没有锚点，
+             *   而全 App 的行首图标一律走 `sub`（`DhRow` 的 `tint = iconTint ?: p.sub`），
+             *   这里跟着改成 `sub` 才能与其它行同族。
+             *
+             * 【为什么不是 `title`】本行是**只读说明**，改 `title` 会让它与正文同权、
+             *   抢层级；`sub` 是设计系统里唯一的「次要文字」槽，且它已被
+             *   `clampPaletteContrast()` 夹到 CARD / BG 两底 ≥4.5，不会再退化。
+             */
+            Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
             Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
             Text(
                 text = text,
-                color = c.line,
+                color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fonts
             )
         }
@@ -1543,7 +1632,7 @@ object DhKit {
                     else Modifier.semantics { contentDescription = a11yText }
                 )
                 .pressable(onClick)
-                .then(if (hasLabel) Modifier.padding(horizontal = 8.dp) else Modifier),
+                .then(if (hasLabel) Modifier.padding(horizontal = DhDesign.Space.sm.dp) else Modifier),
             // 【修·图标不在圆心】改造前只有 `verticalAlignment`，而 `Row` 的
             //   `horizontalArrangement` 默认是 **Start** —— 于是 40dp 圆底里 20dp 的图标
             //   贴在左侧，右侧空出 20dp。用户看到的就是「返回键不在最中心」。
@@ -1561,7 +1650,10 @@ object DhKit {
                     fontSize = UiKit.FS_CHIP.sp,
                     fontFamily = DhTokens.fonts,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 1
+                    // 【调用方标签】label 由调用方传入（如「分组」「新建」），
+                    //   加省略号避免极端窄槽里被硬切半个字。
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1589,7 +1681,14 @@ object DhKit {
      */
     @Composable
     fun ActionRow(
-        label: String,
+        /**
+         * 行标签。
+         *
+         * 【为什么可空且默认 null】自纠错口径同 [ValueRow.label]：已接线的行不写标题字面量，
+         *   只传 [spot]，标题从索引表取；两者皆空 → 标题为空串（界面上肉眼可见）。
+         *   【对既有 87 处调用零影响】`String` → `String? = null`，传字符串的调用点不变。
+         */
+        label: String? = null,
         modifier: Modifier = Modifier,
         iconRes: Int? = null,
         desc: String? = null,
@@ -1604,8 +1703,11 @@ object DhKit {
          * 再叠上文楷，每一行的宽度与粗细都不一致 —— 这正是用户说的「符号错位」。
          */
         showChevron: Boolean = false,
+        /** 【P1-e·设置索引】设置项登记；传了则由索引表提供标题。 */
+        spot: SettingsSpot? = null,
         onClick: (() -> Unit)? = null
     ) {
+        val title = SettingsSpots.spotTitle(spot, label)
         // 【M-收口·转发到规范实现】本函数有 87 处调用点（全 App 用得最多的行组件），
         //   改造它等于一次性让 87 个页面的"可点行"对齐设计规范。
         //   【为什么用转发而不是复制样式】`ui/kit.DhRow` 是规范源。改造前这里自带
@@ -1634,11 +1736,11 @@ object DhKit {
             modifier.alpha(0.35f)
         }
         if (!tooltip.isNullOrBlank()) {
-            LegacyActionRow(label, modifier, iconRes, desc, trailing, enabled, tooltip, onClick)
+            LegacyActionRow(title, modifier, iconRes, desc, trailing, enabled, tooltip, onClick)
             return
         }
         com.dollhouse.app.ui.kit.DhRow(
-            title = label,
+            title = title,
             modifier = rowModifier,
             desc = desc,
             value = trailing,
@@ -1712,11 +1814,13 @@ object DhKit {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = FS_ROW_DESC.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fonts
                     )
                 }
             }
             if (!trailing.isNullOrEmpty()) {
+                // E16-ALLOW: `LegacyActionRow` 尾部 `trailing`：状态短标，单行
                 Text(
                     text = trailing,
                     color = c.sub,
@@ -1786,6 +1890,51 @@ object DhKit {
                 .widthIn(min = NAV_ITEM_W.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(if (selected) c.option else Color.Transparent)
+                /*
+                 * 【P0-3·无障碍：补 selected 语义】
+                 *   原来 `selected` 只用来上色（`tint` / `option` 底 / 加粗），
+                 *   **完全没有进语义树** —— 读屏把三个 Tab 念成三个普通按钮，
+                 *   用户不知道自己当前在哪一页。这是「导航基础信息缺失」，不是打磨项。
+                 *
+                 *   【为什么是 `selected` 而不是 `contentDescription` 拼字】
+                 *     Compose 的 `SemanticsPropertyReceiver.selected` 是**状态属性**，
+                 *     读屏会念「已选中 / 未选中」（TalkBack 还会在选中项上给提示音）。
+                 *     若把「已选中」拼进 contentDescription，它就成了名字的一部分，
+                 *     每读一次都念，且与真实状态脱钩（状态变了名字不会自动变）。
+                 *
+                 *   【为什么配 `role = Role.Tab`】Compose 没有 `Role.TabButton`，用 `Role.Tab`
+                 *     让读屏念「标签页」，从而被归入 tab 组、可用「切换标签」手势浏览。
+                 *     【位置】`.semantics` 排在 `.pressable` **之前**：语义描述的是
+                 *     「这个可点区域是什么」这个**节点属性**，与它内部如何处理手势无关
+                 *     （与 DhKit.IconButton 里 semantics 在 pressable 之前的写法一致）。
+                 *
+                 *   【为什么不改成 `selectable()`】`selectable` 会自动带 `selected` +
+                 *     `Role.Tab`，比手写 semantics 更规范。但它会**替换掉 `pressable`
+                 *     的按压反馈（0.98 缩放）** —— 本工程的手感统一靠 pressable，
+                 *     换掉会让这类导航项在全 App 里手感变干。所以这里保留 pressable、
+                 *     手动补语义，视觉与手感一字不变。
+                 */
+                /*
+                 * 【P2-c·无障碍补：mergeDescendants = true】
+                 *   补这个参数之前，本节点与内部的 `Text(label)` 是**两个独立可聚焦节点** ——
+                 *   读屏用户要划两次才过一个导航项，第一次还只有孤零零的文字。
+                 *   合并后一次念清：「聊天，标签页，已选中」。
+                 *
+                 *   【与本文件其它两处的口径一致】
+                 *     · `BottomNav.TabItem`  —— 内部 `Text` + `Badge` 裸数字，必须合并；
+                 *     · `AppearancePage.TabCell` / `ImportAssistantKit.SlotTab` —— 内部单个 `Text`，
+                 *       合并只为把聚焦次数降到 1；
+                 *     · 本处同属「单个 Text」，补齐后**全 App 所有 Tab 形态的聚焦次数统一为 1**。
+                 *
+                 *   【合并的代价】子 `Text` 不再单独可聚焦。但导航项本来就是「一个可点整体」，
+                 *   子文字没有独立交互语义 —— 这是正确的粒度（与 TabItem 同理）。
+                 */
+                .semantics(mergeDescendants = true) {
+                    this.selected = selected
+                    role = Role.Tab
+                    // 名字：图标无文字描述，读屏需要知道这是哪个 Tab。
+                    contentDescription = label
+                }
                 .pressable(onClick)
                 .padding(horizontal = NAV_ITEM_PAD_H.dp, vertical = 6.dp /* 不收敛·D4：与 NAV_ITEM_H(54) 配套，决定底栏总高 */),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1949,6 +2098,7 @@ object DhKit {
                 modifier = Modifier.weight(1f),
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
+                lineHeight = DhTokens.type.body.lineHeight,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
             )
             if (selected) {
@@ -2058,6 +2208,7 @@ object DhKit {
         ) {
             Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = tint)
             Spacer(Modifier.width(5.dp))
+            // E16-ALLOW: `BarButton` 标签 `label`：2~4 字按钮文字，固定工具条
             Text(
                 text = label,
                 color = c.title,
@@ -2141,13 +2292,14 @@ object DhKit {
                 //     不需要再靠透明区域补命中区：改用不带 48dp 下限的点击，
                 //     并保留同一套按压缩放（复用 pressable 的手感，但跳过尺寸下限）。
                 .then(if (onClick != null) Modifier.pressScaleClick(onClick) else Modifier)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (iconRes != 0) {
                     Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
                     Spacer(Modifier.width(5.dp))
                 }
+                // E16-ALLOW: `OutlineChip` 药丸 `text`：2~4 字 chip，定高药丸
                 Text(
                     text = text,
                     // 选中态用反白色（压在主色实底上）；未选中沿用原来的 title。
@@ -2244,6 +2396,7 @@ object DhKit {
                 Icon(iconRes = item.iconRes, sizeDp = Design.SZ_SM, color = tint)
                 Spacer(Modifier.width(5.dp))
             }
+            // E16-ALLOW: `SegCell` 选项 `item.label`：2~4 字分段选项，定高
             Text(
                 text = item.label,
                 color = tint,
@@ -2253,6 +2406,7 @@ object DhKit {
             // 计数：用「· N」而不是纯数字，避免和标签粘成一个词读不通。
             if (item.badge > 0) {
                 Spacer(Modifier.width(4.dp))
+                // E16-ALLOW: `SegCell` 徽标 "· "+badge：数字徽标，单行
                 Text(
                     text = "· " + item.badge,
                     color = tint.copy(alpha = 0.75f),
@@ -2275,6 +2429,17 @@ object DhKit {
     fun Switch(
         checked: Boolean,
         modifier: Modifier = Modifier,
+        /**
+         * 【P0-1b·无障碍】开关的朗读名（"这个开关是干什么的"）。
+         *
+         * 【为什么需要它】`toggleable` 能播报开/关，但播报的是「开关，已关闭」——
+         *   **没有主语**。设置页一屏可能有 5 个开关，读屏用户听到五个「开关，已关闭」
+         *   完全分不清哪个是哪个。名字必须由调用方给（构件层不知道业务语义）。
+         *
+         * 【默认 null 的行为】不挂语义 → 与改造前完全一致（既有调用点零影响）。
+         *   `SwitchRow` 会自动把行标题传进来（那 40 处调用点因此自动获得名字）。
+         */
+        a11yName: String? = null,
         onCheckedChange: (Boolean) -> Unit
     ) {
         val c = DhTokens.colors
@@ -2314,20 +2479,66 @@ object DhKit {
         // 【改造前的毛病】`clickable` 直接挂在 44×24 的 Box 上 —— 用户点轨道上下 1dp
         //   之外就没反应，手指略偏就"点了没反应"（需求书 K-04 / R-091 / N-010）。
         //
-        // 【修法】外面包一层 48×48 的透明 Box，把 `clickable` 提到它上面：
+        // 【修法】外面包一层 48×48 的透明 Box，把点击提到它上面：
         //   · 视觉（轨道 + 白球）尺寸一点不变，只是居中放在更大的可点区域里；
         //   · 点在轨道上下左右各 12dp / 2dp 以内的空白处也算点中；
         //   · `contentAlignment = Center` 保证视觉位置与改造前完全一致。
         //
         // 【为什么不直接 `size(48.dp, 48.dp)` 给轨道】那会把轨道撑成 48 高，
         //   与设计稿（24dp 轨道）不符，且开关行的行高会跟着变。
+        //
+        // ---------------------------------------------------------------
+        // 【P0-1·无障碍：`clickable` → `toggleable`】
+        //   原来用 `clickable`：读屏只知道「这是个按钮」，**既听不出开还是关，
+        //   也听不出点一下会发生什么**。全 App 所有开关（≈40 处，经 SwitchRow 转发）
+        //   都受影响 —— 等于设置页对读屏用户不可用。
+        //
+        //   改用 `toggleable(value = checked, role = Role.Switch, onValueChange = ...)`：
+        //     · `value` 会让 CheckableState 进语义树 → 读屏自动念「已开启 / 已关闭」；
+        //     · `role = Role.Switch` 让它念「开关」而不是默认的「复选框」；
+        //     · 不需要再手写 `stateDescription`（那是 native View 的写法）。
+        //
+        //   ⚠️ **【双重取反陷阱 —— 这一行是本次改动最危险的地方，勿"顺手优化"】**
+        //     `toggleable` 的 `onValueChange` 收到的是**目标值（!value）**，不是当前值。
+        //     证据不是我凭记忆断言，而是从实际依赖 `foundation-android:1.10.2` 的
+        //     字节码里反读出来的（`ToggleableNode._onClick$lambda$0`）：
+        //         getfield value
+        //         ifne → iconst_1 / else → iconst_0      ← 先自行取反
+        //         invoke  onValueChange(!value)          ← 再传给回调
+        //     所以正确写法是 **直接透传 `onCheckedChange`**：
+        //         onValueChange = onCheckedChange        ✅ 内部已取反，净效果 = 切换
+        //     而写成下面这样就**双重取反，开关永远点不动**：
+        //         onValueChange = { onCheckedChange(!it) }   ❌ 千万别这么写
+        //     （改前的 `clickable { onCheckedChange(!checked) }` 之所以对，是因为
+        //       `clickable` 没有这个内建取反；换 API 后取反的**负责方变了**，所以那层
+        //       手动 `!` 必须**删掉**，而不是照抄过去。）
+        //
+        //   【`indication = null` 与 `interactionSource` 保留】行为与改造前一致：
+        //     仍走同一个 `MutableInteractionSource`，仍不画涟漪（自绘卡片上涟漪会溢出圆角）。
+        //     `toggleable` 的重载 `toggleable(value, interactionSource, indication, ...)`
+        //     正好接住这两个参数。
+        // ---------------------------------------------------------------
         Box(
             modifier = modifier
                 .size(MIN_TOUCH.dp, MIN_TOUCH.dp)
-                .clickable(
+                // 【P0-1b·名字】放在 toggleable **之前**：
+                //   语义属性描述「这个可点区域是什么」，与它内部怎么处理手势无关。
+                //   传 null 时整个 Modifier 不挂语义（`then` 保证零行为变化）。
+                .then(
+                    if (a11yName.isNullOrEmpty()) {
+                        Modifier
+                    } else {
+                        Modifier.semantics { contentDescription = a11yName }
+                    }
+                )
+                .toggleable(
+                    value = checked,
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onCheckedChange(!checked) },
+                    indication = null,
+                    role = Role.Switch,
+                    // ⚠️ 直接透传（toggleable 内部已取反）—— 见上方「双重取反陷阱」
+                    onValueChange = onCheckedChange
+                ),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -2483,6 +2694,25 @@ fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
         animationSpec = spec,
         label = "press"
     )
+    // 【P2-d·触觉反馈】只在**长按确认**时震一下，普通点击一律不震。
+    //   为什么只给长按：长按没有视觉上的"到底按够了没有"的即时反馈（松手才弹菜单），
+    //   用户常因不确定而提前抬手；一次短震正好补上这个确认信号。
+    //   而单击已有 PRESS_SCALE 的缩放反馈，再叠加震动在 125 处调用点上会变成持续打扰。
+    //
+    // 【为什么收在这个重载里而不是逐个调用点加】本重载全仓只有 5 个入口
+    //   （ChatListScreen 会话长按、ChatUi 搜索/消息菜单、MemPage 记忆删除、DhSwipe 行长按），
+    //   改这一处即全覆盖，且**不会影响**单参 pressable 的那 125 处普通按钮。
+    //
+    // 【minSdk 24 可用性】Compose 的 PlatformHapticFeedback 走
+    //   `ViewCompat.performHapticFeedback(view, HapticFeedbackConstants.LONG_PRESS)`，
+    //   底层是 Android 1.0 就有的 View.performHapticFeedback，不依赖高版本系统 API；
+    //   HapticFeedbackType.LongPress 是 Compose 侧的常量，无版本门槛。
+    //   未开启系统触感反馈 / 设备无振动马达时系统自行忽略，不需要自己 try。
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val onLongConfirmed: () -> Unit = {
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        onLongClick()
+    }
     return this
         // 【v0.2.0·与单参重载同口径】触摸目标下限一并收进来，见上方注释。
         .minTouchTarget()
@@ -2491,7 +2721,7 @@ fun Modifier.pressable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
             interactionSource = source,
             indication = null,
             onClick = onClick,
-            onLongClick = onLongClick
+            onLongClick = onLongConfirmed
         )
 }
 

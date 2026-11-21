@@ -69,6 +69,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhKit.photoTopBand
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.design.LocalCompactHeight
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -220,8 +221,8 @@ object ChatUi {
                 .windowInsetsPadding(WindowInsets.displayCutout)
                 // 有带子时底部多留出渐隐那 12dp，文字不会落在半透明的渐隐区里。
                 .padding(
-                    start = 6.dp, end = 8.dp, top = 6.dp,
-                    bottom = if (onPhoto) 8.dp + DhKit.TOP_BAND_FADE_DP.dp else 8.dp
+                    start = 6.dp, end = DhDesign.Space.sm.dp, top = 6.dp,
+                    bottom = if (onPhoto) DhDesign.Space.sm.dp + DhKit.TOP_BAND_FADE_DP.dp else DhDesign.Space.sm.dp
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -249,7 +250,74 @@ object ChatUi {
             //   完全看不出「正在跟谁聊」。需求书要求顶栏展示**人偶头像、名称、状态**，
             //   而数据层（ChatSessions.dollOfConv → DollStore.byId）本来就齐备，只是没接。
             //   【保留原有能力】长按这块区域仍然唤出聊天搜索（与原长按标题同一入口）。
-            val convId = remember { ChatSessions.currentId(topCtx) }
+            /*
+             * 【P0-d·修「分支后顶栏身份不刷新」】
+             *
+             * ── 原来错在哪（两层，只修一层不够）──
+             *   ① `remember { ... }` **没有 key**，组合能重组时也不重新取值；
+             *   ② 更根本：`TopBarRow` 的作用域里**没有任何因「换会话」而变的订阅**。
+             *      实测它只读 `ChatState.waiting`，而切会话时 waiting 通常本就是 false
+             *      （`reloadDraft` 仅在 `activeGeneration == null` 时 `setWaiting(false)`，
+             *      赋同值不触发重组）。`renderHistory` 改的 `items` 读在 `Messages()`、
+             *      `ctxRatio` 读在 `CtxRingView()`，都是兄弟 / 子作用域 ——
+             *      作用域隔离下它们只重启自己，**不会**让本行重新执行。
+             *      所以「只给 remember 加 key」修不好这个 bug。
+             *
+             * ── 修法：两层 remember（订阅便宜、重算昂贵，两者必须分开）──
+             *   第一层：`remember(repaint, currentPool)` 只做**零副作用纯读**
+             *     （`ChatSessions.pool()` + `PetPrefs.convCurrent*`，都是一次内存 map 读）。
+             *     它的 key 里有 `repaint`，所以「重铺即重组」——这就是本行的**订阅点**。
+             *   第二层：`remember(currentPool, declaredConvId)` 才调昂贵的
+             *     `currentId()`（内部 `ensure()`：listAll 解析 JSON + 可能的迁移写盘）。
+             *     它只在「声明值真的变了」时重算。
+             *
+             *   为什么 `repaint` **不能**直接进第二层的 key（也**不能**用它的
+             *   hashCode / size 代替）：流式期间 `flushStream` 每 60ms 重写一次 items，
+             *   那样 `currentId()` 就每 60ms 跑一次 JSON 遍历，白烧主线程。
+             *   分工后的行为：
+             *     · 流式期：items 变 → 本行重组 → 第一层重跑（2 次内存读，可忽略）
+             *       → 声明值未变 → **第二层不重算** ✅
+             *     · 换会话 / 分支：`switchTo()` → `setCurrent()` 写 `conv_current[_pet]`
+             *       （SharedPreferences `apply()` 会同步更新内存，紧接着读得到新值）
+             *       → 声明值变 → 第二层重算 ✅
+             *     · 内联重铺但没换会话（展开收回 / 删单条 / 清空）→ 声明值不变 → 不重算 ✅
+             *
+             * ── 为什么必须让第一层「用到」repaint，而不是只声明一个变量 ──
+             *   只写 `val repaint = ChatState.items` 而不使用，Kotlin / R8 有可能把这次
+             *   属性读优化掉，订阅随之失效（这就是「注释写着修了、实际没修」的经典坑）。
+             *   放进第一层 `remember` 的 key 以后，它是**真正参与计算**的输入，不会被消掉。
+             *
+             * 【branchAt 的所有分支情形都被覆盖】它复制 `history[0..index]`；即使对
+             *   **最后一条**开分支（新旧消息逐字相同、items 内容相等），`switchTo(newId)`
+             *   仍会改 `conv_current` ⇒ declaredConvId 变化 ⇒ 第二层一定会重算。
+             *   —— 不要改用「items 内容是否相等」来判断该不该刷新，分支恰恰靠声明值兜住。
+             */
+            val repaint = ChatState.items
+            val currentPool = ChatSessions.pool(topCtx)
+            /*
+             * 【为什么这一层要 remember(repaint, currentPool) 而不是直接写 if/else】
+             *   它是本行的**订阅点**：`repaint`（ChatState.items）在每次重铺时变，
+             *   于是本行会被重新执行。而它内部的两件事都很便宜、且**必须**跟上最新声明值：
+             *     · `ChatSessions.pool()` —— `PetPrefs.convPool()` 是一次 SharedPreferences 读；
+             *     · `PetPrefs.convCurrent*()` —— 同上。
+             *   【为什么不省掉 remember 直接调】这两次读每帧都跑没有意义（流式期 items
+             *   每 60ms 变一次）；包在 remember 里就只在「重铺」时读一次。
+             *   【PetPrefs.get() 的真实成本】它每次都会跑 4 个一次性迁移函数
+             *   （purgeDeadKeys / forceMemSwitchesOn / purgeAffection / migrateScrimLinear），
+             *   四者都是「先读一个标记位、已迁移就 return」，所以稳态下是 4 次 getBoolean/Int
+             *   的开销。放进 remember 后每次重铺只付一次，可接受。
+             */
+            val declaredConvId = remember(repaint, currentPool) {
+                if (currentPool == ChatSessions.POOL_PET) {
+                    PetPrefs.convCurrentPet(topCtx)
+                } else {
+                    PetPrefs.convCurrent(topCtx)
+                }
+            }
+            // 第二层：昂贵，只在「声明值变了」时重算。
+            val convId = remember(currentPool, declaredConvId) {
+                ChatSessions.currentId(topCtx)
+            }
             val dollId = remember(convId) { ChatSessions.dollOfConv(topCtx, convId) }
             val doll = remember(dollId) {
                 if (dollId.isEmpty()) null else DollStore.byId(topCtx, dollId)
@@ -268,7 +336,7 @@ object ChatUi {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 4.dp)
+                    .padding(start = DhDesign.Space.xs.dp)
                     // 【r19·聊天搜索】长按标题唤出搜索框（不占布局空间）。
                     .pressable(
                         onClick = {
@@ -282,8 +350,8 @@ object ChatUi {
                 // 头像：与气泡 / 列表同一取图口径；没有图就退回内置形象。
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .size(DhDesign.Size.avatarXs)
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.soft),
                     contentAlignment = Alignment.Center
                 ) {
@@ -299,7 +367,7 @@ object ChatUi {
                         DhKit.Icon(Icons.IC_CIRCLE_USER, Design.SZ_SM, c.sub)
                     }
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 Column {
                     // 人偶名：会话绑定的人偶名；未绑定（自由会话）时退回产品名，不显示空白。
                     val name = doll?.name?.takeIf { it.isNotEmpty() } ?: "Dollhouse"
@@ -333,7 +401,8 @@ object ChatUi {
                         },
                         fontSize = UiKit.FS_SUB.sp,
                         fontFamily = DhTokens.fontsBody,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -359,6 +428,10 @@ object ChatUi {
         val ratio = ChatState.ctxRatio.coerceIn(0f, 1f)
         Box(
             modifier = Modifier
+                // 【E13】pressable 在最外层：它内置 sizeIn(min=48dp)，
+                //   size(30) 写在外层会把约束上限夹回 30，命中区只剩 30×30。
+                //   环本身的视觉尺寸由下面 Canvas(fillMaxSize) 跟随外框，不受影响。
+                .pressable { host.controller?.onOpenTokenStat() }
                 .size(30.dp)
                 // 【无障碍】环身是 Canvas 画的两条弧，读屏读不到；环心只有一个「32」，
                 //   既没单位也没说这是干什么的。这里合成一句话：**数值 + 含义 + 操作**。
@@ -368,8 +441,7 @@ object ChatUi {
                 .semantics(mergeDescendants = true) {
                     contentDescription = "上下文已用 " +
                         (ratio * 100f).roundToInt() + "%，查看用量详情"
-                }
-                .pressable { host.controller?.onOpenTokenStat() },
+                },
             contentAlignment = Alignment.Center
         ) {
             Canvas(Modifier.fillMaxSize()) {
@@ -418,7 +490,7 @@ object ChatUi {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(top = DhDesign.Space.xs.dp)
         ) {
             Box(
@@ -433,6 +505,8 @@ object ChatUi {
                     .pressable { host.openMain() }
                     .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
+                // E16-ALLOW: 提示条文案来自 ChatState.hint，全仓唯一赋值是写死的 18 字
+                //   「还没有可用的供应商模型，点这里去设置」，容器约 300dp 一行放得下
                 Text(
                     text = text,
                     color = c.hintFg,
@@ -511,11 +585,25 @@ object ChatUi {
         //   改造前的叠加方式是「spacedBy(3) + item.padding(top=6) [+ 换人 5]」，
         //   即同角色 9 / 换人 14 —— 两者只差 5，而且间距被拆在两个地方，
         //   调一处漏一处就会前功尽弃。现在统一收到 spacedBy 一处。
+        // 【P2-a·紧凑高度】横屏 / 小屏（窗口高 < 480dp）时收紧**纵向**间距，
+        //   让一屏能多看几条消息；横向 12dp 内边距保持不变（横屏宽度本来就够）。
+        //   取舍：只动「消息之间」和「上下留白」，不动气泡自身的内部留白与字号 ——
+        //   那两项属于阅读密度，压了会显拥挤；行距才是「一屏几条」的直接决定项。
+        //   【三级层次必须保住】同角色行距取 6dp（不是 4dp）：若取 4 就会与气泡内留白
+        //   相等，分组感只剩「换人 8」一级。紧凑档仍维持
+        //   `气泡内 4 < 同角色 6 < 换人 8`，用户靠间距差分辨「同一人连说」与「换人」。
+        //   6dp 不是设计令牌档位（Space 只有 4/8/12…），故显式写 6 —— 它只在紧凑档出现。
+        val compact = LocalCompactHeight
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
+            contentPadding = PaddingValues(
+                horizontal = DhDesign.Space.lg.dp,
+                vertical = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(
+                if (compact) 6.dp else DhDesign.Space.sm.dp
+            )
         ) {
             if (ChatState.hasPrev) {
                 item(key = "loadEarlier") { LoadEarlierRow(host) }
@@ -562,7 +650,13 @@ object ChatUi {
                     if (prevRole != null && prevRole != item.role) {
                         // 【绝对值对齐】目标：换角色 = md(12)。spacedBy 已给 sm(8)，
                         //   故这里只补差额 xs(4) —— 8 + 4 = 12。
-                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
+                        //   【P2-a·紧凑档】spacedBy 降到 6，这里补 2 ⇒ 换人仍为 8，
+                        //   保住「气泡内 4 < 同角色 6 < 换人 8」三级（补 4 会变 10，层级被拉大）。
+                        Spacer(
+                            Modifier.height(
+                                if (compact) 2.dp else DhDesign.Space.xs.dp
+                            )
+                        )
                     }
                     // 【r13·思考过程】每条助手回复都在自己的气泡上方挂思考框 ——
                     //   不再只限最后一条（本轮改造前，历史里的回复一律看不到思考）。
@@ -616,6 +710,7 @@ object ChatUi {
         ) {
             DhKit.Icon(Icons.IC_MESSAGE_SQUARE_HEART, Design.SZ_XL, c.line)
             Spacer(Modifier.height(DhDesign.Space.md.dp))
+            // E16-ALLOW: 空态固定文案「还没有聊过，说点什么吧」11 字，居中单行
             Text(
                 text = "还没有聊过，说点什么吧",
                 color = c.sub,
@@ -666,7 +761,7 @@ object ChatUi {
         Box(
             modifier = Modifier
                 .size(BUBBLE_AVATAR_DP.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.soft),
             contentAlignment = Alignment.Center
         ) {
@@ -981,14 +1076,14 @@ object ChatUi {
             // 中间徽标：主色 10% 淡底 + 12dp 圆角 + 图标 + 主色小字。
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 8.dp)
+                    .padding(horizontal = DhDesign.Space.sm.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(c.acc.copy(alpha = 0.1f))
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = DhDesign.Space.sm.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.acc)
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(DhDesign.Space.xs.dp))
                 Text(
                     text = "历史对话摘要",
                     color = c.acc,
@@ -1045,7 +1140,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp),
+                .padding(bottom = DhDesign.Space.xs.dp),
             horizontalArrangement = Arrangement.Center
         ) {
             Box(
@@ -1057,6 +1152,7 @@ object ChatUi {
                     .pressable { host.loadEarlier() }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
+                // E16-ALLOW: 固定文案「点击加载更早的历史记录」11 字，单行药丸
                 Text(
                     text = "点击加载更早的历史记录",
                     color = c.chatChipFg,
@@ -1081,8 +1177,9 @@ object ChatUi {
                 modifier = Modifier
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.chatActionBg)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
             ) {
+                // E16-ALLOW: 思考占位短标「思考中…」等（≤4 字），单行药丸
                 Text(
                     text = label,
                     color = c.chatChipMute,
@@ -1104,13 +1201,13 @@ object ChatUi {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp)
+                .padding(bottom = DhDesign.Space.xs.dp)
         ) {
             Column(
                 modifier = Modifier
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.chatActionBg)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -1119,6 +1216,7 @@ object ChatUi {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_BRAIN, sizeDp = Design.SZ_XS, color = c.chatChipMute)
+                    // E16-ALLOW: thinkCostText 产出「思考了 x.x 秒」，≤9 字单行
                     Text(
                         text = thinkCostText(box.costMs),
                         modifier = Modifier.padding(start = 6.dp),
@@ -1139,6 +1237,7 @@ object ChatUi {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }
@@ -1190,14 +1289,13 @@ object ChatUi {
                 .padding(end = 6.dp)
                 .clip(RoundedCornerShape(UiKit.RADIUS_CHIP.dp))
                 .background(c.chatChipOff)
-                // 【r19·修复点击无反应】pressable 的 clickable(interactionSource, indication=null)
-                //   在 ChatPanel 边界下可能吞事件；改为显式 clickable（与发送按钮同款修复）。
-                .clickable { onClick() }
+                .pressable { onClick() }
                 .padding(horizontal = 10.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.chatChipMute)
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(DhDesign.Space.xs.dp))
+            // E16-ALLOW: 操作药丸文案「重新生成」/「复制」/「清空」，固定 2~4 字单行
             Text(
                 text = text,
                 color = c.chatChipMute,
@@ -1222,11 +1320,11 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 2.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)
-                .padding(start = 8.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
+                .padding(start = DhDesign.Space.sm.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (img != null) {
@@ -1244,10 +1342,10 @@ object ChatUi {
                         contentDescription = null,
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .clip(RoundedCornerShape(DhDesign.Radius.xs.dp)),
                         contentScale = ContentScale.Crop
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 }
             }
             Text(
@@ -1256,10 +1354,11 @@ object ChatUi {
                 color = c.sub,
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fonts,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             // 【v0.1.0·修·图标偏小】全工程唯一还写着字面量 14f 的按钮图标（旁侧文字 12sp，
-            //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 40dp 命中区里像个针尖）。
+            //   但它是**按钮**而不是行内标记 —— 按钮图标最小档是 SZ_SM，14dp 的叉在 48dp 命中区里像个针尖）。
             // 【无障碍】附件预览卡上的叉＝移除附件（不是关闭页面）。
             DhKit.IconButton(
                 iconRes = Icons.IC_CLOSE,
@@ -1281,7 +1380,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1309,10 +1408,13 @@ object ChatUi {
                 val n = MultiSelect.picked().size
                 Text(
                     text = "已选 " + n,
-                    modifier = Modifier.padding(end = 4.dp),
+                    modifier = Modifier.padding(end = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts,
+                    // 【故意不加 overflow】文案是「已选 + 数字」，位数由选中条数决定、
+                    //   实测最多两位数；加省略号会让它在极端窄行里显示成「已选 1…」，
+                    //   比硬切更难懂。若将来支持上百条选中，改为 Ellipsis 或缩写（99+）。
                     maxLines = 1
                 )
                 DhKit.IconButton(
@@ -1333,7 +1435,7 @@ object ChatUi {
                 ) {
                     MultiSelect.reset()
                 }
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(DhDesign.Space.xs.dp))
             }
             ChatState.memoText?.let { msg ->
                 Text(
@@ -1342,7 +1444,8 @@ object ChatUi {
                     color = c.chatChipMute,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fontsBody,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1357,11 +1460,11 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 10.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)
-                .padding(start = 10.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
+                .padding(start = 10.dp, top = DhDesign.Space.sm.dp, end = 6.dp, bottom = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 【本轮·补聚焦态】这是聊天页的主输入框 —— 全 App 最常用的输入位置，
@@ -1403,22 +1506,23 @@ object ChatUi {
                 decorationBox = { inner ->
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                             .background(inputFill)
                             .then(
                                 if (inputStroke.alpha > 0f) {
                                     Modifier.border(
                                         1.dp,
                                         inputStroke,
-                                        RoundedCornerShape(8.dp)
+                                        RoundedCornerShape(DhDesign.Radius.xs.dp)
                                     )
                                 } else {
                                     Modifier
                                 }
                             )
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .padding(horizontal = 10.dp, vertical = DhDesign.Space.sm.dp)
                     ) {
                         if (ChatState.input.isEmpty()) {
+                            // E16-ALLOW: 输入框占位「跟她说点什么…」8 字，单行
                             Text(
                                 text = "跟她说点什么…",
                                 color = c.sub,
@@ -1432,17 +1536,14 @@ object ChatUi {
                     }
                 }
             )
-            Spacer(Modifier.width(8.dp))
-            // 【r19·修点击】发送按钮从 IconButton 换成显式 Box + clickable。
-            //   原写法 IconButton 内部走 pressable → clickable(interactionSource, indication=null)，
-            //   在 ChatPanel（LinearLayout 嵌 ComposeView）的边界下点击事件可能被吞。
-            //   显式 Box 的 clickable 区域就是整个圆形背景，不依赖 interactionSource 的命中判定。
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            // 发送按钮统一走 pressable，固定 48dp 圆形命中区。
             Box(
                 modifier = Modifier
                     .size(UiKit.HIT_DP.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.acc)
-                    .clickable {
+                    .pressable {
                         if (ChatState.waiting) {
                             host.stopGenerating()
                         } else {

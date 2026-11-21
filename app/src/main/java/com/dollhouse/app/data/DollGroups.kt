@@ -50,10 +50,20 @@ object DollGroups {
             val arr = JSONArray(raw)
             val out = ArrayList<String>(arr.length())
             // 【去重】历史存档可能因并发写出现重复组名，读端收敛一次。
+            //
+            // 【保留名也要在这里滤掉】0.2.7 及以前 add/rename 都不拦「未分组」，
+            //   备份恢复（AllInOneArchive 直接写 prefs）也会把脏值原样带进来。
+            //   不滤的话 grouped() 会同时产出「自定义的未分组」与末尾的兜底桶「未分组」，
+            //   联系人页两个分组头 key 都是 "h_未分组" → LazyColumn 抛
+            //   IllegalArgumentException（Duplicate key）。
+            //   在这里滤掉 = 老数据**读端自愈**，不需要单独写盘迁移：
+            //   下次任何一次 add/rename 触发 saveAll 时，写回去的就是净化后的清单。
+            //   代价极小且正确：那些挂在「未分组」名下的成员经 effectiveGroup() 判定
+            //   组名不在 valid 集合里 → 落回兜底桶，用户看到的仍是「未分组」，一只都不丢。
             val seen = HashSet<String>()
             for (i in 0 until arr.length()) {
                 val n = arr.optString(i, "")
-                if (n.isNotEmpty() && seen.add(n)) {
+                if (n.isNotEmpty() && n != DollStore.GROUP_NONE && seen.add(n)) {
                     out.add(n)
                 }
             }
@@ -228,14 +238,37 @@ object DollGroups {
     }
 
     /**
-     * 组名规范化：去首尾空白 + 截断到 [NAME_MAX]。
-     * 空串 / 全空白 → null（调用方按「非法输入」处理）。
+     * 组名规范化：去首尾空白 + 截断到 [NAME_MAX] + 拦截保留名。
+     * 空串 / 全空白 / 保留名 → null（调用方按「非法输入」处理）。
+     *
+     * 【为什么拦在这里而不是 add/rename 各写一遍】
+     *   本方法**唯一**被 [add]（:87 一类的入口）与 [rename]（:109 一类）调用 ——
+     *   两处都是「把用户输入变成可存的名字」的同一个动作。拦在这里：
+     *   · 一处改动覆盖两条路径，不可能出现「建组拦了、改名没拦」的不对称；
+     *   · 将来若新增第三条写入路径（导入、批量改名），只要它走 normalize 就自动受保护。
+     *   反过来，如果分开写，就得依赖每个新调用点记得自己也判一次 —— 这正是
+     *   本 bug 当初的产生方式（add 与 rename 各自只判了重名与上限）。
+     *
+     * 【为什么用 DollStore.GROUP_NONE 而不是字面量】「未分组」是
+     *   [DollGroups.grouped] 末尾恒追加的兜底桶的名字，定义在 DollStore.GROUP_NONE。
+     *   与 UI 判 isNone 用的是同一个常量（ContactScreen:166），改字面量能一起改到。
      */
     private fun normalize(raw: String?): String? {
         val v = (raw ?: "").trim()
         if (v.isEmpty()) {
             return null
         }
-        return if (v.length > NAME_MAX) v.substring(0, NAME_MAX) else v
+        // 【保留名】允许用户建一个叫「未分组」的组，会与兜底桶同名 →
+        //   联系人页两个分组头都挂在 key "h_未分组" 上，LazyColumn 直接崩。
+        //   这里连截断后的值一起判：名字长于 NAME_MAX 时先截断再比，
+        //   避免「未分组xxxx」截成「未分组」这种边角情况漏网。
+        val cut = if (v.length > NAME_MAX) v.substring(0, NAME_MAX) else v
+        if (cut == DollStore.GROUP_NONE) {
+            // 【留痕】UI 的失败文案是「空的 / 重名 / 超上限」三合一，说不清"保留名"这一种。
+            //   数据层至少让排障能从日志里分辨出来，而不是让用户和开发者都以为是重名。
+            Logs.w(TAG, "rejected reserved group name: " + cut, null)
+            return null
+        }
+        return cut
     }
 }

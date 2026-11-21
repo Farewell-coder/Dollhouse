@@ -40,6 +40,12 @@ object VisionModelPage {
 
     const val TAG_PAGE = "feiyu_vision_model_page"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     /** 返回键用：本页在栈顶就退一层并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
@@ -108,7 +114,7 @@ object VisionModelPage {
                     picked.isNotEmpty() -> "已失效（模型被删或关闭了视觉）"
                     else -> "跟随当前聊天模型"
                 }
-                DhKit.ValueRow(label = "识图模型", value = nowText, iconRes = Icons.IC_EYE)
+                DhKit.ValueRow(spot = spot("vision.current"), value = nowText, iconRes = Icons.IC_EYE)
                 DhForm.Note("不指定时：聊天模型自己会看图就直接看图，不会看图就用本地识别（只认文字）。")
             }
 
@@ -118,7 +124,7 @@ object VisionModelPage {
                             + "去「提供商 → 某个模型 → 能力」里把「视觉」打开，它才会出现在这里。")
                 } else {
                     DhKit.ActionRow(
-                        label = "跟随当前聊天模型",
+                        spot = spot("vision.followChat"),
                         iconRes = Icons.IC_BOT,
                         desc = "不单独指定，用到哪个模型就用哪个的看图能力"
                     ) {

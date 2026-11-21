@@ -92,13 +92,13 @@ object DollInjectDialog {
                     position = p
                     persist()
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
             }
         }
         DhForm.Label("注入角色")
         Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp)) {
             DhForm.SelectChip(text = "系统", selected = role == "system") { role = "system"; persist() }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             DhForm.SelectChip(text = "用户", selected = role == "user") { role = "user"; persist() }
         }
         DhForm.Input(

@@ -76,7 +76,7 @@ object DollTalkPage {
         DhKit.Page(
             title = "交谈内容",
             sub = "台词列表",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             DhForm.Note("一条一句话，没有字数限制；改动即时保存。空行不会被保存。")
             if (lines.isEmpty()) {
@@ -86,7 +86,7 @@ object DollTalkPage {
                 // key 里带 tick：删掉中间一条后，后续输入框会重建而不是错位继承上一行的内容。
                 key("talk-" + tick + "-" + i) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         DhForm.Input(

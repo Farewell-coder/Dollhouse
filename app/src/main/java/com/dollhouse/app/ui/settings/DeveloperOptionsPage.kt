@@ -29,6 +29,8 @@ import com.dollhouse.app.core.*
 import com.dollhouse.app.ui.compose.*
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.feedback.AppToast
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -42,6 +44,16 @@ import java.util.Locale
 /** 诊断中心：首页统计、列表、详情与导出共用真实本地数据源。 */
 object DeveloperOptionsPage {
     const val TAG_PAGE = "feiyu_dev_options_page"
+
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     *
+     * 【自纠错】rowId 写错 / 忘了传 spot 时，`SettingsSpots.spotTitle` 会退回空串 ——
+     * 那一行的标题变成空白，肉眼可见。**不要**在这里补 `?: "兜底文案"`，
+     * 那会把「漏登记」重新隐藏起来，正是这套机制要消灭的东西。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     private enum class Screen { HOME, LOGS, DETAIL, SETTINGS }
     @JvmStatic fun closeIfOpen(ctx: Context): Boolean = PageStack.popIfTop(ctx, TAG_PAGE)
     @JvmStatic fun buildPage(ctx: Context): View? {
@@ -113,28 +125,50 @@ object DeveloperOptionsPage {
         exporting: Boolean,
         onExport: () -> Unit
     ) {
+        // 【B4·接入加载态】`s` 由 `withContext(Dispatchers.IO) { DiagnosticsStore.summary(act) }`
+        //   异步填充（见本文件 :85 的 LaunchedEffect）。读到之前这里是三处文字提示：
+        //     · 卡片标题「正在读取诊断数据」
+        //     · 卡片内一行 `DhForm.Note("请稍候")`
+        //     · 列表区 `StateNote("正在加载…")`
+        //   三句话说的是同一件事，却分布在三个位置、两种组件里。
+        //   现在收敛成一处语义：状态由 `LoadingState` 表达，形态由 `DhLoadingState` 决定。
+        //
+        //   【为什么是 FirstLoad】这一屏的全部内容（统计数字、最近错误列表）都依赖 `s`，
+        //   `s == null` 时确实一条内容都没有 —— 符合 MAA 硬规则 1。
+        //
+        //   【统计卡仍是三块占位】`Stat(错误/警告/崩溃)` 在 s==null 时传 null 进去自己会
+        //   显示占位（见各 Stat 调用），骨架只是让"正在来"这件事在视觉上成立。
+        DhLoadingState(
+            state = if (s == null) LoadingState.FirstLoad else LoadingState.Idle,
+            rows = 3,
+            lines = 2
+        )
+        if (s == null) {
+            // 【首屏期不画统计卡与列表】它们的每个字段都来自 `s`，
+            //   此刻画出来只是三行"--"和一个空列表标题，比骨架更迷惑。
+            return
+        }
         DhKit.Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                DhKit.Icon(Icons.IC_SHIELD_CHECK, Design.SZ_MD, if (s?.corrupted == 0) DhTokens.colors.ok else DhTokens.colors.err)
-                Spacer(Modifier.width(8.dp)); Text(if (s == null) "正在读取诊断数据" else if (s.corrupted == 0) "日志采集已就绪" else "部分日志需要检查", color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
+                DhKit.Icon(Icons.IC_SHIELD_CHECK, Design.SZ_MD, if (s.corrupted == 0) DhTokens.colors.ok else DhTokens.colors.err)
+                Spacer(Modifier.width(DhDesign.Space.sm.dp)); Text(if (s.corrupted == 0) "日志采集已就绪" else "部分日志需要检查", color = DhTokens.colors.title, fontFamily = DhTokens.fontsBold)
             }
-            if (s == null) DhForm.Note("请稍候")
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Stat("错误", s?.errors, DhTokens.colors.err, Modifier.weight(1f), all)
-                Stat("警告", s?.warnings, DhTokens.colors.sub, Modifier.weight(1f), all)
-                Stat("崩溃", s?.crashes, DhTokens.colors.err, Modifier.weight(1f), all)
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
+                Stat("错误", s.errors, DhTokens.colors.err, Modifier.weight(1f), all)
+                Stat("警告", s.warnings, DhTokens.colors.sub, Modifier.weight(1f), all)
+                Stat("崩溃", s.crashes, DhTokens.colors.err, Modifier.weight(1f), all)
             }
         }
         // 【间距收敛】SectionLabel 自带 top=12 / bottom=4；这里只补差额：
         //   上 12 + 12 = 24（Space.xl，区块间距），下 4 + 4 = 8（Space.sm，标题与内容的间距）。
         DhKit.SectionLabel("最近错误", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
-        val recent = s?.groups?.take(3).orEmpty()
-        if (s == null) StateNote("正在加载…") else if (recent.isEmpty()) StateNote("暂无错误记录。出现实际异常或警告后会显示在这里。")
+        val recent = s.groups.take(3)
+        if (recent.isEmpty()) StateNote("暂无错误记录。出现实际异常或警告后会显示在这里。")
         recent.forEach { EventCard(it) { open(it) } }
         // 查看全部统一由下方诊断工具进入。
         DhKit.SectionLabel("诊断工具", Modifier.padding(top = DhDesign.Space.md.dp, bottom = DhDesign.Space.xs.dp))
         DhKit.Card {
-            DhKit.ActionRow("查看全部日志", iconRes = Icons.IC_TERMINAL, desc = "搜索、筛选与错误详情") { navigate(Screen.LOGS) }
+            DhKit.ActionRow(spot = spot("diag.logs"), iconRes = Icons.IC_TERMINAL, desc = "搜索、筛选与错误详情") { navigate(Screen.LOGS) }
             // 【v0.1.4·导出不跳二级页】用户要求「点一下就直接导出」。
             //   原先进「导出诊断包」页后还要再点一次「生成 ZIP」，中间那页只是一个按钮。
             //   现在直接在这里触发，进度就地回显（文案随 exporting 变化、期间不可再点）。
@@ -153,6 +187,7 @@ object DeveloperOptionsPage {
     @Composable private fun Stat(label: String, value: Int?, color: Color, modifier: Modifier, click: () -> Unit) {
         Column(modifier.clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
             Text(value?.toString() ?: "—", color = color, fontSize = DhTokens.type.display.fontSize, lineHeight = DhTokens.type.display.lineHeight, fontFamily = DhTokens.fontsBold)
+            // E16-ALLOW: 统计格下方标签 `label`（"错误"/"警告"/"崩溃"）：固定 2 字
             Text(label, color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
         }
     }
@@ -242,13 +277,13 @@ object DeveloperOptionsPage {
             DhKit.ValueRow("关联操作 ID", e.operationId.ifEmpty { "未采集" }, iconRes = Icons.IC_LINK_2); DhKit.ValueRow("应用版本", e.appVersion.ifEmpty { "未采集" }, iconRes = Icons.IC_PACKAGE)
             // 【间距收敛】ValueRow 块 → 三个诊断面板组：**组间距** → Space.md(12)。
             //   组内三个面板之间已有 Arrangement.spacedBy(8)，与这里 12 形成「组间 > 组内」的正确层级。
-            Column(Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp), verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                 DiagnosticPanel("详情", e.readable(), detailsOpen, enabled = true) { detailsOpen = !detailsOpen }
                 DiagnosticPanel("堆栈", e.stackTrace, stackOpen, enabled = e.stackTrace.isNotBlank()) { stackOpen = !stackOpen }
                 DiagnosticPanel("关联日志", e.context, contextOpen, enabled = e.context.isNotBlank()) { contextOpen = !contextOpen }
             }
         }
-        DhKit.ActionRow("复制错误详情", iconRes = Icons.IC_COPY, desc = "复制结构化摘要、堆栈与关联日志") {
+        DhKit.ActionRow(spot = spot("diag.copy"), iconRes = Icons.IC_COPY, desc = "复制结构化摘要、堆栈与关联日志") {
             runCatching { act.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("Dollhouse 错误详情", e.readable())); AppToast.show(act, "错误详情已复制") }.onFailure { AppToast.show(act, "复制失败：" + (it.message ?: it.javaClass.simpleName)) }
         }
         var exporting by remember { mutableStateOf(false) }
@@ -272,7 +307,7 @@ object DeveloperOptionsPage {
             ),
             label = "diagnosticArrow"
         )
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).border(1.dp, DhTokens.colors.stroke, RoundedCornerShape(12.dp))) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).border(DhDesign.Size.hairline, DhTokens.colors.stroke, RoundedCornerShape(12.dp))) {
             Row(Modifier.fillMaxWidth().then(if (enabled && content.isNotBlank()) Modifier.pressable(onClick) else Modifier).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f), color = if (enabled && content.isNotBlank()) DhTokens.colors.title else DhTokens.colors.sub, fontFamily = DhTokens.fontsBold)
                 if (enabled && content.isNotBlank()) DhKit.Icon(Icons.IC_CHEVRON_DOWN, Design.SZ_SM, DhTokens.colors.sub, Modifier.rotate(arrowRotation))
@@ -317,11 +352,11 @@ object DeveloperOptionsPage {
         var clearing by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         DhKit.Card {
-            DhKit.SwitchRow("记录详细运行日志", detailed, iconRes = Icons.IC_TERMINAL) { detailed = it; Logs.setOn(act, it); changed() }
+            DhKit.SwitchRow(spot = spot("diag.detailed"), checked = detailed, iconRes = Icons.IC_TERMINAL) { detailed = it; Logs.setOn(act, it); changed() }
             DhForm.Note("关闭时停止可选普通日志的持久化；警告、错误和未捕获崩溃仍保留基础记录。")
-            DhKit.ValueRow("严重错误基础记录", "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow("错误前后关键事件", "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
-            DhKit.ValueRow("自动轮转保留", "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
-            DhKit.ActionRow("清理 15 天前的诊断记录", iconRes = Icons.IC_TRASH, desc = "最近 15 天的日志与崩溃记录保持不变") { clear = true }
+            DhKit.ValueRow(spot = spot("diag.baseRecord"), value = "始终开启", iconRes = Icons.IC_SHIELD_CHECK); DhKit.ValueRow(spot = spot("diag.contextBuffer"), value = "有界内存缓冲，随错误保存", iconRes = Icons.IC_ACTIVITY)
+            DhKit.ValueRow(spot = spot("diag.rotation"), value = "7 天；单文件 1 MB；总量 8 MB", iconRes = Icons.IC_CLOCK_3)
+            DhKit.ActionRow(spot = spot("diag.clear"), iconRes = Icons.IC_TRASH, desc = "最近 15 天的日志与崩溃记录保持不变") { clear = true }
         }
         if (clear) DhForm.Alert("清理 15 天前的诊断记录？", { if (!clearing) clear = false }, "清理", {
             clearing = true

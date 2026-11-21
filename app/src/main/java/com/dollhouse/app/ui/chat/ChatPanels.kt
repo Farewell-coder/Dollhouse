@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.ai.ModelRules
 import com.dollhouse.app.data.ModelStore
@@ -224,7 +225,8 @@ object ChatPanels {
                         text = name,
                         color = if (active) p.accent else p.title,
                         style = t.rowTitle,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (active) {
                         Spacer(Modifier.width(DhDesign.Space.sm.dp))
@@ -285,7 +287,8 @@ object ChatPanels {
                 modifier = Modifier.weight(1f),
                 color = if (selected) p.accent else p.title,
                 style = t.body,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             if (selected) {
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
@@ -349,6 +352,13 @@ object ChatPanels {
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            // E13-ALLOW: 分段条是刻意做细的 6dp 视觉刻度，命中区保持 6dp。
+                            //   ① 6 段横向排列，各撑到 48dp 需 288dp+间距，窄屏直接溢出；
+                            //   ② 本控件无任何滑动手势（全文件无 scrollable/draggable/pointerInput），
+                            //      不存在与相邻段的手势竞争；
+                            //   ③ 下方紧跟一排**有文字**的档位行（行高 40dp+、带 selected 语义），
+                            //      那才是设计上的真正入口；本段已 clearAndSetSemantics 摘出语义树。
+                            //   属"刻意降级 + 有等价可达替代入口"，不是遗漏。
                             .height(6.dp) // 【不收敛·D6】分段条自身高度属 Size 语义
                             .clip(RoundedCornerShape(DhDesign.Radius.sm.dp))
                             .background(if (i <= level) p.accent else p.line)
@@ -422,12 +432,17 @@ object ChatPanels {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // 【e2·面板属于真正的浮层】模型 / 思考面板是压在聊天页之上的层，
-                //   与菜单纸张同级，是这套层级里该投影的另一处。
+                // 【e1·面板降一档，2026-11】原先挂 e2(16dp)，理由是「与菜单纸张同级」。
+                //   但菜单/弹窗是**全屏浮层、还带遮罩**，而这里只是嵌在聊天页里的一块面板：
+                //   16dp 的模糊半径会铺开一大圈光晕，是当时全仓最重的一处，也是"厚重/不干净"
+                //   观感的主要来源。降到 e1(6dp) 后仍然「浮」，但不抢戏。
+                //   【为什么不干脆去掉投影】下面已有 1dp line 描边，理论上可以只留线；
+                //   但暗色档下近黑投影几乎不可见、这条线才是唯一边界（1.32:1），
+                //   反过来若删线留影，暗色档会直接丢边界。所以方向是「留线、减影」。
                 //   shadow 必须在 clip 之前：先裁后投影会把阴影一起裁没。
                 //   shape 与下面的 clip / border 共用同一个值，避免阴影露出直角。
                 .shadow(
-                    elevation = DhDesign.Elevation.e2,
+                    elevation = DhDesign.Elevation.e1,
                     shape = shape,
                     clip = false
                 )

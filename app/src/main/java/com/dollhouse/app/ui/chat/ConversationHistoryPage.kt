@@ -3,6 +3,7 @@ package com.dollhouse.app.ui.chat
 import android.content.Context
 import android.view.View
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +30,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Icons
 import org.json.JSONObject
 
@@ -63,24 +65,33 @@ object ConversationHistoryPage {
         //   scrollable = false 保持原语义 —— 内部已有 LazyColumn 自己滚。
         DhKit.Page(
             title = "历史会话",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false
         ) {
             DhForm.Button(text = "新建会话", primary = false, leadingIcon = Icons.IC_PLUS) {
                 ChatSessions.createForDoll(act, personaId)
                 rev++
             }
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                 items(entries, key = { it.first }, contentType = { "history" }) { entry ->
-                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        DhKit.ActionRow(entry.second, modifier = Modifier, iconRes = Icons.IC_MESSAGE_SQUARE, onClick = {
-                            ChatSessions.switchTo(act, entry.first)
-                            ChatListScreen.openConv(act, entry.first)
-                        }, desc = if (ChatDraftStore.load(act, personaId, entry.first).text.isEmpty()) "独立消息历史" else "存有草稿")
-                        Row {
-                            DhForm.Button("重命名", primary = false) { renaming = entry.first; draftName = entry.second }
-                            Spacer(Modifier.width(8.dp))
-                            DhForm.Button("删除", primary = false) { deleting = entry.first }
+                    /* 【v0.2.8·P2-e 条目动画】本页有三种会改动集合的操作：新建会话、
+                       删除会话、重命名（都走 `rev++` 触发重算）。此前它们会整列瞬间跳一下 ——
+                       尤其是"删除"后下面所有行整体上移一格，视觉上像闪断。
+                       `animateItem()` 由 LazyColumn 托管位移/淡入淡出，零依赖、无需手动状态。
+                       【为什么包 Box 而不是给 Column 直接加】`animateItem()` 是 LazyItemScope
+                       的成员扩展，作用在 item 的**根**上；包一层 Box 让根节点明确、且不影响
+                       内部原有的 padding 语义。 */
+                    Box(Modifier.animateItem()) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = DhDesign.Space.xs.dp)) {
+                            DhKit.ActionRow(entry.second, modifier = Modifier, iconRes = Icons.IC_MESSAGE_SQUARE, onClick = {
+                                ChatSessions.switchTo(act, entry.first)
+                                ChatListScreen.openConv(act, entry.first)
+                            }, desc = if (ChatDraftStore.load(act, personaId, entry.first).text.isEmpty()) "独立消息历史" else "存有草稿")
+                            Row {
+                                DhForm.Button("重命名", primary = false) { renaming = entry.first; draftName = entry.second }
+                                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                                DhForm.Button("删除", primary = false) { deleting = entry.first }
+                            }
                         }
                     }
                 }

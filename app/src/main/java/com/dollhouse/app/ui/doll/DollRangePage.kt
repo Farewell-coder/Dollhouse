@@ -40,6 +40,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import kotlin.math.roundToInt
@@ -88,7 +89,7 @@ object DollRangePage {
         DhKit.Page(
             title = "屏幕范围",
             sub = if (land) "横屏" else "竖屏",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false
         ) {
             DhForm.Note("拖动四条边，框内就是人偶可活动的范围。横屏与竖屏各存一套，转屏自动切换。")
@@ -112,7 +113,7 @@ object DollRangePage {
                             width = with(density) { ((r - l) * wPx).toDp() },
                             height = with(density) { ((b - t) * hPx).toDp() }
                         )
-                        .border(1.dp, c.acc, RoundedCornerShape(DhKit.R_ROW.dp))
+                        .border(DhDesign.Size.hairline, c.acc, RoundedCornerShape(DhKit.R_ROW.dp))
                 )
 
                 // 上边手柄：拖动改 top（不能越过 bottom - 0.1）。
@@ -158,12 +159,12 @@ object DollRangePage {
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.md.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 取消 = 直接退出，不写任何键（与悬浮窗同一语义）。
-                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存") { PageStack.pop(act) }
+                CircleButton(Icons.IC_CLOSE, c.sub, "取消，不保存") { PageStack.popIfTopStartsWith(act, PREFIX) }
                 Spacer(Modifier.width(20.dp))
                 // 重置：只把**本地草稿**拨回整屏（0,0,1,1），**不落盘** ——
                 //   【r13 修 bug】原来这里立刻 setBounds，用户点取消时框已经被改掉了。
@@ -177,7 +178,7 @@ object DollRangePage {
                 // 确认 = 把草稿写盘后退出。
                 CircleButton(Icons.IC_CHECK, c.acc, "确认范围") {
                     DollProfile.setBounds(act, id, orient, l, t, r, b)
-                    PageStack.pop(act)
+                    PageStack.popIfTopStartsWith(act, PREFIX)
                 }
             }
         }
@@ -205,9 +206,9 @@ object DollRangePage {
             modifier = Modifier
                 .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                 .size(HANDLE)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(2.dp, tint, RoundedCornerShape(999.dp))
+                .border(2.dp, tint, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()
@@ -218,8 +219,8 @@ object DollRangePage {
         ) {
             Box(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .size(DhDesign.Space.sm.dp)
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(tint)
             )
         }
@@ -238,9 +239,9 @@ object DollRangePage {
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.card)
-                .border(1.dp, c.line, RoundedCornerShape(999.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
                 // 语义挂在可点区域上、置于 pressable 之前（与 DhIconButton 同写法）。
                 .semantics { contentDescription = name }
                 .pressable(onClick),

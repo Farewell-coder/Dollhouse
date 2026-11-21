@@ -17,7 +17,7 @@ object FriendAppearancePage {
         return ComposeHost.createView(act) { Content(act, personaId) }
     }
     @Composable private fun Content(act: MainActivity, personaId: String) {
-        DhKit.Page(title = "聊天外观", sub = "仅影响当前好友", onBack = { PageStack.pop(act) }) {
+        DhKit.Page(title = "聊天外观", sub = "仅影响当前好友", onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }) {
             DollLookTab.Content(act, personaId)
         }
     }

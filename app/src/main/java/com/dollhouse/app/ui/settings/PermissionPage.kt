@@ -38,6 +38,14 @@ object PermissionPage {
     /** 页面 key（进页面栈用）。 */
     const val TAG_PAGE = "settings:permission"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     *
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。
+     * 这里刻意不写 `?: "兜底"` —— 那会把漏登记重新藏起来。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     /** 返回键用：本页在栈顶就退一层并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
@@ -93,7 +101,7 @@ object PermissionPage {
                 // Shizuku：四态（已授权 / 未授权 / 服务未运行 / 未安装）。
                 val sh = HomeState.shizuku
                 DhKit.PermRow(
-                    name = "Shizuku 授权",
+                    spot = spot("permission.shizuku"),
                     iconRes = Icons.IC_KEY_ROUND,
                     desc = "通过 ADB 授权后可用系统级能力",
                     state = when (sh) {
@@ -105,7 +113,7 @@ object PermissionPage {
                 ) { HomeUi.shizukuClicked(act) }
                 DhKit.RowDivider(insetStart = ROW_INSET)
                 DhKit.PermRow(
-                    name = "悬浮窗权限",
+                    spot = spot("permission.overlay"),
                     iconRes = Icons.IC_APP_WINDOW,
                     desc = "人偶要浮在其他应用上就必须有它",
                     state = if (HomeState.overlay) 0 else 1
@@ -114,7 +122,7 @@ object PermissionPage {
                 }
                 DhKit.RowDivider(insetStart = ROW_INSET)
                 DhKit.PermRow(
-                    name = "通知权限",
+                    spot = spot("permission.notification"),
                     iconRes = Icons.IC_BELL,
                     desc = "保活通知与消息提醒",
                     state = if (HomeState.notif) 0 else 1
@@ -123,7 +131,7 @@ object PermissionPage {
                 }
                 DhKit.RowDivider(insetStart = ROW_INSET)
                 DhKit.PermRow(
-                    name = "电池优化白名单",
+                    spot = spot("permission.battery"),
                     iconRes = Icons.IC_BATTERY_CHARGING,
                     desc = "加入后不容易被系统清掉",
                     state = if (HomeState.battery) 0 else 1
@@ -135,7 +143,7 @@ object PermissionPage {
             // ---------- 后台存活 ----------
             DhKit.Card(titleIcon = Icons.IC_ACTIVITY, collapsibleTitle = "后台存活") {
                 DhKit.SwitchRow(
-                    name = "无感保活",
+                    spot = spot("permission.keepalive"),
                     iconRes = Icons.IC_ACTIVITY,
                     desc = "允许应用持续执行相关后台任务",
                     checked = HomeState.keepAlive
@@ -144,7 +152,7 @@ object PermissionPage {
                 }
                 DhKit.RowDivider(insetStart = ROW_INSET)
                 DhKit.SwitchRow(
-                    name = "隐藏后台卡片",
+                    spot = spot("permission.hideRecents"),
                     iconRes = Icons.IC_EYE_OFF,
                     desc = "不在最近任务里露出这一页",
                     checked = HomeState.hideRecents
@@ -158,7 +166,7 @@ object PermissionPage {
             //   磁贴是系统快捷开关，指令是可粘贴到外部（如自动化工具）的文本。
             DhKit.Card(titleIcon = Icons.IC_LAYOUT_GRID, collapsibleTitle = "启停通道") {
                 DhKit.SwitchRow(
-                    name = "快捷设置磁贴",
+                    spot = spot("permission.tile"),
                     iconRes = Icons.IC_LAYOUT_GRID,
                     desc = "从下拉快捷开关直接起停人偶",
                     checked = HomeState.tile
@@ -167,7 +175,7 @@ object PermissionPage {
                 }
                 DhKit.RowDivider(insetStart = ROW_INSET)
                 DhKit.ValueRow(
-                    label = "开关指令",
+                    spot = spot("permission.shellCommand"),
                     iconRes = Icons.IC_LINK_2,
                     desc = "复制一条可粘贴到别处的指令",
                     value = "复制",

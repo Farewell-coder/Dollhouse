@@ -52,7 +52,9 @@ import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollState
+import com.dollhouse.app.ui.kit.DhLoadingState
 import com.dollhouse.app.ui.kit.DhState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.settings.MemPage
 import com.dollhouse.app.ui.settings.MemSettingsPage
@@ -200,7 +202,27 @@ object SocialPage {
 
             val s = snap
             if (s == null) {
-                // 读盘通常是毫秒级；宁可这一帧空着，也不要先闪一屏「暂无内容」再变出内容。
+                // 【B4·接入加载态】改造前这里是**直接 return**，留下一屏空白。
+                //   注释原话是「读盘通常是毫秒级；宁可这一帧空着」—— 但 [readAll] 会
+                //   遍历每只人偶的每条记忆并解析 JSON（见本文件 :812 起），
+                //   人偶多 / 记忆多时这个"毫秒级"不成立，用户面对的是没有任何信号的空白。
+                //
+                //   【为什么是 FirstLoad】此刻 `snap == null`，一帧内容都还没有，
+                //   符合 MAA 硬规则 1 的「确实没内容」——允许占满内容区。
+                //
+                //   【为什么 3 条骨架】与 `ChatListScreen.kt:308` 同一口径：
+                //   首屏通常可见 5–7 条，3 条足以表达「有内容正在来」，又不会在
+                //   数据到达时因为骨架比真实内容长太多而跳动。
+                //
+                //   【为什么不铺 readableSheet】本函数下方内容区自己会铺
+                //   （见 `onPhoto` / `subColor` 那段）；骨架阶段没有内容可比对，
+                //   铺了反而在数据到达时多一层"面板凭空出现"的变化。
+                DhLoadingState(
+                    state = LoadingState.FirstLoad,
+                    modifier = Modifier.fillMaxWidth(),
+                    rows = 3,
+                    lines = 2
+                )
                 return@Column
             }
 
@@ -271,30 +293,37 @@ object SocialPage {
                         //   contentType 分开，Compose 才会各自复用各自的槽位。
                         contentType = { row -> row.contentType }
                     ) { row ->
-                        when (row) {
-                            is Entry.Header -> DayHeader(row.label, subColor)
-                            is Entry.Post -> PostCard(
-                                item = row.item,
-                                avatar = avatarOf[row.item.dollId],
-                                subColor = subColor,
-                                timeColor = timeColor,
-                                // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
-                                //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
-                                //   聊天是「现在」，记忆库才是这条内容的上下文。
-                                //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
-                                //   anchorId（= 这条记忆的 id）决定落在哪一条上。
-                                onClick = {
-                                    // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
-                                    //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
-                                    //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
-                                    //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
-                                    //   所以每次点卡都重新登记一次。
-                                    PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
-                                    MemPage.open(act, row.item.dollId, row.item.memId)
-                                }
-                            )
-                            is Entry.More -> MoreRow(moreCount) { shown += PAGE }
-                            is Entry.Foot -> FootNote(timeColor)
+                        /* 【v0.2.8·P2-e 条目动画】本页有三种会改动集合的操作：点「加载更多」
+                           追加一批、从记忆库删掉某条后返回（reload++）、切人偶/切筛选。
+                           此前这些都会让整列瞬间跳变。`animateItem()` 只管**当前已组合**的
+                           条目（约一屏 10~15 项），所以切筛选那种"整列换集合"也不会几十项
+                           同时动画 —— 开销由可见项数封顶，与总条数无关。 */
+                        Box(Modifier.animateItem()) {
+                            when (row) {
+                                is Entry.Header -> DayHeader(row.label, subColor)
+                                is Entry.Post -> PostCard(
+                                    item = row.item,
+                                    avatar = avatarOf[row.item.dollId],
+                                    subColor = subColor,
+                                    timeColor = timeColor,
+                                    // 【点卡的落点 = 这条记忆的出处】一条说说就是一条记忆，
+                                    //   点进去自然是「她那只人偶的记忆库」，而不是聊天页 ——
+                                    //   聊天是「现在」，记忆库才是这条内容的上下文。
+                                    //   走 [MemPage.open] 的三参重载：dollId 决定是哪只人偶，
+                                    //   anchorId（= 这条记忆的 id）决定落在哪一条上。
+                                    onClick = {
+                                        // 【返回即重读】记忆库会改数据（删条目 / 编辑 / 清空），
+                                        //   而本页的快照只在「切 Tab / 人偶变更」时重算 —— 不登记这次刷新，
+                                        //   用户删完一条退回来还能看到它。写法同 [DollPersonaPage.open]
+                                        //   的「离开本页时广播」：PageStack 的离开回调是一次性的，
+                                        //   所以每次点卡都重新登记一次。
+                                        PageStack.onLeave(MemPage.TAG_PAGE) { reload++ }
+                                        MemPage.open(act, row.item.dollId, row.item.memId)
+                                    }
+                                )
+                                is Entry.More -> MoreRow(moreCount) { shown += PAGE }
+                                is Entry.Foot -> FootNote(timeColor)
+                            }
                         }
                     }
                 }
@@ -462,7 +491,7 @@ object SocialPage {
                         modifier = Modifier
                             .padding(top = 7.dp)
                             .size(3.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                             .background(p.line)
                     )
                     Spacer(Modifier.width(DhDesign.Space.sm.dp))
@@ -576,8 +605,8 @@ object SocialPage {
                 // 头像：32dp 小圆，与名字同一行 —— 时间线的「谁」要一眼可辨。
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .size(DhDesign.Size.avatarXs)
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(p.soft),
                     contentAlignment = Alignment.Center
                 ) {
@@ -661,8 +690,9 @@ object SocialPage {
                             lineHeight = t.caption.lineHeight,
                             fontFamily = DhTokens.fontsBody,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                                 .background(p.soft)
                                 .padding(horizontal = DhDesign.Space.sm.dp, vertical = 2.dp)
                         )

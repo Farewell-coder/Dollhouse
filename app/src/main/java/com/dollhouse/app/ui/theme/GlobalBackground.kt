@@ -17,6 +17,7 @@ import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.chat.ChatBgDrawable
+import com.dollhouse.app.ui.design.DhDesign
 import java.util.WeakHashMap
 
 /**
@@ -174,7 +175,9 @@ object GlobalBackground {
      */
     fun scrimColor(c: Context, imgAlpha: Int): Int {
         val k = Math.max(0, Math.min(100, scrimStrength(c)))
-        return ContrastCore.withAlpha(UiKit.BG, k * 255 / 100)
+        // 【B1·P1】雾白跟着「页面底」走（降饱和版），否则有背景图时整层雾仍是原彩度，
+        //   与压过的页面底对不上 —— 一个偏蓝、一个中性，切换有无图时会看出色差。
+        return ContrastCore.withAlpha(pageBase(), k * 255 / 100)
     }
 
     /** 遮罩强度百分比（0~100，绝对不透明度：0 = 原图直出，100 = 全雾白）。 */
@@ -327,10 +330,73 @@ object GlobalBackground {
 
     /* ------------------------- 内部实现 ------------------------- */
 
+    /**
+     * 【B1·P1】页面底色的**实际绘制值** = `UiKit.BG` 的降饱和版（B1「面永远中性」）。
+     *
+     * ## 为什么需要它（这是 B1 最后一公里）
+     *
+     * B1 把 `bg` 的彩度从 0.0131 压到 0.005（通道差 15 → 5），但那是压的
+     * **`Palette.bg` / `DhColors.bg`**。而页面底**根本不经过 Compose**：
+     * 它在 View 层由本类（渐变 / 图下不透明底）与 `ThemeManager` 的窗口背景绘制。
+     * 那两处读的是 `UiKit.BG` 原值 —— 于是「压了 15→5」在屏幕上一个像素都没变，
+     * 全 App 面积最大的一块面**仍是原色**。本函数补的就是这一跳。
+     *
+     * ## 为什么在 View 侧算，而不是把 UiKit.BG 改掉
+     *
+     * 1. `UiKit.BG` / 29 格数组是调色板真源，`snapshotPalette()` 的「旧色→新色」重映射、
+     *    `cachedMonetPalette()` 的长度校验都按它算；改写字段 = 改「作者」。
+     * 2. 一旦字段本身已是降饱和值，Compose 侧 `neutralPage(Color(UiKit.BG))` 会变成**二次**截断
+     *    （实测会漂 1 个色阶）。
+     * 所以口径统一为：**存储保持原色，只在「取值去绘制」时降饱和**，与 `UiKit.card()` /
+     * `UiKit.field()` 那批「派生方法」完全同构。
+     *
+     * ## 为什么带缓存
+     *
+     * `boostOf` 要先算 WCAG 相对亮度、`capChroma` 要做一次 OKLab 往返（cbrt + pow）。
+     * 本函数被 [fallbackProvider] 的闭包在**每次重绘背景**时调用，还会被
+     * [clearOpaquePageBgs] 在每个子 View 上比对 —— 不缓存就是每次遍历都重算几十次浮点。
+     * 主题色只有一个来源（`UiKit.BG`），所以「1 格按值缓存」就够，命中率接近 100%。
+     */
+    // 【为什么用「命中标志 + 值」而不是拿 Int.MIN_VALUE 当哨兵】`UiKit.BG` 理论上可能等于
+    //   任何 Int；用标志位就不必赌「BG 不会碰巧等于哨兵」，也不会在冷启动（BG=0）时误判命中。
+    @Volatile private var pageBaseValid = false
+    @Volatile private var pageBaseCachedFrom = 0
+    @Volatile private var pageBaseCachedTo = 0
+
+    private fun pageBase(): Int {
+        val raw = UiKit.BG
+        if (pageBaseValid && raw == pageBaseCachedFrom) {
+            return pageBaseCachedTo
+        }
+        // 先写值、再写 key、最后置有效位：任何中断都只会让下次重算，不会返回「别的 key 的值」。
+        val out = DhDesign.Palette.neutralPageArgb(raw)
+        pageBaseCachedTo = out
+        pageBaseCachedFrom = raw
+        pageBaseValid = true
+        return out
+    }
+
+    /**
+     * 这个颜色算不算「页面级底色」。
+     *
+     * 【为什么要接受两个值】降饱和上线前后，工程里给页根铺底的地方有两套写法：
+     *   · `GlobalBackground` 自己（现在铺 [pageBase]）；
+     *   · 各页面手写 `root.setBackgroundColor(UiKit.BG)`（如
+     *     `ui/provider/ProviderDetailPage.kt:104`，注释明写「后续 `GlobalBackground.installPage`
+     *     覆盖它」）。
+     * 只认降饱和版会让后者**认不出来**，[clearOpaquePageBgs] 不再清它 →
+     * 一张不透明原色底盖死在背景图上面（历史 bug「设了背景图却看不到」复发）。
+     * 所以两个值都算「页面底」，宁可多清一层，也不留盲区。
+     */
+    private fun isPageGround(color: Int): Boolean {
+        return color == UiKit.BG || color == pageBase()
+    }
+
     /** 主题色跟随主题重取值，普通色固定不变。 */
     private fun fallbackProvider(color: Int): () -> Int {
-        if (color == UiKit.BG) {
-            return { UiKit.BG }
+        // 【B1·P1】页面底走降饱和版，且仍然「跟随主题」（闭包在每次重绘时重新取 pageBase()）。
+        if (isPageGround(color)) {
+            return { pageBase() }
         }
         if (color == UiKit.CARD) {
             return { UiKit.CARD }
@@ -407,7 +473,10 @@ object GlobalBackground {
         }
         for (i in 0 until v.childCount) {
             val c = v.getChildAt(i)
-            if (isOpaqueBg(c, UiKit.BG)) {
+            // 【B1·P1】认「页面底」而不是认某一个固定值：原色 `UiKit.BG` 与降饱和版
+            //   都算页面底（见 [isPageGround] 的理由 —— 手写 `setBackgroundColor(UiKit.BG)`
+            //   的页面若认不出来，就会有一层不透明底盖死在背景图上）。
+            if (isOpaqueBg(c, UiKit.BG) || isOpaqueBg(c, pageBase())) {
                 c.setBackgroundColor(Color.TRANSPARENT)
             }
             clearOpaquePageBgs(c)
@@ -452,7 +521,9 @@ object GlobalBackground {
             }
         }
         // 有图时必须垫一层不透明纯色底：否则图片透明度会透出下层 window 或第二张同图，形成叠影。
-        val base = if (opaqueBase || ContrastCore.alphaOf(fallbackColor) == 0) UiKit.BG else fallbackColor
+        // 【B1·P1】垫底层与页面底同色（降饱和版），不能一个中性一个偏蓝 ——
+        //   图片半透明时那层底会直接透出来，色差就是「图上方泛蓝」的来源。
+        val base = if (opaqueBase || ContrastCore.alphaOf(fallbackColor) == 0) pageBase() else fallbackColor
         val alpha = resolveAlpha(c, dollId)
         val layers = ArrayList<Drawable>(3)
         layers.add(ColorDrawable(ContrastCore.withAlpha(base, 255)))

@@ -3,12 +3,10 @@ package com.dollhouse.app.ui.doll
 import android.view.View
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -95,7 +93,7 @@ object DollGroupPage {
         DhKit.Page(
             title = "分组管理",
             sub = "把 " + groups.sumOf { it.second.size } + " 只人偶分组归置",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTop(act, KEY) },
             actions = {
                 // 新建分组：右上角 +。【r15·图标+文字】顶栏空间宽裕 → 加文字。
                 DhKit.IconButton(Icons.IC_FOLDER_PLUS, Design.SZ_MD, c.title, label = "新建分组") {
@@ -111,30 +109,29 @@ object DollGroupPage {
 
             if (groups.isEmpty() || groups.all { it.second.isEmpty() && it.first == DollStore.GROUP_NONE }) {
                 // ---------- 空态 ----------
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        DhKit.Icon(Icons.IC_TAGS, Design.SZ_XL, c.line)
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = if (allNames.isEmpty()) "还没有分组" else "分组还是空的",
-                            color = c.sub,
-                            fontSize = DhTokens.type.body.fontSize, lineHeight = DhTokens.type.body.lineHeight,
-                            // 【刻意用文楷】空态**主文案**是 App 在跟用户说话（有情感），
-                            //   与下面那行系统字的 body 说明形成「主文楷 / 说明系统字」的对比。
-                            fontFamily = DhTokens.fonts
-                        )
-                        Spacer(Modifier.height(DhDesign.Space.xs.dp))
-                        Text(
-                            text = "点右上角的文件夹图标新建一个",
-                            color = c.line,
-                            fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
-                            fontFamily = DhTokens.fontsBody
-                        )
-                    }
-                }
+                // 【B9·收编到规范骨架】改造前这里是自建的「图标 + 主文案 + 说明」三件，
+                //   与全 App 其它 10 处 `ui/kit.DhState` 空态**形态不同**：
+                //     · 图标是 20dp 裸线性图标（DhState 是 56dp 圆形浅底 IconSeat）
+                //     · 主文案 15sp（DhState 是 section 16sp）
+                //     · 没有动作按钮（DhState 支持 actionText）
+                //   同一 App 里空态长两种样子，用户换个页面就要重新认一遍。
+                //
+                //   【文案一字未改】两句话原样保留：标题那句按 `allNames` 分岔，
+                //   说明那句是操作指引。只是从「两行 Text」变成 DhState 的
+                //   `title` + `body`（body 自动带 maxLines=2 + Ellipsis）。
+                //
+                //   【为什么用 IC_TAGS 而不是别的】改造前就是这个图标，语义没变。
+                //
+                //   【为什么 actionText = null】本页顶栏右上角已经有「新建分组」入口
+                //   （见上方 `actions = { DhKit.IconButton(...) }`），空态里再放一个
+                //   指向同一件事的按钮，就是设计稿要收敛的重复动作 —— 与
+                //   `MemPage` 文件夹空态同一判断（见 MemPage.kt:1255 的注释）。
+                //   文案已经写明「点右上角的文件夹图标新建一个」，指向那个现有入口。
+                com.dollhouse.app.ui.kit.DhState(
+                    title = if (allNames.isEmpty()) "还没有分组" else "分组还是空的",
+                    body = "点右上角的文件夹图标新建一个",
+                    iconRes = Icons.IC_TAGS
+                )
             }
 
             for ((name, dolls) in groups) {
@@ -147,7 +144,7 @@ object DollGroupPage {
                                 input = name
                                 renaming = name
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(DhDesign.Space.sm.dp))
                             DhForm.Button(text = "删除分组", primary = false, leadingIcon = Icons.IC_TRASH) {
                                 deleting = name
                             }
@@ -202,7 +199,10 @@ object DollGroupPage {
                     trailing = {
                         Text(
                             text = input.length.toString() + "/" + DollGroups.NAME_MAX,
-                            color = DhTokens.colors.line,
+                            // 【修·可读性】原来是 DhTokens.colors.line：压在输入框的 field 底上
+                            //   只有 1.30:1（浅色档），字数计数完全读不出来。改 sub。
+                            //   （与 ui/settings/MyProfilePage 里同一形态的字数计数同口径。）
+                            color = DhTokens.colors.sub,
                             fontSize = UiKit.FS_TINY.sp,
                             fontFamily = DhTokens.fonts,
                             // 【等宽数字】每敲一个字计数就变，tnum 避免 "9/16" → "10/16" 时宽度跳变。
@@ -328,7 +328,7 @@ object DollGroupPage {
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.cardUp),
                 contentAlignment = Alignment.Center
             ) {

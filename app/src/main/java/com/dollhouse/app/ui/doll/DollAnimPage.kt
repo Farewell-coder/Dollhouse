@@ -64,6 +64,9 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.DhState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
@@ -304,7 +307,7 @@ object DollAnimPage {
         DhKit.Page(
             title = action?.name ?: "动作",
             sub = (if (fixed) group + " · 固定" else group) + " · 共 " + frames.size + " 帧",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false,
             actions = {
                 if (action != null) {
@@ -325,7 +328,7 @@ object DollAnimPage {
                             } else {
                                 HomeUi.notifyPetReload(act)
                                 DollState.bump()
-                                PageStack.pop(act)
+                                PageStack.popIfTopStartsWith(act, PREFIX)
                             }
                         }
                     }
@@ -358,7 +361,7 @@ object DollAnimPage {
                         .aspectRatio(1.1f)
                         .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                         .background(c.soft)
-                        .border(1.dp, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
+                        .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_CARD.dp))
                         .onSizeChanged { sz ->
                             previewW = Math.max(1f, sz.width.toFloat())
                             previewH = Math.max(1f, sz.height.toFloat())
@@ -434,7 +437,7 @@ object DollAnimPage {
                     val bmp = cache[curPath]
                     if (previewRenderer != null) {
                         previewTick.let { }
-                        Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        Canvas(modifier = Modifier.fillMaxSize().padding(DhDesign.Space.md.dp)) {
                             previewRenderer.draw(drawContext.canvas.nativeCanvas)
                         }
                     } else if (bmp != null) {
@@ -443,11 +446,12 @@ object DollAnimPage {
                             contentDescription = null,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(12.dp)
+                                .padding(DhDesign.Space.md.dp)
                                 .offset { IntOffset((oxPx * previewW).roundToInt(), (oyPx * previewH).roundToInt()) },
                             contentScale = ContentScale.Fit
                         )
                     } else {
+                        // E16-ALLOW: 预览区状态短标（"正在生成帧…"/"还没有帧"/"加载中…"）：最长 6 字，在固定 180dp 高预览框内居中
                         Text(
                             text = if (baking) "正在生成帧…" else if (engineAction != null) "资源加载失败" else if (frames.isEmpty()) "还没有帧" else "加载中…",
                             color = c.sub,
@@ -482,7 +486,7 @@ object DollAnimPage {
 
                 // ---------- 贴边：同一画板切换两种动作，不叠加预览与编辑控件 ----------
                 if (isEdge) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
                         DhForm.SelectChip("贴边循环 · 必选", actionId != DollAnim.SLOT_EDGE_IN_ID, Modifier.weight(1f)) {
                             actionId = DollAnim.SLOT_EDGE_ID
                         }
@@ -513,10 +517,11 @@ object DollAnimPage {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
@@ -528,12 +533,12 @@ object DollAnimPage {
                             DollAnim.setEdgeInset(act, dollId, actionId, edgeInset - 0.02f)
                             insetTick++
                         }
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Button("露出更少", primary = false, leadingIcon = Icons.IC_MINIMIZE) {
                             DollAnim.setEdgeInset(act, dollId, actionId, edgeInset + 0.02f)
                             insetTick++
                         }
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         DhForm.Button("恢复默认", primary = false) {
                             DollAnim.setEdgeInset(act, dollId, actionId, DollAnim.EDGE_INSET_DEFAULT)
                             insetTick++
@@ -558,17 +563,17 @@ object DollAnimPage {
                         DollProfile.setFrameOffset(act, dollId, off[0] - FINE_STEP, off[1])
                         offTick++
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title, a11yName = "上移") {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] - FINE_STEP)
                         offTick++
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title, a11yName = "下移") {
                         DollProfile.setFrameOffset(act, dollId, off[0], off[1] + FINE_STEP)
                         offTick++
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title, a11yName = "右移") {
                         DollProfile.setFrameOffset(act, dollId, off[0] + FINE_STEP, off[1])
                         offTick++
@@ -620,6 +625,7 @@ object DollAnimPage {
                         }
                     }
                     Spacer(Modifier.width(14.dp))
+                    // E16-ALLOW: 帧计数（"3 / 12" / "-- / --"）：纯数字与斜杠，无换行可能
                     Text(
                         text = if (frames.isEmpty()) "-- / --"
                         else (frameIdx + 1).toString() + " / " + frames.size,
@@ -633,10 +639,41 @@ object DollAnimPage {
                 // ============ ② 帧序列条 ============
                 DhKit.SectionLabel("帧序列（左右滑动查看）", iconRes = Icons.IC_IMAGE)
                 if (frames.isEmpty()) {
-                    DhForm.Note(
-                        if (fixed) "这一格还是空的。点下面「添加帧」导入一组图，它就会开始生效。"
-                        else "这个动作还没有帧。点下面「添加帧」从相册选图。"
-                    )
+                    // 【B4+B9·先分清两件事，再决定画什么】
+                    //   改造前这里是一行 `DhForm.Note`，把「正在烘帧」和「确实没有帧」
+                    //   合成同一句话 —— 但它们是两回事：
+                    //     · baking == true  ：后台正在给内置壳烘帧（`LaunchedEffect` 里
+                    //       `withContext(Dispatchers.IO) { AnimBaker.ensure(...) }`），
+                    //       用户只需要等，**不该**被提示去「点添加帧」。
+                    //     · baking == false ：这一格真的空着，用户需要动作指引。
+                    //   未分开时，烘帧那几秒会先显示「这个动作还没有帧。点下面添加帧」
+                    //   —— 一个假的空态，用户可能因此去点添加帧，与正在进行的烘焙撞车。
+                    if (baking) {
+                        // 【真实异步窗口】烘帧期间帧序列条没有任何内容可看，
+                        //   属于 MAA 硬规则 1 的「确实没内容」，允许占住这一条的位置。
+                        //   高度不变（骨架行自带与真实行同档的垂直节奏），
+                        //   烘完切换成真实缩略图时不产生跳动。
+                        DhLoadingState(
+                            state = LoadingState.FirstLoad,
+                            rows = 1,
+                            lines = 1
+                        )
+                    } else {
+                        // 真的空：走规范空态。文案一字未改（原来的 DhForm.Note 文案）。
+                        DhState(
+                            title = "还没有帧",
+                            body = if (fixed) {
+                                "这一格还是空的。点下面「添加帧」导入一组图，它就会开始生效。"
+                            } else {
+                                "这个动作还没有帧。点下面「添加帧」从相册选图。"
+                            },
+                            iconRes = Icons.IC_IMAGE
+                            // 【为什么 actionText = null】「添加帧」按钮就在**正下方**
+                            //   （同屏的 `DhKit.MiniChip("添加帧", ...)`），空态里再放一个
+                            //   指向同一件事的按钮属于重复动作 —— 与 DollGroupPage / MemPage
+                            //   两处空态收编同一判断。body 文案已经写明「点下面添加帧」。
+                        )
+                    }
                 } else {
                     Row(
                         modifier = Modifier
@@ -763,7 +800,10 @@ object DollAnimPage {
                             },
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
+                        // 【E16·真问题，补行高而非 ALLOW】`bind.triggers` 数量不设上限，
+                        //   用户勾得越多这一行越长；窄屏下三四个触发器就会折行。
                         fontSize = UiKit.FS_SUB.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                     Spacer(Modifier.height(DhDesign.Space.sm.dp))
@@ -863,7 +903,7 @@ object DollAnimPage {
                             }
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("删除当前帧", iconRes = Icons.IC_TRASH) {
                             if (frames.size <= 1) {
@@ -905,7 +945,7 @@ object DollAnimPage {
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("前移一帧", iconRes = Icons.IC_ARROW_LEFT) {
@@ -916,7 +956,7 @@ object DollAnimPage {
                             }
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         DhKit.MiniChip("后移一帧", iconRes = Icons.IC_ARROW_RIGHT) {
                             moveFrame(act, dollId, action, frames, frameIdx, 1) { a2, f2, i2 ->
@@ -1007,7 +1047,7 @@ object DollAnimPage {
                         dispTick++
                         HomeUi.notifyPetReload(act)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_UP, Design.SZ_MD, c.title, label = "上移") {
                         com.dollhouse.app.data.ActionWorkbench.setDisplay(
                             act, dollId, actionId,
@@ -1019,7 +1059,7 @@ object DollAnimPage {
                         dispTick++
                         HomeUi.notifyPetReload(act)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_DOWN, Design.SZ_MD, c.title, label = "下移") {
                         com.dollhouse.app.data.ActionWorkbench.setDisplay(
                             act, dollId, actionId,
@@ -1031,7 +1071,7 @@ object DollAnimPage {
                         dispTick++
                         HomeUi.notifyPetReload(act)
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     DhKit.IconButton(Icons.IC_CHEVRON_RIGHT, Design.SZ_MD, c.title, label = "右移") {
                         com.dollhouse.app.data.ActionWorkbench.setDisplay(
                             act, dollId, actionId,
@@ -1214,10 +1254,12 @@ object DollAnimPage {
                 posText = "知道了",
                 onPos = { exportMsg = null }
             ) {
+                // 【E16·真问题】em = 结果消息 + "\n" + zipPath，结构上必然多行（含路径）。
                 Text(
                     text = em,
                     color = DhTokens.colors.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
                 DhForm.Note(
@@ -1428,7 +1470,7 @@ object DollAnimPage {
         }
         Column(
             modifier = Modifier
-                .padding(end = 8.dp)
+                .padding(end = DhDesign.Space.sm.dp)
                 .width(72.dp)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                 .background(c.cardUp)
@@ -1438,7 +1480,7 @@ object DollAnimPage {
                     RoundedCornerShape(DhKit.R_ROW.dp)
                 )
                 .pressable(onClick)
-                .padding(4.dp),
+                .padding(DhDesign.Space.xs.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(

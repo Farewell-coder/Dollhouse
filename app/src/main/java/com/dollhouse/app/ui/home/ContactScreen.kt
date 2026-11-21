@@ -107,7 +107,17 @@ object ContactScreen {
         // 记住用户手动收起的组（用「收起集合」而不是「展开集合」：新组默认展开，符合直觉）。
         val collapsed = remember { mutableStateOf<Set<String>>(emptySet()) }
 
-        val groups = remember(rev, grpRev) { DollGroups.grouped(act) }
+        // 【key 唯一性·渲染侧兜底】分组头的 LazyColumn key 是 "h_" + 组名（见下方 item）。
+        //   数据层（DollGroups.all / normalize）已经拦了保留名「未分组」——
+        //   那是根因修复。这里再收一次，因为崩溃的代价（整页白屏）远高于一次 HashSet：
+        //   ① 老版本存档 / 备份恢复可能遗留脏数据，直到用户下次建组才被写回清掉；
+        //   ② 将来若有人新增第三条写入路径而没走 normalize，页面不该陪葬。
+        //   同名组只保留第一条（保持建立顺序）；兜底桶由 grouped() 自己追加，这里不重复加。
+        val groups = remember(rev, grpRev) {
+            val raw = DollGroups.grouped(act)
+            val seen = HashSet<String>()
+            raw.filter { seen.add(it.first) }
+        }
         val listState = rememberLazyListState()
         val scope = rememberCoroutineScope()
 
@@ -129,7 +139,7 @@ object ContactScreen {
                     DhKit.IconButton(Icons.IC_FOLDER_TREE, Design.SZ_MD, c.title, label = "分组") {
                         DollGroupPage.open(act) { grpRev++ }
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(DhDesign.Space.xs.dp))
                     // 新手偶：建一个新角色。
                     DhKit.IconButton(Icons.IC_USER_PLUS, Design.SZ_MD, c.title, label = "新建") {
                         DollListScreen.open(act)
@@ -148,9 +158,9 @@ object ContactScreen {
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = 16.dp,
+                        start = DhDesign.Space.lg.dp,
                         end = 34.dp,
-                        bottom = BottomNav.HEIGHT_DP.dp + 16.dp
+                        bottom = BottomNav.HEIGHT_DP.dp + DhDesign.Space.lg.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
@@ -160,22 +170,32 @@ object ContactScreen {
                         //   给它们不同的 contentType，Compose 才会各自复用各自的槽位，
                         //   而不是滚动一次就把整个槽位重建。
                         item(key = "h_" + groupName, contentType = "header") {
-                            GroupHeader(
-                                name = groupName,
-                                count = dolls.size,
-                                isNone = groupName == DollStore.GROUP_NONE,
-                                folded = collapsed.value.contains(groupName)
-                            ) {
-                                collapsed.value = if (collapsed.value.contains(groupName)) {
-                                    collapsed.value - groupName
-                                } else {
-                                    collapsed.value + groupName
+                            /* 【v0.2.8·P2-e 条目动画】分组头也要动画：新建/删除一个分组时，
+                               后面的分组头与成员行会整体上下位移；只给成员行加动画的话，
+                               标题会"瞬间跳"而内容在滑，看起来是错位的。 */
+                            Box(Modifier.animateItem()) {
+                                GroupHeader(
+                                    name = groupName,
+                                    count = dolls.size,
+                                    isNone = groupName == DollStore.GROUP_NONE,
+                                    folded = collapsed.value.contains(groupName)
+                                ) {
+                                    collapsed.value = if (collapsed.value.contains(groupName)) {
+                                        collapsed.value - groupName
+                                    } else {
+                                        collapsed.value + groupName
+                                    }
                                 }
                             }
                         }
                         if (!collapsed.value.contains(groupName)) {
                             items(dolls, key = { "d_" + it.id }, contentType = { "contact" }) { doll ->
-                                ContactRow(act, doll) { openChatWith(act, doll.id) }
+                                /* 【v0.2.8·P2-e 条目动画】删除人偶 / 把人偶移到别的分组 /
+                                   新建人偶时，行平滑让位。`ContactRow` 没有 modifier 形参，
+                                   故包一层 Box 承载 `animateItem()`（不改它的签名）。 */
+                                Box(Modifier.animateItem()) {
+                                    ContactRow(act, doll) { openChatWith(act, doll.id) }
+                                }
                             }
                         }
                     }
@@ -211,9 +231,9 @@ object ContactScreen {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = DhDesign.Space.xl.dp, bottom = DhDesign.Space.xs.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.xs.dp))
                 .pressable(onClick)
-                .padding(vertical = 4.dp),
+                .padding(vertical = DhDesign.Space.xs.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(
@@ -232,7 +252,10 @@ object ContactScreen {
             Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = count.toString(),
-                color = c.line,
+                // 【修·可读性】原来是 c.line（分隔线色）：压在页面底上只有 1.33:1，
+                //   分组数量「3」基本看不见，而它正是判断"这组几只"的唯一信息。
+                //   改为 c.sub —— 与左侧组名/箭头同色，一行内三种元素统一为次要文字档。
+                color = c.sub,
                 fontSize = DhTokens.type.caption.fontSize, lineHeight = DhTokens.type.caption.lineHeight,
                 fontFamily = DhTokens.fonts
             )
@@ -241,7 +264,9 @@ object ContactScreen {
                 // 【提示语】「未分组」是兜底桶，用户可能不知道能往里拖 —— 给一句极轻的说明。
                 Text(
                     text = "· 没归组的人偶",
-                    color = c.line,
+                    // 【修·可读性】同上，原 c.line 在页面底上 1.33:1。这是**说明文字**，
+                    //   是文字就必须读得见；"轻"应靠字号(11sp)与措辞表达，不靠压到看不清。
+                    color = c.sub,
                     fontSize = DhTokens.type.label.fontSize,
                     lineHeight = DhTokens.type.label.lineHeight,
                     fontFamily = DhTokens.fonts
@@ -271,14 +296,14 @@ object ContactScreen {
                 .fillMaxWidth()
                 .clip(shape)
                 .pressable(onClick)
-                .padding(horizontal = 4.dp, vertical = 8.dp),
+                .padding(horizontal = DhDesign.Space.xs.dp, vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 头像
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.soft),
                 contentAlignment = Alignment.Center
             ) {
@@ -317,7 +342,7 @@ object ContactScreen {
                         Box(
                             modifier = Modifier
                                 .size(7.dp)
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                                 .background(c.ok)
                         )
                     }
@@ -366,9 +391,6 @@ object ContactScreen {
         }
     }
 
-    /** A-Z 索引条的命中区宽度（dp）。视觉字母仍是 9sp，这里只放大可点面。 */
-    private const val INDEX_HIT_W_DP = 24
-
     /** A-Z 索引条的最大总高（dp）—— 超出则压缩每行高度，避免顶出屏幕。 */
     private const val MAX_INDEX_HEIGHT_DP = 520
 
@@ -380,7 +402,7 @@ object ContactScreen {
      * 【为什么字母很小】它是快速定位工具，不是内容；太大反而挡住列表。
      *
      * 【本轮·修「点不中」】改造前每个字母是一个 18dp 的 Box，且**它自己就是点击区**，
-     *   手指很难命中（低于全 App 的 [DhKit.HIT]=40dp 口径）。
+     *   手指很难命中（低于全 App 的 [DhKit.HIT]=48dp 口径）。
      *   现在视觉仍是 9sp 小字，但外层命中区放大到 24dp 宽 × 自适应行高。
      * 【本轮·修「字母多了顶出屏幕」】改造前用 `fillMaxHeight()`，
      *   字母一多（A-Z 再加 `#`）整列超出可用高度，首尾字母被裁掉且无从得知。
@@ -405,14 +427,22 @@ object ContactScreen {
             for (l in letters) {
                 Box(
                     modifier = Modifier
-                        .height(rowH.dp)
-                        .width(INDEX_HIT_W_DP.dp)
-                        .pressable { onPick(l) },
+                        // 【E13·部分妥协】A-Z 索引条只能放大**宽度**，不能放大高度：
+                        //   26 个字母垂直均分 MAX_INDEX_HEIGHT_DP(520dp)，每格仅 14~20dp，
+                        //   若把每格撑到 48dp 高，26 格就是 1248dp —— 直接撑破侧栏。
+                        //   所以这里：宽度 24→48（横向是列表留白区，不占内容），
+                        //   高度仍按 rowH 均分；pressable 的 sizeIn(minHeight=48) 被内层
+                        //   height(rowH) 压回去是**刻意保留**的，否则会顶歪整条索引。
+                        //   结果：命中区 48 × 14~20dp（宽达标、高未达标，属可接受妥协）。
+                        .width(DhKit.MIN_TOUCH.dp)
+                        .pressable { onPick(l) }
+                        .height(rowH.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     // 【v0.2.3·不加行高】这里刻意**不**套统一行高：单个字母 10sp，
                     //   而行高只有 14~20dp（按字母数动态分配）—— 加 15sp 行高后文字比格子还高，
                     //   会被裁掉半截。侧栏是「每格一个字」的单行文本，不存在多行挤压问题。
+                    // E16-ALLOW: A-Z 侧栏索引单字符 `l`：每格一个字，行高按剩余空间动态分配（14~20dp），加行高反而会裁掉半格
                     Text(
                         text = l,
                         color = c.sub,

@@ -54,6 +54,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 import kotlin.math.abs
@@ -295,10 +296,10 @@ object DollRangeOverlay {
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 72.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.card)
-                    .border(1.dp, c.line, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.pill.dp))
+                    .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {

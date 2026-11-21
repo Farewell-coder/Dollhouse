@@ -593,7 +593,7 @@ object ProfileDrawer {
             Box(
                 modifier = Modifier
                     .size(AVATAR_DP.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .background(c.soft),
                 contentAlignment = Alignment.Center
             ) {
@@ -620,7 +620,7 @@ object ProfileDrawer {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(DhDesign.Space.xs.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 【引号图标】让「签名」一眼可辨 —— 光一行灰字容易被当成状态文字。
                 DhKit.Icon(iconRes = Icons.IC_QUOTE, sizeDp = Design.SZ_XS, color = c.line)

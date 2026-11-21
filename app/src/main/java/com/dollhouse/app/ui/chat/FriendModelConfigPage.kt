@@ -62,16 +62,16 @@ object FriendModelConfigPage {
         //   scrollable 保持 true（原实现用 verticalScroll），滚动行为不变。
         DhKit.Page(
             title = "模型与生成",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             DhForm.Note("未开启独立模型时继承全局；Provider 凭据只按引用使用。")
             DhKit.SwitchRow(name = "独立模型", desc = "只修改当前好友，不改变其他好友", checked = overrideModel) { overrideModel = it }
             if (overrideModel) {
-                providers.forEach { p -> DhKit.ActionRow((if (p.id == providerId) "● " else "") + p.name, desc = "选择供应商") { providerId = p.id; modelId = "" } }
-                models.forEach { m -> DhKit.ActionRow((if (m.id == modelId) "● " else "") + m.displayName, desc = "聊天模型") { modelId = m.id } }
+                providers.forEach { p -> DhKit.ActionRow((if (p.id == providerId) "● " else "") + p.name, iconRes = Icons.IC_SERVER, desc = "选择供应商") { providerId = p.id; modelId = "" } }
+                models.forEach { m -> DhKit.ActionRow((if (m.id == modelId) "● " else "") + m.displayName, iconRes = Icons.IC_BOT, desc = "聊天模型") { modelId = m.id } }
             }
             DhKit.ActionRow("识图模型：" + (visionModels.firstOrNull { it.id == visionModelId }?.displayName ?: "跟随全局"), iconRes = Icons.IC_IMAGE, desc = "仅影响当前好友当前会话") { visionModelId = "" }
-            visionModels.forEach { m -> DhKit.ActionRow((if (m.id == visionModelId) "● " else "") + m.displayName, desc = "设为当前会话识图模型") { visionModelId = m.id } }
+            visionModels.forEach { m -> DhKit.ActionRow((if (m.id == visionModelId) "● " else "") + m.displayName, iconRes = Icons.IC_IMAGE, desc = "设为当前会话识图模型") { visionModelId = m.id } }
             DhForm.Input(think, { think = it }, label = "思考档位（0–5）", keyboard = androidx.compose.ui.text.input.KeyboardType.Number)
             DhForm.Input(temp, { temp = it }, label = "温度（0–2）", keyboard = androidx.compose.ui.text.input.KeyboardType.Decimal)
             DhForm.Input(topP, { topP = it }, label = "Top P（0–1）", keyboard = androidx.compose.ui.text.input.KeyboardType.Decimal)
@@ -88,10 +88,10 @@ object FriendModelConfigPage {
                 cfg.streamOutput = stream
                 cfg.visionModelId = visionModelId
                 if (cfg.thinkLevel == null || cfg.temperature == null || cfg.topP == null || cfg.maxTokens == null) error = "请填写有效的生成参数"
-                else { PersonaChatConfigStore.save(act, personaId, conversationId, cfg); PageStack.pop(act) }
+                else { PersonaChatConfigStore.save(act, personaId, conversationId, cfg); PageStack.popIfTopStartsWith(act, PREFIX) }
             }
             DhKit.ActionRow("全部恢复全局继承", iconRes = Icons.IC_REFRESH) {
-                PersonaChatConfigStore.clear(act, personaId, conversationId); PageStack.pop(act)
+                PersonaChatConfigStore.clear(act, personaId, conversationId); PageStack.popIfTopStartsWith(act, PREFIX)
             }
         }
     }

@@ -64,6 +64,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.design.LocalCompactHeight
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Icons
@@ -162,7 +163,7 @@ object DollListScreen {
         }
         DhKit.Page(
             title = "人偶",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTop(act, KEY) },
             scrollable = false,
             actions = {
                 // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
@@ -182,11 +183,17 @@ object DollListScreen {
             }
         ) {
             // 【r12】按列数换排布：一列 / 两列 / 三列。
+            // 【P2-a·紧凑高度】横屏 / 小屏（窗口高 < 480dp）时只收紧**纵向**行距
+            //   （cardGap 12 → sm 8），横向列距保持 cardGap —— 横屏宽度充足，压缩列距
+            //   反而会让卡片更挤；真正受限的是垂直方向「一屏能放几行卡片」。
+            val compact = LocalCompactHeight
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),
-                verticalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp)
+                verticalArrangement = Arrangement.spacedBy(
+                    (if (compact) DhDesign.Space.sm else DhDesign.Space.cardGap).dp
+                )
             ) {
                 items(dolls, key = { it.id }, contentType = { "doll" }) { doll ->
                     /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
@@ -703,7 +710,7 @@ onCover = {
                 DollSizeSpec.reset(act, dollId)
                 HomeUi.notifyPetReload(act)
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(DhDesign.Space.xs.dp))
             Text(
                 text = "提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。",
                 color = c.sub,
@@ -749,7 +756,7 @@ onCover = {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(horizontal = DhDesign.Space.xl.dp, vertical = DhDesign.Space.lg.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 DhKit.IconButton(Icons.IC_LAYOUT_TEMPLATE, 24f, c.title, label = "模板", onClick = onTemplate)
@@ -853,7 +860,7 @@ onCover = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.sm.dp)
             ) {
                 var i = 0
                 while (i < all.size) {
@@ -980,11 +987,11 @@ onCover = {
         }
         Box(
             modifier = Modifier
-                .padding(end = 8.dp)
-                .size(72.dp)
+                .padding(end = DhDesign.Space.sm.dp)
+                .size(DhDesign.Size.avatarXl)
                 .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                 .background(c.soft)
-                .border(1.dp, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
+                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
                 // 名字挂在可点区域上；里面的 Image 继续是 null（否则同一张图会被念两遍）。
                 .semantics { contentDescription = name }
                 .pressable(onClick),
@@ -1036,7 +1043,7 @@ onCover = {
             contentAlignment = Alignment.TopEnd
         ) {
             Row(
-                modifier = Modifier.padding(top = 64.dp, end = 12.dp),
+                modifier = Modifier.padding(top = 64.dp, end = DhDesign.Space.md.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 // 二级卡片（列数）：在主卡片左边。
@@ -1049,7 +1056,7 @@ onCover = {
                             ) { onPickCols(n) }
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 }
                 // 主卡片。
                 MenuCard {
@@ -1070,7 +1077,7 @@ onCover = {
             modifier = Modifier
                 .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                 .background(c.card)
-                .border(1.dp, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
+                .border(DhDesign.Size.hairline, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
                 .padding(vertical = DhDesign.Space.sm.dp)
         ) {
             content()
@@ -1081,13 +1088,11 @@ onCover = {
     @Composable
     private fun MenuItem(text: String, selected: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
+        // E16-ALLOW: 下拉菜单项（"重命名"/"删除"/"设为封面"）：固定 2~4 字动宾短语
         Text(
             text = text,
             modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onClick() }
+                .pressable { onClick() }
                 .padding(horizontal = 18.dp, vertical = DhDesign.Space.md.dp),
             color = if (selected) c.acc else c.title,
             fontSize = UiKit.FS_BTN.sp,
@@ -1119,7 +1124,7 @@ onCover = {
             modifier = Modifier
                 .padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
                 .width(32.dp)
-                .height(4.dp)
+                .height(DhDesign.Space.xs.dp)
                 // 【圆角·刻意保留 2dp，不进 Radius 阶梯】
                 //   这是 32×4dp 的**拖动把手**：高度只有 4dp，圆角 2dp 刚好等于半高
                 //   → 视觉上是纯半圆胶囊。若改成 Radius.sm(8)/md(12)，圆角会**大于**

@@ -9,6 +9,8 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.dollhouse.app.R
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
 
 /**
@@ -300,6 +304,12 @@ class PetTalkInput internal constructor(
         val inputStyle = bodyStyle.copy(fontFamily = DhTokens.fonts, color = palette.title)
         val hintStyle = bodyStyle.copy(fontFamily = DhTokens.fonts, color = palette.sub)
         val tick = focusTick.value
+        // 【聚焦态】input_audit I6：自建 BasicTextField 必须传 interactionSource，
+        //   否则 BasicTextField 内部自建一个源，外面观察不到聚焦事件 —— 表现是
+        //   「点进来/自动聚焦了，但看不出这条栏现在是活的」。
+        //   这里把聚焦反馈做成描边变色（线色 → 强调色），与聊天输入框同口径。
+        val interaction = remember { MutableInteractionSource() }
+        val inputFocused = interaction.collectIsFocusedAsState().value
         LaunchedEffect(tick) {
             if (tick > 0) {
                 runCatching { focusRequester.requestFocus() }
@@ -311,7 +321,11 @@ class PetTalkInput internal constructor(
                 .shadow(6.dp, RoundedCornerShape(RADIUS_DP.dp))
                 .clip(RoundedCornerShape(RADIUS_DP.dp))
                 .background(palette.card)
-                .border(1.dp, palette.line, RoundedCornerShape(RADIUS_DP.dp))
+                .border(
+                    DhDesign.Size.hairline,
+                    if (inputFocused) palette.accent else palette.line,
+                    RoundedCornerShape(RADIUS_DP.dp)
+                )
                 .padding(PAD_DP.dp)
         ) {
             Row(
@@ -324,6 +338,7 @@ class PetTalkInput internal constructor(
                         text.value = it
                         scheduleAutoHide()
                     },
+                    interactionSource = interaction,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -371,6 +386,18 @@ class PetTalkInput internal constructor(
                             Brush.linearGradient(listOf(palette.accent, palette.accent2))
                         )
                         .alpha(if (busy.value) 0.5f else 1f)
+                        // 【E12 白名单·为什么这一处保留裸 .clickable】
+                        //   本栏是悬浮在桌宠上的迷你输入条，窗口高度由 HEIGHT_DP = 46dp 写死
+                        //   （见本文件 HEIGHT_DP 常量与 WindowManager.LayoutParams 的建窗处）：
+                        //   **物理上限 46dp < 48dp**，比 pressable 的 minTouchTarget 下限还小。
+                        //   换成 pressable 后 minTouchTarget 会被父约束直接压回去（等于没生效），
+                        //   按钮实际仍是「行高决定的 62×34」，只是把裸 clickable 藏进 pressable 里
+                        //   —— 门禁会过，命中区一点没变大，属于机械替换，故不做。
+                        //   要真做到 48dp，必须把整条悬浮窗从 46 抬到 ~60dp，
+                        //   那是**改桌宠输入条的视觉尺寸**，属于独立设计决策，不在本次范围。
+                        //   缓解：发送键宽 62dp（远大于 48），误触风险主要在纵向；
+                        //   这也是本文件 PetBar 文档注释里早已写明的既有取舍。
+                        // E12-ALLOW: legacy-hit-target
                         .clickable(enabled = !busy.value) { submit() },
                     // 【对齐门禁】有背景 + 只有一个图标，必须显式居中，否则贴左上。
                     contentAlignment = Alignment.Center
@@ -382,7 +409,7 @@ class PetTalkInput internal constructor(
                         // 【尺寸对齐原图】ic_send 的固有尺寸就是 24dp，原 ImageView 是
                         //   scaleType=CENTER（按固有尺寸原样画、不缩放），
                         //   所以这里必须写 24dp —— 写 20dp 会把图标缩小 17%。
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(DhDesign.Size.iconLg)
                     )
                 }
             }

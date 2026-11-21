@@ -227,6 +227,37 @@ object PageStack {
     }
 
     /**
+     * 【返回统一】栈顶 key 以 [prefix] 开头时才弹 —— 「页面自己关自己」的动态 key 版本。
+     *
+     * 【为什么需要它（而不是一律用 [popIfTop]）】全工程 20 处 `closeIfOpen` 都写作
+     *   `PageStack.popIfTop(ctx, TAG_PAGE)`，前提是那个页面用**常量** key 入栈。
+     *   但人偶 / 好友那一批页面用的是**动态** key：
+     *     `PageStack.push(act, PREFIX + id) { … }`（PREFIX 是常量，id 是运行时参数）。
+     *   它们的 `Content(act, id)` 虽然能算出 `PREFIX + id`，但一旦哪天 key 的拼法改了
+     *   （比如 `DollAnimPage` 用的是 `PREFIX + dollId + "|" + actionId`），算错就是
+     *   「返回点了没反应」—— 比原来的「弹错层」更难查。按前缀判断既不需要重算 key，
+     *   也不会误判：同一时刻最多只有一层以该前缀开头的页面在栈顶。
+     *
+     * 【为什么不直接把 [pop] 变严格】[pop] 是「弹掉栈顶」这个原语本身，
+     *   `handleBack`（系统返回键）与 `HomeUi` 的「清空到根」都要它；
+     *   把它变严格会让系统返回键在多级页面下失效。安全化只该发生在**调用点**。
+     *
+     * 【返回 false 的两种情况】① 栈空 / 无宿主；② 栈顶不是自己（说明自己已经不在了，
+     *   或上面又叠了新页）—— 调用方**不需要**再补一次 pop。
+     */
+    @JvmStatic
+    fun popIfTopStartsWith(ctx: Context?, prefix: String?): Boolean {
+        if (prefix.isNullOrEmpty()) {
+            return false
+        }
+        val top = NavHost.topKey(ctx) ?: return false
+        if (!top.startsWith(prefix)) {
+            return false
+        }
+        return pop(ctx, null)
+    }
+
+    /**
      * 【r21】返回到指定页面（需求文档要求的第五个原语）。
      *
      * 【语义】把 `key` 之上的所有层弹掉，`key` 本身留在栈顶。

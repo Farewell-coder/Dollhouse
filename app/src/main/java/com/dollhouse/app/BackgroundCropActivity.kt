@@ -40,6 +40,7 @@ import com.dollhouse.app.data.ImageStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.ThemeRefresh
@@ -188,7 +189,7 @@ class BackgroundCropActivity : Activity() {
                         insetTop = it.height + insetGap
                         applyInsets()
                     }
-                    .padding(top = 18.dp, start = 24.dp, end = 24.dp)
+                    .padding(top = 18.dp, start = DhDesign.Space.xl.dp, end = DhDesign.Space.xl.dp)
             ) {
                 DhForm.Button(text = "取消", primary = false, onClick = { finish() })
             }

@@ -27,6 +27,8 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.kit.DhLoadingState
+import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Icons
 
 /**
@@ -131,7 +133,7 @@ object ModelManagePage {
         DhKit.Page(
             title = "模型",
             sub = doll?.name ?: "这只人偶",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             DhKit.Card {
                 DhKit.CardTitle("当前模型", iconRes = Icons.IC_IMAGE)
@@ -146,7 +148,7 @@ object ModelManagePage {
                         offsetY = 0f
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhKit.ValueRow(
                     label = "名字",
                     value = doll?.name ?: "未命名"
@@ -188,13 +190,13 @@ object ModelManagePage {
             }
 
             // ---------- 两个动作（8.9 规定的按钮） ----------
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(DhDesign.Space.xs.dp))
             DhKit.MiniChip("更换模型", iconRes = Icons.IC_REFRESH) {
                 // 【19.2.3】换模型 = 在当前角色内替换视觉模型，不新建角色。
                 ReplaceModelPage.open(act, dollId)
                 version++
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhKit.MiniChip(
                 if (pkgBusy) "正在检查…" else "导入模型包",
                 iconRes = Icons.IC_PACKAGE_CHECK
@@ -226,11 +228,22 @@ object ModelManagePage {
                 }
                 PickFileActivity.startFiles(act, false)
             }
+            // 【B4·接入加载态】`pkgBusy` 覆盖两段真实 IO：`ModelImporter.inspect`（解压 +
+            //   校验 zip）与 `ModelImporter.install`（解包 + 落盘），都在原始 `Thread` 里跑。
+            //   改造前唯一信号是那颗 MiniChip 的文案从「导入模型包」变成「正在检查…」——
+            //   而这颗 chip 位于卡片中部，用户视线未必在它上面。
+            //
+            //   【为什么是 Refreshing】本页主体（模型信息 / 预览 / 其它操作）此刻全部可见，
+            //   只有这一个导入动作在跑 —— 按 MAA 硬规则 1 不许遮挡。
+            DhLoadingState(
+                state = if (pkgBusy) LoadingState.Refreshing else LoadingState.Idle,
+                label = "正在检查模型包…"
+            )
             pkgMsg?.let { msg ->
                 Spacer(Modifier.height(DhDesign.Space.md.dp))
                 DhForm.Note(msg)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(DhDesign.Space.sm.dp))
             DhKit.MiniChip("调整位置", iconRes = Icons.IC_MOVE) {
                 showSize = true
             }
@@ -289,7 +302,7 @@ object ModelManagePage {
                         fontFamily = DhTokens.fonts
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(DhDesign.Space.sm.dp))
                 DhForm.Note("只替换这只人偶的模型。她的人格、记忆和聊天记录不会变。")
             }
         }

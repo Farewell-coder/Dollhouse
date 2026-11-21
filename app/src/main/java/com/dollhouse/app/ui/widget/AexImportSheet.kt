@@ -289,7 +289,7 @@ object AexImportSheet {
                     lineHeight = (UiKit.FS_BTN + 5f).sp
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
@@ -404,18 +404,19 @@ object AexImportSheet {
             text = "文件：" + fileName,
             color = c.title,
             fontSize = UiKit.FS_BTN.sp,
+            lineHeight = DhTokens.type.body.lineHeight,
             fontFamily = DhTokens.fontsBold
         )
         Text(
             text = "请输入 Aivora 生成这个文件时给出的凭据。\n" +
                 "凭据只在本机用于解密：不保存、不上传、不写日志。",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
             DhForm.Input(
                 value = cred,
                 onValueChange = {
@@ -431,14 +432,15 @@ object AexImportSheet {
         if (err != null) {
             Text(
                 text = err,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
@@ -486,6 +488,7 @@ object AexImportSheet {
         val c = DhTokens.colors
         var cred by remember { mutableStateOf("") }
         var error by remember { mutableStateOf<String?>(null) }
+        // E16-ALLOW: 单行计数（"共 N 个文件"，不换行）
         Text(
             text = "共 " + list.size + " 个文件",
             color = c.title,
@@ -504,13 +507,13 @@ object AexImportSheet {
         Text(
             text = "请输入 Aivora 生成这些文件时给出的凭据。\\n" +
                 "凭据只在本机用于解密：不保存、不上传、不写日志。",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
             DhForm.Input(
                 value = cred,
                 onValueChange = {
@@ -526,14 +529,15 @@ object AexImportSheet {
         if (err != null) {
             Text(
                 text = err,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
@@ -843,7 +847,7 @@ object AexImportSheet {
             if (hasExtra) {
                 Text(
                     text = "查看保存范围说明",
-                    modifier = Modifier.padding(top = 8.dp).pressable { showExtra = !showExtra },
+                    modifier = Modifier.padding(top = DhDesign.Space.sm.dp).pressable { showExtra = !showExtra },
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
@@ -864,16 +868,16 @@ object AexImportSheet {
             if (conflicts > 0) {
                 Text(
                     text = "同名供应商处理方式",
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
                 Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                     ModeChip("跳过", mode == MODE_SKIP) { mode = MODE_SKIP }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("覆盖", mode == MODE_OVERWRITE) { mode = MODE_OVERWRITE }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("另存副本", mode == MODE_DUPLICATE) { mode = MODE_DUPLICATE }
                 }
                 Text(
@@ -885,11 +889,12 @@ object AexImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
@@ -931,7 +936,7 @@ object AexImportSheet {
                 lineHeight = (UiKit.FS_BTN + 5f).sp
             )
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
@@ -1189,17 +1194,19 @@ object AexImportSheet {
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 自绘勾选框：工程里没有现成 checkbox 组件，用字符保持视觉一致、零依赖。
+            // E16-ALLOW: 单字符勾选框字形（☑/☐），恒单行
             Text(
                 text = if (checked) "☑" else "☐",
                 color = if (checked) c.acc else c.sub,
                 fontSize = UiKit.FS_BTN.sp,
                 fontFamily = DhTokens.fontsBody
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
             Text(
                 text = p.name + if (p.provider.isNotEmpty() && p.provider != p.name) "（" + p.provider + "）" else "",
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold
             )
         }

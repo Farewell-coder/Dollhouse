@@ -112,7 +112,7 @@ object DollLookTab {
                             .size(PREVIEW_DP.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(c.soft)
-                            .border(1.dp, c.line, RoundedCornerShape(12.dp)),
+                            .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (bmp != null && !bmp.isRecycled) {
@@ -284,7 +284,7 @@ object DollLookTab {
 
         // 小色块预览：让用户不用点开就知道当前是什么颜色。
         Row(
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DhKit.Icon(iconRes = Icons.IC_DROPLET, sizeDp = Design.SZ_XS, color = c.line)
@@ -296,7 +296,7 @@ object DollLookTab {
                     .background(
                         if (cur == 0) c.chatBubbleUser else androidx.compose.ui.graphics.Color(cur)
                     )
-                    .border(1.dp, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
+                    .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhKit.R_ROW.dp))
             )
         }
 

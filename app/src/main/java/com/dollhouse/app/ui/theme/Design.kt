@@ -3,6 +3,7 @@ package com.dollhouse.app.ui.theme
 import android.content.Context
 import android.view.View
 import android.widget.TextView
+import com.dollhouse.app.ui.design.DhDesign
 
 /**
  * 【职责】全 App 的 UI 设计令牌与语义映射层。

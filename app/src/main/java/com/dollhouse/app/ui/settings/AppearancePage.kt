@@ -29,6 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
@@ -76,6 +81,13 @@ object AppearancePage {
     /** 页面 key（进页面栈用）。 */
     const val KEY = "settings:appearance"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     *
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     /** Tab 下标。 */
     private const val TAB_THEME = 0
     private const val TAB_BG = 1
@@ -104,7 +116,7 @@ object AppearancePage {
         DhKit.Page(
             title = "外观",
             sub = "主题 · 背景 · 聊天气泡 · 弹窗",
-            onBack = { PageStack.pop(act) },
+            onBack = { PageStack.popIfTop(act, KEY) },
             // 【自带滚动】四个 Tab 各自是独立滚动区（内容长度不同），
             //   外层再滚一层会导致「滚到底才切 Tab」的错位感。
             scrollable = false
@@ -151,7 +163,7 @@ object AppearancePage {
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(c.soft)
-                .padding(4.dp)
+                .padding(DhDesign.Space.xs.dp)
                 .horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -178,14 +190,44 @@ object AppearancePage {
                 // 【选中态】用 option（淡强调底）而不是实心强调色 ——
                 //   与设置页多选项 / 底栏选中态同一套语义色，全 App 一致。
                 .background(if (selected) c.option else Color.Transparent)
+                /*
+                 * 【P0-3·无障碍：外观页顶栏四 Tab 补 selected / Tab 语义】
+                 *   原来 `selected` 只上色（`tint` + `option` 底 + 选中加粗），**零语义** ——
+                 *   读屏把「主题 / 背景 / 聊天 / 弹窗」念成四个普通按钮，用户不知道当前在哪一格。
+                 *
+                 *   【mergeDescendants = true 的必要性】本格内部是 `Icon + Text` 两个子节点。
+                 *     不合并时它们会各自成为可聚焦节点（先念图标、再念文字），
+                 *     一格要划两次才过完。合并后一次念清：「主题，标签页，已选中」。
+                 *
+                 *   【为什么同时给 contentDescription】合并后 TalkBack 优先读节点的
+                 *     `contentDescription`（读自 `SemanticsProperties.ContentDescription`），
+                 *     其次才是合并出来的 text。显式给名字最稳，且与可见文字同源（label），
+                 *     不会出现「听到的和看到的不一致」。
+                 *
+                 *   【为什么用 `selected` 状态属性而不是把「已选中」拼进名字】
+                 *     `selected` 是状态属性 → 读屏念「已选中/未选中」、TalkBack 给提示音；
+                 *     拼进名字则成了名字的一部分，每读一次都念，且与真实状态脱钩。
+                 *
+                 *   【为什么不换 `selectable()`】它会替换掉 `pressable` 的 0.98 按压反馈，
+                 *     本工程手感统一靠 pressable。故保留 pressable、手动补语义。
+                 *
+                 *   【位置】语义排在 `.pressable` 之前：它描述「这个可点区域是什么」，
+                 *     与内部如何处理手势无关（与 `BottomNav.TabItem` 同口径）。
+                 */
+                .semantics(mergeDescendants = true) {
+                    this.selected = selected
+                    role = Role.Tab
+                    contentDescription = label
+                }
                 .pressable(onClick)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = DhDesign.Space.sm.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 【图标】四格是四个不同的功能面，用四枚不同图标把差异做出来。
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = tint)
             Spacer(Modifier.width(5.dp))
+            // E16-ALLOW: 顶栏 Tab 标签（"背景"/"气泡"/"弹窗"）：TabCell 定高容器内 2 字
             Text(
                 text = label,
                 color = tint,
@@ -201,17 +243,17 @@ object AppearancePage {
     private fun ThemeTab(act: MainActivity) {
         DhKit.Card(collapsibleTitle = "主题模式", titleIcon = Icons.IC_SUN) {
             DhKit.ValueRow(
-                label = "当前模式",
+                spot = spot("appearance.mode"),
                 value = ThemeManager.MODE_NAMES[HomeState.themeMode],
                 iconRes = Icons.IC_SUN
             ) { HomeUi.pickThemeMode(act) }
-            DhKit.SwitchRow(name = "莫奈主题色", iconRes = Icons.IC_PALETTE, checked = HomeState.monet) { on ->
+            DhKit.SwitchRow(spot = spot("appearance.monet"), checked = HomeState.monet, iconRes = Icons.IC_PALETTE) { on ->
                 HomeUi.onMonetChanged(on, act)
             }
             // 【从壁纸取色】用户定案要保留的能力：把系统壁纸提取的主题色用起来。
             //   与「莫奈主题色」的区别：莫奈是**按当前主题色系**生成，取色是**照抄壁纸**。
             DhKit.ActionRow(
-                label = "从壁纸取色",
+                spot = spot("appearance.monetPick"),
                 iconRes = Icons.IC_DROPLET,
                 desc = "把系统壁纸的主色用到界面上"
             ) { HomeUi.pickMonetWall(act) }
@@ -238,7 +280,7 @@ object AppearancePage {
 
         DhKit.Card(collapsibleTitle = "全局背景", titleIcon = Icons.IC_IMAGE) {
             // ---------- 开关（关键：关闭时保留全部配置）----------
-            DhKit.SwitchRow(name = "使用自定义背景", iconRes = Icons.IC_IMAGE, checked = enabled) { on ->
+            DhKit.SwitchRow(spot = spot("appearance.bgEnable"), checked = enabled, iconRes = Icons.IC_IMAGE) { on ->
                 PetPrefs.setBgEnabled(act, on)
                 tick++
                 // 【必须重刷】背景由 [GlobalBackground] 合成后抄进各视图背景里，
@@ -261,7 +303,7 @@ object AppearancePage {
 
             // ---------- 换图 / 移除 ----------
             DhKit.ActionRow(
-                label = "更换图片",
+                spot = spot("appearance.bgPick"),
                 iconRes = Icons.IC_IMAGE_PLUS,
                 trailing = if (has) "已设置" else "未设置"
             ) { HomeUi.pickBackground(act) }
@@ -269,7 +311,7 @@ object AppearancePage {
             //   开关关闭 = 只是不显示（配置保留）；「移除背景」= 真清空。
             //   两者混成一个按钮会让用户不敢关（怕丢配置）。
             DhKit.ActionRow(
-                label = "移除背景",
+                spot = spot("appearance.bgClear"),
                 iconRes = Icons.IC_TRASH,
                 desc = "删掉图片并重置全部背景参数",
                 enabled = has,
@@ -284,7 +326,7 @@ object AppearancePage {
 
             // ---------- 铺法 ----------
             DhKit.ValueRow(
-                label = "背景填充",
+                spot = spot("appearance.bgFill"),
                 value = PetPrefs.BG_MODES[HomeState.bgMode],
                 iconRes = Icons.IC_LAYOUT_GRID
             ) { HomeUi.pickBgMode(act) }
@@ -382,7 +424,9 @@ object AppearancePage {
                 Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
                 Text(
                     text = "主题跟随：" + ThemeManager.MODE_NAMES[HomeState.themeMode],
-                    color = c.line,
+                    // 【修·可读性】原来用 c.line（分隔线色）：压在 c.card 上只有 1.50:1，
+                    //   这行说明「当前主题档位」的提示等于空白。改 c.sub（唯一被夹到 ≥4.5 的次要文字槽）。
+                    color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
                     fontFamily = DhTokens.fontsBody
                 )
@@ -401,7 +445,7 @@ object AppearancePage {
 
         DhKit.Card(collapsibleTitle = "你（用户侧）的气泡", titleIcon = Icons.IC_MESSAGE_SQUARE) {
             DhForm.Note("「你」的气泡全局统一一套 —— 所有会话里长得一样。人偶那边可以各自不同。")
-            DhKit.SwitchRow(name = "显示头像", iconRes = Icons.IC_CIRCLE_USER, checked = showAvatar) { on ->
+            DhKit.SwitchRow(spot = spot("appearance.bubbleAvatar"), checked = showAvatar, iconRes = Icons.IC_CIRCLE_USER) { on ->
                 PetPrefs.setShowAvatar(act, on)
                 tick++
                 ThemeRefresh.bumpAll()
@@ -409,13 +453,13 @@ object AppearancePage {
             // 【语义说清楚】用户定案：「人偶发的就显示人偶头像 用户发的就显示用户的头像」。
             //   这里必须把那句话翻给用户看，否则「显示头像」会被理解成「一个头像管两边」。
             DhForm.Note("打开后：人偶发的消息显示**她**的头像，你发的消息显示**你**的头像。")
-            DhKit.SwitchRow(name = "气泡磨砂", iconRes = Icons.IC_APERTURE, checked = frost) { on ->
+            DhKit.SwitchRow(spot = spot("appearance.bubbleFrost"), checked = frost, iconRes = Icons.IC_APERTURE) { on ->
                 PetPrefs.setBubbleUserFrost(act, on)
                 tick++
                 ThemeRefresh.bumpAll()
             }
             DhKit.ValueRow(
-                label = "气泡宽度",
+                spot = spot("appearance.bubbleWidth"),
                 value = BUBBLE_WIDTH_NAMES[width],
                 iconRes = Icons.IC_PANEL_RIGHT
             ) { HomeUi.pickBubbleWidth(act) }
@@ -430,7 +474,7 @@ object AppearancePage {
                     + "想改某一只的外观，去「人偶 → 编辑 → 外观」。"
             )
             DhKit.ActionRow(
-                label = "逐个人偶外观",
+                spot = spot("appearance.perDoll"),
                 iconRes = Icons.IC_USERS,
                 desc = "聊天背景与人偶气泡在每只人偶的编辑页里改"
             ) { com.dollhouse.app.ui.doll.DollListScreen.open(act) }
@@ -473,7 +517,7 @@ object AppearancePage {
             //   否则用户会当成 bug（Android 12 以下没有 Window 背景模糊这个能力）。
             if (android.os.Build.VERSION.SDK_INT < 31) {
                 Row(
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DhKit.Icon(iconRes = Icons.IC_WARNING, sizeDp = Design.SZ_XS, color = c.err)
@@ -491,7 +535,7 @@ object AppearancePage {
 
         DhKit.Card(collapsibleTitle = "图标与交互", titleIcon = Icons.IC_SPARKLES) {
             DhKit.SwitchRow(
-                name = "点击穿透（桌宠）",
+                spot = spot("appearance.touchThrough"),
                 iconRes = Icons.IC_CROSSHAIR,
                 checked = PetPrefs.touchThrough(act)
             ) { on ->
@@ -526,6 +570,7 @@ object AppearancePage {
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
             Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
+            // E16-ALLOW: 分组小标题 `title`（"气泡样式"/"字体颜色"）：2~4 字标签
             Text(
                 text = title,
                 color = c.sub,
@@ -533,7 +578,7 @@ object AppearancePage {
                 fontFamily = DhTokens.fonts
             )
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(DhDesign.Space.xs.dp))
         // 【桥接既有自绘滑条】`UiKit.Slider` 是胶囊轨道 + 刻度点 + 终点标记的自绘 View，
         //   Compose 的 Slider 做不出同一形态；「全局 UI 一致」是硬要求，故保留原控件。
         androidx.compose.ui.viewinterop.AndroidView(
@@ -550,11 +595,16 @@ object AppearancePage {
             },
             modifier = Modifier.fillMaxWidth()
         )
+        // 【E16·真问题（原 ALLOW 理由错：说"单句短说明"）】`hint` 由
+        //   HomeUi.alphaHint / blurHint / scrimHint / cardAlphaHint 生成，实测最长
+        //   「背景图不透明度　（图偏淡，文字最稳）」= 36 视觉字 —— 360dp 勉强一行，
+        //   320dp 小屏必换行。补行高。
         Text(
             text = hint,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
             color = c.sub,
             fontSize = UiKit.FS_SUB.sp,
+            lineHeight = DhTokens.type.sub.lineHeight,
             fontFamily = DhTokens.fontsBody
         )
     }
@@ -574,7 +624,7 @@ object AppearancePage {
         }
         Text(
             text = HomeUi.fontColorHint(HomeState.fontColor),
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
             color = DhTokens.colors.sub,
             fontSize = UiKit.FS_SUB.sp,
             fontFamily = DhTokens.fontsBody
@@ -611,7 +661,7 @@ object AppearancePage {
                                 .size(26.dp)
                                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
                                 .background(fontPreview(draft))
-                                .border(1.dp, DhTokens.colors.line, RoundedCornerShape(DhKit.R_ROW.dp))
+                                .border(DhDesign.Size.hairline, DhTokens.colors.line, RoundedCornerShape(DhKit.R_ROW.dp))
                         )
                     }
                 )

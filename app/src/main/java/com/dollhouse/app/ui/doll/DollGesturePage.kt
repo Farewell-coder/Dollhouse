@@ -72,7 +72,7 @@ object DollGesturePage {
         DhKit.Page(
             title = "操作",
             sub = "手势响应",
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             DhForm.Note("点一条手势，勾选它要触发的动作；可多选，勾「无」表示清空。")
             for (g in GestureCore.GESTURES) {

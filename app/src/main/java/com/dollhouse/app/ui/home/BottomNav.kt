@@ -22,6 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,6 +34,7 @@ import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
 
@@ -80,15 +86,15 @@ object BottomNav {
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = DhDesign.Space.sm.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                     // 【与全 App 底栏同源】半透明主题底 + 描边，见 UiKit.capsuleFill()（`ui/theme/UiKit.kt`）。
                     .background(c.capsule)
-                    .border(1.dp, c.stroke, RoundedCornerShape(999.dp))
+                    .border(1.dp, c.stroke, RoundedCornerShape(DhDesign.Radius.pill.dp))
                     .padding(horizontal = 6.dp, vertical = 5.dp), // 【不收敛·D4】与 999 圆角+1dp 描边配套，改动会改变胶囊总高
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
@@ -125,7 +131,7 @@ object BottomNav {
         )
         Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(
                     if (selected) {
                         c.capsuleSel
@@ -133,6 +139,52 @@ object BottomNav {
                         androidx.compose.ui.graphics.Color.Transparent
                     }
                 )
+                /*
+                 * 【P0-3·无障碍：补 selected / Tab 语义】
+                 *   原来 `selected` 只参与视觉（`tint` 换色 / `capsuleSel` 弱底 /
+                 *   图标 1.06 放大 / 文字加粗），**完全没有进语义树** ——
+                 *   读屏把这三个 Tab 念成三个普通按钮，用户**不知道自己当前在哪一页**。
+                 *   底栏是常驻导航，这是「导航基础信息缺失」，不是打磨项。
+                 *
+                 *   【为什么用 `selected` 属性而不是把「已选中」拼进名字】
+                 *     `SemanticsPropertyReceiver.selected` 是**状态属性**：读屏念
+                 *     「已选中 / 未选中」，TalkBack 还会在选中项上给提示音。
+                 *     若拼进 contentDescription，它就成了名字的一部分 ——
+                 *     每读一次都念，而且状态变了名字不跟着变（两者会脱钩，自相矛盾）。
+                 *
+                 *   【为什么配 `role = Role.Tab`】Compose 没有 `Role.TabButton`；
+                 *     用 `Role.Tab` 让读屏把它认作标签页、归入 tab 组，
+                 *     从而支持 TalkBack 的「切换标签」手势浏览。
+                 *
+                 *   【为什么不用 `selectable()`】它会自动带 selected + Role.Tab，写法更规范，
+                 *     但它**会替换掉 `pressable` 的 0.98 按压反馈** —— 本工程的手感统一
+                 *     靠 pressable（`DhKit.pressable`），换掉会让底栏点起来"发干"。
+                 *     所以保留 pressable、手动补语义，视觉与手感一字不变。
+                 *
+                 *   【⚠️ 为什么必须 mergeDescendants = true —— 这一条与 DhKit.NavItem 不同】
+                 *     本 Tab 内部有**三个**子语义节点：`Text`（Tab 名）、`Badge` 里的
+                 *     `Text`（未读数），以及可能存在的图标图形。若只给父节点加
+                 *     `contentDescription` 而不合并，Compose **不会**自动把子节点并进来
+                 *     （合并只在 `mergeDescendants = true` 时发生）⇒ 读屏会把同一个 Tab
+                 *     拆成「聊天」「3」「聊天，标签页，已选中」**三个可聚焦节点**，
+                 *     用户要划三次才能过一个 Tab，且第三次才是完整的。
+                 *     `Badge` 那个裸数字尤其糟：只念「3」，既不说是什么也不说属于谁。
+                 *     合并之后整条 Tab 念一次：「聊天，3，标签页，已选中」（数字来自 Badge，
+                 *     名字与状态来自本节点），信息完整且只需一次聚焦。
+                 *
+                 *   【理解代价】合并会让子 `Text` 不再单独可聚焦 —— 但底栏 Tab 本来就是
+                 *     「一个可点整体」，子文字没有独立交互语义，这是正确的粒度。
+                 *
+                 *   【位置】语义排在 `.pressable` **之前**：它描述的是「这个可点区域是什么」
+                 *     这个节点属性，与内部如何处理手势无关（与 `DhKit.IconButton` 一致）。
+                 */
+                .semantics(mergeDescendants = true) {
+                    this.selected = selected
+                    role = Role.Tab
+                    // 名字：图标是装饰（无 contentDescription），名字必须显式给，
+                    //   否则合并后只剩 Badge 的裸数字。
+                    contentDescription = labelOf(tab)
+                }
                 .pressable(onClick)
                 .padding(horizontal = 18.dp, vertical = 6.dp), // 【不收敛·D3】决定单项命中区与底栏 64dp 口径
             horizontalAlignment = Alignment.CenterHorizontally
@@ -160,6 +212,9 @@ object BottomNav {
                 lineHeight = 16.sp,
                 fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
                 letterSpacing = 0.44.sp,
+                // 【故意不加 overflow】标签来自 `labelOf(tab)`，是全 App 仅三个的固定文案
+                //   （聊天 / 人偶 / 说说），宽度远小于 Tab 的 72dp 下限，永远不会被裁。
+                //   加省略号只会让审计脚本误以为这里处理过长文本。
                 maxLines = 1
             )
         }
@@ -173,9 +228,9 @@ object BottomNav {
         Box(
             modifier = modifier
                 .graphicsLayer { translationX = 6f; translationY = -6f }
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.err)
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = DhDesign.Space.xs.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(

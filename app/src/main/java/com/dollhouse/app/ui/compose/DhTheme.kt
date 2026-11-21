@@ -1,9 +1,15 @@
 package com.dollhouse.app.ui.compose
 
 import android.content.Context
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
@@ -91,43 +97,49 @@ data class DhColors(
             return DhColors(
                 acc = Color(UiKit.ACC),
                 acc2 = Color(UiKit.ACC2),
-                card = Color(UiKit.card()),
-                cardUp = Color(UiKit.cardUp()),
+                // 【B1·面中性化】卡片 / 面板 / 行底 / 轨道统一走 DesignSystem 的派生降饱和，
+                //   与 `DhDesign.Palette.neutralize()`（DesignSystem.kt:788-804）逐槽对齐 ——
+                //   两套并行实现若各压各的，同一屏会出现 ≤10 级单通道色差（实测 LIGHT 开关
+                //   轨道 #CBD8E6 vs #D2D7DC）。只缩彩度、不动明度，对比度门禁不受影响。
+                card = DhDesign.Palette.neutralFace(Color(UiKit.card())),
+                cardUp = DhDesign.Palette.neutralFace(Color(UiKit.cardUp())),
                 // 【r13】弹窗 / 面板底：不透明 + 磨砂质感，见 UiKit.sheet()。
-                sheet = Color(UiKit.sheet()),
-                sheetUp = Color(UiKit.sheetUp()),
+                sheet = DhDesign.Palette.neutralFace(Color(UiKit.sheet())),
+                sheetUp = DhDesign.Palette.neutralFace(Color(UiKit.sheetUp())),
                 // 【r13·底栏】两处悬浮胶囊底栏共用同一组令牌，避免再次分叉。
-                capsule = Color(UiKit.capsuleFill()),
+                //   capsuleSel 是选中态高亮（≈ M3 primaryContainer），靠带着主色表达"选中"，
+                //   故**不**中性化，与 Palette.neutralize 的排除口径一致。
+                capsule = DhDesign.Palette.neutralFace(Color(UiKit.capsuleFill())),
                 capsuleSel = Color(UiKit.capsuleSel()),
-                bg = Color(UiKit.BG),
+                bg = DhDesign.Palette.neutralPage(Color(UiKit.BG)),
                 title = Color(UiKit.TITLE),
                 sub = Color(UiKit.SUB),
-                line = Color(UiKit.LINE),
+                line = DhDesign.Palette.neutralLine(Color(UiKit.LINE)),
                 // 【r13】三个层级底走派生方法而不是裸常量：卡片透明度改变时，
                 //   它们跟着一起透、但永远比卡片实一档，层级关系在任何透明度下都成立。
                 //   （调用点因此零改动 —— 全 App 的 c.soft / c.option / c.field 自动跟随。）
-                option = Color(UiKit.option()),
-                soft = Color(UiKit.soft()),
-                field = Color(UiKit.field()),
+                option = DhDesign.Palette.neutralFace(Color(UiKit.option())),
+                soft = DhDesign.Palette.neutralFace(Color(UiKit.soft())),
+                field = DhDesign.Palette.neutralFace(Color(UiKit.field())),
                 ok = Color(UiKit.OK),
                 err = Color(UiKit.ERR),
                 onAcc = Color(UiKit.ON_ACC),
                 chatBubbleUser = Color(UiKit.CHAT_BUBBLE_USER),
-                chatBorder = Color(UiKit.CHAT_BORDER),
-                chatChipBg = Color(UiKit.CHAT_CHIP_BG),
+                chatBorder = DhDesign.Palette.neutralLine(Color(UiKit.CHAT_BORDER)),
+                chatChipBg = DhDesign.Palette.neutralFace(Color(UiKit.CHAT_CHIP_BG)),
                 chatChipFg = Color(UiKit.CHAT_CHIP_FG),
                 chatChipOn = Color(UiKit.CHAT_CHIP_ON),
-                chatChipOff = Color(UiKit.CHAT_CHIP_OFF),
+                chatChipOff = DhDesign.Palette.neutralFace(Color(UiKit.CHAT_CHIP_OFF)),
                 chatChipMute = Color(UiKit.CHAT_CHIP_MUTE),
-                chatActionBg = Color(UiKit.CHAT_ACTION_BG),
+                chatActionBg = DhDesign.Palette.neutralFace(Color(UiKit.CHAT_ACTION_BG)),
                 hintFg = Color(UiKit.HINT_FG),
                 hintBg = Color(UiKit.HINT_BG),
-                switchOff = Color(UiKit.SWITCH_OFF),
+                switchOff = DhDesign.Palette.neutralFace(Color(UiKit.SWITCH_OFF)),
                 switchOn = Color(UiKit.SWITCH_ON),
                 emote1 = Color(UiKit.EMOTE_1),
                 emote2 = Color(UiKit.EMOTE_2),
                 emote3 = Color(UiKit.EMOTE_3),
-                stroke = Color(UiKit.STROKE),
+                stroke = DhDesign.Palette.neutralLine(Color(UiKit.STROKE)),
                 scrim = Color(UiKit.SCRIM)
             )
         }
@@ -346,6 +358,38 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
     val colorScheme = remember(palette) { DhDesign.colorScheme(palette) }
     val typography = remember(type) { DhDesign.typography(type) }
     val shapes = remember { DhDesign.shapes() }
+    // 【B3·reduceMotion 闸门】根组合读一次系统「移除动画」开关，全树下发。
+    //   为什么必须在**这一层**而不是各页面：ComposeHost.createView 给每个 ComposeView
+    //   都包了 DollhouseTheme，改一处即覆盖全部 Compose 根（含嵌在 View 页里的 Compose 段）；
+    //   逐处 provide 早晚会漏，而漏一处就是「同一屏里还有东西在动」。
+    //
+    //   跟随系统开关实时刷新：用户在设置里切「移除动画」后回到 App，不该还需要重启。
+    //   ContentObserver 注册在 DisposableEffect 里，随组合销毁注销，不常驻泄漏。
+    val reduceMotion = remember { mutableStateOf(DhAnim.systemReduceMotion(ctx)) }
+    DisposableEffect(ctx) {
+        val resolver = ctx.contentResolver
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                reduceMotion.value = DhAnim.systemReduceMotion(ctx)
+            }
+        }
+        // 只订阅系统设置的全局表；个别 ROM 对 ANIMATOR_DURATION_SCALE 单独发通知，
+        //   所以 URI 精确到该键，减少无关设置变化带来的重组。
+        runCatching {
+            resolver.registerContentObserver(
+                Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+                false,
+                observer
+            )
+        }
+        onDispose { runCatching { resolver.unregisterContentObserver(observer) } }
+    }
+    // 非组合期的调用点（DhSwipe 协程里的 animateTo、View 侧的 UiKit）读不到 local，
+    //   靠 DhAnim 的进程级镜像。这里**在组合体内直接写**（不是 SideEffect）：
+    //   SideEffect 要等组合结束才跑，API 24–25 上首帧的 getter 仍会读到旧镜像而漏播一次动画；
+    //   写的是一个普通 @Volatile 字段，不触发重组，放组合体内是安全的。
+    val reduceMotionOn = reduceMotion.value
+    DhAnim.syncSystemReduceMotion(reduceMotionOn)
     MaterialTheme(
         colorScheme = colorScheme,
         typography = typography,
@@ -358,6 +402,7 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
             LocalDhFontFamily provides family,
             LocalDhFontFamilyBold provides familyBold,
             LocalTextSelectionColors provides selection,
+            LocalReduceMotion provides reduceMotionOn,
             content = content
         )
     }

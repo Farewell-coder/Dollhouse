@@ -20,6 +20,12 @@ object WanderSettingsPage {
 
     const val TAG_PAGE = "settings:wander"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     @JvmStatic
     fun open(act: MainActivity) {
         PageStack.push(act, TAG_PAGE) { build(act) }
@@ -32,10 +38,10 @@ object WanderSettingsPage {
 
     @Composable
     private fun Content(act: MainActivity) {
-        DhKit.Page(title = "随机走位", onBack = { PageStack.pop(act) }) {
+        DhKit.Page(title = "随机走位", onBack = { PageStack.popIfTop(act, TAG_PAGE) }) {
             DhKit.Card(collapsibleTitle = "开关", titleIcon = Icons.IC_SPARKLES) {
                 DhKit.SwitchRow(
-                    name = "启用随机走位",
+                    spot = spot("wander.enable"),
                     iconRes = Icons.IC_WAYPOINTS,
                     checked = PetPrefs.wanderEnabled(act)
                 ) { on ->

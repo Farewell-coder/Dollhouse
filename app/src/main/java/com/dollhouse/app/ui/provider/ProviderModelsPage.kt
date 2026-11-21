@@ -90,7 +90,15 @@ object ProviderModelsPage {
         val pv = remember(providerId) { ProviderStore.findProvider(act, providerId) }
         if (pv == null) {
             DhKit.Page(title = "模型", sub = "供应商已不存在", onBack = { ProviderNav.back(act) }) {
-                DhForm.Note("这个供应商已经被删除了。")
+                // 【同上·错误态也收编】原来是单独一行 `DhForm.Note`：与空态一样缺图标座，
+                //   而且「供应商没了」属于**错误态**，更该与全站错误态同一张脸
+                //   （`ProviderDetailPage.MissingPage` 用的也是 DhState + IC_CIRCLE_ALERT）。
+                //   【文案一字未改】原句「这个供应商已经被删除了。」直接作标题。
+                //   【不给 actionText】顶栏已有返回箭头，再加一个「返回」是两个入口同一件事。
+                com.dollhouse.app.ui.kit.DhState(
+                    title = "这个供应商已经被删除了。",
+                    iconRes = Icons.IC_CIRCLE_ALERT
+                )
             }
             return
         }
@@ -114,15 +122,21 @@ object ProviderModelsPage {
             onScroll = onScroll
         ) {
             if (models.isEmpty()) {
-                DhKit.Card {
-                    Text(
-                        text = "这个供应商下还没有模型。",
-                        color = DhTokens.colors.title,
-                        fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fontsBold
-                    )
-                    DhForm.Note("点下面的「添加模型」从供应商拉取清单，选中的模型会出现在这里，也会出现在聊天页的模型选择器里。")
-                }
+                // 【S-收编·改用规范骨架】原先是一张 Card 里「一行粗体 + 一段 Note」，
+                //   与全 App 其他空态（`ProviderListPage` 的「还没有配置任何供应商。」等）
+                //   不是一个样：**缺 56dp 图标座**，进页第一眼分不出「空了 / 出错了 / 没加载完」。
+                //   现转发到 `ui/kit.DhState`。**文案一字未改**（标题与说明原句原样保留）。
+                //   【图标为什么是 IC_LAYERS】它在 `Icons.kt` 里的语义就写着「模型集合 / 分层语义：
+                //     详情页「模型」tab 与模型列表用」—— 本页正是模型列表，与详情页底栏
+                //     「模型」那一项的图标同源，用户在两处看到的是同一个符号。
+                //   【为什么不给 actionText】动作就在**正下方**那颗悬浮的「添加模型」胶囊上；
+                //     再给一个按钮会出现两个入口指向同一件事（`MemPage` 的文件夹空态
+                //     已经为同一取舍写过注释）。下面的说明原句就写着「点下面的「添加模型」」。
+                com.dollhouse.app.ui.kit.DhState(
+                    title = "这个供应商下还没有模型。",
+                    body = "点下面的「添加模型」从供应商拉取清单，选中的模型会出现在这里，也会出现在聊天页的模型选择器里。",
+                    iconRes = Icons.IC_LAYERS
+                )
             } else {
                 models.forEach { m ->
                     DhSwipeHost(
@@ -223,7 +237,7 @@ object ProviderModelsPage {
     ) {
         SwipeToDelete(
             onDelete = onDelete,
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             onContentClick = onOpen,
             // 长按 = 读屏用户的等效删除入口（横向拖动在 TalkBack 下做不出来）。
             onLongPress = onLongPress
@@ -245,11 +259,12 @@ object ProviderModelsPage {
                     .pressable(onClick)
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.acc)
-                    .padding(start = 20.dp, top = 12.dp, end = 22.dp, bottom = 12.dp),
+                    .padding(start = 20.dp, top = DhDesign.Space.md.dp, end = 22.dp, bottom = DhDesign.Space.md.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhKit.Icon(Icons.IC_PLUS, 18f, c.onAcc)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                // E16-ALLOW: "添加模型"按钮文字：4 字固定文案，药丸定高容器
                 Text(
                     text = "添加模型",
                     color = c.onAcc,

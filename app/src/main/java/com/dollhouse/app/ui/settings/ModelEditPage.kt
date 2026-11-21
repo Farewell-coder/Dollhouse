@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ai.AiModel
@@ -109,6 +110,7 @@ object ModelEditPage {
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // E16-ALLOW: "从供应商拉取模型"动作行文字：8 字固定文案，`weight(1f)` 单行
                     Text(
                         text = "从供应商拉取模型",
                         modifier = Modifier.weight(1f),
@@ -196,6 +198,7 @@ object ModelEditPage {
                         .pressable { advOpen = !advOpen },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // E16-ALLOW: "生成参数"分组标题：4 字固定
                     Text(
                         text = "生成参数",
                         modifier = Modifier.weight(1f),
@@ -224,7 +227,7 @@ object ModelEditPage {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = 8.dp),
+                    .padding(top = 14.dp, bottom = DhDesign.Space.sm.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DhForm.Button("取消", primary = false) { ProviderNav.back(act) }
@@ -278,10 +281,17 @@ object ModelEditPage {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                // 【E16·真问题（原 ALLOW 理由错：说"由调用方省略号处理"，实测这里既无
+                //   maxLines 也无 overflow）】`name` 是模型标识，来自供应商 `/models` 返回，
+                //   长度不受本 App 控制（常见 `deepseek-reasoner`、长名可达 40+ 字符）。
+                //   补 maxLines + Ellipsis 而非行高 —— 单行截断比多行撑开更适合列表行。
                 Text(
                     text = name,
+                    modifier = Modifier.weight(1f),
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     fontFamily = DhTokens.fonts
                 )
                 if (desc != null && desc.isNotEmpty()) {
@@ -290,6 +300,7 @@ object ModelEditPage {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }

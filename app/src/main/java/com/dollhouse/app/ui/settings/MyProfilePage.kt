@@ -60,6 +60,12 @@ object MyProfilePage {
 
     /** 页面 key（进页面栈用）。 */
     const val KEY = "settings:myprofile"
+
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
     /** 预览头像边长（dp）。 */
     private const val PREVIEW_DP = 84
 
@@ -142,7 +148,7 @@ object MyProfilePage {
             //   （MainActivity.onBackPressed → PageStack.handleBack → pop）。
             onBack = {
                 discard()
-                PageStack.pop(act)
+                PageStack.popIfTop(act, KEY)
             },
             actions = {
                 // 【右上角保存 = 落盘并返回】图标按钮（Lucide save），语义与左上角返回明确区分。
@@ -153,7 +159,7 @@ object MyProfilePage {
                     label = "保存"
                 ) {
                     commit()
-                    PageStack.pop(act)
+                    PageStack.popIfTop(act, KEY)
                 }
             }
         ) {
@@ -165,7 +171,7 @@ object MyProfilePage {
                 Box(
                     modifier = Modifier
                         .size(PREVIEW_DP.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.soft),
                     contentAlignment = Alignment.Center
                 ) {
@@ -186,7 +192,7 @@ object MyProfilePage {
                 Spacer(Modifier.width(16.dp))
                 Column {
                     DhKit.ActionRow(
-                        label = "更换头像",
+                        spot = spot("profile.avatar"),
                         iconRes = Icons.IC_IMAGE_PLUS,
                         // 【宽度】ActionRow 是整行宽，这里放在 Column 里需要限宽，
                         //   否则会把右侧撑出屏幕（Row 的 weight 在固定宽容器里才生效）。
@@ -201,16 +207,19 @@ object MyProfilePage {
                         }
                     }
                     // 【r19·引导】用户反馈「找不到头像入口」，加一行小字说明点击哪里。
+                    // 【E16】15 汉字+符号 ≈18 视觉字：360dp 单行、320dp 小屏会换行 → 补行高，
+                    //   并移除此前放错位置、理由不符的 E16-ALLOW。
                     Text(
                         text = "点击「更换头像」→ 从相册选一张",
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody,
-                        modifier = Modifier.padding(top = 4.dp, start = 2.dp)
+                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp, start = 2.dp)
                     )
                     if (canRemove) {
                         DhKit.ActionRow(
-                            label = "移除头像",
+                            spot = spot("profile.avatarClear"),
                             iconRes = Icons.IC_TRASH,
                             modifier = Modifier.width(180.dp)
                         ) {
@@ -253,9 +262,12 @@ object MyProfilePage {
                 label = "个性签名",
                 hint = "一句话介绍自己",
                 trailing = {
+                    // E16-ALLOW: 字数计数（"3/40"）：数字与斜杠，单行
                     Text(
                         text = bio.length.toString() + "/" + MyProfile.BIO_MAX,
-                        color = c.line,
+                        // 【修·可读性】原来用 c.line（分隔线色）：压在输入框的 p.field 底上只有 1.30:1，
+                        //   「3/40」这种字数计数完全读不出来。改 c.sub（唯一被夹到 ≥4.5 的次要文字槽）。
+                        color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
                         fontFamily = DhTokens.fonts
                     )

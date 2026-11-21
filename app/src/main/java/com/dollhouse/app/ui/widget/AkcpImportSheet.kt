@@ -154,7 +154,7 @@ object AkcpImportSheet {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp),
+                        .padding(top = DhDesign.Space.lg.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(Modifier.weight(1f))
@@ -188,18 +188,19 @@ object AkcpImportSheet {
             text = "文件：" + fileName,
             color = c.title,
             fontSize = UiKit.FS_BTN.sp,
+            lineHeight = DhTokens.type.body.lineHeight,
             fontFamily = DhTokens.fontsBold
         )
         Text(
             text = "请输入这个文件导出时生成的凭据（52 位 Base32，可带连字符）。\n" +
                 "凭据只在本机用于解密，不会被保存。",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             color = c.sub,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
+        Column(modifier = Modifier.padding(top = DhDesign.Space.md.dp)) {
             DhForm.Input(
                 value = cred,
                 onValueChange = {
@@ -215,16 +216,17 @@ object AkcpImportSheet {
         if (err != null) {
             Text(
                 text = err,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
                 color = c.err,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBody
             )
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp),
+                .padding(top = DhDesign.Space.lg.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Spacer(Modifier.weight(1f))
@@ -314,10 +316,11 @@ object AkcpImportSheet {
                 configs.forEach { cfg -> PreviewRow(cfg) }
             }
             if (hasExtra) {
+                // E16-ALLOW: 可点链接，恒单行（"查看保存范围说明"）
                 Text(
                     text = "查看保存范围说明",
                     modifier = Modifier
-                        .padding(top = 8.dp)
+                        .padding(top = DhDesign.Space.sm.dp)
                         .pressable { showExtra = !showExtra },
                     color = c.acc,
                     fontSize = UiKit.FS_TINY.sp,
@@ -336,18 +339,19 @@ object AkcpImportSheet {
                 }
             }
             if (conflicts > 0) {
+                // E16-ALLOW: 分组小标题，恒单行（"同名供应商处理方式"）
                 Text(
                     text = "同名供应商处理方式",
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier = Modifier.padding(top = DhDesign.Space.md.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
                     fontFamily = DhTokens.fonts
                 )
                 Row(modifier = Modifier.padding(top = DhDesign.Space.sm.dp)) {
                     ModeChip("跳过", mode == MODE_SKIP) { mode = MODE_SKIP }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("覆盖", mode == MODE_OVERWRITE) { mode = MODE_OVERWRITE }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
                     ModeChip("另存副本", mode == MODE_DUPLICATE) { mode = MODE_DUPLICATE }
                 }
                 Text(
@@ -359,13 +363,14 @@ object AkcpImportSheet {
                     modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp),
+                    .padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
@@ -387,7 +392,7 @@ object AkcpImportSheet {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp),
+                    .padding(top = DhDesign.Space.lg.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.weight(1f))
@@ -416,6 +421,7 @@ object AkcpImportSheet {
                 text = cfg.configName,
                 color = c.title,
                 fontSize = UiKit.FS_TINY.sp,
+                lineHeight = DhTokens.type.sub.lineHeight,
                 fontFamily = DhTokens.fontsBold
             )
         }

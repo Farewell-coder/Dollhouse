@@ -41,6 +41,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollPersonaPage
 import com.dollhouse.app.ui.doll.DollState
@@ -136,7 +137,7 @@ object FriendProfilePage {
         DhKit.Page(
             title = "好友资料",
             sub = name,
-            onBack = { PageStack.pop(act) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
         ) {
             Header(name = name, bio = bio, avatar = avatar)
 
@@ -348,7 +349,7 @@ object FriendProfilePage {
                 Box(
                     modifier = Modifier
                         .size(Design.SZ_XL.dp * 2)
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                         .background(c.soft),
                     contentAlignment = Alignment.Center
                 ) {

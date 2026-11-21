@@ -210,15 +210,17 @@ object ChatListScreen {
                     val myAva = remember(ptick) { MyProfile.avatarBitmap(act, 128) }
                     Box(
                         modifier = Modifier
+                            // 【E13】pressable 在最外层：它内置 sizeIn(min=48dp)，
+                            //   若 size(36) 写在外层会把约束上限夹回 36，命中区就只剩 36。
+                            .pressable { ProfileDrawer.toggle() }
                             .size(HEAD_AVATAR_DP.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                             .background(c.soft)
                             // 【无障碍】真机 dump 里这个头像入口的 content-desc 是空的，
                             //   读屏只会念「按钮」。给它一个动词性的名字。
                             .semantics {
                                 contentDescription = "打开菜单"
-                            }
-                            .pressable { ProfileDrawer.toggle() },
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         val bmp: android.graphics.Bitmap? = myAva
@@ -542,7 +544,7 @@ object ChatListScreen {
                     onLongClick = onLong
                 )
                 .defaultMinSize(minHeight = DhDesign.Size.rowTwoLine)
-                .padding(horizontal = 4.dp, vertical = DhDesign.Space.sm.dp),
+                .padding(horizontal = DhDesign.Space.xs.dp, vertical = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Avatar(row)
@@ -600,7 +602,7 @@ object ChatListScreen {
         Box(
             modifier = Modifier
                 .size(AVATAR_DP.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.soft),
             contentAlignment = Alignment.Center
         ) {
@@ -631,7 +633,7 @@ object ChatListScreen {
         val c = DhTokens.colors
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(c.err)
                 .padding(horizontal = 6.dp, vertical = 1.dp), // 【不收敛·D4】徽标内边距与 999 圆角配套，决定徽标尺寸
             contentAlignment = Alignment.Center

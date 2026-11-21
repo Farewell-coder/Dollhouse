@@ -456,7 +456,13 @@ fun DhRow(
                 text = value,
                 color = p.sub,
                 style = t.sub,
+                // 【修·长 model 名/供应商名硬切】原实现只有 maxLines 没有 overflow，
+                //   超长时按字符硬裁（用户看到半个字）。补省略号。
+                //   注意：仅补 overflow 不够 —— 左标题有 weight(1f) 让位，而本 Text
+                //   没有任何宽度约束，会先按固有宽度占满并把标题压到极小。
+                //   003 报告（O2）已记录这一点，属后续单独处理项。
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.End
             )
         }
@@ -696,7 +702,7 @@ fun DhChip(
             .padding(horizontal = ChipPadH),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = fg, style = t.caption, maxLines = 1)
+        Text(text = text, color = fg, style = t.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -717,7 +723,7 @@ fun DhTag(
             .padding(horizontal = TagPadH),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = tint ?: p.sub, style = t.label, maxLines = 1)
+        Text(text = text, color = tint ?: p.sub, style = t.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -885,11 +891,11 @@ fun DhSkeletonRow(modifier: Modifier = Modifier, lines: Int = 2) {
 }
 
 /**
- * 行内图标按钮（命中区 48dp、视觉 40dp）。
+ * 行内图标按钮（视觉 48dp、命中区 48dp）。
  *
- * 【为什么再包一层】`DhKit.IconButton` 的命中区固定 40dp（HIT），
- *   与设计稿「图标 40dp 命中区 + 48dp 最小触摸目标」只差在**透明扩展**这一层；
- *   这里显式给出 48dp，并且把无障碍名称做成必需参数（漏掉就读屏念"按钮"）。
+ * 【为什么再包一层】`DhKit.IconButton` 现在也走 `minTouchTarget()`（48dp）且 `HIT` 同为 48，
+ *   两者命中区与视觉口径都已一致；本函数额外把无障碍名称做成**必需参数**
+ *   （漏掉就读屏念"按钮"）。
  */
 @Composable
 fun DhIconButton(
@@ -1033,20 +1039,12 @@ fun IconSeat(
     Box(
         modifier = modifier
             .size(sizeDp.dp)
-            // ③ 阴影先于 clip（顺序不可换）
-            .then(
-                if (circle) {
-                    Modifier.shadow(
-                        elevation = DhDesign.Elevation.e1,
-                        shape = sh,
-                        clip = false,
-                        ambientColor = p.line,
-                        spotColor = p.line
-                    )
-                } else {
-                    Modifier
-                }
-            )
+            // 【方案B·去投影，2026-11】原本圆形座位挂 `e1`(6dp) 投影（还用 p.line 染色）。
+            //   投影在这里的作用是「把圆从卡片上抬起来」；但同色投影在浅色底上几乎只增加
+            //   一圈模糊的脏边，而层级本来就可以由一圈发丝线表达（与 DhGroup 同一口径）。
+            //   实测对比度：发丝线/卡片 = 1.50:1（浅）/ 1.32:1（暗），正是「刚好看得见一条线」。
+            //   【为什么描边只给 circle】投影本来也只在 circle 分支挂；ROUNDED 形态
+            //   没有投影，若也补描边就是**凭空多一圈线**，属于本次改动之外的视觉变更。
             .clip(sh)
             .background(lifted)
             // ④ 顶部内高光：垂直渐变，只在圆形形态、且有底色时叠加
@@ -1059,6 +1057,14 @@ fun IconSeat(
                             0.6f to Color.Transparent
                         )
                     )
+                } else {
+                    Modifier
+                }
+            )
+            // ⑤ 发丝线：写在背景/高光之后才画在最上层（写前面会被 background 盖住）
+            .then(
+                if (circle) {
+                    Modifier.border(DhDesign.Size.hairline, p.line, sh)
                 } else {
                     Modifier
                 }
