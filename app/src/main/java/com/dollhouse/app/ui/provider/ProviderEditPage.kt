@@ -224,6 +224,7 @@ object ProviderEditPage {
                     hint = "输入 API 密钥",
                     password = !keyPlain,
                     trailing = {
+                        // E16-ALLOW: "显示"/"隐藏"密钥开关标签：固定 2 字，且是 `trailing` 内联小按钮
                         Text(
                             text = if (keyPlain) "隐藏" else "显示",
                             modifier = Modifier.pressable { keyPlain = !keyPlain },
@@ -594,6 +595,7 @@ object ProviderEditPage {
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: 供应商名 `name`：`SwitchRow` 的行标题，单行且右侧有 Switch 占位
                 Text(text = name, color = c.title, fontSize = UiKit.FS_BTN.sp, fontFamily = DhTokens.fonts)
                 if (desc != null && desc.isNotEmpty()) {
                     Text(
@@ -601,6 +603,7 @@ object ProviderEditPage {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }

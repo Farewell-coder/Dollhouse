@@ -122,7 +122,7 @@ object PermissionPage {
                 }
                 DhKit.RowDivider(insetStart = ROW_INSET)
                 DhKit.PermRow(
-                    spot = spot("permission.notif"),
+                    spot = spot("permission.notification"),
                     iconRes = Icons.IC_BELL,
                     desc = "保活通知与消息提醒",
                     state = if (HomeState.notif) 0 else 1

@@ -144,6 +144,7 @@ object ModelListPage {
                 onValueChange = { query = it },
                 hint = "按名称筛选"
             )
+            // E16-ALLOW: 状态行 `status`（"检测到 12 个可用模型"）：单句结论，1 行内
             Text(
                 text = status,
                 modifier = Modifier.padding(start = 2.dp, top = DhDesign.Space.sm.dp),

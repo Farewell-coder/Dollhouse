@@ -766,6 +766,7 @@ object MemPage {
                 .padding(DhDesign.Space.md.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // E16-ALLOW: 搜索结果计数（"找到 12 条"）：数字 + 固定量词
                 Text(
                     text = "找到 " + hitList.size + " 条",
                     modifier = Modifier.weight(1f),
@@ -855,6 +856,10 @@ object MemPage {
                 text = link.source.ifEmpty { "（无标题）" } + "  —" + LINK_NAMES.getOrDefault(link.type.uppercase(), link.type) + "→  " + link.target.ifEmpty { "（无标题）" },
                 color = c.title,
                 fontSize = UiKit.FS_BTN.sp,
+                // 【E16·真问题，补行高而非 ALLOW】这条是「源 —类型→ 目标」三段的拼接，
+                //   每段都是用户可编辑的记忆标题（`source`/`target` 都没长度上限），
+                //   两个长标题叠起来必然多行。弹窗宽度固定，多行时靠默认 1.2× 行高会挤成一团。
+                lineHeight = DhTokens.type.body.lineHeight,
                 fontFamily = DhTokens.fontsBold,
                 fontWeight = FontWeight.Normal
             )
@@ -864,6 +869,7 @@ object MemPage {
                     text = link.description,
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
                 Spacer(Modifier.height(DhDesign.Space.sm.dp))
@@ -970,6 +976,7 @@ object MemPage {
     @Composable
     private fun FilterChip(text: String, on: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
+        // E16-ALLOW: 图标 + 文字提示行 `text`（"还没有关联"等短提示）：1 句 5~8 字
         Text(
             text = text,
             modifier = Modifier
@@ -1006,6 +1013,7 @@ object MemPage {
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
             Spacer(Modifier.width(5.dp))
+            // E16-ALLOW: "关联到其它记忆"：7 字固定标签，`weight(1f)`
             Text(
                 text = text,
                 color = c.sub,
@@ -1368,6 +1376,7 @@ object MemPage {
             onDismiss = onDismiss,
             posText = "关闭"
         ) {
+            // E16-ALLOW: 标签列 `label`（"类型"/"创建"/"更新"）：`width(60.dp)` 定宽 2 字
             Text(
                 text = m.content,
                 color = c.title,
@@ -1390,6 +1399,7 @@ object MemPage {
     private fun DetailLine(label: String, value: String) {
         val c = DhTokens.colors
         Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.xs.dp)) {
+            // E16-ALLOW: 值列 `value`：时间戳/类型名，纯数字与短代号，`weight(1f)`
             Text(
                 text = label,
                 modifier = Modifier.width(60.dp),

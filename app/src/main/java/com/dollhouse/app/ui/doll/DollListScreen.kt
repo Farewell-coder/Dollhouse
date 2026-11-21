@@ -1088,6 +1088,7 @@ onCover = {
     @Composable
     private fun MenuItem(text: String, selected: Boolean, onClick: () -> Unit) {
         val c = DhTokens.colors
+        // E16-ALLOW: 下拉菜单项（"重命名"/"删除"/"设为封面"）：固定 2~4 字动宾短语
         Text(
             text = text,
             modifier = Modifier

@@ -29,6 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.MainActivity
@@ -222,6 +227,7 @@ object AppearancePage {
             // 【图标】四格是四个不同的功能面，用四枚不同图标把差异做出来。
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = tint)
             Spacer(Modifier.width(5.dp))
+            // E16-ALLOW: 顶栏 Tab 标签（"背景"/"气泡"/"弹窗"）：TabCell 定高容器内 2 字
             Text(
                 text = label,
                 color = tint,
@@ -564,6 +570,7 @@ object AppearancePage {
         ) {
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.sub)
             Spacer(Modifier.width(DhDesign.Space.iconGap.dp))
+            // E16-ALLOW: 分组小标题 `title`（"气泡样式"/"字体颜色"）：2~4 字标签
             Text(
                 text = title,
                 color = c.sub,
@@ -588,6 +595,7 @@ object AppearancePage {
             },
             modifier = Modifier.fillMaxWidth()
         )
+        // E16-ALLOW: 滑条说明 `hint`：单句短说明（"值越大越不透明"），`fillMaxWidth` 上一行
         Text(
             text = hint,
             modifier = Modifier.padding(top = DhDesign.Space.xs.dp),

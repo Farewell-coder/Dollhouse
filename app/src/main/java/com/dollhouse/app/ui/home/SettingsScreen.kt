@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -50,6 +51,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.data.DollStore
@@ -57,8 +63,10 @@ import com.dollhouse.app.data.MyProfile
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.design.LocalExpandedWidth
 import com.dollhouse.app.ui.kit.DhLoadingState
 import com.dollhouse.app.ui.kit.LoadingState
+import com.dollhouse.app.ui.theme.Design
 
 /**
  * 【职责】设置页（Compose）：权限 / 聊天 / 人偶 / 外观 四张卡片。
@@ -160,6 +168,14 @@ object SettingsScreen {
         // 进页对一次真实状态（从系统设置页返回后立即刷新权限行）。
         LaunchedEffect(Unit) { HomeUi.syncAll(act) }
 
+        // 【P2-b·平板双栏】Expanded（≥840dp）时改成「左分组导航 + 右内容」。
+        //   Compact / Medium 完全走原来的单栏路径（见下方 early return），
+        //   所以现有手机用户**逐像素不变**。
+        if (LocalExpandedWidth) {
+            SettingsTwoPane(act)
+            return
+        }
+
         DhKit.Page(
             title = "设置",
             onBack = {
@@ -185,6 +201,182 @@ object SettingsScreen {
             //   用户定案：**排在最后一张**，且是**展开式**（卡片内直接展开，不跳页）——
             //   与上面四张卡片的展开方式一致。
             ExperimentCard(act)
+        }
+    }
+
+    /* ==================== P2-b·平板双栏（Expanded） ==================== */
+
+    /**
+     * 设置页的分组清单。
+     *
+     * 【为什么用枚举而不是字符串】左栏要按固定顺序渲染、右栏要按选中项渲染，
+     *   两边必须是**同一份有序定义**。用字符串 Key 拼两边，早晚会出现
+     *   「左栏有这一组、右栏 when 里漏了」——那种 bug 的表现是右栏一片空白。
+     *
+     * 【为什么 6 组而不是 5 组】[ProfileCard] 与 [PermissionRow] 在单栏版里排在
+     *   所有卡片之前，双栏版把它们各自归成一组，顺序与单栏版**完全一致**
+     *   （资料 → 权限 → 聊天 → 人偶 → 外观 → 备份 → 实验）。分组数变了没关系，
+     *   顺序与内容不变才是重点 —— 否则同一批设置在两个形态下"位置感"不同。
+     */
+    private enum class SettingsGroup(val label: String, val iconRes: Int) {
+        PROFILE("我的资料", Icons.IC_CIRCLE_USER),
+        PERMISSION("权限与保活", Icons.IC_SHIELD_CHECK),
+        CHAT("聊天", Icons.IC_MESSAGE_SQUARE_HEART),
+        DOLL("人偶", Icons.IC_USERS),
+        LOOK("外观", Icons.IC_PALETTE),
+        BACKUP("备份与恢复", Icons.IC_DOWNLOAD),
+        EXPERIMENT("实验", Icons.IC_WAND_SPARKLES)
+    }
+
+    /**
+     * 左栏分组的固定顺序。
+     *
+     * 【为什么单独一个 List 而不靠 `values()`】枚举的 `values()` 顺序由声明顺序决定，
+     *   而声明顺序一旦有人为了「把实验放最后」而重排，UI 顺序就跟着变。
+     *   显式列一份顺序表，把「声明顺序」与「展示顺序」解耦。
+     */
+    private val SETTINGS_GROUPS = listOf(
+        SettingsGroup.PROFILE,
+        SettingsGroup.PERMISSION,
+        SettingsGroup.CHAT,
+        SettingsGroup.DOLL,
+        SettingsGroup.LOOK,
+        SettingsGroup.BACKUP,
+        SettingsGroup.EXPERIMENT
+    )
+
+    /** 左栏宽度（dp）。取 dsh-Go 的 rail/sidebar 口径：320 与手机抽屉同宽，「这样列表读起来一样」。 */
+    private val SETTINGS_RAIL_W = 320
+
+    /**
+     * 双栏版设置页：左分组导航 + 右选中组内容。
+     *
+     * 【为什么右栏只渲染选中组，而不是把全部卡片堆在右栏滚动】
+     *   方案 B（右栏滚动全量）只是把「纵向一列卡」换成「横向并排两列」，宽度并没有被利用 ——
+     *   用户仍然要滚完 7 组才能找到想要的，且左右两栏同时滚动会让人失去位置感。
+     *   方案 A 把「找」这件事交给左栏（一屏看完 7 个分组），右栏只负责「读/改」，
+     *   这才是平板宽度的收益：**一屏内同时看到结构与内容**。
+     *
+     * 【为什么左栏不用 DhKit.NavItem】它是为**底部栏**设计的（72dp 宽、图标在上文字在下、
+     *   选中态用 option 底 + 999 药丸）。左栏是 320dp 宽的列表，需要「图标在左、文字在右」
+     *   的行式布局；硬套 NavItem 会让 320dp 里只有一个 72dp 的小方块，四周全是空白。
+     *
+     * 【为什么左栏自己滚动、右栏也自己滚动】两栏内容都可能超过一屏（左栏 7 组通常不会，
+     *   但右栏的「备份」/「实验」卡很长）。各滚各的互不干扰，也避免出现
+     *   「外层滚内层」的嵌套滚动冲突。
+     */
+    @Composable
+    private fun SettingsTwoPane(act: MainActivity) {
+        var group by remember { mutableStateOf(SettingsGroup.PROFILE) }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DhTokens.colors.bg)
+        ) {
+            // 顶栏：与单栏版同一个 DhKit.Page 的标题口径（20sp / 600 / 返回键）。
+            DhKit.TopBar(
+                title = "设置",
+                onBack = { com.dollhouse.app.ui.compose.PageStack.pop(act) }
+            )
+            Row(modifier = Modifier.fillMaxSize()) {
+                SettingsRail(
+                    current = group,
+                    onPick = { group = it }
+                )
+                // 竖分隔发丝线：两栏之间需要一条明确的边界，否则右栏内容会
+                //   一直顶到左栏边缘，看不出「这是两个可独立滚动的区域」。
+                Box(
+                    modifier = Modifier
+                        .width(DhDesign.Size.hairline)
+                        .fillMaxHeight()
+                        .background(DhTokens.colors.line)
+                )
+                // 右栏内容：`weight(1f)` 吃掉剩余宽度；底部留 pageBottom 让
+                //   最后一行不被屏幕边缘贴住（与单栏版 DhKit.Page 的口径一致）。
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = DhDesign.Space.lg.dp)
+                        .padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.xxl.dp)
+                ) {
+                    SettingsGroupBody(act, group)
+                }
+            }
+        }
+    }
+
+    /**
+     * 左栏分组导航。
+     *
+     * 【为什么选中态用 `option` 底 + `acc` 字】与 DhKit.NavItem 的选中口径一致
+     *   （`NavItem`：`tint = if (selected) c.acc else c.sub`、底 `option`）——
+     *   同一 App 里「选中」应该只有一种视觉语言。
+     *
+     * 【为什么补 selected 语义】读屏需要知道当前在哪一组。`Role.Tab` + `selected`
+     *   的组合与 NavItem 的做法相同（见 DhKit.kt NavItem 的 P0-3 注释）。
+     */
+    @Composable
+    private fun SettingsRail(current: SettingsGroup, onPick: (SettingsGroup) -> Unit) {
+        val c = DhTokens.colors
+        Column(
+            modifier = Modifier
+                .width(SETTINGS_RAIL_W.dp)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(DhDesign.Space.md.dp)
+        ) {
+            SETTINGS_GROUPS.forEach { g ->
+                val selected = g == current
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = DhDesign.Space.xs.dp)
+                        .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                        .background(if (selected) c.option else androidx.compose.ui.graphics.Color.Transparent)
+                        .semantics { this.selected = selected; role = Role.Tab }
+                        .pressable { onPick(g) }
+                        .padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.md.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DhKit.Icon(
+                        iconRes = g.iconRes,
+                        sizeDp = Design.SZ_MD,
+                        color = if (selected) c.acc else c.sub
+                    )
+                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                    Text(
+                        text = g.label,
+                        color = if (selected) c.acc else c.title,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 右栏：按选中分组渲染对应内容。
+     *
+     * 【为什么直接复用单栏版的那几个 Card 函数】它们是**无状态**的（只读 `act` 与
+     *   全局状态），不依赖自己在页面里的位置。复用而不是复制，双栏与单栏看到的内容
+     *   永远是同一份代码 —— 单栏版改了一行，双栏版自动跟上。这是本实现最重要的性质：
+     *   如果复制一份，两边的设置项会在两周内漂移。
+     */
+    @Composable
+    private fun SettingsGroupBody(act: MainActivity, group: SettingsGroup) {
+        when (group) {
+            SettingsGroup.PROFILE -> ProfileCard(act)
+            SettingsGroup.PERMISSION -> PermissionRow(act)
+            SettingsGroup.CHAT -> ChatCard(act)
+            SettingsGroup.DOLL -> DollCard(act)
+            SettingsGroup.LOOK -> LookCard(act)
+            SettingsGroup.BACKUP -> BackupCard(act)
+            SettingsGroup.EXPERIMENT -> ExperimentCard(act)
         }
     }
 

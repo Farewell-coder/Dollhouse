@@ -264,6 +264,7 @@ object ProviderModelsPage {
             ) {
                 DhKit.Icon(Icons.IC_PLUS, 18f, c.onAcc)
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
+                // E16-ALLOW: "添加模型"按钮文字：4 字固定文案，药丸定高容器
                 Text(
                     text = "添加模型",
                     color = c.onAcc,

@@ -489,7 +489,7 @@ object ChatUi {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(top = DhDesign.Space.xs.dp)
         ) {
             Box(
@@ -595,7 +595,7 @@ object ChatUi {
             state = listState,
             modifier = modifier.fillMaxWidth(),
             contentPadding = PaddingValues(
-                horizontal = 12.dp,
+                horizontal = DhDesign.Space.lg.dp,
                 vertical = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
             ),
             verticalArrangement = Arrangement.spacedBy(
@@ -1230,6 +1230,7 @@ object ChatUi {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_SUB.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }
@@ -1311,7 +1312,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 2.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)
@@ -1370,7 +1371,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1446,7 +1447,7 @@ object ChatUi {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp)
+                .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 10.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(c.card)

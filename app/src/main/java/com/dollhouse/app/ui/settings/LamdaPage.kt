@@ -58,6 +58,12 @@ import com.dollhouse.app.ui.theme.UiKit
  *   探测状态机（[SNAP] / [PROBING] / [AGAIN] / [STATE]）原样保留 —— 它是纯逻辑，与 UI 无关。
  */
 object LamdaPage {
+
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
     /**
      * 一次状态探测的完整快照。
      *
@@ -180,7 +186,22 @@ object LamdaPage {
     }
     /** 可点行：图标 + 名称 + 右箭头。禁用时整体降透明度并吃掉点击。 */
     @Composable
-    private fun ActionRow(name: String, iconRes: Int, enabled: Boolean, danger: Boolean, onClick: () -> Unit) {
+    private fun ActionRow(
+        /**
+         * 行名称。【为什么可空且默认 null】自纠错口径同 `DhKit.ActionRow`：接线的行不写标题字面量。
+         */
+        name: String? = null,
+        iconRes: Int,
+        enabled: Boolean,
+        danger: Boolean,
+        /**
+         * 【P1-e·设置索引】设置项登记。
+         * 【参数位置·必须】在 `onClick`（末位、非空、被尾随 lambda 绑定）**之前**。
+         */
+        spot: SettingsSpot? = null,
+        onClick: () -> Unit
+    ) {
+        val title = SettingsSpots.spotTitle(spot, name)
         val c = DhTokens.colors
         val fg = when {
             !enabled -> c.sub
@@ -199,8 +220,9 @@ object LamdaPage {
             // 【r12】18f 不在 [Design] 的图标五档内 → 归到 SZ_MD(20)。
             DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = fg)
             Spacer(Modifier.width(DhDesign.Space.md.dp))
+            // E16-ALLOW: 分组行名称 `name`：同上，固定项名
             Text(
-                text = name,
+                text = title,
                 modifier = Modifier.weight(1f),
                 color = fg,
                 fontSize = UiKit.FS_BTN.sp,
@@ -224,17 +246,20 @@ object LamdaPage {
             }
             Spacer(Modifier.width(DhDesign.Space.md.dp))
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: 值行标签 `label`：固定项名（"设备地址"/"端口"）
                 Text(
                     text = name,
                     color = c.title,
                     fontSize = UiKit.FS_BTN.sp,
                     fontFamily = DhTokens.fontsBody
                 )
+                // E16-ALLOW: 值行右值 `value`：IP/端口/开关状态，纯数字与符号
                 Text(
                     text = desc,
                     modifier = Modifier.padding(top = 2.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_TINY.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
                     fontFamily = DhTokens.fontsBody
                 )
             }
@@ -257,6 +282,7 @@ object LamdaPage {
                 fontSize = UiKit.FS_TINY.sp,
                 fontFamily = DhTokens.fontsBody
             )
+            // E16-ALLOW: 测试按钮文字 `text`（"测试连接"/"发送"）：2~4 字按钮文案
             Text(
                 text = value,
                 color = c.title,
@@ -335,11 +361,11 @@ object LamdaPage {
         DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("安装", Design.icons.DOWNLOAD)
             // 下载：本地已有文件（含半截）就置灰。理由见 LamdaManager.download —— 不静默覆盖、不静默续传。
-            ActionRow("下载服务器包（约 204 MB）", Design.icons.DOWNLOAD,
-                idle && s != null && !hasFile, false) { download(st) }
+            ActionRow(spot = spot("lamda.download"), iconRes = Design.icons.DOWNLOAD,
+                enabled = idle && s != null && !hasFile, danger = false) { download(st) }
             // 解包：只有包完整时才允许点。半截包解出来的是坏文件，服务起不来还难排查。
-            ActionRow("解包安装", Design.icons.UNPACK,
-                idle && pkgReady && !installed, false) { install(st) }
+            ActionRow(spot = spot("lamda.unpack"), iconRes = Design.icons.UNPACK,
+                enabled = idle && pkgReady && !installed, danger = false) { install(st) }
             if (hasFile && !pkgReady) {
                 DhForm.Note("本地有一份体积不完整的服务器包，"
                     + "下载与解包都已停用。请先用下面的「删除」清掉它，再重新下载。")
@@ -361,11 +387,11 @@ object LamdaPage {
         val installed = s != null && s.installed
         DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("运行", Design.icons.START)
-            ActionRow("启动服务", Design.icons.START, idle && installed && !running, false) { start(st) }
-            ActionRow("停止服务", Design.icons.STOP, idle && running, false) { stop(st) }
+            ActionRow(spot = spot("lamda.start"), iconRes = Design.icons.START, enabled = idle && installed && !running, danger = false) { start(st) }
+            ActionRow(spot = spot("lamda.stop"), iconRes = Design.icons.STOP, enabled = idle && running, danger = false) { stop(st) }
             // 【自动保活】开关必须落到真实配置上：重进页面读的是 prefs，不是内存里的临时值。
             var autoOn by remember { mutableStateOf(PetPrefs.lamdaAutoStart(ctx)) }
-            DhKit.SwitchRow(name = "自动保活", iconRes = Icons.IC_SHIELD_CHECK, checked = autoOn, onCheckedChange = { now ->
+            DhKit.SwitchRow(spot = spot("lamda.keepAlive"), iconRes = Icons.IC_SHIELD_CHECK, checked = autoOn, onCheckedChange = { now ->
                 autoOn = now
                 PetPrefs.setLamdaAutoStart(ctx, now)
                 if (now) {
@@ -398,7 +424,7 @@ object LamdaPage {
         var confirm by remember { mutableStateOf(false) }
         DhKit.Card(flat = flat, spacingBottom = !flat) {
             CardHead("删除", Design.icons.DELETE)
-            ActionRow("删除已安装的服务与下载的包", Design.icons.DELETE, idle, true) { confirm = true }
+            ActionRow(spot = spot("lamda.remove"), iconRes = Design.icons.DELETE, enabled = idle, danger = true) { confirm = true }
             DhForm.Note("会先停掉服务，再删掉 /data/local/tmp 下解包出来的文件，"
                 + "最后删掉下载的服务器包（约 204 MB）。删完想再用，需要重新下载并解包。")
         }

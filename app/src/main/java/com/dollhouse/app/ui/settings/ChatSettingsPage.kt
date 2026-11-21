@@ -33,6 +33,12 @@ import com.dollhouse.app.ui.theme.Icons
 object ChatSettingsPage {
     const val TAG_PAGE = "feiyu_chat_settings_page"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     /** 返回键用：本页在栈顶就退一层并返回 true。 */
     @JvmStatic
     fun closeIfOpen(ctx: Context): Boolean {
@@ -85,7 +91,7 @@ object ChatSettingsPage {
             DhKit.Card(collapsibleTitle = "流式输出") {
                 DhForm.Note("开着时她的回复会一个字一个字冒出来，不用等整段生成完。")
                 DhKit.SwitchRow(
-                    name = "流式输出",
+                    spot = spot("chat.stream"),
                     iconRes = Icons.IC_ACTIVITY,
                     checked = remember(tick) { PetPrefs.streamOutput(act) }
                 ) { on ->
@@ -100,7 +106,7 @@ object ChatSettingsPage {
             DhKit.Card(collapsibleTitle = "思考过程") {
                 DhForm.Note("推理型模型思考时说的「心里话」，会单独存在回复上方，点一下展开。")
                 DhKit.SwitchRow(
-                    name = "显示思考过程",
+                    spot = spot("chat.thinking"),
                     iconRes = Icons.IC_BRAIN,
                     checked = remember(tick) { PetPrefs.showThinking(act) }
                 ) { on ->
@@ -119,7 +125,7 @@ object ChatSettingsPage {
                 DhForm.Note("长按她的回复选「赞 · 学这个风格」，这一问一答就会成为示范；"
                         + "开着下面这个开关时，最近 3 条示范会随每次对话一起发出去，让她更贴近你喜欢的说法。")
                 DhKit.SwitchRow(
-                    name = "把示范带进对话",
+                    spot = spot("chat.learnExamples"),
                     iconRes = Icons.IC_BOOK_HEART,
                     checked = remember(tick) { PetPrefs.learnEnabled(act) }
                 ) { on ->

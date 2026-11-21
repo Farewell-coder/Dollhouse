@@ -60,6 +60,12 @@ object MyProfilePage {
 
     /** 页面 key（进页面栈用）。 */
     const val KEY = "settings:myprofile"
+
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
     /** 预览头像边长（dp）。 */
     private const val PREVIEW_DP = 84
 
@@ -186,7 +192,7 @@ object MyProfilePage {
                 Spacer(Modifier.width(16.dp))
                 Column {
                     DhKit.ActionRow(
-                        label = "更换头像",
+                        spot = spot("profile.avatar"),
                         iconRes = Icons.IC_IMAGE_PLUS,
                         // 【宽度】ActionRow 是整行宽，这里放在 Column 里需要限宽，
                         //   否则会把右侧撑出屏幕（Row 的 weight 在固定宽容器里才生效）。
@@ -201,6 +207,7 @@ object MyProfilePage {
                         }
                     }
                     // 【r19·引导】用户反馈「找不到头像入口」，加一行小字说明点击哪里。
+                    // E16-ALLOW: "个性签名"字段标签：4 字固定
                     Text(
                         text = "点击「更换头像」→ 从相册选一张",
                         color = c.sub,
@@ -210,7 +217,7 @@ object MyProfilePage {
                     )
                     if (canRemove) {
                         DhKit.ActionRow(
-                            label = "移除头像",
+                            spot = spot("profile.avatarClear"),
                             iconRes = Icons.IC_TRASH,
                             modifier = Modifier.width(180.dp)
                         ) {

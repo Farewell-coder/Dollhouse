@@ -187,6 +187,7 @@ object DeveloperOptionsPage {
     @Composable private fun Stat(label: String, value: Int?, color: Color, modifier: Modifier, click: () -> Unit) {
         Column(modifier.clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
             Text(value?.toString() ?: "—", color = color, fontSize = DhTokens.type.display.fontSize, lineHeight = DhTokens.type.display.lineHeight, fontFamily = DhTokens.fontsBold)
+            // E16-ALLOW: 统计格下方标签 `label`（"错误"/"警告"/"崩溃"）：固定 2 字
             Text(label, color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
         }
     }

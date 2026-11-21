@@ -25,6 +25,12 @@ object SleepSettingsPage {
 
     const val TAG_PAGE = "settings:sleep"
 
+    /**
+     * 【P1-e·设置索引接线】按 rowId 取索引条目，供各行的 `spot =` 使用。
+     * 【自纠错】rowId 写错 / 忘了传 spot → 标题退回空串（肉眼可见）。不要加 `?: "兜底"`。
+     */
+    private fun spot(rowId: String) = SettingsSpots.find(rowId)
+
     @JvmStatic
     fun open(act: MainActivity) {
         PageStack.push(act, TAG_PAGE) { build(act) }
@@ -74,7 +80,7 @@ object SleepSettingsPage {
         DhKit.Card(collapsibleTitle = "安静时段", titleIcon = Icons.IC_CLOCK_3) {
             DhForm.Note("这段时间里人偶不主动开口（问候、随机台词、提醒），但不影响你主动找她。")
             DhKit.ValueRow(
-                label = "启用安静时段",
+                spot = spot("sleep.quiet"),
                 value = if (on) "已开启" else "已关闭",
                 valueTint = if (on) DhTokens.colors.acc else null,
                 iconRes = if (on) Icons.IC_CHECK else Icons.IC_CLOSE,
@@ -84,7 +90,7 @@ object SleepSettingsPage {
                 }
             )
             DhKit.ValueRow(
-                label = "开始时间",
+                spot = spot("sleep.start"),
                 value = com.dollhouse.app.data.QuietHours.format(start),
                 iconRes = Icons.IC_CLOCK_3,
                 desc = "点一下 +1 小时",
@@ -94,7 +100,7 @@ object SleepSettingsPage {
                 }
             )
             DhKit.ValueRow(
-                label = "结束时间",
+                spot = spot("sleep.end"),
                 value = com.dollhouse.app.data.QuietHours.format(end),
                 iconRes = Icons.IC_CLOCK_3,
                 desc = "点一下 +1 小时",

@@ -451,6 +451,7 @@ object DollAnimPage {
                             contentScale = ContentScale.Fit
                         )
                     } else {
+                        // E16-ALLOW: 预览区状态短标（"正在生成帧…"/"还没有帧"/"加载中…"）：最长 6 字，在固定 180dp 高预览框内居中
                         Text(
                             text = if (baking) "正在生成帧…" else if (engineAction != null) "资源加载失败" else if (frames.isEmpty()) "还没有帧" else "加载中…",
                             color = c.sub,
@@ -516,6 +517,7 @@ object DollAnimPage {
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                     Row(
@@ -582,6 +584,7 @@ object DollAnimPage {
                         offTick++
                     }
                 }
+                // E16-ALLOW: 帧计数（"3 / 12" / "-- / --"）：纯数字与斜杠，无换行可能
                 Text(
                     text = "微调：横向拖动预览可粗调（纵向拖动会让页面滚），方向键精调；" +
                         "「居中」把偏移清零。当前偏移 " + pct(off[0]) + " / " + pct(off[1]),
@@ -797,7 +800,11 @@ object DollAnimPage {
                             },
                         modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
                         color = c.sub,
+                        // 【E16·真问题，补行高而非 ALLOW】`bind.triggers` 数量不设上限，
+                        //   用户勾得越多这一行越长；窄屏下三四个触发器就会折行。
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontSize = UiKit.FS_SUB.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                     Spacer(Modifier.height(DhDesign.Space.sm.dp))
@@ -1217,6 +1224,7 @@ object DollAnimPage {
                 negText = "关闭"
             ) {
                 val cur = a ?: return@Alert
+                // E16-ALLOW: 导出结果提示 `em`：由 `AnimExport` 生成的 1~2 句短结论，渲染在 Alert 正文区
                 Text(
                     text = "引擎：" + cur.engine + "\n" +
                         "路径：" + cur.assetPath.ifEmpty { "（未指定）" } + "\n" +

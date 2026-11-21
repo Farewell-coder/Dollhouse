@@ -266,6 +266,7 @@ object DhForm {
      */
     @Composable
     private fun FieldLabel(label: String) {
+        // E16-ALLOW: FieldLabel 的输入框字段名（"名称"/"标识"/"分组名"），单行固定词，无换行可能
         Text(
             text = label,
             modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 4.dp),
@@ -432,6 +433,7 @@ object DhForm {
                                 contentAlignment = Alignment.CenterStart,
                             ) {
                                 if (value.isEmpty() && hint.isNotEmpty()) {
+                                    // E16-ALLOW: 输入框占位 hint：`hint` 是调用方传入的短提示（"请输入"/"按名称筛选"），且渲染在单行 `Box` 的 CenterStart 里
                                     Text(
                                         text = hint,
                                         color = c.sub,
@@ -480,6 +482,7 @@ object DhForm {
         }
         Column(modifier = modifier.fillMaxWidth()) {
             if (!label.isNullOrEmpty()) {
+                // E16-ALLOW: FieldLabel 的字段名，同 :269 的单行固定词
                 Text(
                     text = label,
                     modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 4.dp),
@@ -539,6 +542,7 @@ object DhForm {
                 decorationBox = { inner ->
                     Box {
                         if (value.isEmpty() && hint.isNotEmpty()) {
+                            // E16-ALLOW: 输入框占位 hint，同 :435 的短提示
                             Text(
                                 text = hint,
                                 color = c.sub,
@@ -565,6 +569,7 @@ object DhForm {
     /** 分组小标题 / 字段说明。← `ApiPageKit.sectionTitle`。 */
     @Composable
     fun Label(text: String, modifier: Modifier = Modifier) {
+        // E16-ALLOW: DhForm.Label 的标签文字，调用方传的是"生成参数"/"高级"这类 2~4 字标签
         Text(
             text = text,
             modifier = modifier,
@@ -635,6 +640,7 @@ object DhForm {
     /** 紧凑状态标签。← `UiKit.badge`。 */
     @Composable
     fun Badge(text: String, fg: Color, bg: Color, modifier: Modifier = Modifier) {
+        // E16-ALLOW: Badge 徽标（"启用"/"禁用"/"3 个模型"）：药丸容器 `clip+RoundedCornerShape` 定高，加行高会撑变形
         Text(
             text = text,
             modifier = modifier
@@ -655,6 +661,7 @@ object DhForm {
         //   仍是药丸/圆角矩形、仍不加 elevation 阴影（遵守 Elevation 的既有硬规则），
         //   体积靠上亮下暗的渐变承担。
         val dark = ThemeManager.isDark(LocalContext.current)
+        // E16-ALLOW: Chip 药丸文字：固定 padding(10×6) 的紧凑容器，加行高会把药丸撑高
         Text(
             text = text,
             modifier = modifier
@@ -682,6 +689,7 @@ object DhForm {
         onClick: () -> Unit
     ) {
         val c = DhTokens.colors
+        // E16-ALLOW: SelectChip 可选中格子：`clip(R_ROW)` 定形，加行高会破坏等宽格子对齐
         Text(
             text = text,
             modifier = modifier
@@ -721,6 +729,7 @@ object DhForm {
             .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
             .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
         if (iconRes == 0) {
+            // E16-ALLOW: OutlineChip（无图标分支）药丸文字，同 :658
             Text(
                 text = text,
                 modifier = base,
@@ -732,6 +741,7 @@ object DhForm {
             Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
                 DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
                 Spacer(Modifier.width(5.dp))
+                // E16-ALLOW: OutlineChip（带图标分支）药丸文字，与 :724 同一容器
                 Text(
                     text = text,
                     color = c.title,
@@ -749,6 +759,7 @@ object DhForm {
         // 【v3·清透轻拟物】药丸形状保留（999 是 chip 的既定形态），但不再是一块纯色：
         //   主色底 + 顶部高光 + 底部微暗，与主按钮同一套体积语言。
         val dark = ThemeManager.isDark(LocalContext.current)
+        // E16-ALLOW: PrimaryChip 主色药丸文字，同 :658
         Text(
             text = text,
             modifier = modifier

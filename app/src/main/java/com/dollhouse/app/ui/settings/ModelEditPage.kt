@@ -109,6 +109,7 @@ object ModelEditPage {
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // E16-ALLOW: "从供应商拉取模型"动作行文字：8 字固定文案，`weight(1f)` 单行
                     Text(
                         text = "从供应商拉取模型",
                         modifier = Modifier.weight(1f),
@@ -196,6 +197,7 @@ object ModelEditPage {
                         .pressable { advOpen = !advOpen },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // E16-ALLOW: "生成参数"分组标题：4 字固定
                     Text(
                         text = "生成参数",
                         modifier = Modifier.weight(1f),
@@ -278,6 +280,7 @@ object ModelEditPage {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                // E16-ALLOW: 模型名 `name`：列表行标题，`weight` 单行（长名由调用方省略号处理）
                 Text(
                     text = name,
                     color = c.title,
@@ -290,6 +293,7 @@ object ModelEditPage {
                         modifier = Modifier.padding(top = 2.dp),
                         color = c.sub,
                         fontSize = UiKit.FS_TINY.sp,
+                        lineHeight = DhTokens.type.sub.lineHeight,
                         fontFamily = DhTokens.fontsBody
                     )
                 }

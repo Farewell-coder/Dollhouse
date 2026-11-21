@@ -98,6 +98,7 @@ object ExportSheet {
                         .padding(top = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // E16-ALLOW: "包含密钥明文"开关行标题：7 字固定，`weight(1f)`
                     Text(
                         text = "包含密钥明文",
                         modifier = Modifier.weight(1f),

@@ -269,6 +269,7 @@ object ProviderListPage {
                 DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = c.title)
                 Spacer(Modifier.width(DhDesign.Space.md.dp))
             }
+            // E16-ALLOW: 供应商名首字母头像内的单字符：圆形 38dp 容器内一个字
             Text(
                 text = text,
                 color = c.title,
