@@ -820,4 +820,144 @@ class DesignScreenshotTest {
             )
         }
     }
+
+    /**
+     * 聊天列表（**一级页面**）。
+     *
+     * 【为什么补这一张】现有 6 张里只有 03/05/06 铺满整屏，其中**没有一张是一级页面**——
+     *   而聊天列表恰恰是 App 首屏，也是「密度 / 视觉主次」最该测的地方。
+     *   （详见 `ui-research/025-measurement-method.md`：01/02/04 是组件特写，
+     *   拿它们算「一屏主次」会得出「页面一半是空的」这种错误结论。）
+     *
+     * 【为什么拼而不调 `ChatListScreen`】与本文件其它真实页测试同一理由：
+     *   真实入口读 `ChatStore` / `HomeState`，Robolectric 里没有数据，
+     *   渲染出来只有空态。这里用真实组件 + 确定性数据拼骨架。
+     *
+     * 【为什么不用 LazyColumn】行数固定（4 行），普通 Column 就够 ——
+     *   也就顺带避开了 `DhKit.Page` 的 `scrollable` 与纵向可滚动子组件互斥的坑（见 06 的注释）。
+     */
+    @Test
+    fun chatList_realPageShape() {
+        var capturedP: DhDesign.Palette? = null
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val cv = ComposeView(activity).apply {
+            setContent {
+                DollhouseTheme {
+                    capturedP = DhTokens.palette
+                    DhKit.Page(title = "消息", sub = "3 个未读", onBack = {}) {
+                        // 筛选条：选中态靠主色实底表达（v3.1 起不再用「·」后缀）。
+                        Row(horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
+                            DhKit.OutlineChip("全部", selected = true) {}
+                            DhKit.OutlineChip("未读") {}
+                            DhKit.OutlineChip("置顶") {}
+                            DhKit.OutlineChip("归档") {}
+                        }
+                        Spacer(Modifier.height(DhDesign.Space.md.dp))
+                        ChatListRow("小满", "早上好呀，今天也要加油哦～", "09:12", 3, true)
+                        ChatListRow("阿岚", "那第二行是同比数据，增幅已经放缓了。", "昨天", 1, false)
+                        ChatListRow("夜行", "图我存好了，晚点发你。", "周二", 0, false)
+                        ChatListRow("测试号", "在吗", "周一", 0, false)
+                    }
+                }
+            }
+        }
+        activity.setContentView(cv)
+        ShadowLooper.idleMainLooper()
+
+        val bmp = renderToBitmap(cv)
+        save(bmp, "07-chatlist")
+
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
+        assertColors(
+            bmp, "07-chatlist", mapOf(
+                p.card.toArgbForTest() to 1,     // 行底
+                p.title.toArgbForTest() to 1,    // 会话名
+                p.sub.toArgbForTest() to 1,      // 预览与时间
+                p.accent.toArgbForTest() to 1,   // 选中 chip 的实底
+                p.err.toArgbForTest() to 1       // 未读红点
+            )
+        )
+        assertContentSpans(bmp, "07-chatlist", minW = 600, minH = 400)
+    }
+
+    /** 会话行：复刻 `ChatListScreen` 的「头像 + 名称/预览 + 右侧时间/未读点」四段结构。 */
+    @Composable
+    private fun ChatListRow(
+        name: String,
+        preview: String,
+        time: String,
+        unread: Int,
+        pinned: Boolean
+    ) {
+        val c = DhTokens.colors
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = DhDesign.Space.md.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 头像位：无图时用 soft 底 + 用户图标（与真实页「还没设头像」同形态）。
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
+                    .background(c.soft),
+                contentAlignment = Alignment.Center
+            ) {
+                DhKit.Icon(Icons.IC_CIRCLE_USER, Design.SZ_MD, c.sub)
+            }
+            Spacer(Modifier.width(DhDesign.Space.md.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = name,
+                        color = c.title,
+                        fontSize = UiKit.FS_BTN.sp,
+                        fontFamily = DhTokens.fontsBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (pinned) {
+                        Spacer(Modifier.width(DhDesign.Space.xs.dp))
+                        DhKit.Icon(Icons.IC_PIN, Design.SZ_SM, c.sub)
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = preview,
+                    color = c.sub,
+                    fontSize = UiKit.FS_SUB.sp,
+                    lineHeight = DhTokens.type.sub.lineHeight,
+                    fontFamily = DhTokens.fonts,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = time,
+                    color = c.sub,
+                    fontSize = UiKit.FS_TINY.sp,
+                    fontFamily = DhTokens.fonts
+                )
+                if (unread > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
+                            .background(c.err)
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = unread.toString(),
+                            color = c.onErr,
+                            fontSize = UiKit.FS_TINY.sp,
+                            fontFamily = DhTokens.fonts
+                        )
+                    }
+                }
+            }
+        }
+        DhKit.RowDivider(insetStart = 0)
+    }
 }

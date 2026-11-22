@@ -1908,8 +1908,19 @@ object UiKit {
     /** 顶栏图标字号 ← [DhDesign.Size.iconMd]。 */
     const val FS_ICON = 20.0f
 
-    /** 图标控件的固定命中区边长（dp），与 DhDesign.Size.minTouch 统一为 48dp。 */
-    const val HIT_DP = 48
+    /**
+     * 图标控件的固定命中区边长（dp）—— **从设计令牌派生**。
+     *
+     * 【为什么改成派生】原文只写「与 DhDesign.Size.minTouch 统一为 48dp」——
+     *   那句话是**注释承诺**，不是机制。四处（本常量 / `DhKit.HIT` / `DhKit.MIN_TOUCH` /
+     *   令牌）各写一个 48 时，改令牌不会改到这里。现在三处都从
+     *   [DhDesign.Size.minTouch] 取值，令牌是唯一真源。
+     *
+     * 【为什么 `const` 改成 `val`】`const` 只能接编译期常量，读不到 `.value`。
+     *   已逐处核对本常量的全部用法：`HIT_DP.dp` / `dp(ctx, HIT_DP)` / `HIT_DP.toFloat()`
+     *   —— 都不需要编译期常量（没有注解参数、没有 `when` 分支常量、没有别的 `const` 依赖）。
+     */
+    val HIT_DP: Int = DhDesign.Size.minTouch.value.toInt()
 
     /** 按钮圆角（dp）← [DhDesign.Radius.md]。 */
     const val RADIUS_BTN = com.dollhouse.app.ui.design.DhDesign.Radius.md

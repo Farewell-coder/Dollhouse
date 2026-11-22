@@ -149,20 +149,31 @@ object DhKit {
     const val PAD_ROW = com.dollhouse.app.ui.design.DhDesign.Space.md
     /** 行间距（dp）← [DhDesign.Space.sm]。 */
     const val GAP_ROW = com.dollhouse.app.ui.design.DhDesign.Space.sm
-/** 图标命中区（dp）← [DhDesign.Size.minTouch]。 */
-    const val HIT = 48
+/**
+ * 图标视觉边长（dp）—— **从设计令牌派生**，不在这里写字面量。
+ *
+ * 【为什么改成派生】这个 48 原先在四个地方各写一遍：本常量、[MIN_TOUCH]、
+ *   `UiKit.HIT_DP`、`DhDesign.Size.minTouch`。它们之间只有**注释**说"统一为 48dp"，
+ *   没有任何机制保证同步 —— 改 token 不会改到另外三处。现在三个都是派生值，
+ *   令牌是唯一真源。
+ */
+    val HIT: Int = DhDesign.Size.minTouch.value.toInt()
 
     /**
      * 【v0.1.5·K-03】最小可点击边长（dp）—— 需求书 R-091 / N-010 / 19.9.3。
+     * **从设计令牌派生**，理由见 [HIT]。
      *
-     * 【为什么不直接把 [HIT] 改成 48】[HIT] 同时被用作**视觉尺寸**（图标所在的正方形，
-     *   以及一排按钮的排布间距）。直接改大会让顶栏按钮、卡片底部三枚按钮挤在一起，
-     *   甚至在 360dp 宽度下溢出（N-011 不允许）。
+     * 【为什么和 [HIT] 分成两个名字（虽然当前同值）】两个语义不同：
+     *   · [HIT] 被当作**视觉尺寸**用 —— 图标所在的正方形、一排按钮的排布间距；
+     *   · [MIN_TOUCH] 只用于**命中区下限** —— [minTouchTarget] 的 `sizeIn`。
+     *   合并成一个名字后，将来「视觉尺寸要缩小」（例如顶栏做紧凑档）那次改动
+     *   会顺手把无障碍下限也改掉，而那是不可见的回归。
      *
-     * 【正确做法】视觉保持 [HIT]，**命中区**用 [minTouchTarget] 补足到 48dp：
-     *   加一层透明的最小尺寸约束，点在图标外的 4dp 边距上也算点中。
+     * 【历史修正】本段原文写的是「为什么不直接把 [HIT] 改成 48」—— 那是 [HIT] 还是 40dp
+     *   时的论证。v0.2.x 统一触控口径后 [HIT] 已经是 48，两者同值，那段理由已过期；
+     *   留着会让人以为 HIT 仍是 40。现在改写为「同值但语义分开」。
      */
-    const val MIN_TOUCH = 48
+    val MIN_TOUCH: Int = DhDesign.Size.minTouch.value.toInt()
 
     /**
      * 【v0.1.4·UI 统一 · M1 修订】所有设置行的左侧图标尺寸（dp）。
