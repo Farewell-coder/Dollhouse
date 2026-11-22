@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -630,10 +631,15 @@ class DesignScreenshotTest {
         ChatState.thinking = null
         ChatState.waiting = false
 
+        // 【palette 必须在组合作用域里读】DhTokens.palette 是 @Composable get()，
+        //   在 @Test 函数体里直接读会报 Composable invocations can only happen from
+        //   the context of a @Composable function。
+        var capturedP: DhDesign.Palette? = null
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val cv = ComposeView(activity).apply {
             setContent {
                 DollhouseTheme {
+                    capturedP = DhTokens.palette
                     ChatUi.ChatScreen(host = StubChatHost(activity))
                 }
             }
@@ -644,7 +650,7 @@ class DesignScreenshotTest {
         val bmp = renderToBitmap(cv)
         save(bmp, "05-chatscreen")
 
-        val p = DhTokens.palette
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
         assertColors(
             bmp, "05-chatscreen", mapOf(
                 p.chatBubbleUser.toArgbForTest() to 1,  // 我方气泡底（莫奈修复目标槽位）
@@ -714,10 +720,12 @@ class DesignScreenshotTest {
      */
     @Test
     fun dollGrid_realPageShape() {
+        var capturedP: DhDesign.Palette? = null
         val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val cv = ComposeView(activity).apply {
             setContent {
                 DollhouseTheme {
+                    capturedP = DhTokens.palette
                     DhKit.Page(title = "人偶", onBack = {}) {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(2),
@@ -743,7 +751,7 @@ class DesignScreenshotTest {
         val bmp = renderToBitmap(cv)
         save(bmp, "06-dollgrid")
 
-        val p = DhTokens.palette
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
         assertColors(
             bmp, "06-dollgrid", mapOf(
                 p.card.toArgbForTest() to 1,     // 磁贴底

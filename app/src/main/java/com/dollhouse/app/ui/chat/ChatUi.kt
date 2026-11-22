@@ -1378,7 +1378,12 @@ object ChatUi {
             //   于是「清空当前对话」在整个 App 里彻底不可达，而 clearChat() 的逻辑一直完好。
             //   这里按注释原本的设计补回入口，并且**用 Compose 弹窗**（原实现是原生 Dialog）：
             //   破坏性操作用 Alert 是正确形态（与「从列表移除」区分开，那条是可逆的）。
-            ActionChip(text = "清空", iconRes = Icons.IC_TRASH) {
+            // 【图标一致性·2026-11】「清空」用橡皮（ERASER），不用垃圾桶（TRASH）：
+            //   清空 = 移除内容、保留容器；删除 = 移除对象本身。
+            //   全仓「删除」6 处全部用 IC_TRASH，而「清空」另两处（DollAnimPage:316 /
+            //   DollActionPage:820）都是 ERASER —— 这里原为 TRASH，是全仓唯一的
+            //   「同语义两个图标」混用点，统一到多数派 ERASER。
+            ActionChip(text = "清空", iconRes = Icons.IC_ERASER) {
                 host.confirmClearChat()
             }
         }
