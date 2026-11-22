@@ -586,6 +586,9 @@ object AppearancePage {
         //   这里用 heading 承接「spot 标题优先、否则用实参」，下方 Text 改读 heading。
         val heading = SettingsSpots.spotTitle(spot, title)
         val c = DhTokens.colors
+        // 【状态提到 Row 外】问号在 Row 里、说明正文在 Row 外（滑条下方），
+        //   两者必须共享同一展开态 —— 所以状态声明在函数体级。
+        val infoExpanded = rememberInfoExpanded(spot?.rowId ?: heading)
         Row(
             modifier = Modifier.padding(top = 12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -606,10 +609,10 @@ object AppearancePage {
             //   `hint` 由 HomeUi.*Hint 生成，实测最长 36 视觉字 —— 每根滑条下面
             //   都挂着这么一行说明，四根滑条就是四行常驻文字，而用户读一次就够了。
             //   折叠后版面立刻干净，需要时点问号仍有完整说明。
-            val infoExpanded = rememberInfoExpanded(spot?.rowId ?: heading)
-            DhInfoToggle(expanded = infoExpanded.value) {
-                infoExpanded.value = !infoExpanded.value
-            }
+            DhInfoToggle(
+                expanded = infoExpanded.value,
+                onToggle = { infoExpanded.value = !infoExpanded.value }
+            )
         }
         Spacer(Modifier.height(DhDesign.Space.xs.dp))
         // 【桥接既有自绘滑条】`UiKit.Slider` 是胶囊轨道 + 刻度点 + 终点标记的自绘 View，
@@ -660,9 +663,10 @@ object AppearancePage {
             modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DhInfoToggle(expanded = colorHintExpanded.value) {
-                colorHintExpanded.value = !colorHintExpanded.value
-            }
+            DhInfoToggle(
+                expanded = colorHintExpanded.value,
+                onToggle = { colorHintExpanded.value = !colorHintExpanded.value }
+            )
         }
         DhInfoText(
             text = HomeUi.fontColorHint(HomeState.fontColor),

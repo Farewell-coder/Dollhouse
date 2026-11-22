@@ -895,6 +895,13 @@ object DhKit {
         showChevron: Boolean = false,
         /** 【P1-e·设置索引】设置项登记。传了就由索引表提供标题（见 [SettingsSpots.spotTitle]）。 */
         spot: SettingsSpot? = null,
+        /**
+         * 长说明：折叠成问号，点了展开（抄 MAA 的 `SettingRow.info`）。
+         *
+         * 【与 [desc] 分工】desc 是**必读**摘要（常显 2 行）；info 是**可选**详情（默认收起）。
+         *   不是所有 desc 都该改成 info —— 破坏性提示必须常显。
+         */
+        info: String? = null,
         onClick: (() -> Unit)? = null
     ) {
         val title = SettingsSpots.spotTitle(spot, label)
@@ -917,6 +924,7 @@ object DhKit {
             value = value,
             iconRes = iconRes,
             showChevron = showChevron,
+            info = info,
             onClick = onClick
         )
     }

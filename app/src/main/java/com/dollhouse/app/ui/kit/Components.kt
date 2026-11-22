@@ -58,8 +58,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.dollhouse.app.ui.compose.DhAnim
+import com.dollhouse.app.ui.compose.DhInfoText
+import com.dollhouse.app.ui.compose.DhInfoToggle
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.rememberInfoExpanded
 import com.dollhouse.app.ui.compose.pressScaleClick
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
@@ -132,6 +135,16 @@ private val DescGap = 2.dp
 private val ChipPadH = 10.dp
 private val TagPadH = 6.dp
 private val RowPadV = 10.dp
+
+/**
+ * [DhRow] 展开说明的 `rememberSaveable` key 前缀。
+ *
+ * 【为什么加前缀】key 最终是 `"dhrow:" + title`。加前缀是为了与页面里
+ *   直接调用 [rememberInfoExpanded] 的地方（如 `AppearancePage` 用
+ *   `"appearance.fontColor.hint"`）分属不同命名空间 —— 万一某个页面
+ *   恰好也用同一个标题字符串做 key，两者不会互相重置。
+ */
+private const val INFO_KEY_PREFIX = "dhrow:"
 
 /**
  * 统一按钮。
@@ -405,7 +418,25 @@ fun DhRow(
      * 【零影响保证】footer == null 时走的还是原来那一个 `Row`（见下面的分支），
      *   不额外套 Column、不新增布局节点 —— 195 处转发调用点的测量结果逐像素不变。
      */
-    footer: (@Composable () -> Unit)? = null
+    footer: (@Composable () -> Unit)? = null,
+    /**
+     * 长说明：**默认折叠成问号**，点了才展开（抄自 MAA 的 `SettingRow.info`）。
+     *
+     * ## 与 [desc] 的分工（**别混用**）
+     *
+     * | | [desc] | 本参数 |
+     * |---|---|---|
+     * | 形态 | 常显，最多 2 行 + 省略号 | 默认收起，点问号展开全文 |
+     * | 该放什么 | 用户**必须**知道的（「删除后不可恢复」「关掉后不会出现在聊天页」） | 可选了解的（「值越大越不透明」「内置 12 家写法」） |
+     * | 判断标准 | 不读会做错事 | 不读也能用，但读了更明白 |
+     *
+     * 【两者可以同时传】互不冲突：`desc` 仍占原来那 2 行，`info` 的问号挂在**标题行右侧**、
+     *   展开正文接在 `desc` **之后**。同一行既有必读摘要、又有可选详情。
+     *
+     * 【为什么问号在标题行而不是 desc 行】MAA 的位置就是标题行右侧 ——
+     *   它表达「**这一行**有更多说明」，而不是「这段 desc 有更多说明」。
+     */
+    info: String? = null
 ) {
     val p = DhTokens.palette
     val t = DhTokens.type
@@ -414,6 +445,15 @@ fun DhRow(
     // 【行本体】抽成 lambda 是为了让 footer == null 时**原样只画这一个 Row**。
     //   若无条件套一层 Column，195 处调用的测量/约束链会多一层 —— 本工程吃过
     //   「为了加一个可选能力而顺手改了所有调用点布局」的亏，这里不重蹈。
+    // 【展开态必须在这里创建、不能在标题行与 info 正文各调一次】
+    //   `rememberInfoExpanded` 是 @Composable：在**两个不同组合位置**调用会各建一份
+    //   互不相干的 MutableState —— 点问号正文不会展开。所以提到 rowContent 之前，
+    //   两处读同一份。
+    //   【info == null 时怎么办】仍创建（一个 false 的布尔值，开销可忽略）——
+    //   换来的好处是**不存在条件调用的顺序风险**：若写成 `if (info != null) remember...`，
+    //   该 Composable 在 info 从 null 变非 null 时会多出一个 slot，历史上这种
+    //   「条件 remember」最容易在热重载/状态恢复时错位。
+    val infoExpanded = rememberInfoExpanded(INFO_KEY_PREFIX + title)
     val rowContent: @Composable () -> Unit = {
     Row(
         modifier = modifier
@@ -457,13 +497,34 @@ fun DhRow(
             Spacer(Modifier.width(DhDesign.Space.md.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = fg,
-                style = t.rowTitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            // 【P1-e·抄 MAA 的 info】info 非空时标题行变成「标题 + 问号」；
+            //   info == null 时仍然是那一个裸 Text —— 195 处调用点的测量链不变。
+            if (info == null) {
+                Text(
+                    text = title,
+                    color = fg,
+                    style = t.rowTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 【weight(fill = false) 与 MAA 一致】标题按内容宽、不撑满 ——
+                    //   否则问号被推到最右，短标题行里两者离得很远、看不出是一组。
+                    Text(
+                        text = title,
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = fg,
+                        style = t.rowTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    DhInfoToggle(expanded = infoExpanded.value) {
+                        infoExpanded.value = !infoExpanded.value
+                    }
+                }
+            }
+            // desc 恒在标题之后（无论有没有 info）。
             if (twoLine) {
                 Text(
                     text = desc!!,
@@ -473,6 +534,11 @@ fun DhRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+            // 展开正文接在 desc 之后：先让人读完必读摘要，再看可选全文。
+            if (info != null) {
+                // 与问号读同一份状态（都在 rowContent 之外创建的那一个）。
+                DhInfoText(text = info, expanded = infoExpanded.value)
             }
         }
         if (!value.isNullOrEmpty()) {
