@@ -725,7 +725,16 @@ class DesignScreenshotTest {
             setContent {
                 DollhouseTheme {
                     capturedP = DhTokens.palette
-                    DhKit.Page(title = "人偶", onBack = {}) {
+                    // 【scrollable = false 是必须的，不是可选项】
+                    //   `DhKit.Page` 默认 scrollable = true，会把内容包进
+                    //   `Column.verticalScroll`。而 `LazyVerticalGrid` 是**纵向可滚动**组件，
+                    //   嵌进另一个纵向滚动父容器会抛
+                    //   `IllegalStateException: Vertically scrollable component was measured
+                    //    with an infinity maximum height` —— 组合当场中断，
+                    //   表现就是本测试第一版的 `capturedP` 为 null（setContent 没跑完）。
+                    //   真实 `DollListScreen.kt:167` 同样是 scrollable = false，
+                    //   由网格自己滚。
+                    DhKit.Page(title = "人偶", onBack = {}, scrollable = false) {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(2),
                             modifier = Modifier.fillMaxSize(),
