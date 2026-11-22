@@ -149,20 +149,31 @@ object DhKit {
     const val PAD_ROW = com.dollhouse.app.ui.design.DhDesign.Space.md
     /** 行间距（dp）← [DhDesign.Space.sm]。 */
     const val GAP_ROW = com.dollhouse.app.ui.design.DhDesign.Space.sm
-/** 图标命中区（dp）← [DhDesign.Size.minTouch]。 */
-    const val HIT = 48
+/**
+ * 图标视觉边长（dp）—— **从设计令牌派生**，不在这里写字面量。
+ *
+ * 【为什么改成派生】这个 48 原先在四个地方各写一遍：本常量、[MIN_TOUCH]、
+ *   `UiKit.HIT_DP`、`DhDesign.Size.minTouch`。它们之间只有**注释**说"统一为 48dp"，
+ *   没有任何机制保证同步 —— 改 token 不会改到另外三处。现在三个都是派生值，
+ *   令牌是唯一真源。
+ */
+    val HIT: Int = DhDesign.Size.minTouch.value.toInt()
 
     /**
      * 【v0.1.5·K-03】最小可点击边长（dp）—— 需求书 R-091 / N-010 / 19.9.3。
+     * **从设计令牌派生**，理由见 [HIT]。
      *
-     * 【为什么不直接把 [HIT] 改成 48】[HIT] 同时被用作**视觉尺寸**（图标所在的正方形，
-     *   以及一排按钮的排布间距）。直接改大会让顶栏按钮、卡片底部三枚按钮挤在一起，
-     *   甚至在 360dp 宽度下溢出（N-011 不允许）。
+     * 【为什么和 [HIT] 分成两个名字（虽然当前同值）】两个语义不同：
+     *   · [HIT] 被当作**视觉尺寸**用 —— 图标所在的正方形、一排按钮的排布间距；
+     *   · [MIN_TOUCH] 只用于**命中区下限** —— [minTouchTarget] 的 `sizeIn`。
+     *   合并成一个名字后，将来「视觉尺寸要缩小」（例如顶栏做紧凑档）那次改动
+     *   会顺手把无障碍下限也改掉，而那是不可见的回归。
      *
-     * 【正确做法】视觉保持 [HIT]，**命中区**用 [minTouchTarget] 补足到 48dp：
-     *   加一层透明的最小尺寸约束，点在图标外的 4dp 边距上也算点中。
+     * 【历史修正】本段原文写的是「为什么不直接把 [HIT] 改成 48」—— 那是 [HIT] 还是 40dp
+     *   时的论证。v0.2.x 统一触控口径后 [HIT] 已经是 48，两者同值，那段理由已过期；
+     *   留着会让人以为 HIT 仍是 40。现在改写为「同值但语义分开」。
      */
-    const val MIN_TOUCH = 48
+    val MIN_TOUCH: Int = DhDesign.Size.minTouch.value.toInt()
 
     /**
      * 【v0.1.4·UI 统一 · M1 修订】所有设置行的左侧图标尺寸（dp）。
@@ -194,8 +205,24 @@ object DhKit {
     /** 行内说明文字字号（sp）。M1 起跟随 [DhTokens.type.sub]（13sp），不再用 12。 */
     const val FS_ROW_DESC = 13f
 
-    /** 行最小高度（dp）：保证无说明项与有说明项的可点区域都不低于 Android 建议的 48dp。 */
-    const val MIN_ROW_H = 48
+    /**
+     * 行最小高度（dp）—— 保证单行 / 带描述两种行的可点区域都不低于无障碍基线。
+     *
+     * 【为什么不能删】它是「无障碍基线在**行高**上的表达」，不是某个视觉尺寸的别名：
+     *   本文件两处 `defaultMinSize`（[ValueRow] 与 [LegacyActionRow]）都靠它兜底。
+     *   删掉不会报错，只会让这两种行失去最小高度 —— 内容矮时行就跟着缩，
+     *   掉到 48dp 以下变成难命中的目标，且这种回归肉眼看不出来。
+     *
+     * 【为什么从 `const val` 改成派生】原先写死 48，与 [HIT] / [MIN_TOUCH] /
+     *   `UiKit.HIT_DP` 之间只有注释上的"统一"，改设计令牌不会同步到本处。
+     *   现在从 `DhDesign.Size.minTouch` 派生，令牌成为唯一真源。
+     *
+     * 【为什么必须放弃 `const`】令牌是 `Dp`（运行时值），取整数要 `.value.toInt()`，
+     *   那不是常量表达式。已核对影响面：本常量的全部引用只有本文件两处 `.dp`
+     *   扩展（`Int.dp` 对 `val` 同样生效），没有其它 `const val` 依赖它、
+     *   没有用于注解参数、也没有用作 `when` 分支常量，故 `const` → `val` 无外溢影响。
+     */
+    val MIN_ROW_H: Int = DhDesign.Size.minTouch.value.toInt()
 
     /** 页面水平内边距（dp）← [DhDesign.Space.pageX]。 */
     const val PAD_PAGE = com.dollhouse.app.ui.design.DhDesign.Space.pageX
@@ -2201,9 +2228,20 @@ object DhKit {
                 horizontalArrangement = Arrangement.Center
             ) {
                 if (iconRes != 0) {
-                    // 【v0.1.0·修·图标偏小】药丸文字是 15sp 粗体，14dp 图标明显偏轻。
-                    //   按 [Design] 口径（SZ_XS 只给备注/次级标记），药丸图标属「行内小图标」→ SZ_SM。
-                    Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.title)
+                    // 【chip 高度收敛·图标 16(SZ_SM) → 14(SZ_XS)】两个理由，第二个是硬伤：
+                    //   ① 相对字重的比例：文字已从 15sp 降到 12sp（行盒 ≈14dp），
+                    //      16dp 的图标比整个字高还高 14%，"Mini" 的药丸里图标抢戏；
+                    //      对照 [OutlineChip] 的口径就是 12sp 文字配 14dp 图标（SZ_XS），
+                    //      全 chip 家族统一到「行内图标 = SZ_XS」。
+                    //   ② 它其实是**高度驱动者**（这是最反直觉的一点）：本 chip 的垂直
+                    //      内边距固定 9×2，而 `Row` 的高度 = max(图标, 文字行盒)。
+                    //      16 > 14，所以整颗 = 16 + 18 = **34dp**，被图标顶出了 32 档 ——
+                    //      也就是说「只降字号」的落点是 34 而不是 32，差的那 2dp 全在图标上。
+                    //      图标降到 14 后由文字行盒（≈14dp）接管 → 整颗 = 14 + 18 = **32dp**，
+                    //      与 PrimaryChip 逐像素同高。
+                    //   【为什么不再往下取 SZ_XS 以下的自由值】图标只允许 [Design] 的五档，
+                    //      裸值（13f/15f）正是本工程旧文档点名要清掉的"看着毛"的来源。
+                    Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
                     Spacer(Modifier.width(5.dp))
                 }
                 Text(
@@ -2223,6 +2261,12 @@ object DhKit {
                     //   （vertical 9×2 固定），文字行高从 ≈18dp 降到 ≈14.4dp，
                     //   整颗高度自然从 ≈36 降到 **≈32.4** —— 正好落在「按钮式 chip = 32dp」。
                     //   所以本批只改字号、**padding 不动**，高度收敛是它的副作用，不是额外改动。
+                    //
+                    //   【上一段的修正：只降字号其实停在 34dp】上面按「文字行盒撑高」算，
+                    //   漏了带图标的情形 —— `Row` 的高度取 max(图标, 文字行盒)，而当时的
+                    //   图标是 `SZ_SM`=16dp > 14dp 的行盒，**图标才是高度驱动者**：
+                    //   16 + 9×2 = 34dp。所以同批把图标也降到 `SZ_XS`=14dp（见上方 Icon 处），
+                    //   行盒重新接管后才是 14 + 18 = 32dp。两处必须一起改，单独改任一处都落不到 32。
                     //
                     //   【padding 会显空吗】垂直 padding 占高度的比例 50% → 56%，
                     //   视觉上留白略多一档，但仍在 chip 的合理区间（26dp 的 kit.DhChip
@@ -2383,7 +2427,22 @@ object DhKit {
                 //     不需要再靠透明区域补命中区：改用不带 48dp 下限的点击，
                 //     并保留同一套按压缩放（复用 pressable 的手感，但跳过尺寸下限）。
                 .then(if (onClick != null) Modifier.pressScaleClick(onClick) else Modifier)
-                .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
+                // 【chip 高度收敛·往上并到「按钮式 32dp」档】垂直内边距 8(Space.sm) → 9。
+                //   【原高度】12sp 文字的行盒 ≈14dp（12 × 1.172，Roboto metrics 的 ascender+descender）
+                //     + 上下 8dp = **≈30dp**。
+                //   【目标高度】32dp —— 与本批同为「按钮式」的 MiniChip / PrimaryChip 同高。
+                //   【怎么反推】padding = (32 - 14) / 2 = 9。
+                //   【为什么不用 Space.md=12】12 会把高度推到 38dp，直接跨到**下一档**，
+                //     那就不是「并档」而是「再造一档」，5 档收敛成 2 档的目标就废了。
+                //   【为什么不写 8.8 这类半像素值】Compose 的 dp 会按设备密度取整，
+                //     8.8 在 2.75x 屏上落到 24.2px → 24px，实际仍是 8.7dp，肉眼收益为零，
+                //     只会让下一个维护者算不清；9 是整数、且与 MiniChip 取值完全一致。
+                //   【刻意写成字面量 9 而不是间距令牌】这是**按目标总高倒推出的控件几何**，
+                //     不是「元素之间的间距」—— 走 Space 阶梯反而会被后人「顺手统一回 sm=8」
+                //     又打回 30dp。同族取值见 MiniChip(9) / PrimaryChip(9)。
+                //   【风险】本 chip 是内容驱动高度，所以没动 `.height()`：改固定高度会让
+                //     调用方换大字号（无障碍放大）时文字被裁，改 padding 才能保持行节奏。
+                .padding(horizontal = 12.dp, vertical = 9.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (iconRes != 0) {

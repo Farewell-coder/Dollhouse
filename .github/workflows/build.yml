@@ -122,6 +122,24 @@ jobs:
           python3 tools/palette_contrast.py --quiet
           python3 tools/symbol_refs.py --quiet
 
+      # 【静态门禁·Lazy 嵌套】防一类**编译期查不出、运行期才炸**的坑：
+      #   `DhKit.Page` 的 `scrollable` 默认为 true，会把内容包进 `Column.verticalScroll`；
+      #   若内容里放了 Lazy 组件（自身纵向可滚动）且没有限高，组合期会抛
+      #   `IllegalStateException: Vertically scrollable component was measured
+      #    with an infinity maximum height` —— 页面白屏/半截，且 IDE 与编译都不报。
+      #
+      # 【为什么独立一步而不是并进上面】并进能省一次 runner 启动，但这条的失败
+      #   「长得」和 state_audit / palette_contrast 完全不同（它是行为契约类，
+      #   不是令牌/状态类），混在一起会让 CI 日志里难以一眼看出踩的是哪个坑。
+      #   实测约 9s（本机 ARM proot，CI 的 x86 runner 更快），纯静态、无写盘。
+      #
+      # 【默认值为什么不动】51 处 `DhKit.Page(` 里 42 处默默依赖 `scrollable = true`
+      #   （其中 `FriendProfilePage` 有 18 行，改默认 false 会直接滚不动）。
+      #   默认值必须服务高频场景，这个坑由调用方显式 `scrollable = false` 规避 ——
+      #   本脚本就是那条显式声明的守门人。
+      - name: 静态门禁（Lazy 嵌套滚动容器）
+        run: python3 tools/lazy_nest_audit.py
+
       # 【静态门禁·B 档】上面两组覆盖「布局/令牌/状态/引用」，本步补上**行为契约**类检查。
       #   四项都是纯静态、不写盘、无第三方依赖，本地实测合计约 38s
       #   （backup 8.3s / gen_lucide 1.8s / input_audit 4.5s / kit_usage 24s）；

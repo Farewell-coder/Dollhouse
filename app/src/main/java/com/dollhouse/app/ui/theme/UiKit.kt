@@ -203,11 +203,43 @@ object UiKit {
      */
     @JvmStatic
     fun subOnPhoto(): Int {
-        return ContrastCore.ensureContrast(SUB, BG, ON_PHOTO_SUB_TARGET)
+        return ContrastCore.ensureContrast(SUB, BG, ON_PHOTO_TEXT_TARGET)
     }
 
-    /** 压在图上的次文本在页面底色上要达到的对比度。 */
-    private const val ON_PHOTO_SUB_TARGET = 6.5
+    /**
+     * 压在图上的**成功色**（ok）—— 与 [subOnPhoto] 同一套夹紧规则。
+     *
+     * 【为什么不直接用 [OK]】实测（纯白照片、图不透明度 92%、遮罩 0）：OK 只有 **3.28**，
+     *   低于 AA 4.5。原因与次文本同源：它是为**不透明面**设计的，面里渗进照片就没余量了。
+     *
+     * 【⚠️ 只换颜色不够，必须配玻璃底】这是本函数最重要的使用约束：
+     *   单独把颜色压深，会让**深色照片一侧反而更糟** ——
+     *   压深后的 ok 压在纯黑照片上只有 **2.40**，而原色还有 5.61。
+     *   因为压深后它和黑底落到同一侧了 —— **单一前景色无法同时适配黑白两极背景**。
+     *   本工程的解法与 [subOnPhoto] 完全一致：先让 **玻璃底（BG@88%）把背景归一到浅侧**，
+     *   再由压深的颜色挣余量。实测 88% 玻璃底 + 本色：
+     *   ok **5.22** / err **5.13** / sub **5.29** —— 三档在黑图/白图/灰图上都稳过 AA。
+     *   所以这两个方法**必须**与压图底一起用（`DhForm.Note` 已内置）。
+     */
+    @JvmStatic
+    fun okOnPhoto(): Int {
+        return ContrastCore.ensureContrast(OK, BG, ON_PHOTO_TEXT_TARGET)
+    }
+
+    /** 压在图上的**错误色**（err）。规则与使用约束见 [okOnPhoto]。 */
+    @JvmStatic
+    fun errOnPhoto(): Int {
+        return ContrastCore.ensureContrast(ERR, BG, ON_PHOTO_TEXT_TARGET)
+    }
+
+    /**
+     * 压在图上的文字（次文本 / ok / err）在页面底色上要达到的对比度。
+     *
+     * 【为什么三档共用 6.5】三者的失败方式是同一个（面里渗进照片 → 余量归零），
+     *   解法也是同一个（夹到页面底色上的 6.5:1 + 88% 玻璃底 normalize 背景）。
+     *   分成三个常数只会让后来者不知道哪个该改。
+     */
+    private const val ON_PHOTO_TEXT_TARGET = 6.5
 
     /**
      * 【外观】卡片底色：把 [CARD] 按用户设的「卡片透明度」叠成半透明。
@@ -1908,8 +1940,19 @@ object UiKit {
     /** 顶栏图标字号 ← [DhDesign.Size.iconMd]。 */
     const val FS_ICON = 20.0f
 
-    /** 图标控件的固定命中区边长（dp），与 DhDesign.Size.minTouch 统一为 48dp。 */
-    const val HIT_DP = 48
+    /**
+     * 图标控件的固定命中区边长（dp）—— **从设计令牌派生**。
+     *
+     * 【为什么改成派生】原文只写「与 DhDesign.Size.minTouch 统一为 48dp」——
+     *   那句话是**注释承诺**，不是机制。四处（本常量 / `DhKit.HIT` / `DhKit.MIN_TOUCH` /
+     *   令牌）各写一个 48 时，改令牌不会改到这里。现在三处都从
+     *   [DhDesign.Size.minTouch] 取值，令牌是唯一真源。
+     *
+     * 【为什么 `const` 改成 `val`】`const` 只能接编译期常量，读不到 `.value`。
+     *   已逐处核对本常量的全部用法：`HIT_DP.dp` / `dp(ctx, HIT_DP)` / `HIT_DP.toFloat()`
+     *   —— 都不需要编译期常量（没有注解参数、没有 `when` 分支常量、没有别的 `const` 依赖）。
+     */
+    val HIT_DP: Int = DhDesign.Size.minTouch.value.toInt()
 
     /** 按钮圆角（dp）← [DhDesign.Radius.md]。 */
     const val RADIUS_BTN = com.dollhouse.app.ui.design.DhDesign.Radius.md
