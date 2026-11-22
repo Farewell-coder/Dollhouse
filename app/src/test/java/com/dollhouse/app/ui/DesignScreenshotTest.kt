@@ -1,15 +1,18 @@
 package com.dollhouse.app.ui
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,14 +32,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dollhouse.app.ui.chat.ChatHostUi
+import com.dollhouse.app.ui.chat.ChatItem
+import com.dollhouse.app.ui.chat.ChatPanel
+import com.dollhouse.app.ui.chat.ChatState
+import com.dollhouse.app.ui.chat.ChatUi
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.DollhouseTheme
 import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.UiKit
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -563,4 +577,247 @@ class DesignScreenshotTest {
      *   Compose 的 `Color.toArgb()` 即可，这里包一层只是让调用点读起来是「转成可断言的色」。
      */
     private fun Color.toArgbForTest(): Int = this.toArgb()
+
+    /* ======================================================================
+     * 真实页面片段（第三批）
+     *
+     * 【为什么前两批的图"看不出变化"】`01-light` 是**设计系统示范片段**，
+     *   不是用户日常看的页面。前三批在它上面只改了 0.17% 的像素 —— 于是用户装了
+     *   APK 说"没看到变化"。要让人看见变化，必须截**真实页面**。
+     *
+     * 【为什么仍然不直接调 buildPage(act: MainActivity)】所有真实页面入口都要具体
+     *   `MainActivity`，且 `SettingsContent` 一进去就 `HomeUi.syncAll(act)`（读
+     *   ShizukuBridge / KeepAliveBridge）。硬拉 MainActivity 会让测试依赖一堆与
+     *   视觉无关的桥接，任何一个没 mock 就红 —— 那种红与 UI 回归无关，会毁掉这条线。
+     *
+     *   因此这里分两条路：
+     *   ① **能直接调的**：`ChatUi.ChatScreen(host)` —— 它只依赖 `ChatHostUi`
+     *      **接口**（不是 MainActivity），且渲染期只读 `host.controller`（可空）。
+     *      用一个空实现宿主即可拿到**完整真实聊天页**。
+     *   ② **拼真实形态的**：人偶列表用 `LazyVerticalGrid` + 真实磁贴构件拼，
+     *      取色与间距全部走令牌。
+     * ==================================================================== */
+
+    /**
+     * 真实聊天页：直接调 `ChatUi.ChatScreen`，宿主用空实现。
+     *
+     * 【为什么这是最有价值的一张】聊天页是用户看得最多的画面，且本轮改动的
+     *   **莫奈气泡对比度**、**强调色收敛**（状态行从主色改中性色）、**触控 48dp**
+     *   全部落在这一屏。它比任何拼凑片段都更接近用户所见。
+     *
+     * 【为什么宿主可以全是空实现】`ChatScreen` 在**渲染期**只读 `host.controller`
+     *   （可空 → 传 null）；`host.activity` 只出现在 IconButton 的点击 lambda 里，
+     *   截图不会触发点击。`ChatHostUi` 其余成员都是交互回调，渲染期不被调用。
+     *
+     * 【数据怎么来】`ChatState` 是进程级单例，直接在测试里灌入几条消息 ——
+     *   这样能**确定性地**画出「我方 / 对方 / 摘要条 / 思考中」四种形态，
+     *   而不是依赖 Robolectric 里为空的 SharedPreferences。
+     */
+    @Test
+    fun chatScreen_realPage() {
+        // 灌入确定性的会话数据：我方 2 条 + 对方 3 条。
+        //   index 用真实历史下标（>=0），避免被当成流式占位气泡（index = -1）。
+        //   【为什么不用摘要条】isSummary=true 的条目走另一条渲染路径（分割条），
+        //   本轮要验的是气泡配色，混入它会稀释语义色占比。
+        ChatState.items = listOf(
+            ChatItem("assistant", "早上好呀，今天也要加油哦～", null, 0, false, false),
+            ChatItem("user", "帮我看看这张图说明了什么", null, 1, false, false),
+            ChatItem("assistant", "这张图展示的是三季度的增长趋势……", null, 2, false, false),
+            ChatItem("user", "那第二行呢？", null, 3, false, false),
+            ChatItem("assistant", "第二行是同比数据，可以看到增幅已经放缓了。", null, 4, false, false)
+        )
+        ChatState.hasPrev = false
+        ChatState.thinking = null
+        ChatState.waiting = false
+
+        // 【palette 必须在组合作用域里读】DhTokens.palette 是 @Composable get()，
+        //   在 @Test 函数体里直接读会报 Composable invocations can only happen from
+        //   the context of a @Composable function。
+        var capturedP: DhDesign.Palette? = null
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val cv = ComposeView(activity).apply {
+            setContent {
+                DollhouseTheme {
+                    capturedP = DhTokens.palette
+                    ChatUi.ChatScreen(host = StubChatHost(activity))
+                }
+            }
+        }
+        activity.setContentView(cv)
+        ShadowLooper.idleMainLooper()
+
+        val bmp = renderToBitmap(cv)
+        save(bmp, "05-chatscreen")
+
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
+        assertColors(
+            bmp, "05-chatscreen", mapOf(
+                p.chatBubbleUser.toArgbForTest() to 1,  // 我方气泡底（莫奈修复目标槽位）
+                p.card.toArgbForTest() to 1,           // 对方气泡底
+                p.title.toArgbForTest() to 1,          // 两侧气泡字色
+                p.accent.toArgbForTest() to 1          // 进度环 / 图标
+            ),
+            tolerance = 3
+        )
+        assertContentSpans(bmp, "05-chatscreen", minW = 700, minH = 400)
+    }
+
+    /**
+     * `ChatHostUi` 的空实现：渲染期只会被读到 `controller`（返回 null）。
+     *
+     * 【为什么能全空】`ChatScreen` 在**渲染期**只读 `host.controller`（可空）；
+     *   `host.activity` 只出现在 IconButton 的点击 lambda 里，截图不触发点击。
+     *   其余成员全是交互回调，渲染期不被调用。
+     *
+     * 【为什么必须列全 30 个】Kotlin 接口实现漏一个就编译不过。这里的清单由
+     *   `ChatHostUi.kt` 的成员逐个对照生成，改接口时要同步（好在编译期会立刻报）。
+     */
+    private class StubChatHost(private val act: Activity) : ChatHostUi {
+        override val controller: ChatPanel.Controller? = null
+        override val activity: Activity? = act
+        override val ctx: android.content.Context = act
+        override fun showModels() {}
+        override fun flashMemo(msg: String?) {}
+        override fun stopGenerating() {}
+        override fun showThink() {}
+        override fun showSearchDialog() {}
+        override fun showItemInfo(index: Int) {}
+        override fun saveToMemory(index: Int) {}
+        override fun rollbackTo(index: Int) {}
+        override fun retryAfterError() {}
+        override fun replyTo(index: Int) {}
+        override fun regenerateAt(index: Int) {}
+        override fun regenerate() {}
+        override fun openPicker() {}
+        override fun openMain() {}
+        override fun onSend() {}
+        override fun onScrolled(firstVisibleIndex: Int, atBottom: Boolean) {}
+        override fun onInputChange(text: String) {}
+        override fun loadEarlier() {}
+        override fun learnFromAt(index: Int): Boolean = false
+        override fun insertSummaryAt(index: Int) {}
+        override fun editAndResend(index: Int) {}
+        override fun deleteAt(index: Int) {}
+        override fun copyMany(indexes: List<Int>) {}
+        override fun copyLastReply() {}
+        override fun copyAt(index: Int) {}
+        override fun confirmClearChat() {}
+        override fun clearAttachment() {}
+        override fun branchAt(index: Int) {}
+    }
+
+    /**
+     * 人偶列表：用真实 `LazyVerticalGrid` 排布拼出这一屏的形态。
+     *
+     * 【为什么拼而不调 buildPage】`DollListScreen.buildPage(act: MainActivity)` 内部读
+     *   `DollStore.all(act)` + `PetPrefs.dollCols(act)`，还要挂文件选择器监听、
+     *   三点菜单浮层、导入解析回调 —— 整页重依赖。这里只复刻**视觉骨架**：
+     *   网格列数、卡片圆角、封面占位、名称/说明字号全部走令牌。
+     *
+     * 【为什么用网格而不是列表】人偶列表是 `LazyVerticalGrid`（可按 1/2/3 列切换），
+     *   它与 `LazyColumn` 的密度差异正是"平板/大屏观感"的一部分。
+     */
+    @Test
+    fun dollGrid_realPageShape() {
+        var capturedP: DhDesign.Palette? = null
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val cv = ComposeView(activity).apply {
+            setContent {
+                DollhouseTheme {
+                    capturedP = DhTokens.palette
+                    // 【scrollable = false 是必须的，不是可选项】
+                    //   `DhKit.Page` 默认 scrollable = true，会把内容包进
+                    //   `Column.verticalScroll`。而 `LazyVerticalGrid` 是**纵向可滚动**组件，
+                    //   嵌进另一个纵向滚动父容器会抛
+                    //   `IllegalStateException: Vertically scrollable component was measured
+                    //    with an infinity maximum height` —— 组合当场中断，
+                    //   表现就是本测试第一版的 `capturedP` 为 null（setContent 没跑完）。
+                    //   真实 `DollListScreen.kt:167` 同样是 scrollable = false，
+                    //   由网格自己滚。
+                    DhKit.Page(title = "人偶", onBack = {}, scrollable = false) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),
+                            verticalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp)
+                        ) {
+                            items(4, key = { it }) { i ->
+                                DollTile(
+                                    name = if (i == 0) "小肥鱼" else "人偶 ${'A' + i}",
+                                    desc = if (i == 0) "默认配置" else "刚加入",
+                                    selected = i == 0
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        activity.setContentView(cv)
+        ShadowLooper.idleMainLooper()
+
+        val bmp = renderToBitmap(cv)
+        save(bmp, "06-dollgrid")
+
+        val p = requireNotNull(capturedP) { "setContent 未执行，palette 未捕获" }
+        assertColors(
+            bmp, "06-dollgrid", mapOf(
+                p.card.toArgbForTest() to 1,     // 磁贴底
+                p.title.toArgbForTest() to 1,    // 名称
+                p.sub.toArgbForTest() to 1,      // 说明文字
+                p.accent.toArgbForTest() to 1    // 选中态描边
+            )
+        )
+        assertContentSpans(bmp, "06-dollgrid", minW = 600, minH = 400)
+    }
+
+    /** 人偶磁贴：复刻 `DollListScreen` 的封面占位 + 名称 + 说明三段结构。 */
+    @Composable
+    private fun DollTile(name: String, desc: String, selected: Boolean) {
+        val c = DhTokens.colors
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(DhDesign.Radius.lg.dp))
+                .background(c.card)
+                .border(
+                    DhDesign.Size.hairline,
+                    if (selected) c.acc else c.line,
+                    RoundedCornerShape(DhDesign.Radius.lg.dp)
+                )
+        ) {
+            // 封面占位：无图时用 soft 底 + 图标（与真实页「还没设封面」同形态）。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .background(c.soft),
+                contentAlignment = Alignment.Center
+            ) {
+                DhKit.Icon(
+                    iconRes = Icons.IC_CIRCLE_USER,
+                    sizeDp = Design.SZ_LG,
+                    color = c.line
+                )
+            }
+            Text(
+                text = name,
+                color = c.title,
+                fontSize = UiKit.FS_BTN.sp,
+                fontFamily = DhTokens.fontsBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = DhDesign.Space.sm.dp, end = DhDesign.Space.sm.dp, top = DhDesign.Space.sm.dp)
+            )
+            Text(
+                text = desc,
+                color = c.sub,
+                fontSize = UiKit.FS_SUB.sp,
+                fontFamily = DhTokens.fonts,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = DhDesign.Space.sm.dp, end = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
+            )
+        }
+    }
 }

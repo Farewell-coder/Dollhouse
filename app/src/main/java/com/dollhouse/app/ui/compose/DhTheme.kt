@@ -6,6 +6,11 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -17,7 +22,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import com.dollhouse.app.ui.design.DhDesign
@@ -299,6 +308,7 @@ object DhTokens {
  *   现在建立 **M3 投影**：ColorScheme / Typography / Shapes 全部由 [DhDesign] 从 [UiKit] 派生。
  *   注意这仍然是**投影而非第二真源** —— M3 只是读者，写入者永远是 ThemeManager → UiKit。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DollhouseTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
@@ -396,6 +406,35 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
         shapes = shapes
     ) {
         CompositionLocalProvider(
+            // ─────────────────────────────────────────────────────────────
+            // 【去 Material 味·全局关水波纹】
+            //
+            // 用户批评「水波纹是老旧感的主要来源」—— 那种灰色圆扩散确实是 2014 年
+            // Material 的标志，也是「一眼看出这是 Material App」最强的信号。
+            // 参考项目（MAA-Meow / Bettbox）都关掉了，改成「按下缩放 + 松手回弹」。
+            //
+            // 【本工程已经有的替代品】`DhKit.pressable` = `PRESS_SCALE(0.98)` 缩放 +
+            //   `DhAnim.PRESS_DOWN/BOUNCY` 弹簧，**且它自己就写着 `indication = null`**
+            //   （见 DhKit.kt 的 pressable 实现）。所以关掉全局指示不损失任何已有手感 ——
+            //   缩放是独立于 indication 的 `graphicsLayer` 变换。
+            //
+            // 【为什么两条都要 provide】这两处是**两套机制**，改一条会漏：
+            //   ① `LocalRippleConfiguration provides null` —— Material3 的 `ripple()` 在
+            //      读到 null 时会退化成「无水波纹」节点。它管的是**直接调用 `ripple()`
+            //      的 M3 组件**：`TextButton`（本仓 6 处）、`AlertDialog` 的按钮、
+            //      `ModalBottomSheet`、`Surface(onClick=)` 等。这些组件不看 `LocalIndication`。
+            //   ② `LocalIndication provides NoIndication` —— 管的是**裸 `clickable`**：
+            //      它的 `indication` 默认取 `LocalIndication.current`，而 `MaterialTheme`
+            //      会往这个 local 里塞 ripple。本仓裸 clickable 只剩 1 处
+            //      （`pet/PetTalkInput.kt:401`，桌宠输入条的发送键）。
+            //
+            // 【代价·必须知道】任何「只靠水波纹给反馈」的控件关掉后就没有反馈了。
+            //   本仓只有上面那 1 处属于这种情况 —— 它的注释里写明「按压反馈改用 Compose 的
+            //   ripple」，所以它**会失去反馈**，需要单独补按压态（不在本次改动范围）。
+            //   其余控件全部走 `pressable` / `UiKit.press`，不受影响。
+            // ─────────────────────────────────────────────────────────────
+            LocalRippleConfiguration provides null,
+            LocalIndication provides NoIndication,
             LocalDhColors provides colors,
             LocalDhPalette provides palette,
             LocalDhType provides type,
@@ -406,6 +445,53 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
             content = content
         )
     }
+}
+
+/**
+ * 「什么都不画」的按压指示器 —— 用来关掉全局水波纹。
+ *
+ * 【为什么需要自己写一个】Compose Foundation 没有公开的 `NoIndication` 实例：
+ *   `LocalIndication` 的默认值是 `DefaultDebugIndication`（在 debug 下画高亮），
+ *   而 `MaterialTheme` 会把它覆盖成 `ripple()`。要让「裸 `clickable`」也不出水波纹，
+ *   必须显式 provide 一个**不画任何东西**的 `IndicationNodeFactory`。
+ *
+ * 【为什么是 `IndicationNodeFactory` 而不是旧 `Indication`】Compose 1.7 起
+ *   `Indication.rememberUpdatedInstance` 已废弃，官方口径是实现 `IndicationNodeFactory`
+ *   （每个交互源创建一个 `DelegatableNode`）。这里返回的节点只做一件事：`drawContent()`。
+ *
+ * 【为什么要 `equals`/`hashCode` 收敛】`IndicationNodeFactory` 会被当作 modifier element
+ *   参与相等性比较；不收敛会让每次组合都判定「指示器变了」而重建节点。用单例语义即可。
+ */
+private object NoIndication : IndicationNodeFactory {
+
+    /**
+     * 真正的空节点。
+     *
+     * 【为什么必须 `Modifier.Node()` 在前】`DrawModifierNode` 只是**接口**，它的父接口
+     *   `DelegatableNode` 还有一个抽象成员 `val node: Modifier.Node`。
+     *   只写 `: DrawModifierNode` 会留下这个成员没实现，编译器报
+     *   「Class 'NoOpNode' is not abstract and does not implement abstract member: val node」。
+     *   `Modifier.Node` 是**抽象类**且自己就把 `node` 实现成 `this`，所以正确的写法是
+     *   「先继承抽象类、再实现接口」：`Modifier.Node(), DrawModifierNode`。
+     *   （这是 Compose 自定义 modifier 节点的标准形态；`Modifier.Node` 的构造函数是
+     *   public 且非 sealed，跨包继承是官方用法。）
+     *
+     * 【顺序】Kotlin 要求超类构造函数在最前，所以 `Modifier.Node()` 必须写在
+     *   `DrawModifierNode` 之前，且括号不能省（它在调用构造）。
+     */
+    private class NoOpNode : Modifier.Node(), DrawModifierNode {
+        override fun ContentDrawScope.draw() {
+            // 【必须调 drawContent】不画**任何**指示效果，但子内容照常绘制 ——
+            //   漏掉这一句等于给整棵子树戴了个「不画」的 modifier。
+            drawContent()
+        }
+    }
+
+    override fun create(interactionSource: InteractionSource): DelegatableNode = NoOpNode()
+
+    override fun hashCode(): Int = 0x4E6F_496E // "NoIn"，只为稳定，不参与任何哈希表语义
+
+    override fun equals(other: Any?): Boolean = other === this
 }
 
 /**

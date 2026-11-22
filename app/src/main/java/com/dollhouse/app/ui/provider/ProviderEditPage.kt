@@ -255,7 +255,9 @@ object ProviderEditPage {
                     label = "选择服务",
                     value = pickedName ?: "未选择",
                     iconRes = Icons.IC_PLUG,
-                    desc = "内置 12 家官网与中转站写法，也可选「空白模板」自己填",
+                    // 【P1-e】从 desc 移到 info：这是「有哪些写法」的可选了解，
+                    //   不影响用户点进去做选择。折叠后每行省 2 行。
+                    info = "内置 12 家官网与中转站写法，也可选「空白模板」自己填",
                     onClick = { presetSheet = true }
                 )
                 DhForm.Note("自建或中转站常用「空白模板」自己填；填 http:// 地址需要打开下面的「允许明文 HTTP」。")
@@ -537,7 +539,8 @@ object ProviderEditPage {
                         value = if (pickedName == null) "当前" else null,
                         valueTint = c.acc,
                         iconRes = Icons.IC_PLUG,
-                        desc = "清空地址自己填，适合第三方中转站或自建服务",
+                        // 【P1-e】适用场景说明，属可选了解。
+                info = "清空地址自己填，适合第三方中转站或自建服务",
                         onClick = {
                             base = ""
                             path = ModelRules.defaultChatPath(Provider.PROTO_OPENAI)

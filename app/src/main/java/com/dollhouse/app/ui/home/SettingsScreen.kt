@@ -549,8 +549,11 @@ object SettingsScreen {
             )
 
             if (message.isNotEmpty()) {
+                // 【一屏一色相·2026-11】成功态不再染绿：文案已经写明「备份完成」，
+                //   颜色是装饰。沿用 PARTIAL 的中性先例，**只有失败才染色**——
+                //   这样设置页的色相从 3（蓝/绿/红）降到 2（蓝 + 失败红）。
                 DhForm.Note(message, color = when (msgKind) {
-                    BackupMsgKind.OK -> DhTokens.colors.ok
+                    BackupMsgKind.OK -> DhTokens.colors.sub
                     BackupMsgKind.PARTIAL -> DhTokens.colors.sub
                     // NONE 时 message 必为空（不会走到这里）；兜底按错误色，宁可显眼。
                     BackupMsgKind.ERR, BackupMsgKind.NONE -> DhTokens.colors.err
@@ -572,7 +575,9 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "一键全量备份",
                 iconRes = Icons.IC_UPLOAD,
-                desc = "生成一个文件，通过系统分享保存或直接发到新手机",
+                // 【P1-e】从 desc 移到 info：说明「产物是什么形式」属可选了解；
+                //   真正必读的是恢复行的「恢复前给你看会还原什么」，那条保持 desc。
+                info = "生成一个文件，通过系统分享保存或直接发到新手机",
                 trailing = if (busy) "处理中…" else null,
                 showChevron = !busy
             ) {
@@ -1042,7 +1047,9 @@ object SettingsScreen {
                 iconRes = Icons.IC_WAYPOINTS,
                 desc = "人偶自己在屏幕上缓慢游走",
                 value = if (PetPrefs.wanderEnabled(act)) "已开启" else "已关闭",
-                valueTint = if (PetPrefs.wanderEnabled(act)) DhTokens.colors.ok else null,
+                // 【一屏一色相·2026-11】原先「已开启」染成功绿。但这是**常态**，不是「刚刚成功了一次」——
+                //   设置页每进来一次就满眼绿，等于把语义色当装饰。只在真正失败时染色。
+                valueTint = null,
                 showChevron = true
             ) {
                 WanderSettingsPage.open(act)
@@ -1269,7 +1276,8 @@ object SettingsScreen {
                 desc = "封面、动作、启停、删除",
                 // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
                 value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
-                valueTint = if (dollCount == 0) DhTokens.colors.err else null,
+                // 【一屏一色相】「还没有」是空态提示，不是错误——用红色会让用户以为出了问题。
+                valueTint = null,
                 showChevron = true
             ) { DollListScreen.open(act) }
             // 【r10】全局「调整比例」已移除：比例改到「每只人偶」的编辑页（活动 → 比例大小），
@@ -1323,11 +1331,9 @@ object SettingsScreen {
                     PetPrefs.bgEnabled(act) -> "已开启"
                     else -> "已关闭"
                 },
-                valueTint = when {
-                    !HomeState.bgSet -> DhTokens.colors.err
-                    PetPrefs.bgEnabled(act) -> DhTokens.colors.ok
-                    else -> DhTokens.colors.sub
-                }
+                // 【一屏一色相】三态里只有「未设置」带一点指向性，但它同样不是错误：
+                //   用户完全可以不设背景。红/绿只留给真正的失败（如本文件 providerCount == 0）。
+                valueTint = if (!HomeState.bgSet) DhTokens.colors.sub else null
             ) { AppearancePage.open(act) }
             DhForm.Note("点「外观设置」进去，四个分类用顶栏切换。")
         }

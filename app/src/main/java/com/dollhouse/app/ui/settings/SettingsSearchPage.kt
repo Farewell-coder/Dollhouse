@@ -1,11 +1,20 @@
 package com.dollhouse.app.ui.settings
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import com.dollhouse.app.ui.compose.clearFocusOnBlankTap
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -73,6 +82,95 @@ object SettingsSearchState {
     var query by mutableStateOf("")
 }
 
+
+/**
+ * 「搜索命中后定位到某一行」的**请求通道**（移植自 MAA-Meow `SettingSearchNavigator`）。
+ *
+ * ## 为什么需要它
+ * 搜索结果的落点是**另一个页面**（10 个设置子页之一）。要让目标页「滚到那行 + 闪两下」，
+ * 目标页必须在组合时**知道**"我这次被谁点名了"。MAA 的做法是一个单例 navigator +
+ * 一个带 TTL 的 request，目标行用 `SettingSearchTarget(anchor)` 订阅。
+ *
+ * ## 本轮到哪一步（重要）
+ * 通道与消费端（[searchTarget]）都已就位，**但目标页还没接线** —— 因为那 10 个子页
+ * 不在本轮的改动授权内，而 `DhKit.ActionRow` 又正被别人改。所以现在点结果的效果与改前
+ * **一致**（只是多记了一条 request，5 秒后自己过期）。
+ *
+ * ## 下一轮怎么接（每个页面 3 行）
+ * ```kotlin
+ * DhKit.ValueRow(label = "莫奈取色", …)          // 原来就有
+ * // 改成：把 rowId 对应的那一行包一层即可
+ * Box(Modifier.searchTarget("appearance.monet")) { DhKit.ValueRow(...) }
+ * ```
+ * `rowId` 取自 [SettingsSpot.rowId]，全仓唯一且跨版本不变（见 `SettingsSpots` 类注释）。
+ * 10 个页面各包几行，就完成了「跳页 → 滚到行 → 闪两下」的闭环。
+ *
+ * ## 为什么带 5 秒 TTL
+ * MAA 的原注释：「锚点迟迟未出现就作废，免得过后突然闪」。若目标页因权限/空态根本没渲染
+ * 那一行，request 不能一直挂着 —— 否则用户两分钟后点进那页会莫名其妙闪一下。
+ */
+object SettingsSearchAnchor {
+    private const val TTL_MS = 5_000L
+
+    /** 当前挂起的 rowId；改它会让订阅方重组。 */
+    internal var pendingRowId by mutableStateOf<String?>(null)
+        private set
+
+    private var requestedAt = 0L
+
+    /** 点搜索结果时登记（由 [openSpot] 调用）。 */
+    fun request(rowId: String) {
+        requestedAt = android.os.SystemClock.uptimeMillis()
+        pendingRowId = rowId
+    }
+
+    /** 这一行是不是"刚被点名且还没过期"。 */
+    internal fun isFresh(rowId: String): Boolean =
+        pendingRowId == rowId &&
+            android.os.SystemClock.uptimeMillis() - requestedAt <= TTL_MS
+
+    /** 闪完就消费掉，避免再进这一页时重放。 */
+    internal fun consume() {
+        pendingRowId = null
+    }
+}
+
+/**
+ * 让这一行成为「搜索可定位目标」：被点名时滚进视野并**闪两下**。
+ *
+ * 参数与节奏照抄 MAA（`SettingSearchUi.kt:81-101` + `BringIntoViewOnExpand.kt`）：
+ *   · 闪两下：`animateTo(1f, 180ms)` → `animateTo(0f, 420ms)`，共 2 轮；
+ *   · 高亮 = 主色 alpha 0.18 × 闪值，画在 `drawBehind`（不占布局、不影响点击）；
+ *   · 滚动要**等两帧**再 `bringIntoView()` —— 分组展开是动画，第一帧时布局还没稳定，
+ *     直接滚会滚到旧位置。MAA 还会在 280ms 后再拉一次，这里因为不做「展开」省掉了。
+ */
+@Composable
+fun Modifier.searchTarget(rowId: String): Modifier {
+    val fresh = SettingsSearchAnchor.isFresh(rowId)
+    val flash = remember { Animatable(0f) }
+    val requester = remember { BringIntoViewRequester() }
+    // 颜色在组合期取好再进 drawBehind —— drawBehind 的 lambda 不是 @Composable，读不到 DhTokens
+    val tint = DhTokens.colors.acc
+    if (fresh) {
+        LaunchedEffect(rowId, SettingsSearchAnchor.pendingRowId) {
+            withFrameNanos { }
+            withFrameNanos { }
+            runCatching { requester.bringIntoView() }
+            repeat(2) {
+                flash.animateTo(1f, tween(180))
+                flash.animateTo(0f, tween(420))
+            }
+            SettingsSearchAnchor.consume()
+        }
+    }
+    return this
+        .bringIntoViewRequester(requester)
+        .drawBehind {
+            if (flash.value <= 0f) return@drawBehind
+            drawRect(tint.copy(alpha = 0.18f * flash.value))
+        }
+}
+
 /**
  * 打开某个搜索结果的落地页。
  *
@@ -86,6 +184,9 @@ object SettingsSearchState {
  *   由它先把内部栈设成目标路由、再压外层那一层。
  */
 private fun openSpot(act: MainActivity, spot: SettingsSpot) {
+    // 先登记「我要跳到哪一行」。目标页只要用 `Modifier.searchTarget(spot.rowId)` 包住
+    //   那一行，就会自动滚进视野 + 闪两下；没接线的页面上这条请求 5 秒后自行过期。
+    SettingsSearchAnchor.request(spot.rowId)
     val route = spot.route
     if (!route.isNullOrEmpty()) {
         ProviderNav.openAt(act, route)
@@ -148,9 +249,17 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
         onBack = onClose,
         scrollable = false
     ) {
+        // 【点空白收键盘】挂在内容根上：输入框 / 结果行会先消费自己的点击，
+        //   只有落在空白处的点击才走到这里。与回车收键盘（keyboardActions.onSearch）
+        //   是同一语义的另一条触发路径。
+        // 【为什么是 Column 不是 Box】下方 LazyColumn 用 Modifier.weight(1f) 占满剩余高度，
+        //   而 weight 只在 ColumnScope / RowScope 里存在 —— Box 是层叠布局，没有 weight。
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .clearFocusOnBlankTap()
+        ) {
         // ---------- 输入框 ----------
-        Row(
-            modifier = Modifier
+        Row(            modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = DhDesign.Space.xs.dp)
                 .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
@@ -216,6 +325,14 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
 
         Spacer(Modifier.height(DhDesign.Space.md.dp))
 
+        // 【滚动】查询一改就把结果列表拉回顶部。
+        //   没有这一步时，用户输入第二个词后列表停在上一轮的滚动位置，
+        //   最相关的那条可能正好在屏幕外 —— 等于"搜到了但看不见"。
+        val listState = rememberLazyListState()
+        LaunchedEffect(query) {
+            runCatching { listState.scrollToItem(0) }
+        }
+
         // ---------- 三态：未输入 / 无结果 / 有结果 ----------
         when {
             query.isBlank() -> Hint(
@@ -229,6 +346,7 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
             )
 
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -239,6 +357,7 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
                     ResultRow(act, spot)
                 }
             }
+        }
         }
     }
 }

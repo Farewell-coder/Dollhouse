@@ -292,7 +292,13 @@ object DhDesign {
         /** 页面左右内边距（全 App 一口径）。 */
         const val pageX = lg
 
-        /** 页面底部安全留白（列表滚到底时不贴住底栏）。 */
+        /**
+         * 【零引用·待落地】页面底部安全留白（列表滚到底时不贴住底栏）。
+         *   **当前无调用方** —— 各页实际是自己补
+         *   `bottom = BottomNav.HEIGHT_DP.dp + Space.lg.dp` 这种表达式
+         *   （ChatListScreen / ContactScreen / SocialPage 共 7 处）。
+         *   接线前请先决定：底部留白到底由「页面自己算」还是「统一取本 token」。
+         */
         const val pageBottom = xxl
 
         /** 卡片内边距。 */
@@ -301,8 +307,8 @@ object DhDesign {
         /** 卡片之间 / 分组之间的间距。 */
         const val cardGap = md
 
-        /** 区块标题与其内容的间距。 */
-        const val sectionGap = sm
+        /** 区块标题与其内容的间距（20dp）：拉开分组感，不再是图标-文字档的 8dp。 */
+        const val sectionGap = 20
 
         /** 图标与紧邻文字的间距。 */
         const val iconGap = sm
@@ -320,7 +326,12 @@ object DhDesign {
      */
     @Immutable
     object Size {
-        /** 行内极小图标（备注、次级标记）。 */
+        /**
+         * 【零引用·待落地】行内极小图标（备注、次级标记）。
+         *   **当前无调用方** —— 实际图标尺寸走 [iconSm]/[iconMd]/[iconLg]
+         *   （`rowIcon` 就是 [iconMd]，20dp）。14dp 这一档从没被接上过。
+         *   接线前先确认「备注 / 次级标记」是否真的存在这样一档图标需求。
+         */
         val iconXs = 14.dp
         /** 行内小图标（列表行主图标、状态徽标）。 */
         val iconSm = 16.dp
@@ -337,10 +348,27 @@ object DhDesign {
         /** 最小可点击边长（dp）：Android 无障碍基线，与视觉尺寸分离。 */
         val minTouch = 48.dp
 
-        /** 顶栏高度。 */
+        /**
+         * 【零引用·待落地】顶栏高度。
+         *   **当前无调用方** —— 各页顶栏的高度由自身的 `Row` padding + 内容高度决定
+         *   （`DhKit.TopBar` / `photoTopBand` 都没有读这个值）。
+         *   接线前请先确认：要不要把顶栏从「padding 决定」改成「固定高度」，那是观感改动。
+         */
         val topBarH = 56.dp
 
-        /** 底栏（悬浮胶囊）高度。 */
+        /**
+         * 底栏（悬浮胶囊）高度 —— **唯一真源**。
+         *
+         * 【接线记录·2026-11】这里原本有一个重复定义：
+         *   本 token（64dp，零引用）与 `ui/home/BottomNav.HEIGHT_DP`（`const val 64`，
+         *   7 处使用）写的是同一个数。同一语义两个值，改一处漏一处就是「底栏长高了、
+         *   内容区还按旧高度避让」这种不会崩、但一眼看得出的错位。
+         *
+         * 【现在的关系】`BottomNav.HEIGHT_DP` 改为从本 token 派生
+         *   （`DhDesign.Size.navBarH.value.toInt()`），于是：
+         *   · 数值只有一个来源（这里）；
+         *   · `BottomNav.HEIGHT_DP` 这个对外名字保留，7 处调用点一个都不用改。
+         */
         val navBarH = 64.dp
 
         /** 两行列表行高度。 */
@@ -349,7 +377,13 @@ object DhDesign {
         /** 单行列表行高度。 */
         val rowOneLine = 56.dp
 
-        /** 列表行最小高度（无可点内容时也保证可点）。 */
+        /**
+         * 【零引用·待落地】列表行最小高度（无可点内容时也保证可点）。
+         *   **当前无调用方** —— 行的最小高度实际由 [rowOneLine]/[rowTwoLine] 承担，
+         *   而「可点面积 ≥48dp」由 `pressable` 内置的 `minTouchTarget(minTouch)` 保证。
+         *   两者已经覆盖了这个语义，本 token 再接线会变成**第三套**高度规则。
+         *   建议：接线前先确认它比现有两条更准，否则应当删除。
+         */
         val rowMin = 48.dp
 
         /**
@@ -365,6 +399,11 @@ object DhDesign {
          * 【为什么列表用 52 而不是设计稿的 40】会话列表的行高是 64dp，52 的头像
          *   让每一行有明确的主体感；40 在这个行高里显得偏小、留白过多。
          *   这属于「实际使用场景优先于设计稿默认值」的取舍，已在此显式记录。
+         *
+         * 【零引用·待落地】本值是**设计稿的默认档（40dp）**，全仓无调用方 ——
+         *   实际在用的是 [avatarXs]/[avatarRow]/[avatarLg]/[avatarXl]/[avatarBubble]/
+         *   [avatarTopBar]。保留它是为了留档「设计稿原值 40」，不是给新代码用的。
+         *   新代码请从上面那几档里挑，不要再引入第 40dp 这个未接线尺寸。
          */
         val avatar = 40.dp
         /** 头像：会话列表（比详情页略小，但仍是行内主体）。 */
@@ -386,7 +425,13 @@ object DhDesign {
         /** 头像：人偶主视觉。 */
         val avatarXl = 72.dp
 
-        /** 输入区高度。 */
+        /**
+         * 【零引用·待落地】输入区高度。
+         *   **当前无调用方** —— 聊天输入行 / 桌宠输入条的高度都由各自的内容与 padding
+         *   决定（见 `ChatUi.InputRow`、`pet/PetTalkInput` 的 `HEIGHT_DP = 46`）。
+         *   接线前请先决定：三处输入条要不要统一成 64dp —— 桌宠那条受悬浮窗限制，
+         *   物理上抬不到 64（见 PetTalkInput 里「46dp 物理上限」的论证）。
+         */
         val composerH = 64.dp
 
         /**
@@ -462,6 +507,13 @@ object DhDesign {
         /** 全圆（药丸）。 */
         const val pill = 999
 
+        /*
+         * 【零引用·待落地】下面四个「形状对象」当前**都无调用方**。
+         *   全仓实际写法是就地构造：`RoundedCornerShape(DhDesign.Radius.md.dp)`。
+         *   注意：**圆角视觉已经统一了** —— 所有调用方取的都是 [sm]/[md]/[lg]/[pill]
+         *   这四个数值，差的只是「形状对象」这一层复用。
+         *   接线前先确认没有调用方需要「半径相同但形状不同」的特例（目前没发现）。
+         */
         val smShape = RoundedCornerShape(sm.dp)
         val mdShape = RoundedCornerShape(md.dp)
         val lgShape = RoundedCornerShape(lg.dp)
@@ -484,16 +536,26 @@ object DhDesign {
      */
     @Immutable
     object Motion {
-        /** 按压反馈：90ms。 */
+        /**
+         * 【零引用·待决】按压反馈：90ms。
+         *   **与 [com.dollhouse.app.ui.theme.UiKit.D_PRESS]（同样 90）重复**，
+         *   而真正生效的是后者：`DhAnim.PRESS_DOWN` 的 tween 直接引用 `UiKit.D_PRESS`。
+         *   两份并存的结果是「改这里不生效」—— 建议先让 DhAnim 改读本 token，
+         *   再删 `UiKit.D_PRESS`；在那之前不要有人误以为改这里会变。
+         */
         const val press = 90
-        /** 微交互（开关、芯片切换、颜色过渡）：160ms。 */
-        const val micro = 160
+        /** 微交互（开关、芯片切换、颜色过渡）：180ms，与 `UiKit.D_MICRO` 同值。 */
+        const val micro = 180
         /** 进入（页面压栈、面板弹出）：220ms。 */
         const val enter = 220
         /** 退出（返回、面板收起）：180ms。 */
         const val exit = 180
 
-        /** 列表项入场错峰间隔。 */
+        /**
+         * 【零引用·待落地】列表项入场错峰间隔。
+         *   **当前无调用方** —— 本工程的入场动画只有 `animateItem`（由 LazyColumn 托管，
+         *   自带位移动画），没有做「逐项延迟错峰」。接线 = 新增一类入场编排，属观感改动。
+         */
         const val stagger = 26
 
         /* ---------------------------------------------------------------
@@ -510,6 +572,15 @@ object DhDesign {
          *   三套叫法（历史上 DhAnim 与 UiKit 各叫过一遍，就是混乱的起点）。
          * --------------------------------------------------------------- */
 
+        /*
+         * 【零引用·待决】下面三条曲线（easeStd / easeIo / easeExit）当前**都无调用方**。
+         *   实际生效的曲线在 `ui/compose/DhAnim`：它用的是 Compose 内置的
+         *   `LinearOutSlowInEasing` / `FastOutLinearInEasing`，不是这里的 CubicBezier。
+         *   保留的理由：这三行是设计稿 cubic-bezier 的**原始记录**，删掉就只剩 DhAnim 里
+         *   那份「近似值」，以后没人能回答「设计稿原本要的是哪条曲线」。
+         *   要做的是「让 DhAnim 改用它们」，而不是删掉它们 —— 但那是动效口径变更，
+         *   需真机比对，故本轮只标注不接线。
+         */
         /** 减速（标准）：cubic-bezier(0.2, 0, 0, 1)。绝大多数进入 / 位移 / 颜色过渡。 */
         val easeStd: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
@@ -519,54 +590,34 @@ object DhDesign {
         /** 加速退出：cubic-bezier(0.4, 0, 1, 1)。**离开永远比进入快**，用加速曲线。 */
         val easeExit: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
 
-        /** 弹簧阻尼比（仅用于必须带物理直觉的位移：底栏指示器、按压回弹）。 */
-        const val springDamping = 0.82f
-        const val springStiffness = 380f
+        /*
+         * 【已删除·springDamping / springStiffness】
+         *   这两个值（ζ=0.82 / k=380）曾是「弹簧参数」的 token，但零引用：
+         *   真正驱动弹簧的是 `ui/compose/DhAnim` 里的 `spring(dampingRatio=…, stiffness=…)`，
+         *   它自己写字面量（ζ=0.73 / k=700、ζ=0.73 / k=420 等，各处不同）。
+         *   两份定义并存只会让人以为「改这里会生效」—— 实际不会。故删除。
+         *   要统一，应在 DhAnim 侧收口（那里才知道每一处需要多少 ζ/k），
+         *   而不是在这里留一个谁都不读的默认值。
+         */
     }
 
     /* ================================================================
-     * 5b. 高度层级（Elevation）
+     * 5b. 高度层级（Elevation）—— 已废弃，**刻意不留 token**
      * ================================================================ */
 
-    /**
-     * 阴影三档：e0 / e1 / e2。
+    /*
+     * 原 `Elevation.e0 / e1 / e2`（0dp / 6dp / 16dp）已在 2026-11 的「去投影」中全部停用：
+     * 全仓 `.shadow()` 与 Compose `shadowElevation` 归零，层级改由 **1dp 发丝描边**承担
+     * （规范实现见 `ui/kit.DhGroup`）。
      *
-     * 【设计稿原文】「elevation（0/1/2，outline-first）」——
-     *   也就是说**默认不投影，靠 1dp 发丝描边承载层级**；
-     *   只有真正浮起于页面之上的层才用 e2。
+     * 【为什么删而不是留着】三个 token 收敛后**零引用**，而它们的 KDoc 还在描述
+     *   「e1 用于被按下的卡片 / e2 用于 sheet」—— 与现状（0 处阴影）直接矛盾。
+     *   留着等于给后来者一份写着「有阴影」的说明书，删掉才是诚实的。
      *
-     * 【为什么会缺这一组】改造前全工程 `.shadow(` 调用数为 0：
-     *   弹窗 / 底部面板 / 菜单纸张全靠描边区分，与本工程「卡片只微微浮起」的取向一致，
-     *   但**浮层与页面之间的纵深完全消失了** —— 用户看不出「这个框是压在上面的」。
-     *
-     * 【数值怎么来的】设计稿给的是 CSS 的 box-shadow：
-     *   e1 = `0 1px 2px rgba(...,0.06)`   → Compose shadowElevation 取 **2dp**
-     *   e2 = `0 12px 32px rgba(...,0.16)` → Compose shadowElevation 取 **12dp**
-     *   Compose 的 shadowElevation 只接受一个模糊半径近似值，
-     *   无法表达 CSS 的「纵向偏移 + 扩散」，因此这里只存 dp 近似值；
-     *   CSS 的原始四元组保留在设计稿 token.css，供墨卡 / 网页端对齐。
-     *
-     * 【硬规则】**列表行 / 芯片 / 顶栏永不加阴影**（见设计稿「不要做」清单）。
-     *   e1 只用于「被按下的卡片」这类瞬时反馈，e2 只用于 sheet / dialog / menu / snackbar。
+     * 【给后来者】要恢复投影，先读设计稿「不要做」清单与 DhGroup 的注释：
+     *   当初删掉的 8 处死代码阴影每一处都有理由，不要凭手感加回来。
+     *   真要做，请新建一组**带使用方**的 token，不要再造零引用档位。
      */
-    @Immutable
-    object Elevation {
-        /** e0：默认。不投影，层级由 1dp 描边承担。 */
-        val e0 = 0.dp
-
-        /*
-         * 【v3·清透轻拟物】阴影整体上调。
-         * 旧值（2/12）是「安静居所」方向：层级靠发丝线，阴影只做几乎看不见的暗示。
-         * 新方向要「柔和的明暗层次体现空间感」—— 2dp 完全不产生体积感，
-         * 卡片看起来仍是贴在页面上的色块。
-         * 同时**染色**（蓝灰而非纯黑）是轻拟物的关键：纯黑阴影在浅蓝底上会显脏。
-         */
-        /** e1：卡片轻浮起（大圆角分组卡片）。 */
-        val e1 = 6.dp
-
-        /** e2：真正的浮层（底部面板、对话框、抽屉、Snackbar）。 */
-        val e2 = 16.dp
-    }
 
     /* ================================================================
      * 6. 颜色语义

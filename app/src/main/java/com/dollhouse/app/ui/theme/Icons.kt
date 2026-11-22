@@ -62,6 +62,10 @@ object Icons {
     @JvmField
     val IC_INFO = R.drawable.ic_info
 
+    /** 圆圈问号（Lucide circle-help）。用于「可展开说明」的开关，与 [IC_INFO] 语义不同。 */
+    @JvmField
+    val IC_CIRCLE_HELP = R.drawable.ic_circle_help
+
     @JvmField
     val IC_BRAIN = R.drawable.ic_brain
     @JvmField
@@ -219,6 +223,7 @@ object Icons {
     @JvmField
     val IC_HAND_METAL = R.drawable.ic_hand_metal
     /** 鼠标指针方块：高手路径「贴入瞬间的她」（一次性的入场动作）。 */
+    // 【图标审计·2026-11】零使用：高手路径的「贴入瞬间」已由 pet 层动画覆盖，未单独用图标 → 待落地（功能在、图标未接）
     @JvmField
     val IC_SQUARE_MOUSE_POINTER = R.drawable.ic_square_mouse_pointer
     /** 抓握：贴边常驻（贴在边上）。 */
@@ -246,12 +251,14 @@ object Icons {
     @JvmField
     val IC_USER_ROUND_PEN = R.drawable.ic_user_round_pen
     /** 三维移动：预览页「可拖动」提示。 */
+    // 【图标审计·2026-11】零使用：预览页「可拖动」提示已用 IC_HAND / IC_GRAB 表达 → 待落地（同上）
     @JvmField
     val IC_MOVE_3D = R.drawable.ic_move_3d
     /** 模型包校验通过：模型管理页「导入模型包」。 */
     @JvmField
     val IC_PACKAGE_CHECK = R.drawable.ic_package_check
     /** 放大：手动微调里的「放大 / 缩小」辅助。 */
+    // 【图标审计·2026-11】零使用：手动微调的放大/缩小已用 IC_ZOOM_IN / IC_ZOOM_OUT → 语义重复，建议删
     @JvmField
     val IC_MAXIMIZE_2 = R.drawable.ic_maximize_2
     /** 扫描线：显示待机轮廓（对齐参考线）。 */
@@ -444,24 +451,29 @@ object Icons {
      * 【重跑方式】`python3 tools/gen_lucide.py`，清单在脚本的 ICON_MAP 里。
      */
     /** 文件输入（Lucide file-input）：AEX `.akcp` 文件导入。 */
+    // 【图标审计·2026-11】零使用：AEX 导入链路实际用 IC_UPLOAD / IC_FOLDER_OPEN → 待落地（同批次未接完）
     @JvmField
     val IC_FILE_INPUT = R.drawable.ic_file_input
     /** 文件输出（Lucide file-output）：导出 / 分享文件。 */
+    // 【图标审计·2026-11】零使用：导出/分享实际用 IC_DOWNLOAD → 待落地（同批次未接完）
     @JvmField
     val IC_FILE_OUTPUT = R.drawable.ic_file_output
     /** 上传（Lucide upload）：导出到本地 / 分享。 */
     @JvmField
     val IC_UPLOAD = R.drawable.ic_upload
     /** 分享（Lucide share-2）：系统分享面板。 */
+    // 【图标审计·2026-11】零使用：系统分享面板实际用 IC_EXTERNAL → 语义重复，建议删（二选一留 IC_EXTERNAL）
     @JvmField
     val IC_SHARE_2 = R.drawable.ic_share_2
     /** 圆形对勾（Lucide circle-check）：导入成功 / 模型可用。 */
     @JvmField
     val IC_CIRCLE_CHECK = R.drawable.ic_circle_check
     /** 刷新（Lucide refresh-cw）：重试 / 重新拉取模型。 */
+    // 【图标审计·2026-11】零使用：重试/重新拉取实际用 IC_REFRESH（14 处）→ 语义重复，建议删（二选一留 IC_REFRESH）
     @JvmField
     val IC_REFRESH_CW = R.drawable.ic_refresh_cw
     /** 时钟箭头（Lucide clock-arrow-down）：导出记录 / 历史。 */
+    // 【图标审计·2026-11】零使用：导出记录/历史未实现该入口 → 待落地
     @JvmField
     val IC_CLOCK_ARROW_DOWN = R.drawable.ic_clock_arrow_down
 

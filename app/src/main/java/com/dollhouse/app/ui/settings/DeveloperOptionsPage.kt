@@ -185,7 +185,7 @@ object DeveloperOptionsPage {
     }
 
     @Composable private fun Stat(label: String, value: Int?, color: Color, modifier: Modifier, click: () -> Unit) {
-        Column(modifier.clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
+        Column(modifier.clip(RoundedCornerShape(DhDesign.Radius.md.dp)).background(DhTokens.colors.soft).pressable(click).padding(12.dp)) {
             Text(value?.toString() ?: "—", color = color, fontSize = DhTokens.type.display.fontSize, lineHeight = DhTokens.type.display.lineHeight, fontFamily = DhTokens.fontsBold)
             // E16-ALLOW: 统计格下方标签 `label`（"错误"/"警告"/"崩溃"）：固定 2 字
             Text(label, color = DhTokens.colors.sub, fontSize = UiKit.FS_TINY.sp)
@@ -307,7 +307,7 @@ object DeveloperOptionsPage {
             ),
             label = "diagnosticArrow"
         )
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(DhTokens.colors.soft).border(DhDesign.Size.hairline, DhTokens.colors.stroke, RoundedCornerShape(12.dp))) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(DhDesign.Radius.md.dp)).background(DhTokens.colors.soft).border(DhDesign.Size.hairline, DhTokens.colors.stroke, RoundedCornerShape(DhDesign.Radius.md.dp))) {
             Row(Modifier.fillMaxWidth().then(if (enabled && content.isNotBlank()) Modifier.pressable(onClick) else Modifier).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f), color = if (enabled && content.isNotBlank()) DhTokens.colors.title else DhTokens.colors.sub, fontFamily = DhTokens.fontsBold)
                 if (enabled && content.isNotBlank()) DhKit.Icon(Icons.IC_CHEVRON_DOWN, Design.SZ_SM, DhTokens.colors.sub, Modifier.rotate(arrowRotation))

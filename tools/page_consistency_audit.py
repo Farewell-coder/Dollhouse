@@ -107,6 +107,17 @@ EXEMPT = {
         "全屏聊天画布：整幅界面被 Box + clip(16dp 圆角) 包裹（宿主 ChatPanel 负责裁切），"
         "消息区左右 12dp、气泡自带内边距；套页面脚手架会与既有 TopBarRow 重复出两层顶栏。"
         "该文件正由 provider-shell 做去 View 阶段 2/3，本任务不改动它。",
+    ("ui/home/HomeUi.kt", "HomeUiContent"):
+        "三 Tab **常驻宿主**，不是内容页：它只做层叠与保活（`Layout` 控制绘制顺序 + "
+        "`alpha` 隐藏非当前页以免 `remember` 状态被销毁）、抽屉边缘手势、三层触摸闸门"
+        "（base/bar/drawer），自身不渲染任何页面内容。"
+        "真正被托管的 ChatListScreen / ContactScreen / HomeScreen 各自决定边距，"
+        "其中前两个已在本表登记为「底部 Tab 根页」。给宿主再加页面级 16dp 会把三个 Tab 一起内缩。",
+    ("ui/provider/ProviderDetailPage.kt", "DetailContent"):
+        "AndroidView **壳层**：内容区是 `AndroidView(modifier = fillMaxSize())`，"
+        "承载 `PageCache` 缓存的既有页面 View（配置 / 模型两个 tab 各留一份实例以保住表单状态）。"
+        "壳层只负责悬浮胶囊底栏与安全区让位（`reserveDp` 算好交给内容页自己垫底），"
+        "页面级边距由被承载的内容页自己控制，壳层没有也不该有统一 16dp。",
 }
 
 

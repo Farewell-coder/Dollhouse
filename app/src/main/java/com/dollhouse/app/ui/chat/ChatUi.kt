@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -52,6 +53,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.dollhouse.app.data.PetPrefs
@@ -67,6 +69,7 @@ import kotlinx.coroutines.withContext
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhKit.photoTopBand
+import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.design.LocalCompactHeight
@@ -160,11 +163,37 @@ object ChatUi {
         //   卡片类控件的描边（如 `ChatListScreen` 的条目）不受影响，那一处语义正确。
         Column(modifier = Modifier.fillMaxSize()) {
             TopBarRow(host)
-            HintBar(host)
-            Messages(host, Modifier.weight(1f))
-            AttachStrip(host)
-            ToolRow(host)
-            InputRow(host)
+            // 【背景图可读性·玻璃底】正文区整块铺一层雾面，从 HintBar 一直到输入行。
+            //
+            // 【为什么整块铺、不逐处加底】本页在照片上裸着的不止消息流：`ToolRow` 的三枚
+            //   图标按钮（`c.title`/`c.sub`）、`AttachStrip` 的标注、输入行的辅助文字
+            //   都直接压在图上。逐处加底会把这条连续的面拆成一堆小卡片 ——
+            //   `readableSheet` 的文档里已写明这个取舍（「逐行加底会把它变回一堆互不相干的小卡片」）。
+            //
+            // 【为什么不铺到整个 Column】顶栏 `TopBarRow` 自己已有 `photoTopBand`
+            //   （BG@88% + 底边渐隐）。再叠一层 SOFT@88% 只是把带子变成全不透明、
+            //   并且吃掉它那条渐隐 —— 让带子保持原样，正文从它下面接过来才对。
+            //
+            // 【cornerDp = 0】全屏面板（窗口自己裁 16dp），面板再收圆角会在四角漏出照片三角 ——
+            //   与 `photoTopBand(onPhoto, cornerDp = 0)` 同一条理由。
+            //
+            // 【实测·最坏情况（纯黑照片、图 92%、遮罩 0）】
+            //   裸在图上：TITLE 1.60 / SUB 3.44 / ACC 4.03
+            //   本玻璃底（SOFT@88%）后：TITLE 7.94 / SUB 3.69 / ACC 3.15
+            //   ⇒ 深色字（TITLE）受益最大（1.60 → 7.94）；中间调（SUB/ACC）**单靠玻璃底
+            //     到不了 AA**，还要配 `subOnPhoto`，本页顶栏状态行已是这个组合。
+            val onPhoto = DhKit.hasPhotoBackdrop()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .readableSheet(onPhoto, fill = Color(UiKit.SOFT), cornerDp = 0)
+            ) {
+                HintBar(host)
+                Messages(host, Modifier.weight(1f))
+                AttachStrip(host)
+                ToolRow(host)
+                InputRow(host)
+            }
         }
     }
 
@@ -395,7 +424,9 @@ object ChatUi {
                         color = if (onPhoto) {
                             Color(UiKit.subOnPhoto())
                         } else if (ChatState.waiting) {
-                            c.acc
+                            // 【强调色收敛】状态文字不是"主操作/选中/关键数据"，用中性字色：
+                            //   文案本身（正在回复…）已经表达了状态，再上强调色属于装饰。
+                            c.title
                         } else {
                             c.sub
                         },
@@ -501,7 +532,21 @@ object ChatUi {
                 modifier = Modifier
                     // 【圆角收敛】原 10dp -> Radius.md(12)：提示条与卡片同族。
                     .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
-                    .background(c.hintBg)
+                    // 【一屏一色相·2026-11】原先是整条 `hintBg`（淡蓝 #E3EEFA）铺底：
+                    //   全宽 × 约 34dp ≈ 12,900dp² 的着色面，而信息只有一句 18 字提示。
+                    //   与本页的我方气泡（#DCE9FA）同属蓝家族，两块淡蓝叠在一起就是
+                    //   「一屏两处淡蓝」的浑浊感来源。改为**中性面 + 左侧 2dp 色条**：
+                    //   色相仍然只出现在一处（那道 2dp），面积降到约 1/20。
+                    .background(c.card)
+                    .drawBehind {
+                        drawRect(
+                            color = c.hintBg,
+                            size = androidx.compose.ui.geometry.Size(
+                                width = 2.dp.toPx(),
+                                height = size.height
+                            )
+                        )
+                    }
                     .pressable { host.openMain() }
                     .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
@@ -541,6 +586,59 @@ object ChatUi {
         //   滚动目标与滚动回调必须按同一口径平移，否则收回判据会整体错位一格。
         val offset = if (ChatState.hasPrev) 1 else 0
         val tailExtra = if (ChatState.thinking != null) 1 else 0
+
+        // 【P2-c·流式回复的读屏播报】每条回复**只播报一次**。
+        //
+        // 【为什么不能用声明式 liveRegion】`flushStream` 每 60ms 就把末条气泡的 text
+        //   整体重写一次（见 ChatPanel.flushStream：浅拷 List + 替换尾元素）。
+        //   若给气泡 Text 挂 `liveRegion = Polite`，读屏会**每 60ms 收到一次内容变更
+        //   通知** —— 一条两百字的回复就是三十多次播报，实际表现是反复从头念、卡顿、
+        //   完全听不清。那是比"不播报"更糟的结果，用户会直接关掉无障碍功能。
+        //
+        // 【为什么不能用 `waiting == false` 或消息下标做判据】两者我都试过并否决：
+        //   · `waiting == false`：切会话 / 重铺历史 / 加载更早都会让末条变成 assistant，
+        //     而 waiting 始终是 false → 实测切 3 个会话误播 3 次；
+        //   · 消息的 history 下标：每个会话有独立 history，下标会重复，同样误播。
+        //   【正确判据是 `replyTick`】它只在 `setWaiting(true → false)` 时 +1
+        //   （见 ChatPanel.setWaiting），即"一轮生成真的结束"这一精确事件。
+        //   播报次数与文本被重写多少次、用户切多少次会话**完全无关**。
+        //
+        // 【为什么用命令式 announceForAccessibility 而不是 liveRegion】
+        //   liveRegion 的粒度是"每次重组"，对流式文本没有节流能力；命令式播报是一次性
+        //   事件，天然不重复，也不需要节流判断。
+        //
+        // 【开销】replyTick 不变时 LaunchedEffect 不重启，零协程开销。
+        //   读屏关闭时 announceForAccessibility 是空操作（内部直接 return）。
+        val view = LocalView.current
+        val replyTick = ChatState.replyTick
+        LaunchedEffect(replyTick) {
+            if (replyTick == 0) {
+                return@LaunchedEffect   // 还没生成过任何回复，首屏不播
+            }
+            // 取末条：只念**助手的完整回复**（role=assistant、已落库 index>=0、
+            // 非摘要条、正文非空）。流式占位气泡 index=-1 与 summary 都被排除。
+            val last = ChatState.items.lastOrNull()
+            val text = if (last != null && last.role == "assistant" && last.index >= 0 &&
+                !last.isSummary && last.text.isNotBlank()
+            ) {
+                last.text
+            } else {
+                null
+            }
+            if (text.isNullOrEmpty()) {
+                return@LaunchedEffect
+            }
+            // 【长度上限】读屏念几千字要很久，且会把用户堵在这一条上。
+            //   超过 500 字只播前缀 + 提示完整内容已在屏幕上（用户可自行浏览气泡）。
+            val spoken = if (text.length > 500) text.take(500) + "……完整回复已显示在屏幕上" else text
+            // 【必须是 View 的实例方法】`announceForAccessibility` 是 `View` 的成员
+            //   （API 16+），不是 `ViewCompat` 的静态方法 —— 写成 `ViewCompat.xxx`
+            //   会直接编译不过（本轮 CI 就红在这里）。
+            //   【读屏关闭时无副作用】该方法的实现在 `View` 内部先判
+            //   `AccessibilityManager.isEnabled()`，未开启时直接 return，
+            //   不派发事件、不起协程、不动布局 —— 零开销。
+            view.announceForAccessibility(spoken)
+        }
 
         // 【M-修断链】搜索高亮的自动消除。
         //   高亮是「瞬时提示」：用户看到哪一条被找到就够了，不该一直挂着。
@@ -594,12 +692,16 @@ object ChatUi {
         //   `气泡内 4 < 同角色 6 < 换人 8`，用户靠间距差分辨「同一人连说」与「换人」。
         //   6dp 不是设计令牌档位（Space 只有 4/8/12…），故显式写 6 —— 它只在紧凑档出现。
         val compact = LocalCompactHeight
+        // 【背景图可读性】玻璃底已上移到 [ChatContent] 的正文 Column（覆盖 HintBar /
+        //   消息流 / AttachStrip / ToolRow / InputRow），本列表自身不再单独铺一层 ——
+        //   铺两层会在消息流边界多出一圈浓淡台阶。见 ChatContent 里的注释。
+        val padV = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxWidth(),
             contentPadding = PaddingValues(
                 horizontal = DhDesign.Space.lg.dp,
-                vertical = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
+                vertical = padV
             ),
             verticalArrangement = Arrangement.spacedBy(
                 if (compact) 6.dp else DhDesign.Space.sm.dp
@@ -1035,7 +1137,7 @@ object ChatUi {
                 contentDescription = "图片附件",
                 modifier = Modifier
                     .widthIn(max = maxW)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp)),
                 contentScale = ContentScale.Fit
             )
         }
@@ -1066,27 +1168,29 @@ object ChatUi {
                 .then(if (text.trim().isNotEmpty()) Modifier.pressable { open = true } else Modifier),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 左线：主色 50% 透明，1dp（对齐 Operit 的 primary.copy(alpha=0.5f) / thickness 1.dp）。
+            // 【强调色收敛】左右两条 1dp 线是"分割线"（几何元素），不是强调位 —— 用 line 色。
+            //   原先是主色 50%，一屏里出现两道彩色发丝线，属于纯装饰的强调。
             Box(
                 Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(c.acc.copy(alpha = 0.5f))
+                    .background(c.line)
             )
             // 中间徽标：主色 10% 淡底 + 12dp 圆角 + 图标 + 主色小字。
             Row(
                 modifier = Modifier
                     .padding(horizontal = DhDesign.Space.sm.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.acc.copy(alpha = 0.1f))
+                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
+                    // 【强调色收敛】徽标是"次要标签"，不是主操作/选中态 → 软底。
+                    .background(c.soft)
                     .padding(horizontal = DhDesign.Space.sm.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.acc)
+                DhKit.Icon(iconRes = Icons.IC_INFO, sizeDp = Design.SZ_XS, color = c.sub)
                 Spacer(Modifier.width(DhDesign.Space.xs.dp))
                 Text(
                     text = "历史对话摘要",
-                    color = c.acc,
+                    color = c.sub,
                     fontSize = UiKit.FS_CHIP.sp,
                     fontFamily = DhTokens.fonts,
                     fontWeight = FontWeight.Medium
@@ -1096,7 +1200,7 @@ object ChatUi {
                 Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(c.acc.copy(alpha = 0.5f))
+                    .background(c.line)
             )
         }
         if (open) {
@@ -1274,7 +1378,12 @@ object ChatUi {
             //   于是「清空当前对话」在整个 App 里彻底不可达，而 clearChat() 的逻辑一直完好。
             //   这里按注释原本的设计补回入口，并且**用 Compose 弹窗**（原实现是原生 Dialog）：
             //   破坏性操作用 Alert 是正确形态（与「从列表移除」区分开，那条是可逆的）。
-            ActionChip(text = "清空", iconRes = Icons.IC_TRASH) {
+            // 【图标一致性·2026-11】「清空」用橡皮（ERASER），不用垃圾桶（TRASH）：
+            //   清空 = 移除内容、保留容器；删除 = 移除对象本身。
+            //   全仓「删除」6 处全部用 IC_TRASH，而「清空」另两处（DollAnimPage:316 /
+            //   DollActionPage:820）都是 ERASER —— 这里原为 TRASH，是全仓唯一的
+            //   「同语义两个图标」混用点，统一到多数派 ERASER。
+            ActionChip(text = "清空", iconRes = Icons.IC_ERASER) {
                 host.confirmClearChat()
             }
         }
@@ -1322,7 +1431,7 @@ object ChatUi {
                 .fillMaxWidth()
                 .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 2.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                 .background(c.card)
                 .padding(start = DhDesign.Space.sm.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1462,7 +1571,7 @@ object ChatUi {
                 .fillMaxWidth()
                 .padding(horizontal = DhDesign.Space.lg.dp)
                 .padding(bottom = 10.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                 .background(c.card)
                 .padding(start = 10.dp, top = DhDesign.Space.sm.dp, end = 6.dp, bottom = DhDesign.Space.sm.dp),
             verticalAlignment = Alignment.CenterVertically

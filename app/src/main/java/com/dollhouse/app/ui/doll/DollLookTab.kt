@@ -110,9 +110,9 @@ object DollLookTab {
                     Box(
                         modifier = Modifier
                             .size(PREVIEW_DP.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
                             .background(c.soft)
-                            .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(12.dp)),
+                            .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.md.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (bmp != null && !bmp.isRecycled) {

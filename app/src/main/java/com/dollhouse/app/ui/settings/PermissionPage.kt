@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhDividedColumn
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeState
@@ -100,43 +102,44 @@ object PermissionPage {
             DhKit.Card(titleIcon = Icons.IC_SHIELD_CHECK, collapsibleTitle = "系统授权") {
                 // Shizuku：四态（已授权 / 未授权 / 服务未运行 / 未安装）。
                 val sh = HomeState.shizuku
-                DhKit.PermRow(
-                    spot = spot("permission.shizuku"),
-                    iconRes = Icons.IC_KEY_ROUND,
-                    desc = "通过 ADB 授权后可用系统级能力",
-                    state = when (sh) {
-                        com.dollhouse.app.device.ShizukuBridge.S_GRANTED -> 0
-                        com.dollhouse.app.device.ShizukuBridge.S_NOT_RUNNING -> 2
-                        com.dollhouse.app.device.ShizukuBridge.S_NOT_INSTALLED -> 2
-                        else -> 1
+                // 【试点·自动分割线】行之间不再手写 RowDivider —— 由 DhDividedColumn
+                //   在布局阶段记账、绘制阶段画线；条件渲染成 0dp 的行不会产生双线。
+                DhDividedColumn(insetStart = ROW_INSET.dp) {
+                    DhKit.PermRow(
+                        spot = spot("permission.shizuku"),
+                        iconRes = Icons.IC_KEY_ROUND,
+                        desc = "通过 ADB 授权后可用系统级能力",
+                        state = when (sh) {
+                            com.dollhouse.app.device.ShizukuBridge.S_GRANTED -> 0
+                            com.dollhouse.app.device.ShizukuBridge.S_NOT_RUNNING -> 2
+                            com.dollhouse.app.device.ShizukuBridge.S_NOT_INSTALLED -> 2
+                            else -> 1
+                        }
+                    ) { HomeUi.shizukuClicked(act) }
+                    DhKit.PermRow(
+                        spot = spot("permission.overlay"),
+                        iconRes = Icons.IC_APP_WINDOW,
+                        desc = "人偶要浮在其他应用上就必须有它",
+                        state = if (HomeState.overlay) 0 else 1
+                    ) {
+                        HomeUi.requestOverlay(act)
                     }
-                ) { HomeUi.shizukuClicked(act) }
-                DhKit.RowDivider(insetStart = ROW_INSET)
-                DhKit.PermRow(
-                    spot = spot("permission.overlay"),
-                    iconRes = Icons.IC_APP_WINDOW,
-                    desc = "人偶要浮在其他应用上就必须有它",
-                    state = if (HomeState.overlay) 0 else 1
-                ) {
-                    HomeUi.requestOverlay(act)
-                }
-                DhKit.RowDivider(insetStart = ROW_INSET)
-                DhKit.PermRow(
-                    spot = spot("permission.notification"),
-                    iconRes = Icons.IC_BELL,
-                    desc = "保活通知与消息提醒",
-                    state = if (HomeState.notif) 0 else 1
-                ) {
-                    HomeUi.requestNotif(act)
-                }
-                DhKit.RowDivider(insetStart = ROW_INSET)
-                DhKit.PermRow(
-                    spot = spot("permission.battery"),
-                    iconRes = Icons.IC_BATTERY_CHARGING,
-                    desc = "加入后不容易被系统清掉",
-                    state = if (HomeState.battery) 0 else 1
-                ) {
-                    HomeUi.requestIgnoreBattery(act)
+                    DhKit.PermRow(
+                        spot = spot("permission.notification"),
+                        iconRes = Icons.IC_BELL,
+                        desc = "保活通知与消息提醒",
+                        state = if (HomeState.notif) 0 else 1
+                    ) {
+                        HomeUi.requestNotif(act)
+                    }
+                    DhKit.PermRow(
+                        spot = spot("permission.battery"),
+                        iconRes = Icons.IC_BATTERY_CHARGING,
+                        desc = "加入后不容易被系统清掉",
+                        state = if (HomeState.battery) 0 else 1
+                    ) {
+                        HomeUi.requestIgnoreBattery(act)
+                    }
                 }
             }
 

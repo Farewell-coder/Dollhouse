@@ -618,7 +618,20 @@ def check_file(path: Path):
             f"Unresolved reference，很难反查到这里"
         )
 
-    # E3 括号平衡
+    # E3 括号平衡（只查净值与中途转负 —— **有已知盲区，见下**）
+    #
+    # 【盲区实录·2026-11】MemPage 抽函数时，把 `} else {` 整行换成调用，
+    #   `{` 去掉了、配对的 `}` 留在函数体里。于是「少一个 {、多一个 }」**正好抵消**：
+    #   净值仍是 0、中途也没有转负 → 本条全绿。
+    #   但结构错了：`object MemPage` 在那里提前关闭，后面的 `readAll` 等掉到了顶层。
+    #
+    # 【为什么不能用廉价检查补上】上面那个形态**语法是合法的**（顶层函数本来就允许）。
+    #   要判断「readAll 本该在 object 内」必须知道它的预期归属 —— 那是语义分析，
+    #   不是正则能做的。硬加「深度归零后不许再有代码」会误报所有多顶层声明的文件。
+    #
+    # 【该怎么办】改动大段代码结构时（抽函数、搬块、调层级），**自己逐行追踪一次深度**，
+    #   或者用 IDE 的 Reformat Code（它会暴露缩进与结构不一致）。
+    #   这条门禁只负责「漏括号」这种最常见的手误，不负责「括号数对了但嵌套错了」。
     for open_ch, close_ch, name in (("{", "}", "花括号"), ("(", ")", "圆括号"), ("[", "]", "方括号")):
         d = 0
         bad = False
@@ -632,6 +645,23 @@ def check_file(path: Path):
                     break
         if bad or d != 0:
             problems.append(f"E3 {name}不平衡（净 {d}）")
+
+    # E18 扩展函数接收者没 import
+    #
+    # 【起因·2026-11】MemPage 抽出 `fun ColumnScope.MemListPane(...)` 时漏了
+    #   `import androidx.compose.foundation.layout.ColumnScope`。CI 除了报
+    #   `Unresolved reference 'ColumnScope'`，还连带报 `'weight'` —— 接收者解析不了，
+    #   它的成员自然全部找不到，**第二条报错是噪音，会把真正原因埋掉**。
+    #
+    # 【为什么能廉价抓到】`fun Xxx.Name(` 里的接收者必须是已 import 的类型或同包类型。
+    #   这批作用域接收者都是 Compose 的固定几个，逐个查 import 即可，零误报。
+    for recv in ("ColumnScope", "RowScope", "BoxScope", "LazyListScope",
+                 "LazyGridScope", "LazyStaggeredGridScope", "DrawScope", "AnnotatedString"):
+        if re.search(r"fun\s+" + recv + r"\.", code) and ("import " + recv) not in code:
+            # 允许同包 / 通配符导入
+            if not re.search(r"import\s+\S*\." + recv + r"\s*$", code, re.M) \
+                    and not re.search(r"import\s+\S*\*", code):
+                problems.append(f"E18 用了 `fun {recv}.` 但没有 import {recv}")
 
     # E2 未导入的常见 API
     #

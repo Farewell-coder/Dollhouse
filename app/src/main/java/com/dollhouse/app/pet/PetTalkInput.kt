@@ -8,9 +8,11 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -29,13 +31,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -51,6 +54,8 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.R
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhAnim
+import com.dollhouse.app.ui.compose.PRESS_SCALE
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.UiKit
@@ -68,7 +73,9 @@ import com.dollhouse.app.ui.theme.UiKit
  * 【v3·Compose 化】外壳从手写 View 换成 Compose，解决三件事：
  *   ① 字号硬编码（原 UiKit.FS_BTN）→ 走 [DhTokens.type] 阶梯；
  *   ② 颜色不跟主题（原 UiKit.TITLE / SUB 是静态 Int）→ 走 [DhTokens.palette]，随深浅色切换；
- *   ③ 按压反馈是 View 侧的 UiKit.press → 改用 Compose 的 ripple（Modifier.clickable 默认指示）。
+ *   ③ 按压反馈是 View 侧的 UiKit.press → **自管 0.98 缩放**（`PRESS_SCALE` + `DhAnim.PRESS_DOWN`）。
+ *      注：v3 当时写的是「改用 Compose 的 ripple」，后来全局水波纹已被关掉
+ *      （见 DhTheme 的 NoIndication），故改为缩放 —— 与 `pressable` 同一套口径。
  *
  * 【窗口与 Compose 的分工】
  *   悬浮窗宿主仍是 View：**窗口**由 [WindowManager] 管理，本类持有根 `FrameLayout`，
@@ -310,6 +317,22 @@ class PetTalkInput internal constructor(
         //   这里把聚焦反馈做成描边变色（线色 → 强调色），与聊天输入框同口径。
         val interaction = remember { MutableInteractionSource() }
         val inputFocused = interaction.collectIsFocusedAsState().value
+        // 【去水波纹后的按压反馈】全局 `LocalIndication` 已被 [DhTheme] provide 成空指示器，
+        //   裸 `clickable` 不再画水波纹 —— 而这一处**不能**换成 `pressable`：
+        //   本栏悬浮窗高度写死 46dp，物理上限 < `pressable` 的 48dp `minTouchTarget`，
+        //   换过去约束会被父容器夹回，命中区一点没变大（下面 E12-ALLOW 那段有完整论证）。
+        //   所以在这里补一条**自管的 0.98 缩放**，口径与 `pressable` 完全一致：
+        //   同一个 [PRESS_SCALE] 常量、同一对 [DhAnim.PRESS_DOWN] / [DhAnim.BOUNCY] 弹簧
+        //   （都走 `reduceMotion` 闸门，关动画的用户直接跳终值）。
+        //   【为什么不复用上面那个 `interaction`】它是**输入框的聚焦态**用的；
+        //   复用会让「按发送键」把输入框也标成 pressed，两个语义互相污染。
+        val sendInteraction = remember { MutableInteractionSource() }
+        val sendPressed by sendInteraction.collectIsPressedAsState()
+        val sendScale by animateFloatAsState(
+            targetValue = if (sendPressed) PRESS_SCALE else 1f,
+            animationSpec = if (sendPressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY,
+            label = "petSendPress"
+        )
         LaunchedEffect(tick) {
             if (tick > 0) {
                 runCatching { focusRequester.requestFocus() }
@@ -318,7 +341,9 @@ class PetTalkInput internal constructor(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .shadow(6.dp, RoundedCornerShape(RADIUS_DP.dp))
+                // 【0 阴影】投影删除，边界交给下面的 1dp 发丝线（未聚焦 line / 聚焦 accent）。
+                //   桌宠输入条是**贴在桌面上**的小条，不是浮在内容之上的弹层，
+                //   6dp 光晕只会让它显得发虚；聚焦态的描边变色已承担「此刻可输入」的提示。
                 .clip(RoundedCornerShape(RADIUS_DP.dp))
                 .background(palette.card)
                 .border(
@@ -386,6 +411,10 @@ class PetTalkInput internal constructor(
                             Brush.linearGradient(listOf(palette.accent, palette.accent2))
                         )
                         .alpha(if (busy.value) 0.5f else 1f)
+                        // 【按压缩放】busy 时整条链不挂缩放：禁用态不该有任何按压反馈
+                        //   （此时 `clickable(enabled=false)` 也不会产生 press 交互，
+                        //   scale 恒为 1f；这里是把它显式化，避免读代码的人以为会动）。
+                        .then(if (busy.value) Modifier else Modifier.scale(sendScale))
                         // 【E12 白名单·为什么这一处保留裸 .clickable】
                         //   本栏是悬浮在桌宠上的迷你输入条，窗口高度由 HEIGHT_DP = 46dp 写死
                         //   （见本文件 HEIGHT_DP 常量与 WindowManager.LayoutParams 的建窗处）：
@@ -397,8 +426,16 @@ class PetTalkInput internal constructor(
                         //   那是**改桌宠输入条的视觉尺寸**，属于独立设计决策，不在本次范围。
                         //   缓解：发送键宽 62dp（远大于 48），误触风险主要在纵向；
                         //   这也是本文件 PetBar 文档注释里早已写明的既有取舍。
+                        // 【保留裸 clickable，但把反馈显式接管】`indication = null` 与全局空指示器
+                        //   一致；按压反馈改由上面的 `sendScale` 提供（0.98 缩放）。
+                        //   这一行仍然**不是** `pressable`，所以 E12 白名单继续保留。
                         // E12-ALLOW: legacy-hit-target
-                        .clickable(enabled = !busy.value) { submit() },
+                        .clickable(
+                            interactionSource = sendInteraction,
+                            indication = null,
+                            enabled = !busy.value,
+                            onClick = { submit() }
+                        ),
                     // 【对齐门禁】有背景 + 只有一个图标，必须显式居中，否则贴左上。
                     contentAlignment = Alignment.Center
                 ) {

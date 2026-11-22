@@ -6,10 +6,10 @@ import android.content.ContextWrapper
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,7 @@ import com.dollhouse.app.data.MemLink
 import com.dollhouse.app.data.Memory
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
+import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
@@ -487,241 +490,31 @@ object MemPage {
             //   【为什么与图谱互斥而不是并列】两者都要占满剩余高度，并列会各剩一半、都看不清。
             //   默认显示图谱，点顶栏「列表」切过来；切回去不丢筛选与关键词。
             if (listMode) {
-                Spacer(Modifier.height(DhDesign.Space.md.dp))
-                if (shownMems.isEmpty()) {
-                    // 【B9·收编】列表模式的空态原先只有一行 Text（连图标都没有），
-                    //   与图谱模式的「图标 + 两行」不一致 —— 同一个数据条件下，
-                    //   用户切「列表 / 图谱」会看到两种空态。现统一走 DhState。
-                    com.dollhouse.app.ui.kit.DhState(
-                        title = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
-                        body = if (all.isEmpty()) {
-                            "聊天时她会自己写进来；也可以手动加一条"
-                        } else {
-                            "换个分类或关键词看看"
-                        },
-                        iconRes = Icons.IC_WAYPOINTS
-                    )
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp),
-                    ) {
-                        items(shownMems, key = { it.id }, contentType = { "mem" }) { m ->
-                            // 【定位高亮】只有目标那一条会从 1 淡到 0；其余条目恒为 0，
-                            //   动画不会给它们带来任何额外的绘制负担。
-                            val pulse by animateFloatAsState(
-                                targetValue = if (m.id == highlightId) 1f else 0f,
-                                animationSpec = tween(durationMillis = 320),
-                                label = "memAnchorPulse"
-                            )
-                            Box(Modifier.animateItem()) {
-                                MemListRow(
-                                    m = m,
-                                    onClick = {
-                                        editingNew = false
-                                        editing = m
-                                    },
-                                    onLongClick = { delAskFor = m }
-                                )
-                                // 【定位高亮】必须画在卡片**之上**：卡片底是不透明的，
-                                //   画在下面等于没画。只画一圈会淡出的极淡描边 ——
-                                //   把视线带过去，又不会被读成「这条被选中了」。
-                                if (pulse > 0.01f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .matchParentSize()
-                                            .border(
-                                                width = 1.5.dp,
-                                                color = c.acc.copy(alpha = 0.55f * pulse),
-                                                shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
-                                            )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                MemListPane(
+                    shownMems = shownMems,
+                    allIsEmpty = all.isEmpty(),
+                    listState = listState,
+                    highlightId = highlightId,
+                    onEdit = { m -> editingNew = false; editing = m },
+                    onDelete = { m -> delAskFor = m },
+                )
             } else {
-            // ---- 图谱画布 ----
-            Spacer(Modifier.height(DhDesign.Space.md.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(DhKit.R_CARD.dp))
-                    .background(c.soft)
-            ) {
-                // 【B4·接入加载态】图谱布局在 `Dispatchers.Default` 上算
-                //   （200 节点 × 300 轮，见本文件上方 `LaunchedEffect(shownMems, links, pins)`），
-                //   算完之前 `layout == null`，而 MemGraphView.setGraph 收到 null 时
-                //   只 `invalidate()` —— 画布**全空**，只剩一块 soft 底色。
-                //
-                //   【改造前】用户看到的就是那块空底色，没有任何「在算」的信号。
-                //   条目多的时候这段是真能察觉的（200 节点 × 300 轮在主线程会掉帧，
-                //   所以它本来就在后台跑）。
-                //
-                //   【为什么是 FirstLoad 而不是 Refreshing】此刻没有任何图可看 ——
-                //   上一帧的图已经被新数据取代、新图还没算完，符合 MAA 硬规则 1
-                //   「确实没内容」的判据，允许占满这块画布区。
-                //
-                //   【为什么用骨架而不是转圈】骨架表达的是「这里将来会有一张图」，
-                //   转圈只表达「在动」。前者与结果形态一致，切换时不突兀。
-                val graphLoading = layout == null && shownMems.isNotEmpty()
-                com.dollhouse.app.ui.kit.DhLoadingState(
-                    state = if (graphLoading) {
-                        com.dollhouse.app.ui.kit.LoadingState.FirstLoad
-                    } else {
-                        com.dollhouse.app.ui.kit.LoadingState.Idle
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    rows = 4,
-                    lines = 1
+                MemGraphPane(
+                    act = act,
+                    dollId = dollId,
+                    shownMems = shownMems,
+                    allIsEmpty = all.isEmpty(),
+                    layout = layout,
+                    viewRef = viewRef,
+                    highlight = highlight,
+                    keyword = keyword,
+                    searchOpen = searchOpen,
+                    onKeyword = { keyword = it },
+                    onSearchOpen = { searchOpen = it },
+                    onEdit = { m -> editingNew = false; editing = m },
+                    onDelete = { m -> delAskFor = m },
+                    onRefresh = { refresh++ },
                 )
-                androidx.compose.ui.viewinterop.AndroidView(
-                    factory = { ctx ->
-                        MemGraphView(ctx).apply {
-                            // 【颜色从主题现取】本 View 不依赖 UiKit（见其注释），由这里灌入。
-                            setPalette(
-                                edge = c.line,
-                                edgeLabel = c.sub,
-                                nodeBg = c.card,
-                                nodeStroke = c.stroke,
-                                nodeText = c.title,
-                                accent = c.acc,
-                                highlightBg = c.option
-                            )
-                            onNodeClick = { title ->
-                                // 【点节点 → 编辑框】用户定案：「点节点 → 编辑框选关联」。
-                                val m = shownMems.firstOrNull { it.title == title }
-                                if (m != null) {
-                                    editingNew = false
-                                    editing = m
-                                }
-                            }
-                            // 【r19·长按删除】长按节点弹删除确认（用户反馈「删除按键失效」）。
-                            onNodeLongClick = { title ->
-                                val m = shownMems.firstOrNull { it.title == title }
-                                if (m != null) {
-                                    // 复用编辑弹窗的删除确认逻辑（先删边、再删条目）。
-                                    delAskFor = m
-                                }
-                            }
-                            onBlankClick = {
-                                highlight.value = null
-                                setHighlight(null)
-                            }
-                            onNodeMoved = { title, x, y ->
-                                // 【持久化手动摆位】下次进来还在他放的地方。
-                                savePin(act, dollId, title, x, y)
-                            }
-                            // 【v0.1.0·修·视角不记忆】缩放/平移原来只在本次会话内有效：
-                            //   MemGraphView 早就提供了 currentScale/currentOffsetX/Y 与
-                            //   restoreView()，PetPrefs 也早就备好了 memGraphView 的存取，
-                            //   但**两头都没人接** —— 退出图谱再进来，视图总是回到默认。
-                            //   这里把 onViewChanged 接上（该回调在缩放/平移/居中/聚焦时都会触发），
-                            //   并在 factory 末尾恢复上次视角。
-                            onViewChanged = {
-                                saveGraphView(
-                                    act, dollId,
-                                    currentScale(), currentOffsetX(), currentOffsetY()
-                                )
-                            }
-                            viewRef.value = this
-                            // 【v0.1.0·恢复上次视角】必须等布局完成（width/height 才有值），
-                            //   否则 restoreView 拿到的是 0×0 画布基准，偏移算出来是错的。
-                            //   用 post 排到下一次布局之后执行一次即可。
-                            val saved = loadGraphView(act, dollId)
-                            if (saved != null) {
-                                post {
-                                    // 二次确认控件已量好；仍为 0 就放弃（保持默认视角比错位好）。
-                                    if (width > 0 && height > 0) {
-                                        restoreView(saved[0], saved[1], saved[2])
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    // 【关键】布局结果变化时把新图灌进去，但**保留视角**（keepView = true），
-                    //   否则用户刚调好的缩放/平移会在每次数据刷新时被重置。
-                    update = { v ->
-                        v.setGraph(layout, fit = false, keepView = true)
-                        viewRef.value = v
-                    }
-                )
-
-                // ---- 空态 ----
-                if (shownMems.isEmpty()) {
-                    // 【B9·收编到规范骨架】改造前是自建的「图标 + 主文案 + 说明」三件：
-                    //     · 图标 20dp 裸线性 + c.line（几乎看不见的发丝线色）
-                    //     · 主文案 15sp（DhState 是 section 16sp）
-                    //     · 无动作按钮
-                    //   与全 App 其它 10 处 `ui/kit.DhState` 形态不同。收编后文案一字未改。
-                    //
-                    //   【为什么 actionText = null】主入口（新建一条）在顶栏与下方列表里都有，
-                    //   空态里再放一个指向同一件事的按钮属于重复动作 —— 与 MemPage 文件夹空态
-                    //   （本文件 :1267）同一判断。说明文案已经指明了下一步。
-                    com.dollhouse.app.ui.kit.DhState(
-                        title = if (all.isEmpty()) "还没有记下什么" else "这一分类下没有内容",
-                        body = if (all.isEmpty()) {
-                            "聊天时她会自己写进来；也可以手动加一条"
-                        } else {
-                            "换个分类或关键词看看"
-                        },
-                        iconRes = Icons.IC_WAYPOINTS
-                    )
-                }
-
-                // ---- 搜索命中列表（覆盖在图谱上）----
-                if (searchOpen && keyword.trim().isNotEmpty()) {
-                    SearchPanel(
-                        hitList = shownMems,
-                        onPick = { m ->
-                            keyword = m.title
-                            searchOpen = false
-                            highlight.value = m.title
-                            viewRef.value?.setHighlight(m.title)
-                        },
-                        onClose = { searchOpen = false }
-                    )
-                }
-
-                // ---- 图例（右上角小字，说明连线上的字是什么意思）----
-                Legend(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(DhDesign.Space.sm.dp)
-                )
-            }
-
-            // ---- 底部工具条 ----
-            Spacer(Modifier.height(DhDesign.Space.sm.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ToolAction(Icons.IC_MAXIMIZE, "适配") {
-                    viewRef.value?.fitToView()
-                }
-                Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                ToolAction(Icons.IC_ZOOM_IN, "放大") {
-                    zoomBy(viewRef.value, 1.25f)
-                }
-                Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                ToolAction(Icons.IC_ZOOM_OUT, "缩小") {
-                    zoomBy(viewRef.value, 0.8f)
-                }
-                Spacer(Modifier.weight(1f))
-                // 【导入】把一份文本塞进来（与旧版一致的能力，不能丢）。
-                ToolAction(Icons.IC_DOWNLOAD, "导入") {
-                    val main = act as? MainActivity
-                    if (main == null) {
-                        HomeUi.showNotice(act, "无法导入", "请在主界面里打开记忆库再导入。")
-                    } else {
-                        importFile(main, dollId) {
-                            refresh++
-                            viewRef.value?.fitToView()
-                        }
-                    }
-                }
-            }
-
             }
             // —— 以上为图谱模式（含底部工具栏）；列表模式在此处结束 ——
 
@@ -1521,6 +1314,300 @@ object MemPage {
      *   倒序遍历 = 新的在前，所以 seen 里保留的是**最新那条**（同 id 时后写的那份优先，
      *   与 Mem.add 的「同 id 覆盖」语义一致）。
      */
+
+    /**
+     * 列表模式的面板（P1：从 [MemContent] 原样搬出，**逻辑一行未改**）。
+     *
+     * 【为什么带 `ColumnScope` 接收者】块内用了 `Modifier.weight(1f)`（`LazyColumn` 要吃掉
+     *   剩余高度）。`weight` 是 `ColumnScope` 的扩展，所以调用点必须仍在 Column 里 ——
+     *   原位置就是在 Column 内，搬出来时保持同一个接收者，行为不变。
+     *
+     * 【为什么状态全部从外面传】块内原本读写的 `editing` / `editingNew` / `delAskFor`
+     *   都是 [MemContent] 里的 `remember` 状态。若在这里再 `remember` 一份，等于**换了一个
+     *   状态实例**：弹窗与列表会各看各的，改一个另一个不响应。所以一律显式传；
+     *   只读的派生值（`all.isEmpty()`）也顺手算好传进来，避免把整个 `all` 拖进来。
+     */
+    @Composable
+    private fun ColumnScope.MemListPane(
+        shownMems: List<Memory>,
+        allIsEmpty: Boolean,
+        listState: LazyListState,
+        highlightId: String?,
+        onEdit: (Memory) -> Unit,
+        onDelete: (Memory) -> Unit,
+    ) {
+        val c = DhTokens.colors
+        Spacer(Modifier.height(DhDesign.Space.md.dp))
+        if (shownMems.isEmpty()) {
+            // 【B9·收编】列表模式的空态原先只有一行 Text（连图标都没有），
+            //   与图谱模式的「图标 + 两行」不一致 —— 同一个数据条件下，
+            //   用户切「列表 / 图谱」会看到两种空态。现统一走 DhState。
+            com.dollhouse.app.ui.kit.DhState(
+                title = if (allIsEmpty) "还没有记下什么" else "这一分类下没有内容",
+                body = if (allIsEmpty) {
+                    "聊天时她会自己写进来；也可以手动加一条"
+                } else {
+                    "换个分类或关键词看看"
+                },
+                iconRes = Icons.IC_WAYPOINTS
+            )
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp),
+            ) {
+                items(shownMems, key = { it.id }, contentType = { "mem" }) { m ->
+                    // 【定位高亮】只有目标那一条会从 1 淡到 0；其余条目恒为 0，
+                    //   动画不会给它们带来任何额外的绘制负担。
+                    val pulse by animateFloatAsState(
+                        targetValue = if (m.id == highlightId) 1f else 0f,
+                        // 【C19·时长收口】原先写死 `tween(320ms)`：
+                        //   320 不在 `DhDesign.Motion` 的任何一档里（press 90 / micro 160 /
+                        //   enter 220 / exit 180），是这一轮唯一逃过令牌化的 Compose 时长。
+                        //   【为什么选 DhAnim.FADE】这盏高亮只做「亮起 / 淡下去」的透明度过渡
+                        //   （下面 `alpha = 0.55f * pulse`），正是 FADE 的语义；时长取
+                        //   `DhDesign.Motion.micro`(160)，比原来的 320 更跟手。
+                        //   【顺带修好无障碍】`tween` 是无条件动画，而 `DhAnim.FADE` 走
+                        //   `reduceMotion()` 闸门 —— 关闭动画的用户现在会直接跳到终值，
+                        //   而不是看一次 320ms 的渐变。
+                        animationSpec = DhAnim.FADE,
+                        label = "memAnchorPulse"
+                    )
+                    Box(Modifier.animateItem()) {
+                        MemListRow(
+                            m = m,
+                            onClick = {
+                                onEdit(m)
+                            },
+                            onLongClick = { onDelete(m) }
+                        )
+                        // 【定位高亮】必须画在卡片**之上**：卡片底是不透明的，
+                        //   画在下面等于没画。只画一圈会淡出的极淡描边 ——
+                        //   把视线带过去，又不会被读成「这条被选中了」。
+                        if (pulse > 0.01f) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = c.acc.copy(alpha = 0.55f * pulse),
+                                        shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    /**
+     * 图谱模式的面板（P1：从 [MemContent] 原样搬出，**逻辑一行未改**）。
+     *
+     * 【为什么 14 个参数】块内读了 `shownMems/layout/viewRef/highlight/keyword/searchOpen`、
+     *   写了 `editing/editingNew/delAskFor/keyword/searchOpen/refresh`。这些都是
+     *   [MemContent] 里的 `remember` 状态，**不能**在这里重新 `remember`（会换实例）。
+     *   按你的要求「宁可多传几个参数，也不要把状态提到外面」全部显式传。
+     *   只读的派生值（`all.isEmpty()`）算好传 `allIsEmpty`，避免把整个 `all` 拖进来。
+     *
+     * 【`ColumnScope` 接收者】块内的 `Box(Modifier.weight(1f))` 与底部工具条的
+     *   `Spacer(Modifier.weight(1f))` 都依赖 ColumnScope，保持同一接收者行为不变。
+     */
+    @Composable
+    private fun ColumnScope.MemGraphPane(
+        act: Activity,
+        dollId: String,
+        shownMems: List<Memory>,
+        allIsEmpty: Boolean,
+        layout: MemGraphLayout.Result?,
+        viewRef: MutableState<MemGraphView?>,
+        highlight: MutableState<String?>,
+        keyword: String,
+        searchOpen: Boolean,
+        onKeyword: (String) -> Unit,
+        onSearchOpen: (Boolean) -> Unit,
+        onEdit: (Memory) -> Unit,
+        onDelete: (Memory) -> Unit,
+        onRefresh: () -> Unit,
+    ) {
+        val c = DhTokens.colors
+        // ---- 图谱画布 ----
+        Spacer(Modifier.height(DhDesign.Space.md.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(DhKit.R_CARD.dp))
+                .background(c.soft)
+        ) {
+            // 【B4·接入加载态】图谱布局在 `Dispatchers.Default` 上算
+            //   （200 节点 × 300 轮，见本文件上方 `LaunchedEffect(shownMems, links, pins)`），
+            //   算完之前 `layout == null`，而 MemGraphView.setGraph 收到 null 时
+            //   只 `invalidate()` —— 画布**全空**，只剩一块 soft 底色。
+            //
+            //   【改造前】用户看到的就是那块空底色，没有任何「在算」的信号。
+            //   条目多的时候这段是真能察觉的（200 节点 × 300 轮在主线程会掉帧，
+            //   所以它本来就在后台跑）。
+            //
+            //   【为什么是 FirstLoad 而不是 Refreshing】此刻没有任何图可看 ——
+            //   上一帧的图已经被新数据取代、新图还没算完，符合 MAA 硬规则 1
+            //   「确实没内容」的判据，允许占满这块画布区。
+            //
+            //   【为什么用骨架而不是转圈】骨架表达的是「这里将来会有一张图」，
+            //   转圈只表达「在动」。前者与结果形态一致，切换时不突兀。
+            val graphLoading = layout == null && shownMems.isNotEmpty()
+            com.dollhouse.app.ui.kit.DhLoadingState(
+                state = if (graphLoading) {
+                    com.dollhouse.app.ui.kit.LoadingState.FirstLoad
+                } else {
+                    com.dollhouse.app.ui.kit.LoadingState.Idle
+                },
+                modifier = Modifier.fillMaxSize(),
+                rows = 4,
+                lines = 1
+            )
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { ctx ->
+                    MemGraphView(ctx).apply {
+                        // 【颜色从主题现取】本 View 不依赖 UiKit（见其注释），由这里灌入。
+                        setPalette(
+                            edge = c.line,
+                            edgeLabel = c.sub,
+                            nodeBg = c.card,
+                            nodeStroke = c.stroke,
+                            nodeText = c.title,
+                            accent = c.acc,
+                            highlightBg = c.option
+                        )
+                        onNodeClick = { title ->
+                            // 【点节点 → 编辑框】用户定案：「点节点 → 编辑框选关联」。
+                            val m = shownMems.firstOrNull { it.title == title }
+                            if (m != null) {
+                                onEdit(m)
+                            }
+                        }
+                        // 【r19·长按删除】长按节点弹删除确认（用户反馈「删除按键失效」）。
+                        onNodeLongClick = { title ->
+                            val m = shownMems.firstOrNull { it.title == title }
+                            if (m != null) {
+                                // 复用编辑弹窗的删除确认逻辑（先删边、再删条目）。
+                                onDelete(m)
+                            }
+                        }
+                        onBlankClick = {
+                            highlight.value = null
+                            setHighlight(null)
+                        }
+                        onNodeMoved = { title, x, y ->
+                            // 【持久化手动摆位】下次进来还在他放的地方。
+                            savePin(act, dollId, title, x, y)
+                        }
+                        // 【v0.1.0·修·视角不记忆】缩放/平移原来只在本次会话内有效：
+                        //   MemGraphView 早就提供了 currentScale/currentOffsetX/Y 与
+                        //   restoreView()，PetPrefs 也早就备好了 memGraphView 的存取，
+                        //   但**两头都没人接** —— 退出图谱再进来，视图总是回到默认。
+                        //   这里把 onViewChanged 接上（该回调在缩放/平移/居中/聚焦时都会触发），
+                        //   并在 factory 末尾恢复上次视角。
+                        onViewChanged = {
+                            saveGraphView(
+                                act, dollId,
+                                currentScale(), currentOffsetX(), currentOffsetY()
+                            )
+                        }
+                        viewRef.value = this
+                        // 【v0.1.0·恢复上次视角】必须等布局完成（width/height 才有值），
+                        //   否则 restoreView 拿到的是 0×0 画布基准，偏移算出来是错的。
+                        //   用 post 排到下一次布局之后执行一次即可。
+                        val saved = loadGraphView(act, dollId)
+                        if (saved != null) {
+                            post {
+                                // 二次确认控件已量好；仍为 0 就放弃（保持默认视角比错位好）。
+                                if (width > 0 && height > 0) {
+                                    restoreView(saved[0], saved[1], saved[2])
+                                }
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                // 【关键】布局结果变化时把新图灌进去，但**保留视角**（keepView = true），
+                //   否则用户刚调好的缩放/平移会在每次数据刷新时被重置。
+                update = { v ->
+                    v.setGraph(layout, fit = false, keepView = true)
+                    viewRef.value = v
+                }
+            )
+            // ---- 空态 ----
+            if (shownMems.isEmpty()) {
+                // 【B9·收编到规范骨架】改造前是自建的「图标 + 主文案 + 说明」三件：
+                //     · 图标 20dp 裸线性 + c.line（几乎看不见的发丝线色）
+                //     · 主文案 15sp（DhState 是 section 16sp）
+                //     · 无动作按钮
+                //   与全 App 其它 10 处 `ui/kit.DhState` 形态不同。收编后文案一字未改。
+                //
+                //   【为什么 actionText = null】主入口（新建一条）在顶栏与下方列表里都有，
+                //   空态里再放一个指向同一件事的按钮属于重复动作 —— 与 MemPage 文件夹空态
+                //   （本文件 :1267）同一判断。说明文案已经指明了下一步。
+                com.dollhouse.app.ui.kit.DhState(
+                    title = if (allIsEmpty) "还没有记下什么" else "这一分类下没有内容",
+                    body = if (allIsEmpty) {
+                        "聊天时她会自己写进来；也可以手动加一条"
+                    } else {
+                        "换个分类或关键词看看"
+                    },
+                    iconRes = Icons.IC_WAYPOINTS
+                )
+            }
+            // ---- 搜索命中列表（覆盖在图谱上）----
+            if (searchOpen && keyword.trim().isNotEmpty()) {
+                SearchPanel(
+                    hitList = shownMems,
+                    onPick = { m ->
+                        onKeyword(m.title)
+                        onSearchOpen(false)
+                        highlight.value = m.title
+                        viewRef.value?.setHighlight(m.title)
+                    },
+                    onClose = { onSearchOpen(false) }
+                )
+            }
+            // ---- 图例（右上角小字，说明连线上的字是什么意思）----
+            Legend(
+                modifier = Modifier.align(Alignment.TopEnd).padding(DhDesign.Space.sm.dp)
+            )
+        }
+        // ---- 底部工具条 ----
+        Spacer(Modifier.height(DhDesign.Space.sm.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ToolAction(Icons.IC_MAXIMIZE, "适配") {
+                viewRef.value?.fitToView()
+            }
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            ToolAction(Icons.IC_ZOOM_IN, "放大") {
+                zoomBy(viewRef.value, 1.25f)
+            }
+            Spacer(Modifier.width(DhDesign.Space.sm.dp))
+            ToolAction(Icons.IC_ZOOM_OUT, "缩小") {
+                zoomBy(viewRef.value, 0.8f)
+            }
+            Spacer(Modifier.weight(1f))
+            // 【导入】把一份文本塞进来（与旧版一致的能力，不能丢）。
+            ToolAction(Icons.IC_DOWNLOAD, "导入") {
+                val main = act as? MainActivity
+                if (main == null) {
+                    HomeUi.showNotice(act, "无法导入", "请在主界面里打开记忆库再导入。")
+                } else {
+                    importFile(main, dollId) {
+                        onRefresh()
+                        viewRef.value?.fitToView()
+                    }
+                }
+            }
+        }
+    }
+
     private fun readAll(ctx: Context, dollId: String): List<Memory> {
         val arr = Mem.list(ctx, dollId)
         val out = ArrayList<Memory>()

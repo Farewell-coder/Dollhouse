@@ -279,7 +279,7 @@ object ContactScreen {
     @Composable
     private fun ContactRow(act: MainActivity, doll: DollStore.Doll, onClick: () -> Unit) {
         val c = DhTokens.colors
-        val shape = RoundedCornerShape(12.dp)
+        val shape = RoundedCornerShape(DhDesign.Radius.md.dp)
         // 【r24·修内存/主线程卡顿】46dp 头像却按 1024px 解码：
         //   一张 1024×1024 ARGB_8888 = 4MB，联系人列表几十行就是上百 MB，
         //   而且发生在组合阶段（主线程）。按「46dp × 3 ≈ 138px」取 160 足够清晰。

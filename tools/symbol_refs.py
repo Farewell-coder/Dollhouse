@@ -254,9 +254,14 @@ def main():
         #   于是 `private fun BlockRenderer(...)`、`@Composable private fun DetailPage`
         #   、带注解的 `private class Stat` 全被当成「无定义」，报出 27 条假红。
         #   这里改成：只要文件里出现该名字的**任意声明形态**（含 fun/val/任意缩进）即算有定义。
+        # 【扩展函数必须能识别】`private fun ColumnScope.MemListPane(...)` 是合法的
+        #   扩展函数声明，但 `fun` 与函数名之间隔着接收者 —— 旧正则要求两者紧邻，
+        #   于是把 MemPage 抽出来的 MemListPane/MemGraphPane 全报成「无定义」。
+        #   `(?:\w+\.)?` 允许一个可选接收者前缀（`ColumnScope.` / `RowScope.` / `Modifier.` 等）。
         def_here = [f for f in where
                     if re.search(
-                        r"(?:object|class|interface|fun|val|var)\s+" + re.escape(name) + r"\b",
+                        r"(?:object|class|interface|fun|val|var)\s+(?:\w+\.)?"
+                        + re.escape(name) + r"\b",
                         code[f])]
         if def_here:
             continue

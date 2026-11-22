@@ -84,13 +84,13 @@ internal object ImportAssistantKit {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (iconRes != 0) {
-                        DhKit.Icon(iconRes, Design.SZ_MD, c.acc)
+                        DhKit.Icon(iconRes, Design.SZ_MD, c.sub)  // 强调色纪律：说明图标用中性色（原 c.acc）
                         Spacer(Modifier.width(12.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = tag,
-                            color = c.acc,
+                            color = c.sub,  // 强调色纪律：次要标签用中性色（原 c.acc）
                             fontSize = UiKit.FS_TINY.sp,
                             fontFamily = DhTokens.fontsBold,
                             fontWeight = FontWeight.Normal
@@ -161,7 +161,7 @@ internal object ImportAssistantKit {
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DhKit.Icon(iconRes, Design.SZ_SM, c.acc)
+                        DhKit.Icon(iconRes, Design.SZ_SM, c.sub)  // 强调色纪律：卡片标题前置图标用中性色（原 c.acc）
                         Spacer(Modifier.width(DhDesign.Space.sm.dp))
                         // E16-ALLOW: 卡片标题 `title`（"新手"/"高手"）：固定 2 字档位名
                         Text(
@@ -239,7 +239,11 @@ internal object ImportAssistantKit {
                     if (has) Icons.IC_CHECK_CIRCLE else Icons.IC_CIRCLE_ALERT,
                     Design.SZ_SM,
                     // 未设置用中性灰（R-064 / R-107），不用红色。
-                    if (has) c.acc else c.sub
+                    // 【一屏一色相·2026-11】上一轮我把完成态从 c.acc 改成 c.ok，
+                    //   等于给这一屏**又添了一个绿**（本页已有蓝 + 红=失败提示）。
+                    //   本文件的原意就是「这一栏不着色」：完成与否靠图标形状
+                    //   （CHECK_CIRCLE vs CIRCLE_ALERT）+ 槽位名表达，颜色不参与。
+                    c.sub
                 )
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 // E16-ALLOW: 槽位名 `label`（"站着的她"/"贴入瞬间"/"待机"）：ImportPlan.Slot 的固定枚举名，2~4 字
@@ -448,7 +452,11 @@ internal object ImportAssistantKit {
                 .fillMaxWidth()
                 .padding(top = DhDesign.Space.md.dp)
                 .clip(RoundedCornerShape(DhKit.R_ROW.dp))
-                .background(c.err.copy(alpha = 0.10f))
+                // 【彩色面积收敛】原先是 `err.copy(alpha=0.10)` 一层红雾底 + 红图标 + 红文字，
+                //   同一块区域**三种红叠加**。按 MAA / Bettbox 的做法，提示条用中性面承载，
+                //   语义只留给图标与文字（色相本身仍是信息，面不必也染）。
+                //   省下的不是"面积"（10% 透明红本就轻）而是**同一处重复上色**带来的浑浊感。
+                .background(c.soft)
                 .padding(DhKit.PAD_ROW.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -482,7 +490,8 @@ internal object ImportAssistantKit {
             DhKit.Icon(
                 if (has) Icons.IC_CHECK_CIRCLE else Icons.IC_CIRCLE_ALERT,
                 Design.SZ_SM,
-                if (has) c.acc else c.sub
+                // 【一屏一色相】同上：靠图标形状区分，不引入绿色
+                c.sub
             )
             Spacer(Modifier.width(DhDesign.Space.sm.dp))
             // E16-ALLOW: 步骤胶囊文字 `label`：定高药丸容器，2~4 字
@@ -727,7 +736,7 @@ internal object ImportAssistantKit {
                 modifier = Modifier.fillMaxWidth().pressable { open = !open },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DhKit.Icon(Icons.IC_RULER, Design.SZ_SM, c.acc)
+                DhKit.Icon(Icons.IC_RULER, Design.SZ_SM, c.sub)  // 强调色纪律：折叠卡标题图标用中性色（原 c.acc）
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 // E16-ALLOW: "大小检查"固定功能名 + 右侧数值：4 字标签行
                 Text(

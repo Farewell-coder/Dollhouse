@@ -27,6 +27,45 @@ chk() {
 QUIET="${QUIET:-0}"
 [ "${1:-}" = "--quiet" ] && QUIET=1
 
+# ─────────────────────────────────────────────────────────────────────────────
+# fn_body <文件> <函数名> —— 按**花括号配对**取出整个函数体（不依赖固定行窗）
+#
+# 【为什么不再用 `grep -A<n>`】B14 原先是 `grep -n 'fun swapPage' -A22`，
+#   B17 是 `-A12`。可是「函数体里有多少行」和「断言要找的那句在哪」之间没有契约：
+#   · swapPage：从 `fun` 到 `.withEndAction` 实际 28 行（窗 22）→ 假红；
+#   · setTextColorAnimated：到 `val va = ValueAnimator` 实际 15 行（窗 12）→ 假红。
+#   两处都是**代码合法增长**（加注释、加闸门、参数换行）导致的，功能一点没坏。
+#   固定行窗还有两个毛病：① 断言可能落在**下一个函数**里而误判为 PASS（假绿更糟）；
+#   ② 想让它变绿只要把语句挪远几行，等于用排版骗门禁。
+#   改成按结构取块后，这两类问题一起消失。
+#
+# 【边界】只处理**带花括号体**的函数。表达式体（`fun x() = expr`）不会进入深度计数，
+#   由 MAX 行兜底而不是读到文件尾 —— 真遇到必须在调用处另处理，别默默放宽。
+# ─────────────────────────────────────────────────────────────────────────────
+fn_body() {
+  awk -v name="$2" -v maxlines=400 '
+    !started {
+      # 匹配 `fun 名字(` 或 `fun 名字<泛型>(`；允许前面有 `@JvmStatic` 等修饰
+      if ($0 ~ ("fun[ \t]+" name "[ \t]*[(<]")) started = 1
+    }
+    started {
+      line = $0
+      print line
+      o = 0; c = 0
+      for (i = 1; i <= length(line); i++) {
+        ch = substr(line, i, 1)
+        if (ch == "{") o++
+        else if (ch == "}") c++
+      }
+      depth += o - c
+      if (o > 0) hasbrace = 1
+      n++
+      if (hasbrace && depth <= 0) exit      # 函数体收口，正常结束
+      if (n >= maxlines) exit               # 兜底：防表达式体一路读下去
+    }
+  ' "$1"
+}
+
 echo "===== 组 A：弹簧内核（A01–A20）====="
 chk A01 "Spring.kt 存在" "test -f $ANIM/Spring.kt"
 chk A02 "Spring 为纯数学（不引用 Android API）" "! grep -q '^import android' $ANIM/Spring.kt"
@@ -72,10 +111,12 @@ chk B11 "ProviderDetailPage 无遗留标记动画且底栏走统一 NavBar" \
   "! grep -q 'markerAnim' $UI/provider/ProviderDetailPage.kt && grep -q 'DhKit.NavBar' $UI/provider/ProviderDetailPage.kt"
 chk B12 "PetWindow 吸附动画句柄存在" "grep -q 'snapAnim' $PET/PetWindow.kt"
 chk B13 "closePage 对未挂载视图幂等" "grep -n 'fun closePage' -A8 $THEME/UiKit.kt | grep -q 'page.parent !is ViewGroup'"
-chk B14 "swapPage 用结束回调移除旧页" "grep -n 'fun swapPage' -A22 $THEME/UiKit.kt | grep -q 'withEndAction'"
+# 【B14】原为 `grep -A22`：实测 `fun swapPage`(2143) 到 `.withEndAction`(2171) 有 28 行，窗口不够 → 假红。
+chk B14 "swapPage 用结束回调移除旧页" "fn_body $THEME/UiKit.kt swapPage | grep -q 'withEndAction'"
 chk B15 "openPage 清理同 tag 旧页" "grep -n 'fun openPage' -A10 $THEME/UiKit.kt | grep -q 'findViewWithTag'"
 chk B16 "reveal/collapse 成对存在" "grep -q 'fun reveal' $THEME/UiKit.kt && grep -q 'fun collapse' $THEME/UiKit.kt"
-chk B17 "文字变色动画有句柄入口" "grep -n 'fun setTextColorAnimated' -A12 $THEME/UiKit.kt | grep -q 'val va = ValueAnimator'"
+# 【B17】原为 `grep -A12`：实测 `fun setTextColorAnimated`(2264) 到 `val va = ValueAnimator`(2279) 有 15 行 → 假红。
+chk B17 "文字变色动画有句柄入口" "fn_body $THEME/UiKit.kt setTextColorAnimated | grep -q 'val va = ValueAnimator'"
 chk B18 "硬编码 setDuration 已收口到 UiKit/widget" "test \$(grep -rn 'setDuration([0-9]' $SRC --include=*.kt | grep -v -e '/theme/' -e '/widget/' -e '/pet/' | wc -l) -eq 0"
 chk B19 "无裸 Interpolator 实例化（曲线一律走 UiKit.EASE_*）" "test \$(grep -rn 'Interpolator()' $SRC --include=*.kt | grep -v -e '/theme/UiKit.kt' -e 'setInterpolator' | wc -l) -eq 0"
 chk B20 "无裸 setVisibility(VISIBLE) 直切造成闪屏" "test \$(grep -rn 'visibility = View.VISIBLE' $SRC --include=*.kt | grep -v -e '/theme/' -e '/pet/' | wc -l) -le 6"

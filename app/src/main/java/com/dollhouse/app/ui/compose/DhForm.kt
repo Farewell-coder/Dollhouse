@@ -63,8 +63,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhField
 import com.dollhouse.app.ui.kit.dhFieldInset
+import com.dollhouse.app.ui.settings.SettingsSpot
+import com.dollhouse.app.ui.settings.SettingsSpots
 import com.dollhouse.app.ui.theme.UiKit
-import com.dollhouse.app.ui.theme.Design
 
 /** 紧凑尾部图标的视觉尺寸（dp）：与正文行高相当，不会撑高输入框。 */
 private const val TRAILING_VISUAL_DP = 22
@@ -164,7 +165,24 @@ object DhForm {
          * 【为什么两条分支都要转发】空文本走 [DhField]、带 trailing 走 [LegacyInput]，
          *   只改一条会留下「同一个框有时有名有时没名」的坑。
          */
-        a11yName: String? = null
+        a11yName: String? = null,
+        /**
+         * 【P1-e·设置索引】设置项登记。传了就由索引表提供**标签文字**（见 [SettingsSpots.spotTitle]）。
+         *
+         * 【为什么加在末位】`onValueChange` 是第 2 个参数、不在末位，本函数**没有**
+         *   尾随 lambda 的调用写法。55 个调用点里：
+         *     · 45 处全部具名传参
+         *     · 10 处用了位置参数，但**最多只用到第 2 位**（如
+         *       `Input(name, { name = it }, label = ...)`）
+         *   追加在末位对这两类都零影响 —— 它带默认值，且没有任何调用点会把实参
+         *   传到第 13 位。
+         *
+         * 【只影响 label 的显示文字】不改无障碍派生顺序：`effectiveA11y` 仍优先用
+         *   显式 `a11yName` → `label` → `hint`。传了 spot 时，下方 `FieldLabel` 读
+         *   `spotTitle(spot, label)`，与无障碍名可能不同源 —— 这是有意的：
+         *   spot 的 title 是**搜索索引的规范名**，无障碍名更应反映当前上下文。
+         */
+        spot: SettingsSpot? = null
     ) {
         /*
          * 【P0-2·无障碍：a11yName 为空时自动从 label / hint 派生】
@@ -232,7 +250,9 @@ object DhForm {
                 trailing = trailing,
                 compactTrailing = compactTrailing,
                 // 【P0-2】传派生值而不是原始 a11yName —— 否则带 trailing 的框仍然无名。
-                a11yName = effectiveA11y
+                a11yName = effectiveA11y,
+                // 【P1-e】spot 同样必须透传：本分支自己也画 FieldLabel（见下方 FieldLabel 调用）。
+                spot = spot
             )
             return
         }
@@ -241,7 +261,8 @@ object DhForm {
             //   （见 Components.kt 的导出清单）。40 处调用点靠 label 表达字段名，
             //   删掉就等于丢功能，故由本层原样补上，措辞与字号沿用既有口径。
             if (!label.isNullOrEmpty()) {
-                FieldLabel(label)
+                // 【P1-e】传了 spot 就用索引表的规范标题，否则沿用 label 实参。
+                FieldLabel(SettingsSpots.spotTitle(spot, label))
             }
             DhField(
                 value = value,
@@ -312,7 +333,17 @@ object DhForm {
          */
         compactTrailing: Boolean = false,
         /** 无障碍名；语义同 [Input] 的 a11yName（两条渲染路径都要能设，否则会漏一半）。 */
-        a11yName: String? = null
+        a11yName: String? = null,
+        /**
+         * 【P1-e·设置索引】设置项登记；语义同 [Input] 的 spot。
+         *
+         * 【必须与 a11yName 同一口径】本函数是 [Input] 的分派目标之一
+         *   （`trailing != null` 的 6 处走这里）。它自己也画 [FieldLabel]，
+         *   所以 index 标题同样要从这里透传 —— 否则「带尾部图标的框」与
+         *   「其余 47 处」的标签来源不同源，正是 a11yName 注释里说过的
+         *   「两条渲染路径都要能设，否则会漏一半」同款缺陷。
+         */
+        spot: SettingsSpot? = null
     ) {
         val a11y = a11yName
         val c = DhTokens.colors
@@ -349,7 +380,8 @@ object DhForm {
         Column(modifier = modifier.fillMaxWidth()) {
             if (!label.isNullOrEmpty()) {
                 // 与分派器共用同一个标签构件，保证「有 / 无尾部图标」两种框的标签位置一致。
-                FieldLabel(label)
+                // 【P1-e】传了 spot 就用索引表的规范标题。
+                FieldLabel(SettingsSpots.spotTitle(spot, label))
             }
             BasicTextField(
                 value = value,
@@ -477,7 +509,15 @@ object DhForm {
         hint: String = "",
         /** 【P0-2】同 [Input]：显式优先，其次 label，再次 hint。 */
         a11yName: String? = null,
-        minHeight: Int = 96
+        minHeight: Int = 96,
+        /**
+         * 【P1-e·设置索引】设置项登记；语义同 [Input] 的 spot。
+         *
+         * 【为什么本函数也要有】它自己也画标签（内联 Text，不是 [FieldLabel]）。
+         *   不加的话「多行框」这一族永远拿不到索引标题，与 [Input] / [LegacyInput]
+         *   三条路径里唯一漏掉的 —— 同 `a11yName` 的教训。
+         */
+        spot: SettingsSpot? = null
     ) {
         val c = DhTokens.colors
         // 【P0-2·派生规则与 Input 完全一致】见 [Input] 的详细说明。
@@ -493,7 +533,8 @@ object DhForm {
             if (!label.isNullOrEmpty()) {
                 // E16-ALLOW: FieldLabel 的字段名，同 :269 的单行固定词
                 Text(
-                    text = label,
+                    // 【P1-e】传了 spot 就用索引表的规范标题。
+                    text = SettingsSpots.spotTitle(spot, label),
                     modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 4.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,
@@ -656,7 +697,7 @@ object DhForm {
         Text(
             text = text,
             modifier = modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
                 .background(bg)
                 .padding(horizontal = DhDesign.Space.sm.dp, vertical = 3.dp),
             color = fg,
@@ -733,35 +774,25 @@ object DhForm {
         iconRes: Int = 0,
         onClick: (() -> Unit)? = null
     ) {
-        val c = DhTokens.colors
-        val base = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(c.card)
-            .border(1.dp, c.line, RoundedCornerShape(999.dp))
-            .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
-            .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
-        if (iconRes == 0) {
-            // E16-ALLOW: OutlineChip（无图标分支）药丸文字，同 :658
-            Text(
-                text = text,
-                modifier = base,
-                color = c.title,
-                fontSize = UiKit.FS_CHIP.sp,
-                fontFamily = DhTokens.fonts
-            )
-        } else {
-            Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
-                DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
-                Spacer(Modifier.width(5.dp))
-                // E16-ALLOW: OutlineChip（带图标分支）药丸文字，与 :724 同一容器
-                Text(
-                    text = text,
-                    color = c.title,
-                    fontSize = UiKit.FS_CHIP.sp,
-                    fontFamily = DhTokens.fonts
-                )
-            }
-        }
+        // 【P1-b·合并同名组件】全仓曾有**两个都叫 `OutlineChip`** 的实现：
+        //   · 本函数（DhForm）：`card` 实底 + `1dp` 硬描边
+        //   · `DhKit.OutlineChip`：`cardUp` 底 + 上下明暗渐变的**体积**、无描边
+        //   同名、同尺寸、同 padding、同字号，但一个是硬边一个是柔和块 ——
+        //   用户在不同页面看到的是两种东西（审查报告列为「严重」级不一致）。
+        //
+        //   现统一转发到 [DhKit.OutlineChip]（体积版）。选它而非留本实现，理由：
+        //     · 它有 8 个调用点（本函数只有 3 个），改动面更小
+        //     · 它的注释明确记录了「去硬描边」是**有意为之**（柔和明暗体系下硬边显薄）
+        //     · 它多一个 `selected` 参数，能力更强
+        //
+        //   【视觉会变】原 3 处调用点从「实底 + 细描边」变为「渐变体积、无描边」。
+        //   这是本轮**唯一**有视觉变化的改动，语义与尺寸完全不变。
+        DhKit.OutlineChip(
+            text = text,
+            modifier = modifier,
+            iconRes = iconRes,
+            onClick = onClick
+        )
     }
 
     /** 主色药丸（行内主操作）。← `UiKit.primaryChip`（实色 acc + ON_ACC 字）。 */
@@ -777,7 +808,7 @@ object DhForm {
             modifier = modifier
                 .softRaised(
                     base = c.acc,
-                    shape = RoundedCornerShape(999.dp),
+                    shape = RoundedCornerShape(DhDesign.Radius.pill.dp),
                     pressed = false,
                     dark = dark
                 )
@@ -819,7 +850,9 @@ object DhForm {
         val c = DhTokens.colors
         val bg = when (state) {
             SubmitState.ERROR -> c.err
-            SubmitState.SUCCESS -> c.acc
+            // 【语义归位】成功态用「成功色」而非品牌强调色：强调色只给主操作/选中/链接/危险，
+            //   「提交成功」是状态。工程里已有 3 处 `c.ok` 用于完成/勾选（ModelListPage 等）。
+            SubmitState.SUCCESS -> c.ok
             else -> c.acc
         }
         // 【形态对齐设计稿】设计稿 §3「Buttons — one height, 44dp」+ 12 圆角。
@@ -1176,7 +1209,7 @@ object DhForm {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                     // 【r13 修 bug·弹窗文字与背后重叠】弹窗底走 sheet 一档：默认**不透明**，
                     //   质感由「外观 → 磨砂程度」控制。原来走 c.card，会跟着卡片透明度
                     //   一起变半透明，用户把卡片调透之后弹窗与背后正文叠成一片。
@@ -1334,7 +1367,7 @@ object DhForm {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
                     // 【r13】弹窗底走 sheet：默认不透明 + 磨砂质感（见 UiKit.sheet()）。
                     //   【r15·修】与 Alert 同一份取色：dialogSheet() 会再过一道「弹窗透明度」。
                     .background(dialogSheet())

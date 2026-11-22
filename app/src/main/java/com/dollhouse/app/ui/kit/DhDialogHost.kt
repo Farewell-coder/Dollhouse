@@ -18,10 +18,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
@@ -196,15 +196,14 @@ object DhDialogHost {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // 【e2·确认框同为浮层】与菜单纸张同一档：先 shadow 再 clip，
-                //   形状共用同一个变量，保证阴影不露出直角。
-                .shadow(
-                    elevation = DhDesign.Elevation.e2,
-                    shape = shape,
-                    clip = false
-                )
+                // 【0 阴影 + 发丝线·2026-11】投影删除，改由 1dp line 描边承担边界。
+                //   层级感由**窗口遮罩**（dimAmount 0.32，见 show() 里的 setDimAmount）
+                //   与这条线共同承担：遮罩把背后内容压暗，线把纸张边缘从暗下来的底上勾出来。
+                //   单靠 0.32 的轻遮罩不够 —— 浅色档下纸张与底色接近时会「贴」在页面上，
+                //   所以不能只删影不补线（MAA 的 0 阴影 + 0.5dp 发丝线同一路数）。
                 .clip(shape)
                 .background(p.sheet)
+                .border(DhDesign.Size.hairline, p.line, shape)
                 .padding(DhDesign.Space.xl.dp)
         ) {
             Text(text = title, color = p.title, style = t.section)
@@ -265,10 +264,11 @@ object DhDialogHost {
             dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
             val installed = ComposeHost.installForDialog(dlg)
             owner = installed
-            // 【e2 阴影留白】浮层要投影就必须在窗口边界内留出余量，否则阴影会被窗口裁掉。
-            //   这里给四周各留 e2 的宽度，并把窗口同量加宽 —— 两者相抵，
-            //   纸张的**视觉宽度与改造前完全一致**，只是外面多了一圈透明可投影区。
-            val shadowRoom = DhDesign.Elevation.e2
+            // 【阴影留白已取消】原实现为 e2(16dp) 投影在窗口内预留四周余量，
+            //   并把窗口同量加宽（两者相抵，纸张视觉宽度不变）。
+            //   投影删除后**不能再留这圈余量**：它会让纸张四周多出 16dp 透明边，
+            //   看起来比其它弹层窄一圈、位置也偏。置 0 后纸张贴回它该有的几何。
+            val shadowRoom = 0.dp
             val cv = ComposeHost.createView(act) {
                 Box(modifier = Modifier.padding(shadowRoom)) {
                     content { dismissCurrent() }
@@ -375,17 +375,13 @@ object DhDialogHost {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // 【e2·菜单属于真正的浮层】设计稿「阴影只留给真正的浮起层」——
-                //   菜单纸张压在整个页面之上，是这套层级里唯一该投影的形态之一。
-                //   先 shadow 再 clip：反过来剪完再投影会被裁掉，阴影看不见。
-                //   形状必须与下面的 clip 完全一致，否则阴影会露出圆角外的直角。
-                .shadow(
-                    elevation = DhDesign.Elevation.e2,
-                    shape = shape,
-                    clip = false
-                )
+                // 【0 阴影 + 发丝线·2026-11】菜单纸张压在整个页面之上，确实是「真正的浮层」，
+                //   但**浮层 ≠ 必须投影**：层级由窗口遮罩（dim 0.32）+ 这条 1dp 线表达，
+                //   与确认框同一口径。去掉的是 16dp 模糊光晕（「老旧感」的主要来源），
+                //   留下的是更干净的边界。clip / border 共用同一 shape，边缘无直角。
                 .clip(shape)
                 .background(p.sheet)
+                .border(DhDesign.Size.hairline, p.line, shape)
                 .padding(
                     start = DhDesign.Space.lg.dp + 2.dp,
                     end = DhDesign.Space.lg.dp + 2.dp,

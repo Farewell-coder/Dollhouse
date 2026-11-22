@@ -224,7 +224,8 @@ object DollEditScreen {
         DhKit.ActionRow(
             label = "动作",
             iconRes = Icons.IC_BLOCKS,
-            desc = "这只人偶的全部动画，可预览每一帧、改名、调速"
+            // 【P1-e】功能清单属可选了解，折叠后行更紧凑。
+            info = "这只人偶的全部动画，可预览每一帧、改名、调速"
         ) { DollActionPage.open(act, id) }
         DhKit.ActionRow(
             label = "操作",
@@ -364,7 +365,8 @@ object DollEditScreen {
         DhKit.ActionRow(
             label = "初始位置",
             iconRes = Icons.IC_CROSSHAIR,
-            desc = "她每次出现时站在哪儿；也能随时把她叫回去",
+            // 【P1-e】行为说明，属可选了解。
+            info = "她每次出现时站在哪儿；也能随时把她叫回去",
             trailing = if (hasHome) "已设置" else "未设置"
         ) {
             val ok = DollHomeOverlay.show(act, id) { homeTick++ }

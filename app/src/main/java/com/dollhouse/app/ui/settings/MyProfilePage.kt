@@ -247,7 +247,8 @@ object MyProfilePage {
                     }
                 },
                 label = "昵称",
-                hint = MyProfile.DEFAULT_NAME
+                hint = MyProfile.DEFAULT_NAME,
+                spot = spot("profile.name")
             )
             DhForm.Note("留空就用「" + MyProfile.DEFAULT_NAME + "」，最多 " + MyProfile.NAME_MAX + " 个字。")
 
@@ -261,6 +262,7 @@ object MyProfilePage {
                 },
                 label = "个性签名",
                 hint = "一句话介绍自己",
+                spot = spot("profile.signature"),
                 trailing = {
                     // E16-ALLOW: 字数计数（"3/40"）：数字与斜杠，单行
                     Text(

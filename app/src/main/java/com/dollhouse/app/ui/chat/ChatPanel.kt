@@ -2465,6 +2465,12 @@ class ChatPanel(
     }
 
     private fun setWaiting(z: Boolean) {
+        // 【P2-c·读屏播报的唯一信号】只有 true→false 的跳变才 +1。
+        //   这样"一轮生成结束"是个精确的、只发生一次的事件：与 flushStream 跑多少次
+        //   （每 60ms 一次）、用户切多少次会话都无关。
+        if (waiting && !z) {
+            ChatState.replyTick = ChatState.replyTick + 1
+        }
         waiting = z
         ChatState.waiting = z
     }

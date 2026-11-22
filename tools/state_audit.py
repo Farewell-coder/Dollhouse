@@ -171,6 +171,21 @@ def scan():
         for name, start, body in fun_bodies(src):
             if "DhState" in body:
                 continue
+            # 【弹窗内提示 ≠ 页面级空态】2026-11 新增。
+            #   触发样本：MemPage.MemEditDialog()（新建/编辑记忆的表单弹窗）里的
+            #     if (linked.isEmpty()) DhForm.Note("还没有关联。…")
+            #   这类「表单/弹窗里的一句话提示」不是空态骨架：它没有图标座、没有大留白，
+            #   也不需要 DhState 那种居中 + 56dp 图标 + vertical 32dp 的整页结构。
+            #   硬套 DhState 反而会把弹窗撑高（同文件 folders 空态的注释就记录了这一点：
+            #   「直接塞进 Alert 会把对话框撑得很高（它原本只有一行小字）」）。
+            #   判据按**容器形态**而不是文案：函数体是弹窗（名字含 Dialog/Sheet，
+            #   或体内起了 DhForm.Alert / AppDialog / Compose Dialog）就不按空态审计。
+            #   页面级空态不受此规则影响（它们的函数名不含 Dialog，体内也没有 Alert）。
+            is_dialog = bool(re.match(r"\w*(Dialog|Sheet|Popup)$", name)) or bool(
+                re.search(r"\bDhForm\.Alert\s*\(|\bAppDialog\.|\bDialog\s*\(\s*onDismissRequest", body)
+            )
+            if is_dialog:
+                continue
             # 函数名只作报告提示，不参与判定（见上方注释）。
             name_hint = "函数名 " + name + "（未用 DhState）" if re.match(
                 r"^(EmptyState|Empty|EmptyBox|NoData|Placeholder)$", name
