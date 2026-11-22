@@ -66,7 +66,8 @@ import com.dollhouse.app.ui.theme.UiKit
  * DhInfoText(text = "背景图不透明度　（图偏淡，文字最稳）", expanded = expanded.value)
  * ```
  *
- * 也可以用 [DhInfoSection] 一次画完「标题 + 问号 + 可展开说明」。
+ * （注：早期版本还有一个 `DhInfoSection` 便捷重载，因零调用已删除 ——
+ *   试点处都是手拼 `DhInfoToggle` + `DhInfoText` 两件，那份重载没人用。）
  */
 
 /**
@@ -96,16 +97,42 @@ fun rememberInfoExpanded(key: String): MutableState<Boolean> =
  * 【无障碍】默认名随 [expanded] 变化（「展开说明」/「收起说明」），
  * 读屏用户能听出「现在点会发生什么」，而不是笼统一个「按钮」。
  *
+ * ## ⚠️ `onToggle` 为什么在**末位**（改签名的理由，别改回去）
+ *
+ * Kotlin 的尾随 lambda **只能绑到最后一个参数**。本函数最初的签名是
+ * `(expanded, onToggle, modifier, a11yName)` —— `onToggle` 在第 2 位、
+ * `a11yName: String?` 占着末位，于是 `DhInfoToggle(x) { ... }` 里的 lambda
+ * 会被编译器绑到 **`a11yName`（String?）** 上，报类型不匹配。
+ *
+ * 这个坑在一天内出现 **3 次**（`AppearancePage` 两处、`Components.kt` 一处）——
+ * 每次都要有人改成显式 `onToggle = { ... }` 才能过。**那不是写代码的人错，
+ * 是签名违背了 Kotlin 惯例**：凡是「单个回调」的 Composable，回调就该在末位。
+ *
+ * 【为什么选改签名，而不是加一个尾随 lambda 重载】
+ *   加重载只是多一条**能走通的路**，原来那条错签名还在 —— 后来的人照着旧签名写
+ *   照样踩。改签名则是让**唯一的那条路**就是对的：`DhInfoToggle(x) { }` 天然可用，
+ *   写 `onToggle = {...}` 也照样合法（具名传参永远有效）。
+ *   一次改动，永久消除这个坑。
+ *
+ * 【对既有调用点的影响】0 —— 全仓 3 处调用**全部是具名传参**（`onToggle = {...}`），
+ *   参数顺序调整不影响具名调用。改完后三种写法都成立：
+ *   ```kotlin
+ *   DhInfoToggle(expanded = e) { ... }              // 尾随 lambda（推荐，最 Kotlin）
+ *   DhInfoToggle(expanded = e, onToggle = { ... })  // 具名
+ *   DhInfoToggle(e, Modifier, null) { ... }         // 位置参数 + 尾随
+ *   ```
+ *
  * @param expanded 当前是否展开
- * @param onToggle 点击回调
+ * @param modifier 外部修饰符（尺寸/间距）
  * @param a11yName 覆盖默认无障碍名（一般不需要传）
+ * @param onToggle 点击回调。**必须在末位** —— 见上方说明，这是本函数最容易踩的坑。
  */
 @Composable
 fun DhInfoToggle(
     expanded: Boolean,
-    onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    a11yName: String? = null
+    a11yName: String? = null,
+    onToggle: () -> Unit
 ) {
     val c = DhTokens.colors
     val name = a11yName ?: if (expanded) "收起说明" else "展开说明"
