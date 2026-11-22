@@ -798,7 +798,7 @@ class DesignScreenshotTest {
                 fontFamily = DhTokens.fontsBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = DhDesign.Space.sm.dp, top = DhDesign.Space.sm.dp)
+                modifier = Modifier.padding(start = DhDesign.Space.sm.dp, end = DhDesign.Space.sm.dp, top = DhDesign.Space.sm.dp)
             )
             Text(
                 text = desc,
@@ -807,7 +807,7 @@ class DesignScreenshotTest {
                 fontFamily = DhTokens.fonts,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
+                modifier = Modifier.padding(start = DhDesign.Space.sm.dp, end = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
             )
         }
     }

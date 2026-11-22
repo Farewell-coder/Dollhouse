@@ -70,8 +70,17 @@ object BottomNav {
      * 【M3 为什么从 62 改成 64】设计稿 §2.2 把 bottom nav 定为 64dp，与顶栏 56dp 组成
      *   「56 + 64」的固定节奏。62 这个值既不来自任何刻度，也让「内容区可用高度」
      *   在不同 Tab 之间差 2dp —— 用户能感觉到列表底部留白有点不一样。
+     *
+     * 【单一真源·2026-11】数值不再写在这里，改从 [DhDesign.Size.navBarH] 派生。
+     *   改造前这两处各写一个 64：token 零引用、本常量 7 处使用，改一处漏一处就是
+     *   「底栏长高了、内容区还按旧高度避让」这类不崩但看得出的错位。
+     *   【为什么保留这个名字】`BottomNav.HEIGHT_DP` 有 7 处调用方
+     *   （ChatListScreen / ContactScreen / ComingSoonPage / SocialPage 的底部避让），
+     *   改名等于让 7 处跟着动；这里只换「值从哪来」，对外 API 不动。
+     *   【为什么 `const` 改成 `val`】`const` 只能接编译期常量，拿不到 token 的 `.value`。
+     *   7 处调用都写作 `HEIGHT_DP.dp`，`val Int` 一样成立。
      */
-    const val HEIGHT_DP = 64
+    val HEIGHT_DP: Int = DhDesign.Size.navBarH.value.toInt()
 
     /**
      * 底栏本体。
