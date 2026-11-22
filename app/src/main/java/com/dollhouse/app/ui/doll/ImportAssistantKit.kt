@@ -239,7 +239,11 @@ internal object ImportAssistantKit {
                     if (has) Icons.IC_CHECK_CIRCLE else Icons.IC_CIRCLE_ALERT,
                     Design.SZ_SM,
                     // 未设置用中性灰（R-064 / R-107），不用红色。
-                    if (has) c.ok else c.sub  // 语义归位：完成态属「成功」，不占品牌强调色
+                    // 【一屏一色相·2026-11】上一轮我把完成态从 c.acc 改成 c.ok，
+                    //   等于给这一屏**又添了一个绿**（本页已有蓝 + 红=失败提示）。
+                    //   本文件的原意就是「这一栏不着色」：完成与否靠图标形状
+                    //   （CHECK_CIRCLE vs CIRCLE_ALERT）+ 槽位名表达，颜色不参与。
+                    c.sub
                 )
                 Spacer(Modifier.width(DhDesign.Space.sm.dp))
                 // E16-ALLOW: 槽位名 `label`（"站着的她"/"贴入瞬间"/"待机"）：ImportPlan.Slot 的固定枚举名，2~4 字
@@ -486,7 +490,8 @@ internal object ImportAssistantKit {
             DhKit.Icon(
                 if (has) Icons.IC_CHECK_CIRCLE else Icons.IC_CIRCLE_ALERT,
                 Design.SZ_SM,
-                if (has) c.ok else c.sub  // 语义归位：同上
+                // 【一屏一色相】同上：靠图标形状区分，不引入绿色
+                c.sub
             )
             Spacer(Modifier.width(DhDesign.Space.sm.dp))
             // E16-ALLOW: 步骤胶囊文字 `label`：定高药丸容器，2~4 字

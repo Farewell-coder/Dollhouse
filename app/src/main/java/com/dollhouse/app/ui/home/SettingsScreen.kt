@@ -549,8 +549,11 @@ object SettingsScreen {
             )
 
             if (message.isNotEmpty()) {
+                // 【一屏一色相·2026-11】成功态不再染绿：文案已经写明「备份完成」，
+                //   颜色是装饰。沿用 PARTIAL 的中性先例，**只有失败才染色**——
+                //   这样设置页的色相从 3（蓝/绿/红）降到 2（蓝 + 失败红）。
                 DhForm.Note(message, color = when (msgKind) {
-                    BackupMsgKind.OK -> DhTokens.colors.ok
+                    BackupMsgKind.OK -> DhTokens.colors.sub
                     BackupMsgKind.PARTIAL -> DhTokens.colors.sub
                     // NONE 时 message 必为空（不会走到这里）；兜底按错误色，宁可显眼。
                     BackupMsgKind.ERR, BackupMsgKind.NONE -> DhTokens.colors.err

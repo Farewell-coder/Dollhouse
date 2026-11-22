@@ -163,11 +163,37 @@ object ChatUi {
         //   卡片类控件的描边（如 `ChatListScreen` 的条目）不受影响，那一处语义正确。
         Column(modifier = Modifier.fillMaxSize()) {
             TopBarRow(host)
-            HintBar(host)
-            Messages(host, Modifier.weight(1f))
-            AttachStrip(host)
-            ToolRow(host)
-            InputRow(host)
+            // 【背景图可读性·玻璃底】正文区整块铺一层雾面，从 HintBar 一直到输入行。
+            //
+            // 【为什么整块铺、不逐处加底】本页在照片上裸着的不止消息流：`ToolRow` 的三枚
+            //   图标按钮（`c.title`/`c.sub`）、`AttachStrip` 的标注、输入行的辅助文字
+            //   都直接压在图上。逐处加底会把这条连续的面拆成一堆小卡片 ——
+            //   `readableSheet` 的文档里已写明这个取舍（「逐行加底会把它变回一堆互不相干的小卡片」）。
+            //
+            // 【为什么不铺到整个 Column】顶栏 `TopBarRow` 自己已有 `photoTopBand`
+            //   （BG@88% + 底边渐隐）。再叠一层 SOFT@88% 只是把带子变成全不透明、
+            //   并且吃掉它那条渐隐 —— 让带子保持原样，正文从它下面接过来才对。
+            //
+            // 【cornerDp = 0】全屏面板（窗口自己裁 16dp），面板再收圆角会在四角漏出照片三角 ——
+            //   与 `photoTopBand(onPhoto, cornerDp = 0)` 同一条理由。
+            //
+            // 【实测·最坏情况（纯黑照片、图 92%、遮罩 0）】
+            //   裸在图上：TITLE 1.60 / SUB 3.44 / ACC 4.03
+            //   本玻璃底（SOFT@88%）后：TITLE 7.94 / SUB 3.69 / ACC 3.15
+            //   ⇒ 深色字（TITLE）受益最大（1.60 → 7.94）；中间调（SUB/ACC）**单靠玻璃底
+            //     到不了 AA**，还要配 `subOnPhoto`，本页顶栏状态行已是这个组合。
+            val onPhoto = DhKit.hasPhotoBackdrop()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .readableSheet(onPhoto, fill = Color(UiKit.SOFT), cornerDp = 0)
+            ) {
+                HintBar(host)
+                Messages(host, Modifier.weight(1f))
+                AttachStrip(host)
+                ToolRow(host)
+                InputRow(host)
+            }
         }
     }
 
@@ -666,38 +692,16 @@ object ChatUi {
         //   `气泡内 4 < 同角色 6 < 换人 8`，用户靠间距差分辨「同一人连说」与「换人」。
         //   6dp 不是设计令牌档位（Space 只有 4/8/12…），故显式写 6 —— 它只在紧凑档出现。
         val compact = LocalCompactHeight
-        // 【背景图可读性·玻璃底】消息流是聊天页面积最大的一块，之前**完全裸在背景图上**：
-        //   气泡自己有底，但日期 / 「加载更早」药丸之外的行间、以及滚动到任意位置时的
-        //   整体底子都是照片本身。用户报的「加了背景之后容易字看不清」就落在这里。
-        //
-        //   【为什么复用它而不是新写一层 background】`readableSheet` 是本工程既有的
-        //   「正文区雾面」构件（`ChatListScreen` / `SocialPage` 的列表已用它），
-        //   默认 alpha = TOP_BAND_ALPHA(0.88)、顶部 12dp 渐隐、有图才画、无图原样返回 this。
-        //   与顶栏带同款浓淡，本页两块雾面才连得起来；自己另写一层 82% 会多出第二套观感。
-        //
-        //   【实测为什么是 88% 而不是 82%】最坏情况（纯黑照片、图不透明度 92%、遮罩 0）：
-        //     只用 SUB 字色：82% → 3.23、88% → 3.69（**都不到 AA 4.5**）
-        //     SUB 换成 subOnPhoto（页面底上 6.5:1）：82% → 4.56（余量只剩 0.06）、88% → 5.21
-        //   即「玻璃底」单独够不到 AA，必须与压图专用字色**一起**用 —— 本页顶栏那条
-        //   状态行（`:392` 的「正在回复…/在线」）已经是这个组合。气泡与药丸自带底色，不受影响。
-        //
-        //   【cornerDp = 0】本页是全屏面板（窗口本身裁 16dp 圆角），面板再收圆角会
-        //   在四个角漏出照片的三角 —— 与顶栏带 `photoTopBand(onPhoto, cornerDp = 0)`
-        //   同一条理由。
-        val onPhoto = DhKit.hasPhotoBackdrop()
+        // 【背景图可读性】玻璃底已上移到 [ChatContent] 的正文 Column（覆盖 HintBar /
+        //   消息流 / AttachStrip / ToolRow / InputRow），本列表自身不再单独铺一层 ——
+        //   铺两层会在消息流边界多出一圈浓淡台阶。见 ChatContent 里的注释。
         val padV = if (compact) DhDesign.Space.xs.dp else DhDesign.Space.sm.dp
         LazyColumn(
             state = listState,
-            modifier = modifier
-                .fillMaxWidth()
-                .readableSheet(onPhoto, fill = Color(UiKit.SOFT), cornerDp = 0),
+            modifier = modifier.fillMaxWidth(),
             contentPadding = PaddingValues(
-                start = DhDesign.Space.lg.dp,
-                end = DhDesign.Space.lg.dp,
-                // 【配套约定】`readableSheet` 顶部 12dp 是渐隐区，首条消息不能落在里面
-                //   （与顶栏带「渐隐那几 dp 由调用方补进 padding」同一条约定）。
-                top = padV + (if (onPhoto) DhKit.TOP_BAND_FADE_DP.dp else 0.dp),
-                bottom = padV
+                horizontal = DhDesign.Space.lg.dp,
+                vertical = padV
             ),
             verticalArrangement = Arrangement.spacedBy(
                 if (compact) 6.dp else DhDesign.Space.sm.dp

@@ -2197,7 +2197,20 @@ object DhKit {
                     //   文字居中显示，短词永远不会被压成省略号。
                     modifier = Modifier.weight(1f),
                     color = c.title,
-                    fontSize = UiKit.FS_BTN.sp,
+                    // 【P1-b·字号收敛 15 → 12】改造前这里是 `FS_BTN`=15sp，**全 chip 家族最大**
+                    //   （Chip / PrimaryChip / OutlineChip / SelectChip 全是 12sp）。
+                    //   它叫 "Mini" 却最大，是审查报告列为「严重」的命名与实质矛盾。
+                    //
+                    //   【为什么降字号能顺带把高度带到目标档】本 chip 是 padding 撑高
+                    //   （vertical 9×2 固定），文字行高从 ≈18dp 降到 ≈14.4dp，
+                    //   整颗高度自然从 ≈36 降到 **≈32.4** —— 正好落在「按钮式 chip = 32dp」。
+                    //   所以本批只改字号、**padding 不动**，高度收敛是它的副作用，不是额外改动。
+                    //
+                    //   【padding 会显空吗】垂直 padding 占高度的比例 50% → 56%，
+                    //   视觉上留白略多一档，但仍在 chip 的合理区间（26dp 的 kit.DhChip
+                    //   该比例是 62%）。若真机上偏空，下一批把 vertical 从 9 调到 8 即可
+                    //   （高度 → 30.4，占比 → 47%）。
+                    fontSize = UiKit.FS_CHIP.sp,
                     fontFamily = DhTokens.fontsBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -2207,15 +2220,6 @@ object DhKit {
         }
     }
 
-    /**
-     * 悬浮窗底栏上的「图标 + 文字」按钮（[com.dollhouse.app.pet.DollRangeOverlay] /
-     * [com.dollhouse.app.pet.DollHomeOverlay] 共用）。
-     *
-     * 【为什么提到这里】r12 两个悬浮窗各写了一份**完全相同**的私有实现，
-     *   且字号写成 `13.sp` —— 那是全仓唯一的非标按钮字号（本工程只有
-     *   [UiKit.FS_CHIP]=12 与 [UiKit.FS_BTN]=15 两档）。同一层级的按钮视觉重量不一致，
-     *   正是「看着毛」的来源；收口到一处后不会再分叉。
-     *
     /**
      * 悬浮窗里的圆形图标按钮（52dp）。
      *
@@ -2254,6 +2258,15 @@ object DhKit {
         }
     }
 
+    /**
+     * 悬浮窗底栏上的「图标 + 文字」按钮（[com.dollhouse.app.pet.DollRangeOverlay] /
+     * [com.dollhouse.app.pet.DollHomeOverlay] 共用）。
+     *
+     * 【为什么收口到一处】r12 两个悬浮窗各写了一份**完全相同**的私有实现，
+     *   且字号写成 `13.sp` —— 那是全仓唯一的非标按钮字号（本工程只有
+     *   [UiKit.FS_CHIP]=12 与 [UiKit.FS_BTN]=15 两档）。同一层级的按钮视觉重量不一致，
+     *   正是「看着毛」的来源；收口到一处后不会再分叉。
+     *
      * 【尺寸】图标走 [Design.SZ_MD]，文字走 [UiKit.FS_CHIP]，与既有药丸同族。
      */
     @Composable
