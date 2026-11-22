@@ -2,6 +2,7 @@ package com.dollhouse.app.ui.doll
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.MainActivity
@@ -29,12 +31,14 @@ import com.dollhouse.app.data.ImportSource
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.kit.DhLoadingState
 import com.dollhouse.app.ui.kit.LoadingState
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.UiKit
 import java.io.File
 
 /**
@@ -94,7 +98,7 @@ object ImportAssistantPage {
     @JvmStatic
     fun open(act: MainActivity) {
         PageStack.push(act, PREFIX) {
-            ComposeHost.createView(act) { Content(act) }
+            ComposeHost.createView(act) { Root(act) }
         }
     }
 
@@ -102,7 +106,44 @@ object ImportAssistantPage {
     @JvmStatic
     fun buildPage(act: MainActivity): android.view.View {
         ComposeHost.installForActivity(act)
-        return ComposeHost.createView(act) { Content(act) }
+        return ComposeHost.createView(act) { Root(act) }
+    }
+
+    /**
+     * 导入助手的**整页玻璃底**（压图可读性）。
+     *
+     * 【为什么挂在这一层，而不是逐行给 Note 铺底】本页是**六步向导**（CHOOSE / NOVICE_PICK /
+     *   ARTIST / REVIEW / PREVIEW / DONE），每一步都是独立的 `DhKit.Page`，全页共 **26 行**
+     *   `DhForm.Note` 的说明文字直接压在背景图上。逐行铺底 = 26 块玻璃板；
+     *   挂在这一层 = **1 处覆盖全部 26 行**，与 `ChatListScreen` / `SocialPage` 同一构件、
+     *   同一 0.88 档。
+     *
+     * 【为什么新增这一层 Root 而不是把 Box 塞进 Content】`Content` 有两个调用点
+     *   （`open()` 与 `buildPage()`，页面栈重建时走后者）—— 改一处漏一处的经典形态。
+     *   收成一个 `Root` 后，两个入口自动同形。
+     *
+     * 【fadeDp 契约怎么处理的】`readableSheet` 顶部 12dp 是渐隐区，调用方通常要把它补进
+     *   `contentPadding`。**本页不需要补**，因为这一层的顶边就是**屏幕顶**，
+     *   而 `DhKit.Page` 的顶栏本身带 `photoTopBand`（BG@88% + 自己的底边渐隐）盖在同一位置
+     *   —— 那 12dp 渐隐完全落在顶栏带下面，任何文字都不会落在里面。
+     *   （对照：`ChatUi` 的玻璃底挂在**正文 Column**（顶栏之下），所以那边必须补 padding。）
+     *
+     * 【cornerDp = 0】整屏铺满，不做圆角 —— 与 `photoTopBand(cornerDp = 0)` 同一条理由：
+     *   本页是整屏页面，收圆角会在四角漏出照片三角。
+     */
+    @Composable
+    private fun Root(act: MainActivity) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .readableSheet(
+                    onPhoto = DhKit.hasPhotoBackdrop(),
+                    fill = Color(UiKit.SOFT),
+                    cornerDp = 0
+                )
+        ) {
+            Content(act)
+        }
     }
 
     @Composable

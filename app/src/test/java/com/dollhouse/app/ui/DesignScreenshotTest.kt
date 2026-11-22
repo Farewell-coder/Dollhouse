@@ -950,7 +950,7 @@ class DesignScreenshotTest {
                     ) {
                         Text(
                             text = unread.toString(),
-                            color = c.onErr,
+                            color = c.card,
                             fontSize = UiKit.FS_TINY.sp,
                             fontFamily = DhTokens.fonts
                         )
