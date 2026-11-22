@@ -330,11 +330,34 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
     val subOnPhoto = remember(onPhoto) {
         if (onPhoto) Color(UiKit.subOnPhoto()) else Color(UiKit.SUB)
     }
-    val palette = remember(revision, subOnPhoto) {
-        DhDesign.Palette.fromUiKit().copy(sub = subOnPhoto)
+    // 【玻璃配色】有背景图时，「面」透出图、前景色不动 —— 文字因此始终压在半透明的
+    //   卡片上，而不是裸在图上（参考 MAA `Theme.kt` 的 toGlass()）。
+    //   无图时 toGlass 原样返回，配色与改造前逐像素一致。
+    //   sheet / sheetUp 不在其中：弹窗与抽屉必须遮挡下层（见 UiKit.sheet() 的注释）。
+    val palette = remember(revision, subOnPhoto, onPhoto) {
+        DhDesign.Palette.toGlass(
+            DhDesign.Palette.fromUiKit().copy(sub = subOnPhoto),
+            hasPhoto = onPhoto
+        )
     }
-    val colors = remember(revision, subOnPhoto) {
-        DhColors.fromUiKit().copy(sub = subOnPhoto)
+    // 【两套同源】DhColors 是 115 处老页面读的那套，必须走同一层玻璃配色，
+    //   否则「Palette 透了、colors 没透」会在同一屏出现两种面。
+    val colors = remember(revision, subOnPhoto, onPhoto) {
+        val base = DhColors.fromUiKit().copy(sub = subOnPhoto)
+        if (!onPhoto) {
+            base
+        } else {
+            base.copy(
+                bg = androidx.compose.ui.graphics.Color.Transparent,
+                card = base.card.copy(alpha = minOf(base.card.alpha, 0.82f)),
+                cardUp = base.cardUp.copy(alpha = minOf(base.cardUp.alpha, 0.82f)),
+                soft = base.soft.copy(alpha = minOf(base.soft.alpha, 0.82f)),
+                field = base.field.copy(alpha = minOf(base.field.alpha, 0.82f)),
+                option = base.option.copy(alpha = minOf(base.option.alpha, 0.82f)),
+                capsule = base.capsule.copy(alpha = minOf(base.capsule.alpha, 0.82f))
+                // sheet / sheetUp 不动：弹窗与抽屉必须遮挡下层。
+            )
+        }
     }
     val family = remember(ctx) { safeFamily(ctx, bold = false) }
     val familyBold = remember(ctx) { safeFamily(ctx, bold = true) }

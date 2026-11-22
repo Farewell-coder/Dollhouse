@@ -44,6 +44,11 @@ __pycache__/
 !tools/page_consistency_audit.py
 !tools/align_audit.py
 !tools/radius_audit.py
+# 【例外·Lazy 嵌套滚动容器门禁】`DhKit.Page` 的 scrollable 默认 true，内容里放
+#   Lazy 组件会在组合期抛 `infinity maximum height`（编译期查不出来）。
+#   本脚本是那条坑的唯一防线，CI 要跑它就必须随版本化。
+#   （前车之鉴：gen_lucide.py 曾因漏了这条白名单而「CI 里找不到文件」。）
+!tools/lazy_nest_audit.py
 # 【例外·许可声明生成】THIRD_PARTY_NOTICES.md 的表格与 licenses/bundled/ 由它生成；
 #   不随版本化的话，clone 下来的人没法重新生成、CI 也没法跑 --check 门禁。
 #   （2026-11 审计：手写维护导致漏 83 条、30 条版本过时，故改为脚本生成。）

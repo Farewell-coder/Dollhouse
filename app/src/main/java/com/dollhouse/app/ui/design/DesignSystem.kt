@@ -759,6 +759,48 @@ object DhDesign {
             fun fromUiKit(): Palette = neutralize(fromUiKitRaw())
 
             /**
+             * 【玻璃配色·参考 MAA `Theme.kt` 的 `toGlass()`】有背景图时，让「面」透出图。
+             *
+             * 核心思路（MAA 的原话逻辑）：
+             *   ① 页面底透明 → 露出背景图；
+             *   ② 卡片 / 面板等 surface 族加透明度（默认 82%）→ 玻璃感 + 仍能透出图；
+             *   ③ **前景色（title / sub / accent…）一律不动** —— 文字始终压在 82% 的卡片上，
+             *      而不是裸在图上，这是「加了背景也看得清字」的唯一可靠做法。
+             *
+             * 【哪些槽压、哪些不压】
+             *   压：`bg`（页面底，置透明）、`card` / `cardUp` / `soft` / `field` / `option` /
+             *       `capsule` / `chatChipBg` / `chatChipOff` / `chatActionBg` / `switchOff`
+             *       —— 都是「内容躺在上面」的面。
+             *   不压：`sheet` / `sheetUp`（弹窗与抽屉**必须**遮挡下层，见 `UiKit.sheet()` 的注释：
+             *       「弹窗半透明 → 背后正文透出来 → 两层文字叠在一起」）；
+             *       `title` / `sub` / `accent` / `ok` / `err` 等前景与语义色；
+             *       `line` / `stroke` / `chatBorder`（发丝线的「实」由明度承担，透明度不动）。
+             *
+             * 【为什么只在有图时才压】无背景图时页面底是纯色的，压透明度只会让界面发灰、
+             *   文字对比度白白下降。无图直接返回 `this`（零改动路径，与 MAA 一致）。
+             *
+             * 【与用户「卡片不透明度」设置的关系】`UiKit.card()` 已经会按该设置带透明度；
+             *   这里取**较小值**（更透明的那个），不会把用户调低的不透明度又抬回去。
+             */
+            fun toGlass(p: Palette, hasPhoto: Boolean, surfaceAlpha: Float = 0.82f): Palette {
+                if (!hasPhoto) return p
+                fun glass(c: Color): Color = c.copy(alpha = minOf(c.alpha, surfaceAlpha))
+                return p.copy(
+                    bg = Color.Transparent,
+                    card = glass(p.card),
+                    cardUp = glass(p.cardUp),
+                    soft = glass(p.soft),
+                    field = glass(p.field),
+                    option = glass(p.option),
+                    capsule = glass(p.capsule),
+                    chatChipBg = glass(p.chatChipBg),
+                    chatChipOff = glass(p.chatChipOff),
+                    chatActionBg = glass(p.chatActionBg),
+                    switchOff = glass(p.switchOff)
+                )
+            }
+
+            /**
              * 未降饱和的原始快照：与 View 侧 `UiKit.card()` / `UiKit.field()` **逐值相等**。
              *
              * 【什么时候要它】需要与 View 侧颜色严格对齐的诊断 / 对照代码；

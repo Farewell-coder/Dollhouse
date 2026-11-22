@@ -1111,7 +1111,10 @@ object DhForm {
                 //   这与旧 pressable 的做法不同 —— 那个是把布局也撑到 48，
                 //   于是圆角 999 被拉成细长椭圆（详见 DhKit.OutlineChip 的注释）。
                 //   这里视觉与命中分开，两边都不牺牲。
-                .defaultMinSize(minHeight = 48.dp)
+                //   【数值改走令牌】下限直接取 `DhDesign.Size.minTouch`（本身就是 Dp），
+                //   不再在这里写字面量 48：本处是原「四处各写一遍 48」的最后一处漏网，
+                //   只有注释声明统一、机制上并不保证 —— 改令牌不会改到这里。现在令牌是唯一真源。
+                .defaultMinSize(minHeight = DhDesign.Size.minTouch)
                 .then(
                     if (enabled) {
                         Modifier.pressScaleClickWith(pressSource, onClick)

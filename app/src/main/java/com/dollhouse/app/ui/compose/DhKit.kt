@@ -205,8 +205,24 @@ object DhKit {
     /** 行内说明文字字号（sp）。M1 起跟随 [DhTokens.type.sub]（13sp），不再用 12。 */
     const val FS_ROW_DESC = 13f
 
-    /** 行最小高度（dp）：保证无说明项与有说明项的可点区域都不低于 Android 建议的 48dp。 */
-    const val MIN_ROW_H = 48
+    /**
+     * 行最小高度（dp）—— 保证单行 / 带描述两种行的可点区域都不低于无障碍基线。
+     *
+     * 【为什么不能删】它是「无障碍基线在**行高**上的表达」，不是某个视觉尺寸的别名：
+     *   本文件两处 `defaultMinSize`（[ValueRow] 与 [LegacyActionRow]）都靠它兜底。
+     *   删掉不会报错，只会让这两种行失去最小高度 —— 内容矮时行就跟着缩，
+     *   掉到 48dp 以下变成难命中的目标，且这种回归肉眼看不出来。
+     *
+     * 【为什么从 `const val` 改成派生】原先写死 48，与 [HIT] / [MIN_TOUCH] /
+     *   `UiKit.HIT_DP` 之间只有注释上的"统一"，改设计令牌不会同步到本处。
+     *   现在从 `DhDesign.Size.minTouch` 派生，令牌成为唯一真源。
+     *
+     * 【为什么必须放弃 `const`】令牌是 `Dp`（运行时值），取整数要 `.value.toInt()`，
+     *   那不是常量表达式。已核对影响面：本常量的全部引用只有本文件两处 `.dp`
+     *   扩展（`Int.dp` 对 `val` 同样生效），没有其它 `const val` 依赖它、
+     *   没有用于注解参数、也没有用作 `when` 分支常量，故 `const` → `val` 无外溢影响。
+     */
+    val MIN_ROW_H: Int = DhDesign.Size.minTouch.value.toInt()
 
     /** 页面水平内边距（dp）← [DhDesign.Space.pageX]。 */
     const val PAD_PAGE = com.dollhouse.app.ui.design.DhDesign.Space.pageX
