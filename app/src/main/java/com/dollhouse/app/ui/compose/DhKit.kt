@@ -1726,6 +1726,14 @@ object DhKit {
         showChevron: Boolean = false,
         /** 【P1-e·设置索引】设置项登记；传了则由索引表提供标题。 */
         spot: SettingsSpot? = null,
+        /**
+         * 长说明：折叠成问号，点了展开（抄 MAA 的 `SettingRow.info`）。
+         *
+         * 【与 [desc] 分工】desc 是**必读**摘要（常显 2 行）；info 是**可选**详情（默认收起）。
+         *   例：备份行「恢复前先给你看会还原什么」属必读，必须留在 desc；
+         *   「内置 12 家官网写法」属可选，适合 info。
+         */
+        info: String? = null,
         onClick: (() -> Unit)? = null
     ) {
         val title = SettingsSpots.spotTitle(spot, label)
@@ -1769,6 +1777,8 @@ object DhKit {
             // 【v3.1】把调用方要的箭头透传下去；原来是写死 false，
             //   于是调用方只能拿字符 `›` 冒充图标。
             showChevron = showChevron,
+            // 【P1-e·抄 MAA】长说明折叠成问号（由 DhRow 内部接线）。
+            info = info,
             onClick = if (enabled) onClick else null
         )
     }

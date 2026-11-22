@@ -519,9 +519,10 @@ fun DhRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    DhInfoToggle(expanded = infoExpanded.value) {
-                        infoExpanded.value = !infoExpanded.value
-                    }
+                    DhInfoToggle(
+                        expanded = infoExpanded.value,
+                        onToggle = { infoExpanded.value = !infoExpanded.value }
+                    )
                 }
             }
             // desc 恒在标题之后（无论有没有 info）。

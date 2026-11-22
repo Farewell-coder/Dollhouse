@@ -575,7 +575,9 @@ object SettingsScreen {
             DhKit.ActionRow(
                 label = "一键全量备份",
                 iconRes = Icons.IC_UPLOAD,
-                desc = "生成一个文件，通过系统分享保存或直接发到新手机",
+                // 【P1-e】从 desc 移到 info：说明「产物是什么形式」属可选了解；
+                //   真正必读的是恢复行的「恢复前给你看会还原什么」，那条保持 desc。
+                info = "生成一个文件，通过系统分享保存或直接发到新手机",
                 trailing = if (busy) "处理中…" else null,
                 showChevron = !busy
             ) {

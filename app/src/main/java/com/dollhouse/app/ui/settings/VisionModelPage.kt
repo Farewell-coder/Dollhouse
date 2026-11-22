@@ -126,7 +126,8 @@ object VisionModelPage {
                     DhKit.ActionRow(
                         spot = spot("vision.followChat"),
                         iconRes = Icons.IC_BOT,
-                        desc = "不单独指定，用到哪个模型就用哪个的看图能力"
+                        // 【P1-e】默认行为解释，属可选了解。
+                        info = "不单独指定，用到哪个模型就用哪个的看图能力"
                     ) {
                         PetPrefs.setVisionModel(act, "")
                         tick++

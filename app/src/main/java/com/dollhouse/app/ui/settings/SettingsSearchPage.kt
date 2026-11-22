@@ -252,7 +252,9 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
         // 【点空白收键盘】挂在内容根上：输入框 / 结果行会先消费自己的点击，
         //   只有落在空白处的点击才走到这里。与回车收键盘（keyboardActions.onSearch）
         //   是同一语义的另一条触发路径。
-        Box(modifier = Modifier
+        // 【为什么是 Column 不是 Box】下方 LazyColumn 用 Modifier.weight(1f) 占满剩余高度，
+        //   而 weight 只在 ColumnScope / RowScope 里存在 —— Box 是层叠布局，没有 weight。
+        Column(modifier = Modifier
             .fillMaxSize()
             .clearFocusOnBlankTap()
         ) {

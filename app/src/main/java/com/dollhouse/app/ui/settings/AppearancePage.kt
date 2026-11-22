@@ -483,7 +483,8 @@ object AppearancePage {
             DhKit.ActionRow(
                 spot = spot("appearance.perDoll"),
                 iconRes = Icons.IC_USERS,
-                desc = "聊天背景与人偶气泡在每只人偶的编辑页里改"
+                // 【P1-e】「去哪改」的指路，属可选了解。
+                info = "聊天背景与人偶气泡在每只人偶的编辑页里改"
             ) { com.dollhouse.app.ui.doll.DollListScreen.open(act) }
         }
     }
