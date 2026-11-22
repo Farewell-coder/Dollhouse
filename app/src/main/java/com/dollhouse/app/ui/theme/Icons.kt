@@ -62,6 +62,10 @@ object Icons {
     @JvmField
     val IC_INFO = R.drawable.ic_info
 
+    /** 圆圈问号（Lucide circle-help）。用于「可展开说明」的开关，与 [IC_INFO] 语义不同。 */
+    @JvmField
+    val IC_CIRCLE_HELP = R.drawable.ic_circle_help
+
     @JvmField
     val IC_BRAIN = R.drawable.ic_brain
     @JvmField

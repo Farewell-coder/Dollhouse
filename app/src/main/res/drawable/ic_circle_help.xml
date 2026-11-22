@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- 描边图标，取自 Lucide 官方 SVG（ISC 协议）的 circle-help。
+     24dp 视口 / 线宽 2 / 圆角端点；strokeColor 为占位白，
+     运行期由 Icons.tint() / Icons.get() 按主题覆盖真色。
+
+     【为什么单独加这一枚】`ic_info` 是 Lucide 的 info（圆圈 + 竖线 + 点），
+     语义是「值得注意的信息」；而可展开说明开关的语义是「点我看解释」，
+     Lucide 对应的图形是 circle-help（圆圈 + 问号）。两者形近而义不同，
+     混用会让用户以为是纯展示的「ⓘ」而不知道能点。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <group android:translateX="0" android:translateY="0.5">
+        <path android:pathData="M 12 2 a10 10 0 1 0 0 20 a10 10 0 1 0 0 -20" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+        <path android:pathData="M 9.09 9 a3 3 0 0 1 5.83 1 c0 2 -3 3 -3 3" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+        <path android:pathData="M 12 17 h 0.01" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    </group>
+</vector>

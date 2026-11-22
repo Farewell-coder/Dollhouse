@@ -391,12 +391,30 @@ fun DhRow(
     trailing: (@Composable RowScope.() -> Unit)? = null,
     showChevron: Boolean = false,
     danger: Boolean = false,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    /**
+     * 行下方的附加内容（默认 null = 完全没有这一块）。
+     *
+     * 【抄自 MAA-Meow 的 `SettingRow.footer`】它的用法是「一行讲完，下面跟一段附加物」：
+     *   展开的详情、附属按钮组、一行小提示。没有这个插槽时，调用方只能在自己那边
+     *   再写一个 Row 去对齐行的缩进 —— 每个页面各写一遍，缩进/间距必然走偏。
+     *
+     * 【为什么不并进 [trailing]】[trailing] 在**行右侧**，与标题同一基线上；
+     *   footer 在**行下方**，占满整宽。两者位置、宽度、可容纳的内容都不同。
+     *
+     * 【零影响保证】footer == null 时走的还是原来那一个 `Row`（见下面的分支），
+     *   不额外套 Column、不新增布局节点 —— 195 处转发调用点的测量结果逐像素不变。
+     */
+    footer: (@Composable () -> Unit)? = null
 ) {
     val p = DhTokens.palette
     val t = DhTokens.type
     val twoLine = !desc.isNullOrEmpty()
     val fg = if (danger) p.err else p.title
+    // 【行本体】抽成 lambda 是为了让 footer == null 时**原样只画这一个 Row**。
+    //   若无条件套一层 Column，195 处调用的测量/约束链会多一层 —— 本工程吃过
+    //   「为了加一个可选能力而顺手改了所有调用点布局」的亏，这里不重蹈。
+    val rowContent: @Composable () -> Unit = {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -484,6 +502,17 @@ fun DhRow(
                 DhDesign.Size.iconSm.value,
                 p.sub.copy(alpha = 0.62f)
             )
+        }
+    }
+    }
+    if (footer == null) {
+        rowContent()
+    } else {
+        // 只有真的要挂 footer 时才多一层 Column；`modifier` 仍作用在行本身上
+        // （调用方传的是行级 padding/间距，位置不能变）。
+        Column(modifier = Modifier.fillMaxWidth()) {
+            rowContent()
+            footer()
         }
     }
 }

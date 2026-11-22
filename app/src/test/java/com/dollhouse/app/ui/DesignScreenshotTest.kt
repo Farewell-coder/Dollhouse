@@ -28,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -774,7 +773,7 @@ class DesignScreenshotTest {
                 .background(c.card)
                 .border(
                     DhDesign.Size.hairline,
-                    if (selected) c.accent else c.line,
+                    if (selected) c.acc else c.line,
                     RoundedCornerShape(DhDesign.Radius.lg.dp)
                 )
         ) {
