@@ -2228,9 +2228,20 @@ object DhKit {
                 horizontalArrangement = Arrangement.Center
             ) {
                 if (iconRes != 0) {
-                    // 【v0.1.0·修·图标偏小】药丸文字是 15sp 粗体，14dp 图标明显偏轻。
-                    //   按 [Design] 口径（SZ_XS 只给备注/次级标记），药丸图标属「行内小图标」→ SZ_SM。
-                    Icon(iconRes = iconRes, sizeDp = Design.SZ_SM, color = c.title)
+                    // 【chip 高度收敛·图标 16(SZ_SM) → 14(SZ_XS)】两个理由，第二个是硬伤：
+                    //   ① 相对字重的比例：文字已从 15sp 降到 12sp（行盒 ≈14dp），
+                    //      16dp 的图标比整个字高还高 14%，"Mini" 的药丸里图标抢戏；
+                    //      对照 [OutlineChip] 的口径就是 12sp 文字配 14dp 图标（SZ_XS），
+                    //      全 chip 家族统一到「行内图标 = SZ_XS」。
+                    //   ② 它其实是**高度驱动者**（这是最反直觉的一点）：本 chip 的垂直
+                    //      内边距固定 9×2，而 `Row` 的高度 = max(图标, 文字行盒)。
+                    //      16 > 14，所以整颗 = 16 + 18 = **34dp**，被图标顶出了 32 档 ——
+                    //      也就是说「只降字号」的落点是 34 而不是 32，差的那 2dp 全在图标上。
+                    //      图标降到 14 后由文字行盒（≈14dp）接管 → 整颗 = 14 + 18 = **32dp**，
+                    //      与 PrimaryChip 逐像素同高。
+                    //   【为什么不再往下取 SZ_XS 以下的自由值】图标只允许 [Design] 的五档，
+                    //      裸值（13f/15f）正是本工程旧文档点名要清掉的"看着毛"的来源。
+                    Icon(iconRes = iconRes, sizeDp = Design.SZ_XS, color = c.title)
                     Spacer(Modifier.width(5.dp))
                 }
                 Text(
@@ -2250,6 +2261,12 @@ object DhKit {
                     //   （vertical 9×2 固定），文字行高从 ≈18dp 降到 ≈14.4dp，
                     //   整颗高度自然从 ≈36 降到 **≈32.4** —— 正好落在「按钮式 chip = 32dp」。
                     //   所以本批只改字号、**padding 不动**，高度收敛是它的副作用，不是额外改动。
+                    //
+                    //   【上一段的修正：只降字号其实停在 34dp】上面按「文字行盒撑高」算，
+                    //   漏了带图标的情形 —— `Row` 的高度取 max(图标, 文字行盒)，而当时的
+                    //   图标是 `SZ_SM`=16dp > 14dp 的行盒，**图标才是高度驱动者**：
+                    //   16 + 9×2 = 34dp。所以同批把图标也降到 `SZ_XS`=14dp（见上方 Icon 处），
+                    //   行盒重新接管后才是 14 + 18 = 32dp。两处必须一起改，单独改任一处都落不到 32。
                     //
                     //   【padding 会显空吗】垂直 padding 占高度的比例 50% → 56%，
                     //   视觉上留白略多一档，但仍在 chip 的合理区间（26dp 的 kit.DhChip
@@ -2410,7 +2427,22 @@ object DhKit {
                 //     不需要再靠透明区域补命中区：改用不带 48dp 下限的点击，
                 //     并保留同一套按压缩放（复用 pressable 的手感，但跳过尺寸下限）。
                 .then(if (onClick != null) Modifier.pressScaleClick(onClick) else Modifier)
-                .padding(horizontal = 12.dp, vertical = DhDesign.Space.sm.dp)
+                // 【chip 高度收敛·往上并到「按钮式 32dp」档】垂直内边距 8(Space.sm) → 9。
+                //   【原高度】12sp 文字的行盒 ≈14dp（12 × 1.172，Roboto metrics 的 ascender+descender）
+                //     + 上下 8dp = **≈30dp**。
+                //   【目标高度】32dp —— 与本批同为「按钮式」的 MiniChip / PrimaryChip 同高。
+                //   【怎么反推】padding = (32 - 14) / 2 = 9。
+                //   【为什么不用 Space.md=12】12 会把高度推到 38dp，直接跨到**下一档**，
+                //     那就不是「并档」而是「再造一档」，5 档收敛成 2 档的目标就废了。
+                //   【为什么不写 8.8 这类半像素值】Compose 的 dp 会按设备密度取整，
+                //     8.8 在 2.75x 屏上落到 24.2px → 24px，实际仍是 8.7dp，肉眼收益为零，
+                //     只会让下一个维护者算不清；9 是整数、且与 MiniChip 取值完全一致。
+                //   【刻意写成字面量 9 而不是间距令牌】这是**按目标总高倒推出的控件几何**，
+                //     不是「元素之间的间距」—— 走 Space 阶梯反而会被后人「顺手统一回 sm=8」
+                //     又打回 30dp。同族取值见 MiniChip(9) / PrimaryChip(9)。
+                //   【风险】本 chip 是内容驱动高度，所以没动 `.height()`：改固定高度会让
+                //     调用方换大字号（无障碍放大）时文字被裁，改 padding 才能保持行节奏。
+                .padding(horizontal = 12.dp, vertical = 9.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (iconRes != 0) {
