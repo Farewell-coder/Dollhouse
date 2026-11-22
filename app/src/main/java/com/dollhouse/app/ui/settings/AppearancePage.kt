@@ -40,11 +40,14 @@ import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
+import com.dollhouse.app.ui.compose.DhInfoText
+import com.dollhouse.app.ui.compose.DhInfoToggle
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.compose.rememberInfoExpanded
 import com.dollhouse.app.ui.home.HomeState
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.Design
@@ -592,10 +595,21 @@ object AppearancePage {
             // E16-ALLOW: 分组小标题 `title`（"气泡样式"/"字体颜色"）：2~4 字标签
             Text(
                 text = heading,
+                modifier = Modifier.weight(1f, fill = false),
                 color = c.sub,
                 fontSize = UiKit.FS_SUB.sp,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 fontFamily = DhTokens.fonts
             )
+            // 【P1-e·抄 MAA·可展开说明】长 hint 折叠成问号，点了才展开。
+            //   `hint` 由 HomeUi.*Hint 生成，实测最长 36 视觉字 —— 每根滑条下面
+            //   都挂着这么一行说明，四根滑条就是四行常驻文字，而用户读一次就够了。
+            //   折叠后版面立刻干净，需要时点问号仍有完整说明。
+            val infoExpanded = rememberInfoExpanded(spot?.rowId ?: heading)
+            DhInfoToggle(expanded = infoExpanded.value) {
+                infoExpanded.value = !infoExpanded.value
+            }
         }
         Spacer(Modifier.height(DhDesign.Space.xs.dp))
         // 【桥接既有自绘滑条】`UiKit.Slider` 是胶囊轨道 + 刻度点 + 终点标记的自绘 View，
@@ -614,18 +628,10 @@ object AppearancePage {
             },
             modifier = Modifier.fillMaxWidth()
         )
-        // 【E16·真问题（原 ALLOW 理由错：说"单句短说明"）】`hint` 由
-        //   HomeUi.alphaHint / blurHint / scrimHint / cardAlphaHint 生成，实测最长
-        //   「背景图不透明度　（图偏淡，文字最稳）」= 36 视觉字 —— 360dp 勉强一行，
-        //   320dp 小屏必换行。补行高。
-        Text(
-            text = hint,
-            modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
-            color = c.sub,
-            fontSize = UiKit.FS_SUB.sp,
-            lineHeight = DhTokens.type.sub.lineHeight,
-            fontFamily = DhTokens.fontsBody
-        )
+        // 【P1-e·折叠】原为常驻 Text（E16 曾判为真问题并补过行高）。
+        //   现在改用 DhInfoText：默认收起、点问号展开，动效走 DhAnim 的四个 token
+        //   （含 reduceMotion 降级）。展开后仍是同一段全文，只是不再默认占版面。
+        DhInfoText(text = hint, expanded = infoExpanded.value)
     }
 
     /**
@@ -646,12 +652,21 @@ object AppearancePage {
             draft = if (HomeState.fontColor == 0) "" else HomeUi.hex(HomeState.fontColor).substring(1)
             open = true
         }
-        Text(
-            text = HomeUi.fontColorHint(HomeState.fontColor),
+        // 【P1-e·试点 2/2】字体颜色的说明同样长（「跟随主题」时是一句解释，
+        //   指定颜色时带对比度提示）。折叠成问号：标题在上面 ValueRow 里已有，
+        //   所以这里只挂问号 + 可展开说明，不重复画标题。
+        val colorHintExpanded = rememberInfoExpanded("appearance.fontColor.hint")
+        Row(
             modifier = Modifier.padding(top = DhDesign.Space.xs.dp),
-            color = DhTokens.colors.sub,
-            fontSize = UiKit.FS_SUB.sp,
-            fontFamily = DhTokens.fontsBody
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DhInfoToggle(expanded = colorHintExpanded.value) {
+                colorHintExpanded.value = !colorHintExpanded.value
+            }
+        }
+        DhInfoText(
+            text = HomeUi.fontColorHint(HomeState.fontColor),
+            expanded = colorHintExpanded.value
         )
         if (open) {
             DhForm.Alert(

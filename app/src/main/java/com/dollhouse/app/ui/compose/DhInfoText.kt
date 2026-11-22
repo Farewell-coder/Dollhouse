@@ -7,8 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,8 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -180,55 +178,6 @@ fun DhInfoText(
             lineHeight = DhTokens.type.sub.lineHeight,
             fontFamily = DhTokens.fontsBody
         )
-    }
-}
-
-/**
- * 便捷重载：一次画完「标题行 + 问号 + 可展开说明」。
- *
- * 【什么时候用它】当这一行**不是** `DhRow`（比如它嵌在卡片里的自定义 Row，
- * 或调用方还要在标题旁边放滑条 / 数值）时。若这一行本来就是标准设置行，
- * 等 `DhRow` 的 `info` 参数接线后直接用那个，不必手拼。
- *
- * 【为什么 `info == null` 时不画问号】与 MAA 一致：没有解释就不该给开关 ——
- * 一个点开来是空的问号，比没有问号更糟。
- *
- * @param title 标题
- * @param info 折叠起来的长说明；null = 不折叠任何东西
- * @param stateKey 展开态的稳定 key（跨重组不变）
- */
-@Composable
-fun DhInfoSection(
-    title: String,
-    info: String?,
-    stateKey: String,
-    modifier: Modifier = Modifier
-) {
-    val c = DhTokens.colors
-    val expanded = rememberInfoExpanded(stateKey)
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 【weight(fill = false) 与 MAA 一致】标题按内容宽、不撑满 ——
-            //   否则问号被推到最右，短标题行里两者离得很远、看不出是一组。
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f, fill = false),
-                color = c.sub,
-                fontSize = UiKit.FS_SUB.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontFamily = DhTokens.fonts
-            )
-            if (info != null) {
-                DhInfoToggle(expanded = expanded.value) { expanded.value = !expanded.value }
-            }
-        }
-        if (info != null) {
-            DhInfoText(text = info, expanded = expanded.value)
-        }
     }
 }
 
