@@ -77,7 +77,14 @@ object FriendModelConfigPage {
             DhForm.Input(topP, { topP = it }, label = "Top P（0–1）", keyboard = androidx.compose.ui.text.input.KeyboardType.Decimal)
             DhForm.Input(maxTokens, { maxTokens = it }, label = "最大输出 Token", keyboard = androidx.compose.ui.text.input.KeyboardType.Number)
             DhKit.SwitchRow(name = "流式输出", desc = "逐段显示正文", checked = stream) { stream = it }
-            error?.let { Text(it, color = c.err) }
+            // 【压图可读性·2026-11】原先是裸 `Text(it, color = c.err)`：这一行**直接压在
+            //   背景图上**（页面级、无卡片底）。实测（纯白照片、图 92%、遮罩 0）err 只有 3.37，
+            //   低于 AA 4.5。改走 `DhForm.Note` 后自动获得「玻璃底 + 压图色」两件事
+            //   （见 DhForm.Note 的注释与 `UiKit.errOnPhoto()`）：
+            //   88% 玻璃底把背景归一到浅侧，压深后的 err 在黑白两极背景上都过 AA（最坏 5.13）。
+            //   【为什么不用别的写法】单独换色会让**深色照片一侧更糟**（压深的 err 压在纯黑
+            //   照片上只有 2.44），所以必须走这个自带玻璃底的组件。
+            error?.let { DhForm.Note(it, color = c.err) }
             DhKit.ActionRow("保存当前好友配置", iconRes = Icons.IC_CHECK) {
                 val cfg = PersonaChatConfig()
                 if (overrideModel) { cfg.providerId = providerId; cfg.modelId = modelId }

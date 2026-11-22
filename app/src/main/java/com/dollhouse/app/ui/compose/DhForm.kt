@@ -35,8 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import com.dollhouse.app.ui.theme.ThemeManager
@@ -644,15 +648,76 @@ object DhForm {
      */
     @Composable
     fun Note(text: String, modifier: Modifier = Modifier, color: Color? = null) {
+        val p = DhTokens.colors
+        // 【压图可读性·2026-11】有背景图时，这一行文字既没有卡片底也没有雾面 —— 它直接压在
+        //   照片上。实测（纯白照片、图 92%、遮罩 0）：`ok` 3.28 / `err` 3.37，跌破 AA 4.5。
+        //
+        // 【两步一起做，缺一不可】
+        //   ① **换色**：ok/err/sub 换成夹过对比度的压图版本（`UiKit.okOnPhoto()` 等）。
+        //   ② **铺玻璃底**：这一步才是关键 —— 单独压深颜色会让**深色照片一侧更糟**
+        //      （压深后的 ok 压在纯黑照片上只有 2.40，原色反而有 5.61），
+        //      因为单一前景色无法同时适配黑白两极背景。88% 玻璃底把背景归一到浅侧后，
+        //      三档实测 ok 5.22 / err 5.13 / sub 5.29，黑图白图灰图都稳过 AA。
+        //
+        // 【为什么按颜色相等来分流】调用方传的是 `DhTokens.colors.ok` / `.err` ——
+        //   都来自同一个 Palette 实例，`==` 是逐分量比较，命中是确定的。
+        //   传自定义色的调用方**原样保留**：本函数不假装知道那个色安不安全。
+        // 【只对「语义色提示行」动手】全仓 206 处 `DhForm.Note`，其中带显式颜色的只有 3 处
+        //   （`c.ok` / `c.err`）—— 也正是唯一会压在**页面级**图上的那几行。
+        //   其余 203 处走默认色（`sub`），而 `sub` 早就由 `DollhouseTheme` 换成了
+        //   `subOnPhoto()`、且多数在卡片里（卡片已是 82% 玻璃），**一个字都不用改**。
+        //   把改动面锁在这 3 处，是这次「修 3 处裸文字」的边界。
+        val onPhoto = DhKit.hasPhotoBackdrop()
+        val semantic = onPhoto && (color == p.ok || color == p.err)
+        val tint = when {
+            semantic && color == p.ok -> Color(UiKit.okOnPhoto())
+            semantic && color == p.err -> Color(UiKit.errOnPhoto())
+            // 【为什么要 `?: p.sub`】`Text(color=)` 是非空参数；`else` 分支里编译器
+            //   不保证把 `Color?` 收窄成 `Color`，显式兜底既消歧义也保类型。
+            else -> color ?: p.sub
+        }
         Text(
             text = boldMarkup(text),
-            modifier = modifier.padding(start = 2.dp, top = DhDesign.Space.sm.dp, end = 2.dp),
-            color = color ?: DhTokens.colors.sub,
+            // 【顺序】先 padding 再铺底：这样玻璃底只覆盖文字自身那块，
+            //   不会把 8dp 上间距也涂成一条贴着上一块的色带。
+            modifier = modifier
+                .padding(start = 2.dp, top = DhDesign.Space.sm.dp, end = 2.dp)
+                .then(if (semantic) Modifier.noteReadablePlate() else Modifier),
+            color = tint,
             fontSize = UiKit.FS_TINY.sp,
             fontFamily = DhTokens.fontsBody,
             lineHeight = (UiKit.FS_TINY + 5f).sp
         )
     }
+
+    /**
+     * Note 的压图玻璃底：只在**有背景图**时由 [Note] 挂上，无图时完全不存在。
+     *
+     * 【为什么不直接用 `.background()`】它会连 padding 一起涂 —— 而 Note 的 padding
+     *   里含 8dp 上间距（与上一块的间隔），涂上去就成了一条贴着上一块的色带，
+     *   而不是「这行字自己的底」。`drawBehind` 只画在文字那块。
+     *
+     * 【为什么向外扩 4/2dp】文字紧贴矩形边缘会显得局促；外扩一点让玻璃底读作
+     *   「托着这行字」而不是「给字画了个框」。父容器若自行 clip，扩出去的部分被裁掉，
+     *   退化成贴边矩形 —— 可接受，不会错位。
+     */
+    @Composable
+    private fun Modifier.noteReadablePlate(): Modifier {
+        // 0.88 与 `ui/kit.STATE_PLATE_ALPHA` / `DhKit.TOP_BAND_ALPHA` / `readableSheet`
+        //   同一档：全 App 的「压图玻璃」只有一个浓淡，不另开第二套。
+        val plate = Color(UiKit.BG).copy(alpha = NOTE_PLATE_ALPHA)
+        return this.drawBehind {
+            drawRoundRect(
+                color = plate,
+                topLeft = Offset(-4.dp.toPx(), -2.dp.toPx()),
+                size = Size(size.width + 8.dp.toPx(), size.height + 4.dp.toPx()),
+                cornerRadius = CornerRadius(6.dp.toPx())
+            )
+        }
+    }
+
+    /** 压图玻璃底的不透明度 —— 与顶栏带 / 空态板 / 正文雾面同一档（0.88）。 */
+    private const val NOTE_PLATE_ALPHA = 0.88f
 
     /**
      * 把 `**粗体**` 转成 [AnnotatedString]（[SpanStyle] + FontWeight.Bold）。
@@ -758,7 +823,16 @@ object DhForm {
                 )
                 .then(if (dimmed) Modifier.alpha(0.45f) else Modifier)
                 .pressable(onClick)
-                .padding(horizontal = 10.dp, vertical = DhDesign.Space.sm.dp),
+                // 【chip 高度收敛·往上并到「按钮式 32dp」档】垂直内边距 8(Space.sm) → 9。
+                //   【原高度】12sp 行盒 ≈14dp + 8×2 = **≈30dp**。
+                //   【目标】32dp，与 MiniChip / PrimaryChip / OutlineChip 同一档。
+                //   【怎么反推】padding = (32 - 14) / 2 = 9 —— 与 DhKit.OutlineChip 同一算法、
+                //     同一取值，保证这两个 30dp 的邻居一起并上来，不会一个 32 一个 30。
+                //   【为什么字面量 9 而不走 Space 令牌】见 DhKit.OutlineChip 同处的推导：
+                //     这是「按目标总高倒推的控件几何」，回落到 Space.md=12 会变成 38dp 的新一档。
+                //   【没动 .height()】替换字串 `.height()` 会把无障碍大字号下的两行文字裁掉；
+                //     chip 一直是内容驱动高度，改 padding 才保住行节奏。
+                .padding(horizontal = 10.dp, vertical = 9.dp),
             color = if (selected) c.onAcc else c.title,
             fontSize = UiKit.FS_CHIP.sp,
             fontFamily = DhTokens.fonts
@@ -813,6 +887,15 @@ object DhForm {
                     dark = dark
                 )
                 .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
+                // 【chip 高度收敛·本颗是「按钮式 32dp」档的基准，本轮**不动数值**】
+                //   【实测修正】本批的初始盘点把这里记成 ≈36dp，那是按改造前的
+                //     `FS_BTN`=15sp 算的（15×1.2+9×2 ≈ 36）。但字号在 1f5fb6d
+                //     「按钮收敛」时已经降到 `FS_CHIP`=12sp 了（见下方 fontSize），
+                //     所以实际高度 = 12sp 行盒 ≈14dp + 9×2 = **≈32dp**，早就在目标档上。
+                //   【为什么这个 9 不能动】它正是「按钮式 = 32dp」这一档的锚点：
+                //     本批是把 SelectChip / OutlineChip 的 8 改成 9 **并到这一档**，
+                //     而不是把这里改掉 —— 改这里等于挪动基准，另外三颗又得重新跟。
+                //   【推导留档】(32 - 14) / 2 = 9，与 MiniChip / SelectChip / OutlineChip 一致。
                 .padding(horizontal = 16.dp, vertical = 9.dp),
             color = c.onAcc,
             fontSize = UiKit.FS_CHIP.sp,
