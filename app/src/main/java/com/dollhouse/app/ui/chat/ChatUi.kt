@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
-import androidx.core.view.ViewCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -606,7 +605,13 @@ object ChatUi {
             // 【长度上限】读屏念几千字要很久，且会把用户堵在这一条上。
             //   超过 500 字只播前缀 + 提示完整内容已在屏幕上（用户可自行浏览气泡）。
             val spoken = if (text.length > 500) text.take(500) + "……完整回复已显示在屏幕上" else text
-            ViewCompat.announceForAccessibility(view, spoken)
+            // 【必须是 View 的实例方法】`announceForAccessibility` 是 `View` 的成员
+            //   （API 16+），不是 `ViewCompat` 的静态方法 —— 写成 `ViewCompat.xxx`
+            //   会直接编译不过（本轮 CI 就红在这里）。
+            //   【读屏关闭时无副作用】该方法的实现在 `View` 内部先判
+            //   `AccessibilityManager.isEnabled()`，未开启时直接 return，
+            //   不派发事件、不起协程、不动布局 —— 零开销。
+            view.announceForAccessibility(spoken)
         }
 
         // 【M-修断链】搜索高亮的自动消除。

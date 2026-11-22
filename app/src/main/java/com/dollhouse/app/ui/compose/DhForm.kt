@@ -250,7 +250,9 @@ object DhForm {
                 trailing = trailing,
                 compactTrailing = compactTrailing,
                 // 【P0-2】传派生值而不是原始 a11yName —— 否则带 trailing 的框仍然无名。
-                a11yName = effectiveA11y
+                a11yName = effectiveA11y,
+                // 【P1-e】spot 同样必须透传：本分支自己也画 FieldLabel（见下方 FieldLabel 调用）。
+                spot = spot
             )
             return
         }
@@ -331,7 +333,17 @@ object DhForm {
          */
         compactTrailing: Boolean = false,
         /** 无障碍名；语义同 [Input] 的 a11yName（两条渲染路径都要能设，否则会漏一半）。 */
-        a11yName: String? = null
+        a11yName: String? = null,
+        /**
+         * 【P1-e·设置索引】设置项登记；语义同 [Input] 的 spot。
+         *
+         * 【必须与 a11yName 同一口径】本函数是 [Input] 的分派目标之一
+         *   （`trailing != null` 的 6 处走这里）。它自己也画 [FieldLabel]，
+         *   所以 index 标题同样要从这里透传 —— 否则「带尾部图标的框」与
+         *   「其余 47 处」的标签来源不同源，正是 a11yName 注释里说过的
+         *   「两条渲染路径都要能设，否则会漏一半」同款缺陷。
+         */
+        spot: SettingsSpot? = null
     ) {
         val a11y = a11yName
         val c = DhTokens.colors
@@ -497,7 +509,15 @@ object DhForm {
         hint: String = "",
         /** 【P0-2】同 [Input]：显式优先，其次 label，再次 hint。 */
         a11yName: String? = null,
-        minHeight: Int = 96
+        minHeight: Int = 96,
+        /**
+         * 【P1-e·设置索引】设置项登记；语义同 [Input] 的 spot。
+         *
+         * 【为什么本函数也要有】它自己也画标签（内联 Text，不是 [FieldLabel]）。
+         *   不加的话「多行框」这一族永远拿不到索引标题，与 [Input] / [LegacyInput]
+         *   三条路径里唯一漏掉的 —— 同 `a11yName` 的教训。
+         */
+        spot: SettingsSpot? = null
     ) {
         val c = DhTokens.colors
         // 【P0-2·派生规则与 Input 完全一致】见 [Input] 的详细说明。
@@ -513,7 +533,8 @@ object DhForm {
             if (!label.isNullOrEmpty()) {
                 // E16-ALLOW: FieldLabel 的字段名，同 :269 的单行固定词
                 Text(
-                    text = label,
+                    // 【P1-e】传了 spot 就用索引表的规范标题。
+                    text = SettingsSpots.spotTitle(spot, label),
                     modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 4.dp),
                     color = c.sub,
                     fontSize = UiKit.FS_SUB.sp,

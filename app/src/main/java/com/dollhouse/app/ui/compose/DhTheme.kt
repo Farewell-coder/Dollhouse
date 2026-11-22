@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.node.DelegatableNode
@@ -463,7 +464,22 @@ fun DollhouseTheme(content: @Composable () -> Unit) {
  */
 private object NoIndication : IndicationNodeFactory {
 
-    private class NoOpNode : DrawModifierNode {
+    /**
+     * 真正的空节点。
+     *
+     * 【为什么必须 `Modifier.Node()` 在前】`DrawModifierNode` 只是**接口**，它的父接口
+     *   `DelegatableNode` 还有一个抽象成员 `val node: Modifier.Node`。
+     *   只写 `: DrawModifierNode` 会留下这个成员没实现，编译器报
+     *   「Class 'NoOpNode' is not abstract and does not implement abstract member: val node」。
+     *   `Modifier.Node` 是**抽象类**且自己就把 `node` 实现成 `this`，所以正确的写法是
+     *   「先继承抽象类、再实现接口」：`Modifier.Node(), DrawModifierNode`。
+     *   （这是 Compose 自定义 modifier 节点的标准形态；`Modifier.Node` 的构造函数是
+     *   public 且非 sealed，跨包继承是官方用法。）
+     *
+     * 【顺序】Kotlin 要求超类构造函数在最前，所以 `Modifier.Node()` 必须写在
+     *   `DrawModifierNode` 之前，且括号不能省（它在调用构造）。
+     */
+    private class NoOpNode : Modifier.Node(), DrawModifierNode {
         override fun ContentDrawScope.draw() {
             // 【必须调 drawContent】不画**任何**指示效果，但子内容照常绘制 ——
             //   漏掉这一句等于给整棵子树戴了个「不画」的 modifier。
