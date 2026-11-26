@@ -90,7 +90,9 @@ object MemSettingsPage {
         DhKit.Page(
             title = "记忆库设置",
             sub = "抽取与检索的全局策略",
-            onBack = { closeIfOpen(act) }
+            onBack = { closeIfOpen(act) },
+            // 【试点·iOS 大标题】与 ChatSettingsPage 同批试点：首屏即列表、无 Lazy。
+            adaptiveTitle = true
         ) {
             // ---------------- 自动保存 ----------------
             DhKit.Card(collapsibleTitle = "自动保存") {

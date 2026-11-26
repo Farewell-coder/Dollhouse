@@ -43,6 +43,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhInfoText
 import com.dollhouse.app.ui.compose.DhInfoToggle
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.bounceOverscroll
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
@@ -129,11 +130,19 @@ object AppearancePage {
             Spacer(Modifier.height(DhDesign.Space.md.dp))
 
             // ---------- 内容 ----------
+            // 【越界回弹·P1 试点】把 ScrollState 提到变量，才能喂给 bounceOverscroll。
+            //   改造前是 `.verticalScroll(rememberScrollState())` 内联写法 ——
+            //   状态拿不到，也就没法在外层挂 nestedScroll。
+            val contentScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    // 【顺序·不能反】`bounceOverscroll` 内部是 `nestedScroll`，必须挂在
+                    //   `verticalScroll` **外层**，才收得到「列表已到边、还剩这么多没滚掉」
+                    //   的那段位移（`onPostScroll` 的 available）。写在里层则永远收到 0。
+                    .bounceOverscroll(contentScroll)
+                    .verticalScroll(contentScroll)
             ) {
                 when (tab) {
                     TAB_THEME -> ThemeTab(act)

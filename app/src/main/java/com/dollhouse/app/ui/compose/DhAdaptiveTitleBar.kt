@@ -1,5 +1,6 @@
 package com.dollhouse.app.ui.compose
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -96,7 +97,64 @@ object DhAdaptiveTitleBarSpec {
 @Composable
 fun DhAdaptiveTitleBar(
     title: String,
+    scrollState: ScrollState,
+    onBack: (() -> Unit)? = null,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    // 【本重载更简单】`ScrollState.value` 直接就是"已经滚掉多少像素"，
+    //   不需要 LazyListState 那套 `firstVisibleItemIndex × 行高 + offset` 的近似。
+    DhAdaptiveTitleBarImpl(
+        title = title,
+        scrollPx = { scrollState.value.toFloat() },
+        onBack = onBack,
+        subtitle = subtitle,
+        actions = actions
+    )
+}
+
+@Composable
+fun DhAdaptiveTitleBar(
+    title: String,
     scrollState: LazyListState,
+    onBack: (() -> Unit)? = null,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    DhAdaptiveTitleBarImpl(
+        title = title,
+        // 【为什么用"第一条目的滚动量"近似总像素】`LazyListState` 不暴露总滚动像素，
+        //   能拿到的是 `firstVisibleItemScrollOffset`（当前第一条被滚掉多少）。
+        //   约定：顶栏只为**列表头部**服务 —— 一旦滚过第一条就视为完全收起
+        //   （`firstVisibleItemIndex > 0` 直接给满量程）。这样避免"按 item 高度反推像素"
+        //   这种脆弱换算，观感也与 iOS 一致。
+        scrollPx = {
+            if (scrollState.firstVisibleItemIndex > 0) {
+                DhAdaptiveTitleBarSpec.MAX_SCROLL_RANGE
+            } else {
+                scrollState.firstVisibleItemScrollOffset.toFloat()
+            }
+        },
+        onBack = onBack,
+        subtitle = subtitle,
+        actions = actions
+    )
+}
+
+/**
+ * 两个公开重载的**共同实现**。
+ *
+ * 【为什么参数是"原始滚动像素"而不是"进度"】`reduceMotion` 的二值化规则只该有一处
+ *   （见下面 [progress] 的实现）。若让两个重载各自算好进度再传进来，那条规则就会有两份，
+ *   以后改一处漏一处 —— 正是这个函数要防的漂移。
+ *
+ * @param scrollPx 只读的原始滚动量（px）。**只在 layout / draw / graphicsLayer 三个阶段被调用**，
+ *                 因此不会触发重组。
+ */
+@Composable
+private fun DhAdaptiveTitleBarImpl(
+    title: String,
+    scrollPx: () -> Float,
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
@@ -116,23 +174,23 @@ fun DhAdaptiveTitleBar(
     //   取的是同一个值 —— 这里只是再叠一层"按收起进度变化"的 alpha。
     val barFill = Color(UiKit.BG)
 
+    // 【有图时不能「顶部全透」】iOS 的做法是展开态栏底全透（内容从栏下穿过），但它背后是
+    //   纯色内容底；本工程页面底透明、背后是**用户照片** —— 栏底 0 ⇒ 大标题直接压在照片上，
+    //   正是用户反复抱怨的「加了背景字看不清」。所以有图时整条栏恒定 88%（仍然透出图），
+    //   无图时才走 iOS 的「顶部全透 → 收起 88%」。
+    val hasPhoto = DhKit.hasPhotoBackdrop()
+
     /**
      * 收起进度：0 = 完全展开，1 = 完全收起。
      *
      * **本 lambda 只允许在 layout / draw / graphicsLayer 三个阶段里调用** —— 那些阶段读快照状态
      * 只让对应阶段失效，不会重组。写在组合体里会被每帧重组。
      *
-     * 【为什么只用第一条目的滚动量】`LazyListState` 不暴露"总滚动像素"，能拿到的是
-     * `firstVisibleItemScrollOffset`（当前第一条被滚掉多少）。约定是：**顶栏只为列表头部服务**，
-     * 一旦滚过第一条就视为完全收起（`firstVisibleItemIndex > 0`）。这与 iOS 的观感一致，
-     * 也避免了"按 item 高度反推像素"这种脆弱换算。
+     * 【reduceMotion 的二值化只在这里做一次】两个公开重载都只负责"怎么算原始像素"，
+     *   规则收在一处，不会漂移。
      */
     val progress: () -> Float = {
-        val raw = if (scrollState.firstVisibleItemIndex > 0) {
-            DhAdaptiveTitleBarSpec.MAX_SCROLL_RANGE
-        } else {
-            scrollState.firstVisibleItemScrollOffset.toFloat()
-        }
+        val raw = scrollPx()
         if (DhAnim.reduceMotion()) {
             // 关动画：二值跳变（滚过一半即收起），不做连续插值
             if (raw >= DhAdaptiveTitleBarSpec.MAX_SCROLL_RANGE * 0.5f) 1f else 0f
@@ -161,7 +219,8 @@ fun DhAdaptiveTitleBar(
             }
             // ② 背景：draw 阶段读进度（只失效 draw）。展开时几乎全透，收起时 88% 雾白
             .drawBehind {
-                val a = DhAdaptiveTitleBarSpec.BAR_ALPHA * progress()
+                val alphaAtTop = if (hasPhoto) DhAdaptiveTitleBarSpec.BAR_ALPHA else 0f
+                val a = lerpF(alphaAtTop, DhAdaptiveTitleBarSpec.BAR_ALPHA, progress())
                 if (a > 0f) {
                     drawRect(color = barFill.copy(alpha = a))
                 }

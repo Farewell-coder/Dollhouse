@@ -2,13 +2,10 @@ package com.dollhouse.app.ui.compose
 
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableFloatState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -83,9 +80,10 @@ object DhBounce {
     /**
      * 卡片按下时的缩放。QZX: `qzxCardTouchScale = 0.96`。
      *
-     * 【与 [com.dollhouse.app.ui.compose.PRESS_SCALE]（0.98）并存】0.98 是给"行 / 按钮"的
-     *   轻反馈；0.96 是给"整张卡片"的，面积越大同样的百分比看起来越明显，所以绝对值取小。
-     *   两者不合并：合并会让 125 处行按钮一起变重。
+     * 【当前**没有**调用方】QZX 的卡片是按 0.96 缩放的；但本工程的按压反馈由 `pressable`
+     *   （`PRESS_SCALE = 0.98f`，125 处）统一负责，`cardDeform` 再缩一次就会叠成
+     *   0.96 × 0.98 ≈ 0.94 —— 按一下陷进去太多。所以 0.96 **不参与叠加**：
+     *   常量留在这里备查，等将来真的做"卡片专用按压"时单独用。
      */
     const val CARD_TOUCH_SCALE = 0.96f
 
@@ -159,6 +157,50 @@ object DhBounce {
 fun Modifier.bounceOverscroll(
     state: ScrollState,
     maxOverscroll: Float = DhBounce.MAX_OVERSCROLL,
+): Modifier = bounceOverscrollImpl(
+    isScrollInProgress = { state.isScrollInProgress },
+    maxOverscroll = maxOverscroll
+)
+
+/**
+ * [bounceOverscroll] 的 **LazyListState** 版本 —— 一级列表页（`ChatListScreen` / `MemPage` 等）
+ * 大多用 `LazyColumn`，没有它这些页面全接不了。
+ *
+ * 【越界量怎么算 —— 这里**不**依赖"总滚动像素"】这正是本重载能成立的关键：
+ *   越界量**完全来自嵌套滚动的累积**（`onPreScroll` / `onPostScroll` 的 `available.y`），
+ *   也就是"列表已经到边、还剩多少没滚掉"。`LazyListState` 没有 `value`（总像素）这个属性，
+ *   但**我们根本不需要它** —— 需要总像素的只有"把滚动位置映射成某个比例"这类事
+ *   （例如自适应标题栏），越界回弹要的是**增量**，`available` 天生就是增量。
+ *   所以两个重载的物理完全一致，差别只在"用哪个类型判断是否正在拖"。
+ *
+ * 【为什么不把 `firstVisibleItemIndex × 行高 + offset` 当总像素用】行高是变量
+ *   （折叠卡、多行说明都会变），反推出来的"总像素"在任何一屏都可能错，
+ *   拿它去算越界量会把错误直接放大到手指位移上。
+ */
+@Composable
+fun Modifier.bounceOverscroll(
+    state: LazyListState,
+    maxOverscroll: Float = DhBounce.MAX_OVERSCROLL,
+): Modifier = bounceOverscrollImpl(
+    isScrollInProgress = { state.isScrollInProgress },
+    maxOverscroll = maxOverscroll
+)
+
+/**
+ * 两个公开重载的**共同实现**。
+ *
+ * 【为什么只抽 `isScrollInProgress` 出来】两个类型的唯一共同需求就是它；
+ *   越界量走嵌套滚动累积、与宿主类型无关（见 LazyListState 重载的注释）。
+ *   把整个 state 传进来的话，私有实现里就会出现"为两种类型各写一次"的分支 —— 那是漂移的起点。
+ *
+ * 【参数是 lambda 而不是 Boolean】它必须在**滚动事件发生时**读最新值
+ *   （组合期读到的会是拖动开始前的那一帧）。两个公开重载传的都是"读一个**稳定对象**的属性"，
+ *   所以 `remember` 捕获第一个 lambda 也不会过期。
+ */
+@Composable
+private fun bounceOverscrollImpl(
+    isScrollInProgress: () -> Boolean,
+    maxOverscroll: Float,
 ): Modifier {
     // 显示用位移。用 floatState 而不是 Animatable：拖动期间每帧都要写，
     // Animatable 的每次 snapTo 都要进协程，滚动事件很密，那样会明显掉帧。
@@ -167,7 +209,7 @@ fun Modifier.bounceOverscroll(
     //   若直接对 displayed 累加，回拉时会被同一个非线性映射再压一次，手感变成"拉得回来但拉不满"。
     val raw = remember { floatArrayOf(0f) }
 
-    val connection = remember(state, maxOverscroll) {
+    val connection = remember(maxOverscroll) {
         object : NestedScrollConnection {
 
             /**
@@ -207,7 +249,7 @@ fun Modifier.bounceOverscroll(
                 // 【为什么要这道闸】`onPostScroll` 在**任何**导致滚动到边的动作后都会触发，
                 //   包括程序性的 `animateScrollTo`（例如"跳到最新一条"）。那些不是用户手势，
                 //   给它们加回弹会像"跳过去之后自己抖了一下"。只接管用户正在拖的场景。
-                if (available.y == 0f || !state.isScrollInProgress) {
+                if (available.y == 0f || !isScrollInProgress()) {
                     return Offset.Zero
                 }
                 raw[0] += available.y
@@ -274,21 +316,31 @@ private suspend fun settle(
 }
 
 /**
- * 卡片按压（0.96）+ 拖动形变（同文件，QZX `qzxCardDragDeformEnabled` 的等价物）。
+ * 卡片**拖动形变**（QZX `qzxCardDragDeformEnabled` 的等价物）。
+ *
+ * ## 这里为什么**没有**按压缩放
+ * 按压反馈已经由 `pressable` 全权负责（125 处调用、`PRESS_SCALE = 0.98f`）。
+ * 若本函数再缩一次，两者叠乘 —— 0.96 × 0.96 ≈ **0.92**，按一下"陷"进去 8%，
+ * 明显过度。所以职责切开：
+ * · **按** → `pressable`（缩放 + 触觉 + 命中区）
+ * · **拖** → 本函数（形变 + 倾角）
+ * 这样两者可以自由组合，不会互相放大。
+ *
+ * > `DhBounce.CARD_TOUCH_SCALE`（QZX 的 0.96）仍保留在常量区，供将来"卡片专用按压"
+ * > 单独选用；**本函数不读它**。
  *
  * ## 用法
  * ```kotlin
- * val src = remember { MutableInteractionSource() }
  * var drag by remember { mutableStateOf(Offset.Zero) }
  * Box(
  *     Modifier
- *         .cardDeform(src, dragOffset = { drag })
- *         .clickable(interactionSource = src, indication = null) { … }
+ *         .cardDeform(dragOffset = { drag })        // 只管拖动形变
+ *         .pressable { … }                          // 只管按压 + 点击
  * ) { … }
  * ```
- * **拖动量由调用方喂进来**（[dragOffset]）：本工程的手势五花八门（`pressable` / `draggable` /
- * `detectDragGestures` / 左滑删除），组件不该假定一种再去抢手势。
- * 不接拖动的页面保持默认值 `Offset.Zero`，那就只有按压缩放，零成本。
+ * **拖动量由调用方喂进来**（[dragOffset]）：本工程的手势五花八门（`pressable` /
+ * `draggable` / `detectDragGestures` / 左滑删除），组件不该假定一种再去抢手势。
+ * 不做拖动的卡片不传即可，等于零成本。
  *
  * ## 形变怎么算的
  * · **沿拖动轴压缩**：`squash = |d| / 卡宽 × CARD_DEFORM_GAIN`，上限 [DhBounce.CARD_MAX_SQUASH]；
@@ -296,26 +348,13 @@ private suspend fun settle(
  * · **小幅倾斜**：横向拖动时按比例给 `rotationZ`，上限 [DhBounce.CARD_MAX_TILT_DEG]。
  *
  * ## reduceMotion
- * 按压缩放走 [DhAnim.PRESS_DOWN] / [DhAnim.BOUNCY]（自带降级 ⇒ 一帧到位）；
- * **拖动形变则整体关闭**：形变本身就是"动画"，关动画的用户不该看到内容在他手指下变形。
- * 这里读的是 `DhAnim.reduceMotion()` 的进程级镜像，因为它跑在 `graphicsLayer` 里（非组合期）。
- *
- * ## 与 `pressable` 的关系
- * **不改 `pressable`**（125 处调用点）。本函数是给"卡片类大块容器"的新选择；
- * 两者缩放值不同（0.96 vs 0.98）是刻意的，见 [DhBounce.CARD_TOUCH_SCALE]。
+ * **整体关闭**：形变本身就是"动画"，关动画的用户不该看到内容在他手指下变形。
+ * 这里读的是 `DhAnim.reduceMotion()` 的进程级镜像 —— 因为它跑在 `graphicsLayer` 里（非组合期）。
  */
 @Composable
 fun Modifier.cardDeform(
-    interactionSource: MutableInteractionSource,
     dragOffset: () -> Offset = { Offset.Zero },
 ): Modifier {
-    val pressed by interactionSource.collectIsPressedAsState()
-    // 按下：短 tween 跟手；松手：弹簧回弹（与 pressable 同一套口径，只是缩放值更大）
-    val pressScale by animateFloatAsState(
-        targetValue = if (pressed) DhBounce.CARD_TOUCH_SCALE else 1f,
-        animationSpec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY,
-        label = "cardDeformPress"
-    )
     return this.graphicsLayer {
         val d = if (DhAnim.reduceMotion()) Offset.Zero else dragOffset()
         // 【用自身尺寸做归一化】这样同一张卡在手机 / 平板上"拖一半宽度"的形变程度一致；
@@ -327,8 +366,8 @@ fun Modifier.cardDeform(
         val squashX = (abs(nx) * DhBounce.CARD_DEFORM_GAIN).coerceIn(0f, DhBounce.CARD_MAX_SQUASH)
         val squashY = (abs(ny) * DhBounce.CARD_DEFORM_GAIN).coerceIn(0f, DhBounce.CARD_MAX_SQUASH)
         // 沿轴压缩、另一轴补回来一点（面积守恒的近似），合起来才像"被推变形"而不是"缩小"
-        scaleX = pressScale * (1f - squashX + squashY * 0.5f)
-        scaleY = pressScale * (1f - squashY + squashX * 0.5f)
+        scaleX = 1f - squashX + squashY * 0.5f
+        scaleY = 1f - squashY + squashX * 0.5f
         rotationZ = (nx * DhBounce.CARD_MAX_TILT_DEG).coerceIn(
             -DhBounce.CARD_MAX_TILT_DEG,
             DhBounce.CARD_MAX_TILT_DEG

@@ -272,8 +272,34 @@ object DhKit {
         actions: (@Composable RowScope.() -> Unit)? = null,
         bottomPadDp: Int = 0,
         onScroll: ((y: Int) -> Unit)? = null,
+        /**
+         * 改用 **iOS 风格自适应大标题**（[DhAdaptiveTitleBar]）替换固定顶栏。
+         *
+         * 【默认 false = 51 处调用逐字不变】为 true 时才走新分支，而且新分支**只在
+         *   `adaptiveTitle` 这一个点上与旧路径不同**（见下面头部那段 if/else）。
+         *
+         * 【为什么必须通栏、不进 `padding(horizontal = PAD_CARD)` 那个 Box】
+         *   大标题栏的背景要铺满**屏宽**才有"栏"的观感；套进 16dp 内边距会变成一条
+         *   两侧缩进的色块。所以这里**不是**给标题栏加负 padding（那会让布局意图变得不可读、
+         *   而且一旦哪天 PAD_CARD 变了，负值就得跟着改）—— 而是**整段换分支**：
+         *   `adaptiveTitle = true` 时根本不创建那个 Box。
+         *
+         * 【只在 `scrollable = true` 时才有收起效果】进度来自页面的 [ScrollState]；
+         *   `scrollable = false` 时它恒为 0 ⇒ 标题栏保持完全展开的静态形态（不会报错，
+         *   但也没有动画）。
+         *
+         * 【内容是在栏**下方**滚动，不是钻到栏下面】本实现保持 `Column` 竖排（栏在上、
+         *   内容在下），因为改成"内容钻入栏下"要额外给内容顶部预留收起态高度，且会改变
+         *   51 处调用中任何一处的内容起始位置 —— 那是另一个量级的改动。栏的"半透明背景"
+         *   在本工程仍然可见：页面底是透明的，栏下面就是背景图。
+         */
+        adaptiveTitle: Boolean = false,
         content: @Composable ColumnScope.() -> Unit
     ) {
+        // 【上移 4 行】原先 `rememberScrollState()` 只在 `scrollable` 分支里创建；
+        //   自适应标题栏也要读同一个 state，故提到函数顶部。
+        //   对 `adaptiveTitle = false` 无行为影响（不滚动时多创建一个状态对象而已）。
+        val scroll = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -292,8 +318,19 @@ object DhKit {
                 //   不受 Compose 内部「内容高度算成 0」的影响，兜底能力反而比原来更强。
                 .windowInsetsPadding(WindowInsets.displayCutout)
         ) {
-            Box(modifier = Modifier.padding(horizontal = PAD_CARD.dp)) {
-                TopBar(title = title, sub = sub, onBack = onBack, actions = actions)
+            if (adaptiveTitle) {
+                // 通栏：**不套** PAD_CARD 的 Box（理由见 `adaptiveTitle` 的参数文档）
+                DhAdaptiveTitleBar(
+                    title = title,
+                    scrollState = scroll,
+                    onBack = onBack,
+                    subtitle = sub,
+                    actions = actions ?: {}
+                )
+            } else {
+                Box(modifier = Modifier.padding(horizontal = PAD_CARD.dp)) {
+                    TopBar(title = title, sub = sub, onBack = onBack, actions = actions)
+                }
             }
             val inner: @Composable ColumnScope.() -> Unit = {
                 Column(
@@ -311,7 +348,7 @@ object DhKit {
                 )
             }
             if (scrollable) {
-                val scroll = rememberScrollState()
+                // 【scroll 已上移到函数顶部】自适应标题栏与这里必须读**同一个** ScrollState。
                 // 【为什么把滚动上报出去】页面被「悬浮玻璃胶囊」壳层包着时（ProviderDetailPage），
                 //   壳层靠滚动位置决定底栏淡出 / 淡回；而壳层是 View 树、拿不到 Compose 的
                 //   scrollState。这里把每次滚动回调出去，壳层不必再去 View 树里找 ScrollView。

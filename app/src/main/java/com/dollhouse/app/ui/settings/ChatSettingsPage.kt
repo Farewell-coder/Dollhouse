@@ -85,7 +85,11 @@ object ChatSettingsPage {
         DhKit.Page(
             title = "对话显示",
             sub = "流式与思考过程",
-            onBack = { closeIfOpen(act) }
+            onBack = { closeIfOpen(act) },
+            // 【试点·iOS 大标题】本页是「设置 → 对话显示」，首屏就是可滚动的一组卡片，
+            //   正是自适应大标题适用的形态（首屏即列表、无 Lazy）。
+            //   其余 50 处 `Page` 调用未动，`adaptiveTitle` 默认 false。
+            adaptiveTitle = true
         ) {
             // ---------------- 流式 ----------------
             DhKit.Card(collapsibleTitle = "流式输出") {
