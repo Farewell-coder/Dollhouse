@@ -420,6 +420,12 @@ object MemPage {
             // 【自带滚动 = false】图谱是固定画布（自己处理手势与平移），
             //   外面再套一层滚动会让「拖动节点」与「滚动页面」打架。
             scrollable = false,
+            // 【大标题栏·最后一批】本页 scrollable=false（图谱是固定画布），
+            //   靠 externalLazyScroll 把列表模式的 state 交给标题栏。
+            //   ⚠️ 图谱模式下 listState.index 恒为 0 → 标题保持展开（无害）；
+            //      切到「列表」模式滚动才收起。
+            adaptiveTitle = true,
+            externalLazyScroll = listState,
             actions = {
                 // 【右上角文件夹图标 → 分类界面】用户定案：
                 //   「纯替换成图谱 + 可以通过右上角的一个文件夹图标进入分类界面」。

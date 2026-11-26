@@ -145,11 +145,18 @@ object DollEditScreen {
         var tab by remember(id) { mutableStateOf(TAB_CTRL) }
         val c = DhTokens.colors
 
+        // 【大标题栏需要】必须声明在 `DhKit.Page(` **之前**才能当参数传。
+        //   本页滚动是 `verticalScroll`（ScrollState），不是 Lazy —— 用 externalScroll。
+        val editScroll = rememberScrollState()
         DhKit.Page(
             title = "编辑人偶",
             sub = original.name,
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false,
+            // 【大标题栏·最后一批】scrollable=false + externalScroll（内容区 state）。
+            //   ScrollState 版按真实像素取进度，**没有「第一条目太矮一滚就收」的问题**。
+            adaptiveTitle = true,
+            externalScroll = editScroll,
             actions = {
                 // 【r13 预览 = 这只人偶的独立小开关】用户定案：
                 //   「那个预览也相当于一个小开关 但是只会开启那个卡片人偶 不会开启全部的人偶；
@@ -193,7 +200,6 @@ object DollEditScreen {
             //   不跟着滚）。活动页的项目加起来会超过一屏，所以这里单独给内容区开滚动。
             // 【越界回弹·P1】把 ScrollState 提到变量才能喂给 bounceOverscroll；
             //   改造前是内联 `rememberScrollState()`，状态不可达。
-            val editScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

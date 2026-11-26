@@ -97,7 +97,13 @@ object DeveloperOptionsPage {
         LaunchedEffect(tick, screen) { summary = withContext(Dispatchers.IO) { runCatching { DiagnosticsStore.summary(act) }.getOrNull() } }
         val title = when (screen) { Screen.HOME -> "诊断中心"; Screen.LOGS -> "日志记录"; Screen.DETAIL -> "错误详情"; else -> "诊断设置" }
         val sub = when (screen) { Screen.HOME -> "本地日志与故障现场"; Screen.LOGS -> "搜索、筛选与查看"; Screen.DETAIL -> "错误上下文与异常堆栈"; else -> "采集策略与存储管理" }
-        DhKit.Page(title = title, sub = sub, onBack = { when (screen) { Screen.HOME -> closeIfOpen(act); Screen.DETAIL -> screen = Screen.LOGS; else -> screen = Screen.HOME } }, actions = if (screen == Screen.HOME) {{ DhKit.IconButton(Icons.IC_SETTINGS, Design.SZ_MD, DhTokens.colors.title, tooltip = "诊断设置") { screen = Screen.SETTINGS } }} else null) {
+        DhKit.Page(title = title, sub = sub, onBack = { when (screen) { Screen.HOME -> closeIfOpen(act); Screen.DETAIL -> screen = Screen.LOGS; else -> screen = Screen.HOME } }, actions = if (screen == Screen.HOME) {{ DhKit.IconButton(Icons.IC_SETTINGS, Design.SZ_MD, DhTokens.colors.title, tooltip = "诊断设置") { screen = Screen.SETTINGS } }} else null,
+            // 【大标题栏·最后一批】本页是 4 屏状态机（诊断中心 / 日志记录 / 错误详情 / 诊断设置），
+            //   共用同一个 Page 与同一个 ScrollState。
+            //   【为什么敢加】切换 screen 时 ScrollState 的偏移本来就**不会重置**（这是既有行为），
+            //     标题栏只是把这件既成事实如实反映出来 —— 不新增错位，反而让「当前页处于什么位置」可见。
+            //   【唯一需真机看的】「错误详情」屏内容可能不到一屏 → 那时 offset 会夹到 0、标题自动展开（无害）。
+            adaptiveTitle = true) {
             when (screen) {
                 Screen.HOME -> Home(
                     s = summary,
