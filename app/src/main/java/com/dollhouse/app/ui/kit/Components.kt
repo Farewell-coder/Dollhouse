@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -65,12 +66,14 @@ import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.rememberInfoExpanded
 import com.dollhouse.app.ui.compose.pressScaleClick
 import com.dollhouse.app.ui.compose.pressable
+import com.dollhouse.app.ui.compose.rimLight
 import com.dollhouse.app.ui.design.DhDesign
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.theme.ThemeManager
 import com.dollhouse.app.ui.theme.UiKit
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -655,6 +658,24 @@ fun DhGroup(
         onToggle?.invoke(v)
     }
     val shape = RoundedCornerShape(DhDesign.Radius.lg.dp)
+    // 【边缘光·取代描边】QZX 的卡片边缘是一圈**加法混合**的白光，不是描边：
+    //   描边是颜料（占像素、盖底色），边缘光是光（只往亮里加，从不压暗）。
+    //   实测（本工程调色板）：
+    //     · 深色卡 #1E2632 → 通道 **+23**，顶:底 ≈1.23:1 ⇒ 真·镀光，dualPeak 成立；
+    //     · 浅色卡 #FAFCFE → 加法全被钳到纯白（对比度仅 1.028），**上下同值**、方向感消失。
+    //   所以按主题分开处理，而不是照抄 QZX 的「默认关掉描边」：
+    //   **浅色主题下关掉描边会让卡片彻底没有边**，那是明显倒退。
+    //
+    //   【圆角必须与卡片一致】rimLight 是对着一条圆角路径描的；半径给不一致，
+    //   光会浮在卡片圆角外侧（多出来的那一圈就是"描边错位"的样子）。
+    //
+    //   【透明面不反光】`p.card.alpha` 被用户拉低（有背景图时是 0.82）时仍画；
+    //   真到 0（完全透明）就跳过 —— 没有实体表面，就没有可反光的东西。
+    val dark = ThemeManager.isDark(LocalContext.current)
+    val rim = Modifier.rimLight(
+        cornerRadius = DhDesign.Radius.lg.dp,
+        enabled = p.card.alpha > 0f
+    )
 
     Column(
         modifier = modifier
@@ -684,9 +705,19 @@ fun DhGroup(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(p.card)
-                // 【P1-b·描边统一】次按钮原用 `p.line`（不透明），与 chip 家族统一到
-                //   `p.stroke`（55% 透明）—— 同屏的次按钮与药丸描边不再一深一浅。
-                .border(DhDesign.Size.hairline, p.stroke, shape)
+                .then(
+                    if (dark) {
+                        // 深色档：描边**换成**边缘光。
+                        //   深底上描边还要再叠一层光的话，边缘会比卡片本身亮一档 ——
+                        //   QZX 文档自己也警告了这个叠加问题。
+                        rim
+                    } else {
+                        // 浅色档：**保留**描边定边，再把 1.028 的"一点点起伏"叠上去。
+                        //   【P1-b·描边统一】次按钮原用 `p.line`（不透明），与 chip 家族
+                        //   统一到 `p.stroke`（55% 透明）—— 同屏的次按钮与药丸描边不再一深一浅。
+                        Modifier.border(DhDesign.Size.hairline, p.stroke, shape).then(rim)
+                    }
+                )
         ) {
             if (collapsible) {
                 Row(
