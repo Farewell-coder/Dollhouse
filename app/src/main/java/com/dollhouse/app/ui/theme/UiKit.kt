@@ -53,10 +53,24 @@ object UiKit {
      */
     /** 主色（参考软件 --acc / --acc2）。 */
     @JvmField
-    var ACC = 0xFF4375C1.toInt()
+    var ACC = 0xFF0070E0.toInt()
 
     @JvmField
-    var ACC2 = 0xFF6791D0.toInt()
+    var ACC2 = 0xFF4A94F0.toInt()
+
+    /**
+     * 强调黄（QZX 的 `geo_yellow`，原值 `#FFEABD2B`）。
+     *
+     * 【用途】子标题的 action 文字、底栏菜单高亮 —— QZX 用它做**第二种强调色**，
+     *   与蓝色主色分工：蓝色表示「主操作」，黄色表示「值得注意的次要动作」。
+     *   全 App 目前尚无调用方（新令牌先落地、再逐页接线）。
+     *
+     * 【为什么不放进 ThemeManager 的三套调色板】它不随主题变化（QZX 也是单一常量）。
+     *   若将来深色档需要不同亮度，再按「新增颜色同步三套调色板」的既有规矩补位
+     *   （见本类顶部的说明）。
+     */
+    @JvmField
+    val GEO_YELLOW = 0xFFEABD2B.toInt()
 
     @JvmField
     var CARD = 0xFFFAFCFE.toInt()
@@ -141,7 +155,10 @@ object UiKit {
      *   由主题切换时按明暗自动选一档（见 `ThemeManager` / `ThemeRefresh` 的调用点）。
      */
     @JvmField
-    var SWITCH_ON = 0xFF4375C1.toInt()
+    // 【默认值随 QZX 令牌同步】运行期由 `ThemeManager` 用 `p[I_ACC]` 覆写（见其第 297 行），
+    //   所以这里只是「主题尚未应用」时的兜底。但它必须与新主色同值 ——
+    //   留着旧色 `#4375C1` 会让后来 grep 主色的人以为还有一处漏改。
+    var SWITCH_ON = 0xFF0070E0.toInt()
 
     /** 开关滑块色：浅色主题纯白，深色主题略压暗避免「发光」刺眼。 */
     @JvmField
@@ -616,12 +633,18 @@ object UiKit {
     /**
      * 统一按压缩放比例（View 侧）。
      *
-     * 【M2 与 Compose 侧对齐】Compose 的 `PRESS_SCALE` 同为 0.98（见 DhKit）。
-     *   设计稿 §3「Press: scale 0.98 over 90ms」是全 App 唯一手感，
-     *   两侧曾经一个是 0.96、一个也是 0.96，但都没有具名常量，
-     *   于是页面里还散落着 0.98 / 0.97 的自写值 —— 收口到这里。
+     * 【QZX 令牌对齐：0.98 → 0.96】照搬 QZX 的卡片按压 0.96。
+     *   QZX 的按压比我们原来的 0.98 更深一档 —— 0.98 在手机上几乎看不出来
+     *   （2% 缩放在 ~360dp 宽的行上只有 7px，且只持续 90ms），
+     *   0.96 才是「手指按住时能明确感到的那一下」。
+     *
+     * 【两侧已收口】Compose 侧那份 `DhKit.kt` 的 `internal const val PRESS_SCALE`
+     *   也已同步为 0.96（经批准）。**两侧同值才叫收口** ——
+     *   改造中曾出现 View 侧 0.96 / Compose 侧 0.98 的不一致，那会让同屏的
+     *   View 按钮与 Compose 按钮按下去手感不同，属于缺陷而非取舍。
+     *   与本值一致的还有 002 的 `CARD_TOUCH_SCALE = 0.96`。
      */
-    const val PRESS_SCALE = 0.98f
+    const val PRESS_SCALE = 0.96f
 
     const val D_PRESS = 90
     /** 微交互 / 退出（180ms）—— 与 `DhDesign.Motion.exit` 同值。 */

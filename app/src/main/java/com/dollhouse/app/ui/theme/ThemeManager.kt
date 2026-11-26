@@ -120,7 +120,7 @@ object ThemeManager {
         // 【v3·清透轻拟物】暖纸 → 浅蓝雾白。
         //   关键：CARD 比 BG **亮**、FIELD 比 CARD **暗** —— 这一亮一暗是轻拟物体积感的来源，
         //   旧暖纸色里 card 与 bg 只差 3 个色阶，压不出浮起/内凹的区别。
-        0xFF4375C1.toInt(), 0xFF6791D0.toInt(), 0xFFFAFCFE.toInt(), 0xFFE8EFF7.toInt(), 0xFF2B3A4A.toInt(), 0xFF5A6C80.toInt(),
+        0xFF0070E0.toInt(), 0xFF4A94F0.toInt(), 0xFFFAFCFE.toInt(), 0xFFE8EFF7.toInt(), 0xFF2B3A4A.toInt(), 0xFF5A6C80.toInt(),
         // 6-9  LINE, OPTION, SOFT, FIELD
         0xFFC7D1DD.toInt(), 0xFFEFF5FB.toInt(), 0xFFEAF1F8.toInt(), 0xFFE4ECF6.toInt(),
         // 10-12 OK, ERR, ON_ACC

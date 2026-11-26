@@ -2739,7 +2739,7 @@ fun Modifier.minTouchTarget(): Modifier =
 // 【为什么是 internal 而不是 private】`DhForm` 的按钮轻拟物需要同一个按压缩放值
 //   （它要在按下时同时收小阴影）。再定义一份就会变成"两个 0.98f"，
 //   那正是 A06 门禁在防的事 —— 复用同一个常量比复制数字正确。
-internal const val PRESS_SCALE = 0.98f
+internal const val PRESS_SCALE = 0.96f
 
 /**
  * 统一按压反馈：按下缩到 [PRESS_SCALE]，松手弹回（ζ=0.40）—— 与 `UiKit.press` + `Springs.bouncy()` 同口径。
