@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -161,10 +162,19 @@ object DollListScreen {
                 }, "dh-doll-import").start()
             }
         }
+        // 【大标题栏·收尾】网格 state 必须声明在 `DhKit.Page(` **之前**才能当参数传
+        //   （与 contentScroll 那次同款作用域问题）。本页是 `LazyVerticalGrid`，
+        //   state 类型是 `LazyGridState`，所以走 `externalGridScroll`。
+        val gridState = rememberLazyGridState()
         DhKit.Page(
             title = "人偶",
             onBack = { PageStack.popIfTop(act, KEY) },
             scrollable = false,
+            // 【大标题栏·收尾】本页 scrollable=false（网格自己滚），靠 externalGridScroll
+            //   把网格进度交给标题栏。002 的重载优先级：
+            //   externalScroll > externalLazyScroll > externalGridScroll > 内部 state。
+            adaptiveTitle = true,
+            externalGridScroll = gridState,
             actions = {
                 // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
                 DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "添加人偶") {
@@ -188,6 +198,9 @@ object DollListScreen {
             //   反而会让卡片更挤；真正受限的是垂直方向「一屏能放几行卡片」。
             val compact = LocalCompactHeight
             LazyVerticalGrid(
+                // 【本轮·前置准备】原来没有 state（Compose 内部自管）。
+                //   显式持有它，等 002 的 externalGridScroll 到位后只需在 Page 上加一行参数。
+                state = gridState,
                 columns = GridCells.Fixed(cols),
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -130,6 +131,42 @@ fun DhAdaptiveTitleBar(
         //   这种脆弱换算，观感也与 iOS 一致。
         scrollPx = {
             if (scrollState.firstVisibleItemIndex > 0) {
+                DhAdaptiveTitleBarSpec.MAX_SCROLL_RANGE
+            } else {
+                scrollState.firstVisibleItemScrollOffset.toFloat()
+            }
+        },
+        onBack = onBack,
+        subtitle = subtitle,
+        actions = actions
+    )
+}
+
+/**
+ * [DhAdaptiveTitleBar] 的 **LazyGridState** 版本（`LazyVerticalGrid` 页面，例如人偶列表）。
+ *
+ * 【进度按**行**算，不按 item】这是网格与列表唯一不同的地方：`firstVisibleItemIndex` 数的是
+ *   **单个 item**，而网格一行有 N 个 —— 若照抄列表的 `index > 0 即收起`，那么"滚过第一行的
+ *   第一个 item"就会让标题收完，等于**滚了 1/N 行就收起到位**，明显偏早。
+ *   这里改读 `layoutInfo.visibleItemsInfo.firstOrNull()?.row`：只有当最上面那个可见 item
+ *   已经属于**第 1 行或更后**（即第 0 行整行离开视口）时，才算滚完量程。
+ *
+ * 【行内位移仍用 offset】第 0 行还露着一部分时，用 `firstVisibleItemScrollOffset`（px）线性映射，
+ *   所以"刚滚 40px、标题收了 40/370" 与列表版手感一致。
+ */
+@Composable
+fun DhAdaptiveTitleBar(
+    title: String,
+    scrollState: LazyGridState,
+    onBack: (() -> Unit)? = null,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    DhAdaptiveTitleBarImpl(
+        title = title,
+        scrollPx = {
+            val topRow = scrollState.layoutInfo.visibleItemsInfo.firstOrNull()?.row ?: 0
+            if (topRow > 0) {
                 DhAdaptiveTitleBarSpec.MAX_SCROLL_RANGE
             } else {
                 scrollState.firstVisibleItemScrollOffset.toFloat()

@@ -243,11 +243,17 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
         }
     }
 
+    // 【大标题栏·补】state 从内容 lambda 上移到 Page 之前（原来是 :331，作用域不够）。
+    val listState = rememberLazyListState()
     DhKit.Page(
         title = "搜索设置",
         sub = "输入名称、旧叫法或英文词",
         onBack = onClose,
-        scrollable = false
+        scrollable = false,
+        // 【大标题栏·补】搜索结果列表滚动时标题收起；
+        //   未搜索时结果为空、index 恒为 0 → 标题保持展开（无害）。
+        adaptiveTitle = true,
+        externalLazyScroll = listState
     ) {
         // 【点空白收键盘】挂在内容根上：输入框 / 结果行会先消费自己的点击，
         //   只有落在空白处的点击才走到这里。与回车收键盘（keyboardActions.onSearch）
@@ -328,7 +334,6 @@ fun SettingsSearchPage(act: MainActivity, onClose: () -> Unit) {
         // 【滚动】查询一改就把结果列表拉回顶部。
         //   没有这一步时，用户输入第二个词后列表停在上一轮的滚动位置，
         //   最相关的那条可能正好在屏幕外 —— 等于"搜到了但看不见"。
-        val listState = rememberLazyListState()
         LaunchedEffect(query) {
             runCatching { listState.scrollToItem(0) }
         }

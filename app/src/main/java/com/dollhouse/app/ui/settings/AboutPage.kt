@@ -162,7 +162,11 @@ object AboutPage {
         DhKit.Page(
             title = if (showLicenses) "开源许可" else "关于",
             sub = if (showLicenses) "随 APK 分发的第三方许可文本" else "关于本软件",
-            onBack = { if (showLicenses) showLicenses = false else closeIfOpen(act) }
+            onBack = { if (showLicenses) showLicenses = false else closeIfOpen(act) },
+            // 【大标题栏·收尾】条件式标题（"关于" / "开源许可"）：
+            //   「开源许可」是一整份许可文本、必然很长 → 滚动收起；
+            //   「关于」短屏时 ScrollState 恒为 0 → 标题保持展开（无害）。
+            adaptiveTitle = true
         ) {
             if (showLicenses) {
                 LicenseBrowser(act)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,16 +64,26 @@ object ConversationHistoryPage {
         //   页与页之间会出现标题基线、左右边距的细微不同。
         //   改走 DhKit.Page：title/onBack 由脚手架统一绘制，水平边距由 PAD_CARD 统一。
         //   scrollable = false 保持原语义 —— 内部已有 LazyColumn 自己滚。
+        // 【大标题栏·补】列表 state 必须在 Page 之前声明才能当参数传（同 contentScroll 的作用域问题）。
+        val listState = rememberLazyListState()
         DhKit.Page(
             title = "历史会话",
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
-            scrollable = false
+            scrollable = false,
+            // 【大标题栏·补】会话列表可能很长，滚动时标题收起。
+            adaptiveTitle = true,
+            externalLazyScroll = listState
         ) {
             DhForm.Button(text = "新建会话", primary = false, leadingIcon = Icons.IC_PLUS) {
                 ChatSessions.createForDoll(act, personaId)
                 rev++
             }
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)) {
+            LazyColumn(
+                // 显式持有 state：标题栏进度与列表滚动必须是同一份。
+                state = listState,
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp)
+            ) {
                 items(entries, key = { it.first }, contentType = { "history" }) { entry ->
                     /* 【v0.2.8·P2-e 条目动画】本页有三种会改动集合的操作：新建会话、
                        删除会话、重命名（都走 `rev++` 触发重算）。此前它们会整列瞬间跳一下 ——

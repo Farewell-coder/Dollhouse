@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -339,6 +340,16 @@ object DhKit {
          * 【两个都传时以 [externalScroll] 为准】见下面 `lazyTitleScroll` 的注释。
          */
         externalLazyScroll: LazyListState? = null,
+        /**
+         * **外部滚动状态（LazyVerticalGrid 版）**：内容是网格时用它（例如人偶列表）。
+         *
+         * 【为什么不复用 [externalLazyScroll]】`LazyGridState` 与 `LazyListState` **没有共同父类**，
+         * 是两个独立类型，只能各开一个参数。
+         *
+         * 【优先级】`externalScroll` > `externalLazyScroll` > `externalGridScroll` > 内部 state ——
+         * 与前两个参数同一条规则：**谁先有谁优先**，同时传属于误用但不崩。
+         */
+        externalGridScroll: LazyGridState? = null,
         content: @Composable ColumnScope.() -> Unit
     ) {
         // 【上移 4 行】原先 `rememberScrollState()` 只在 `scrollable` 分支里创建；
@@ -362,7 +373,11 @@ object DhKit {
          *   ③ 同时传本身就是误用 —— 这里既不抛异常也不崩（标题栏参数不该让页面起不来），
          *      只是给出一个确定、可预测的胜者，并在文档里写死这个规则。
          */
-        val lazyTitleScroll: LazyListState? = if (externalScroll == null) externalLazyScroll else null
+        val lazyTitleScroll: LazyListState? =
+            if (externalScroll == null) externalLazyScroll else null
+        // 三级优先级：前面两个都没给时才轮到网格（规则与上面一致：先有的先赢）
+        val gridTitleScroll: LazyGridState? =
+            if (externalScroll == null && externalLazyScroll == null) externalGridScroll else null
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -389,6 +404,14 @@ object DhKit {
                     DhAdaptiveTitleBar(
                         title = title,
                         scrollState = lazyTitleScroll,
+                        onBack = onBack,
+                        subtitle = sub,
+                        actions = actions ?: {}
+                    )
+                } else if (gridTitleScroll != null) {
+                    DhAdaptiveTitleBar(
+                        title = title,
+                        scrollState = gridTitleScroll,
                         onBack = onBack,
                         subtitle = sub,
                         actions = actions ?: {}
