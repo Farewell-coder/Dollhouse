@@ -40,6 +40,7 @@ import kotlin.math.roundToInt
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.MyProfile
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.bounceOverscroll
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.design.DhDesign
@@ -462,11 +463,14 @@ object ProfileDrawer {
                 DhKit.Divider()
 
                 // ---------- 中间滚动：分组入口 ----------
+                // 【越界回弹】抽屉中段。本抽屉无 DhKit.Page，全文件仅此一处滚动 → 单层。
+                val drawerScroll = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
+                        .bounceOverscroll(drawerScroll)
+                        .verticalScroll(drawerScroll)
                 ) {
                     val topKey = PageStack.topKey(act)
                     // 【分组】按使用场景分两块：「常用」= 日常配置；「动作」= 会改变运行时状态的开关。

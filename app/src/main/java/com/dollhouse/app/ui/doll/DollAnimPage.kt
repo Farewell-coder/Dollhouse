@@ -62,6 +62,7 @@ import com.dollhouse.app.data.model.ModelRepository
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.bounceOverscroll
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhLoadingState
@@ -335,11 +336,15 @@ object DollAnimPage {
                 }
             }
         ) {
+            // 【越界回弹】把 ScrollState 提到变量；原来内联 rememberScrollState() 拿不到状态。
+            val animScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    // 顺序：bounceOverscroll（nestedScroll）必须在 verticalScroll 外层。
+                    .bounceOverscroll(animScroll)
+                    .verticalScroll(animScroll)
             ) {
                 // ============ ① 播放器 ============
                 var offTick by remember(dollId) { mutableStateOf(0) }
