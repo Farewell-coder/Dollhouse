@@ -54,6 +54,7 @@ import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhAnim
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.bounceOverscroll
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.compose.pressable
@@ -1354,7 +1355,12 @@ object MemPage {
         } else {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier
+                    // 【越界回弹·P1】本页外层 `DhKit.Page(scrollable = false)` 不滚，
+                    //   全页只有这一个 LazyColumn 在实际滚动 —— 挂这里不会叠加越界。
+                    //   （另一个 LazyColumn 在 SearchPanel 里，与主列表互斥渲染。）
+                    .bounceOverscroll(listState)
+                    .fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(DhDesign.Space.sm.dp),
             ) {
                 items(shownMems, key = { it.id }, contentType = { "mem" }) { m ->

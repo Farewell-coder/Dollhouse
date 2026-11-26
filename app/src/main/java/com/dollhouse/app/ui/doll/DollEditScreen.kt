@@ -26,6 +26,7 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.bounceOverscroll
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.pet.DollHomeOverlay
 import com.dollhouse.app.pet.DollPreviewOverlay
@@ -190,11 +191,17 @@ object DollEditScreen {
         ) {
             // 【为什么内容区自己滚】Page 传了 scrollable=false（要让底部导航钉在屏幕下沿、
             //   不跟着滚）。活动页的项目加起来会超过一屏，所以这里单独给内容区开滚动。
+            // 【越界回弹·P1】把 ScrollState 提到变量才能喂给 bounceOverscroll；
+            //   改造前是内联 `rememberScrollState()`，状态不可达。
+            val editScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    // 【顺序·不能反】bounceOverscroll 内部是 nestedScroll，
+                    //   必须挂在 verticalScroll **外层** 才收得到 available。
+                    .bounceOverscroll(editScroll)
+                    .verticalScroll(editScroll)
             ) {
                 when (tab) {
                     TAB_CTRL -> CtrlTab(act, id)
