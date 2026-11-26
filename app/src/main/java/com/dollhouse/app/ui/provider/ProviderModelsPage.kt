@@ -3,6 +3,7 @@ package com.dollhouse.app.ui.provider
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,6 +35,7 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.SwipeToDelete
+import com.dollhouse.app.ui.compose.cardDeform
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.theme.UiKit
@@ -235,14 +238,26 @@ object ProviderModelsPage {
         onLongPress: () -> Unit,
         content: @Composable () -> Unit
     ) {
+        // 【拖动形变·P1 试点】把左滑位移接进 `cardDeform`：
+        //   卡片被推着**沿横轴压缩 + 轻微倾斜**，而不是只有内容整体平移。
+        //
+        //   【为什么用 mutableStateOf 存位移却不引发重组】这个值只在
+        //   `cardDeform { drag }` 的 lambda 里被读，而那个 lambda 是在 `graphicsLayer` 块内
+        //   求值的（延迟读取）—— 组合阶段从不读它，所以每帧写入只让 layer 失效。
+        var drag by remember { mutableStateOf(Offset.Zero) }
         SwipeToDelete(
             onDelete = onDelete,
             modifier = Modifier.padding(top = DhDesign.Space.sm.dp),
             onContentClick = onOpen,
             // 长按 = 读屏用户的等效删除入口（横向拖动在 TalkBack 下做不出来）。
-            onLongPress = onLongPress
+            onLongPress = onLongPress,
+            onDragOffset = { drag = it }
         ) {
-            content()
+            // 按压缩放仍归 `pressable`（见 ModelRow 内部），这里只加拖动形变 ——
+            // `cardDeform` 已去掉缩放，两者不会叠乘。
+            Box(Modifier.cardDeform { drag }) {
+                content()
+            }
         }
     }
 

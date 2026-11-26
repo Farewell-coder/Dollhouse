@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -66,6 +67,24 @@ fun SwipeToDelete(
      *   本组件**不重复实现删除**，只把事件交出去。
      */
     onLongPress: (() -> Unit)? = null,
+    /**
+     * 【拖动位移的观察口】每次拖动 / 吸附动画的一帧都会回调一次，携带**当前水平位移**。
+     *
+     * 调用方拿它去驱动形变（`Modifier.cardDeform { drag }`），于是"卡片被推着变形"
+     * 而不是只有内容平移。
+     *
+     * 【⚠️ 只有水平轴】内部是 `Animatable(0f)` 单轴值，转成 [Offset] 时 **y 恒为 0**。
+     *   本组件从不接收垂直拖动，所以不要在这个回调里假装有 y —— 那会让形变看起来
+     *   "往上/下也变形了"，而手指其实只往左推。
+     *
+     * 【为什么是 `(Offset) -> Unit`（回调）而不是 `() -> Offset`（取值器）】
+     *   位移的所有权在组件内部（那个 [Animatable]，连滑两次不会有两个动画抢同一个值）。
+     *   取值器形式需要一个"调用方先持有、组件再写入"的变量，等于把所有权拆成两半；
+     *   回调形式让组件在**值变化的那一刻**把值推出去，谁要谁存。
+     *
+     * 【默认 {} = 现有调用点零影响】不传就等于没有这个口子，行为逐帧不变。
+     */
+    onDragOffset: (Offset) -> Unit = {},
     content: @Composable () -> Unit
 ) {
     val c = DhTokens.colors
@@ -84,7 +103,10 @@ fun SwipeToDelete(
             // 【本次修复·参数同源】改造前这里内联 `spring(ζ=0.73, k=420)`，
             //   与文件头注释「与 Springs.snappy() 同参数」靠人工保持同步 —— 改一处漏一处。
             //   现在统一取 DhAnim.SWIPE_SETTLE（同一对象的单一真源）。
-            offset.animateTo(to, DhAnim.SWIPE_SETTLE)
+            // 【为什么用带 block 的重载】吸附过程也要把位移推给 `onDragOffset`，
+            //   否则形变会停在松手那一刻、等吸附结束后突然复位（"卡一下再弹回"）。
+            //   逐帧推出去，形变才跟着卡片的回弹一起回正。
+            offset.animateTo(to, DhAnim.SWIPE_SETTLE) { _, v -> onDragOffset(Offset(v, 0f)) }
         }
     }
 
@@ -156,6 +178,8 @@ fun SwipeToDelete(
                         change.consume()
                         val next = (offset.value + drag).coerceIn(-maxPx, 0f)
                         opened = next <= -openAt
+                        // 先推给观察口（同步、零协程开销），再落到 Animatable
+                        onDragOffset(Offset(next, 0f))
                         scope.launch { offset.snapTo(next) }
                     }
                 }
