@@ -100,7 +100,9 @@ object DollGroupPage {
                     input = ""
                     adding = true
                 }
-            }
+            },
+            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
+            adaptiveTitle = true
         ) {
             DhForm.Note(
                 "分组只影响「人偶」页的展示顺序，不会改变聊天记录与角色设定。"

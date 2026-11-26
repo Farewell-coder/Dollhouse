@@ -123,7 +123,9 @@ object DollPersonaPage {
         DhKit.Page(
             title = "角色设定",
             sub = if (name.isNotEmpty()) name else "这只人偶的人设",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
+            adaptiveTitle = true
         ) {
             /* ==================== ① 基础 ==================== */
             DhKit.Card(collapsibleTitle = "基础", titleIcon = Icons.IC_BOOK_HEART) {

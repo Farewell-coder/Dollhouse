@@ -221,7 +221,9 @@ object SettingsScreen {
                 //   不再需要「切回首页」那种底座级操作。
                 com.dollhouse.app.ui.compose.PageStack.pop(act)
             },
-            actions = { SearchAction() }
+            actions = { SearchAction() },
+            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
+            adaptiveTitle = true
         ) {
             // 【本轮·补设计稿要求的资料卡】设计稿 §4.6 的设置页是「资料卡 + 分组导航行」结构：
             //   顶部一张 Profile card（头像 56 + 我的资料 + 说明 + 箭头），下面是分组入口。

@@ -106,7 +106,9 @@ object VisionModelPage {
         DhKit.Page(
             title = "识图模型",
             sub = "用哪个模型来看图片",
-            onBack = { closeIfOpen(act) }
+            onBack = { closeIfOpen(act) },
+            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
+            adaptiveTitle = true
         ) {
             DhKit.Card(collapsibleTitle = "当前设置") {
                 val nowText = when {

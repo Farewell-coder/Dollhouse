@@ -9,7 +9,10 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -20,7 +23,6 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -94,7 +96,16 @@ import com.dollhouse.app.ui.theme.UiKit
  * 【为什么是 16】设计稿 §5：小于一行行高（56 / 64dp）的位移只会被读成"推上来一点"；
  *   超过一行就会被读成"整页滑动"，与"这是同一层的子页"的事实矛盾。
  */
-private const val ENTER_SHIFT_DP = 16
+/** 旧页被压到后面时缩到的比例（QZX LAYERED）。1.0 = 不缩；0.92 = 明显"退后一层"但仍看得出是同一张页。 */
+private const val EXIT_SCALE = 0.92f
+
+/**
+ * 旧页左移多少屏宽 —— 分母。
+ *
+ * 【为什么是 1/8 而不是整屏】整屏位移就是"普通横向滑动"，旧页会像被推出屏幕；
+ *   1/8 只够让人读出"它被新页挤开了一点"，主体仍留在原位当背景 —— 这才是分层。
+ */
+private const val EXIT_SHIFT_DENOMINATOR = 8
 
 object NavHost {
 
@@ -212,23 +223,60 @@ object NavHost {
                     //     旧页迅速让位，避免与进场重叠出重影。
                     // 位移量取 16dp：小于一行的行高（56/64dp），不会误读成"整页滑动"。
                     val animOn = android.animation.ValueAnimator.areAnimatorsEnabled()
-                    // 位移量按**密度**换算成像素，而不是拿屏高做除法：
-                    //   固定 16dp 在任何屏 / 任何缩放上都一样；
-                    //   用 `it / 42` 这类比例在大屏上会放大成"整页滑动"。
-                    val enterShiftPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-                        ENTER_SHIFT_DP.dp.roundToPx()
-                    }
+                    // 【QZX LAYERED·分层转场】三件事同时发生，缺一件就不是"分层"：
+                    //   ① **新页从右侧推入**（`slideInHorizontally { it }` + 淡入）；
+                    //   ② **旧页缩小**到 [EXIT_SCALE]（0.92）—— 这一下才让它读作"被抽出来的卡片"，
+                    //      而不是原地溶解；
+                    //   ③ **旧页只左移 1/8 屏宽**（[EXIT_SHIFT_DENOMINATOR]）—— 走满屏就变回
+                    //      "普通横向滑动"，旧页会被整个推出视野，后面什么也不剩。
+                    //   叠上 `fadeOut` 就是"变暗"：缩小的同时透明度下降，读作退到后层。
+                    //
+                    // 【为什么不给 enter 加缩放】新页若同时放大（0.96 → 1），两层都在缩放的
+                    //   "呼吸"会互相打架，观感反而像抖动；QZX 的描述里只有"旧页缩小"。
+                    //
+                    // 【时长仍走设计令牌】进入 220ms / 退出 180ms —— **退出比进入快**是既有口径
+                    //   （见上面那段注释），分层也沿用：新页推入的同时旧页已经在收尾，
+                    //   避免两层都以"半透明"状态长时间共存。
                     val pageEnter: EnterTransition = if (animOn) {
-                        (fadeIn(animationSpec = tween(DhDesign.Motion.enter))
-                            + slideInVertically(
-                                animationSpec = tween(DhDesign.Motion.enter),
-                                initialOffsetY = { enterShiftPx }
-                            ))
+                        fadeIn(animationSpec = tween(DhDesign.Motion.enter)) +
+                            slideInHorizontally(
+                                animationSpec = tween(DhDesign.Motion.enter)
+                            ) { it }
                     } else {
                         EnterTransition.None
                     }
                     val pageExit: ExitTransition = if (animOn) {
-                        fadeOut(animationSpec = tween(DhDesign.Motion.exit))
+                        scaleOut(
+                            targetScale = EXIT_SCALE,
+                            animationSpec = tween(DhDesign.Motion.exit)
+                        ) +
+                            fadeOut(animationSpec = tween(DhDesign.Motion.exit)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(DhDesign.Motion.exit)
+                            ) { -it / EXIT_SHIFT_DENOMINATOR }
+                    } else {
+                        ExitTransition.None
+                    }
+                    // 【返回要**镜像**，不能复用前进的那一条】
+                    //   分层转场的语义是"谁在前面谁大"：前进时新页从右推入、旧页缩小退后；
+                    //   返回时必须反过来 —— **后面那页从 0.92 长回 1**（它正在回到前台），
+                    //   而当前页往**右**退出。
+                    //   如果 pop 也复用前进的 spec，返回时会看到"上一页从右边滑进来"——
+                    //   方向与用户刚才推入的方向相反，读起来像又往前走了一步。
+                    val pagePopEnter: EnterTransition = if (animOn) {
+                        fadeIn(animationSpec = tween(DhDesign.Motion.enter)) +
+                            scaleIn(
+                                initialScale = EXIT_SCALE,
+                                animationSpec = tween(DhDesign.Motion.enter)
+                            )
+                    } else {
+                        EnterTransition.None
+                    }
+                    val pagePopExit: ExitTransition = if (animOn) {
+                        fadeOut(animationSpec = tween(DhDesign.Motion.exit)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(DhDesign.Motion.exit)
+                            ) { it }
                     } else {
                         ExitTransition.None
                     }
@@ -287,11 +335,24 @@ object NavHost {
                         // 普通页面前进、返回与预测性返回共用纯透明度规则。
                         // 每层仍是独立 LayerShield：转场开始即由栈顶独占交互。
                         transitionSpec = { pageEnter togetherWith pageExit },
-                        popTransitionSpec = { pageEnter togetherWith pageExit },
-                        predictivePopTransitionSpec = { pageEnter togetherWith pageExit },
+                        // 返回 / 预测性返回：镜像的那一对（理由见 pagePopEnter 上方的注释）
+                        popTransitionSpec = { pagePopEnter togetherWith pagePopExit },
+                        predictivePopTransitionSpec = { pagePopEnter togetherWith pagePopExit },
                         // 【不做尺寸动画】本工程的场景永远是整屏页，尺寸恒定；
                         //   关掉 `sizeTransform` 可以省去每帧的子项测量与布局动画开销 ——
                         //   这是「切页更顺」的另一半原因（帧时间少一段 layout 计算）。
+                        //
+                        // 【为什么这里**不**需要 `SizeTransform(clip = false)`】
+                        //   分层转场的两个动机里，`clip = false` 只对后者有意义：
+                        //   ① 让旧页"露出后面" —— 不需要。旧页是**在自身边界内**缩到 0.92 的
+                        //      （`graphicsLayer` 式缩放），它是变小、不是被裁；即使容器裁剪，
+                        //      裁的也只是它缩小后空出来的那一圈透明边。
+                        //   ② 让新页"从外面滑进来" —— 也不需要。新页从屏幕右侧外滑入，
+                        //      本来就在可视区外；裁不裁都是同一帧看到的东西。
+                        //   ⇒ 本工程没有任何"内容画到自己边界之外"的情形，`clip` 取什么值都一样；
+                        //     而打开 `sizeTransform` 会把上面省掉的每帧测量加回来。
+                        //   （若将来出现"子页比容器小、要露出底下那层"的场景，再改成
+                        //    `SizeTransform(clip = false)`。）
                         sizeTransform = null,
                         entryProvider = entryProvider<NavKey> {
                             // 【逐层登记】Nav3 要求每个 key 在 entryProvider 里都有对应条目。

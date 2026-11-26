@@ -131,7 +131,9 @@ object LamdaPage {
         DhKit.Page(
             title = "lamda 设备控制",
             sub = "让 AI 能操作手机（shell 级命令通道）",
-            onBack = { ProviderNav.handleBack(ctx) }
+            onBack = { ProviderNav.handleBack(ctx) },
+            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
+            adaptiveTitle = true
         ) {
             LamdaCards(ctx, st)
         }
