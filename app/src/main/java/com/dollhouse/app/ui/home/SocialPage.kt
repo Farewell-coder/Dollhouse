@@ -48,7 +48,6 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
-import com.dollhouse.app.ui.compose.pressHighlight
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.doll.DollListScreen
@@ -598,7 +597,6 @@ object SocialPage {
                 .background(Brush.verticalGradient(listOf(p.cardUp, p.card)))
                 // 【跟手高光·大控件试点 B】全宽动态卡片。同上：clip 内、background 之后。
                 //   渐变底上加法混合的白光会更「亮得有层次」，和实底按钮是两种观感。
-                .pressHighlight()
                 .pressable(onClick)
                 .padding(
                     horizontal = DhDesign.Space.cardPad.dp,

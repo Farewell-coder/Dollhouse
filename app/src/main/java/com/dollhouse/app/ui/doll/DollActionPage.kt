@@ -43,7 +43,6 @@ import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
-import com.dollhouse.app.ui.compose.pressHighlight
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.theme.Design
@@ -882,7 +881,6 @@ object DollActionPage {
                 // 【跟手高光·大控件试点 A】全宽动作卡。位置：clip 内、background 之后。
                 //   本卡片宽 = 屏宽 − 左右边距（手机 ≥300dp），远超 120dp 判据 →
                 //   200dp 光斑在上面有明显渐变过渡，**跟随位移看得清**。
-                .pressHighlight()
                 // 短按进详情、长按弹删除确认（与聊天会话列表同款手势，不挤占行内空间）。
                 .pressable(onOpen, onDelete)
                 .padding(horizontal = DhKit.PAD_ROW.dp, vertical = DhKit.PAD_ROW.dp),

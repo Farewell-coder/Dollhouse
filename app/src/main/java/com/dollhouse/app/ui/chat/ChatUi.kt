@@ -73,7 +73,6 @@ import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.design.LocalCompactHeight
-import com.dollhouse.app.ui.compose.pressHighlight
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -1658,7 +1657,6 @@ object ChatUi {
                     //   ⚠️ 注意本按钮只有 48dp，而光斑半径 200dp —— 光斑的「满强度内核」
                     //   就有 20dp，几乎盖满整个圆，**跟随位移在此尺寸上不明显**，
                     //   主要看「按下变亮、松手变暗」的观感是否舒服。
-                    .pressHighlight()
                     .pressable {
                         if (ChatState.waiting) {
                             host.stopGenerating()
