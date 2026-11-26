@@ -305,11 +305,17 @@ object DollAnimPage {
         }
 
         // ---------- 页面 ----------
+        // 【大标题栏需要】必须声明在 `DhKit.Page(` **之前**才能当参数传；
+        //   原来写在 content lambda 里（Page 之后），作用域不够。
+        val animScroll = rememberScrollState()
         DhKit.Page(
             title = action?.name ?: "动作",
             sub = (if (fixed) group + " · 固定" else group) + " · 共 " + frames.size + " 帧",
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             scrollable = false,
+            // 【大标题栏·批 3】本页 22 处控件，同样靠 externalScroll 拿到内容区进度。
+            adaptiveTitle = true,
+            externalScroll = animScroll,
             actions = {
                 if (action != null) {
                     if (fixed) {
@@ -336,8 +342,7 @@ object DollAnimPage {
                 }
             }
         ) {
-            // 【越界回弹】把 ScrollState 提到变量；原来内联 rememberScrollState() 拿不到状态。
-            val animScroll = rememberScrollState()
+            // 【越界回弹】animScroll 已在 Page 之前声明（大标题栏也要用）。
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

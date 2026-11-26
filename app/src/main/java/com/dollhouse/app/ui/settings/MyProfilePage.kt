@@ -161,7 +161,9 @@ object MyProfilePage {
                     commit()
                     PageStack.popIfTop(act, KEY)
                 }
-            }
+            },
+            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             // ---------- 头像 ----------
             Row(

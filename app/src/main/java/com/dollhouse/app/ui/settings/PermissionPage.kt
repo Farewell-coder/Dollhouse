@@ -96,7 +96,9 @@ object PermissionPage {
         DhKit.Page(
             title = "权限与保活",
             sub = "系统授权、后台存活与启停通道",
-            onBack = { closeIfOpen(act) }
+            onBack = { closeIfOpen(act) },
+            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             // ---------- 系统授权 ----------
             DhKit.Card(titleIcon = Icons.IC_SHIELD_CHECK, collapsibleTitle = "系统授权") {

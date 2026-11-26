@@ -62,7 +62,9 @@ object FriendModelConfigPage {
         //   scrollable 保持 true（原实现用 verticalScroll），滚动行为不变。
         DhKit.Page(
             title = "模型与生成",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             DhForm.Note("未开启独立模型时继承全局；Provider 凭据只按引用使用。")
             DhKit.SwitchRow(name = "独立模型", desc = "只修改当前好友，不改变其他好友", checked = overrideModel) { overrideModel = it }

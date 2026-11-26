@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -321,6 +322,23 @@ object DhKit {
          *   或者等我们补 `LazyListState` 版本。
          */
         externalScroll: ScrollState? = null,
+        /**
+         * **外部滚动状态（LazyColumn 版）**：内容是一个 `LazyColumn` 时用它 ——
+         * `LazyListState` 没有"总像素"，而 `ScrollState` 的进度算法依赖总像素，
+         * 两者不能互相转换（反推总像素要用行高，而行高是变量，误差会直接放大到标题位置上）。
+         *
+         * 【怎么用】与 [externalScroll] 完全对称：
+         * ```kotlin
+         * val listState = rememberLazyListState()
+         * DhKit.Page(title = "人偶", adaptiveTitle = true, externalLazyScroll = listState) {
+         *     LazyColumn(state = listState) { … }
+         * }
+         * ```
+         * 同样**只在 `adaptiveTitle = true` 时起作用**。
+         *
+         * 【两个都传时以 [externalScroll] 为准】见下面 `lazyTitleScroll` 的注释。
+         */
+        externalLazyScroll: LazyListState? = null,
         content: @Composable ColumnScope.() -> Unit
     ) {
         // 【上移 4 行】原先 `rememberScrollState()` 只在 `scrollable` 分支里创建；
@@ -334,6 +352,17 @@ object DhKit {
         // 标题栏读谁：有外部就给外部，否则读自己的。**只在 adaptiveTitle 分支里被用到**，
         // 所以 `externalScroll != null && adaptiveTitle == false` 时它没有任何作用。
         val titleScroll: ScrollState = externalScroll ?: scroll
+        /**
+         * 决定标题栏走哪个重载。
+         *
+         * 【两个都传时为什么 [externalScroll] 优先】三个理由：
+         *   ① 它是**先有的**参数，已有调用点/文档按它写；新参数让位于旧参数，向后兼容的直觉最省心；
+         *   ② 语义上 `ScrollState` 是"页面级通用滚动"，`LazyListState` 是"某个列表自己滚"；
+         *      而标题栏属于**整页**，与外层那个更一致；
+         *   ③ 同时传本身就是误用 —— 这里既不抛异常也不崩（标题栏参数不该让页面起不来），
+         *      只是给出一个确定、可预测的胜者，并在文档里写死这个规则。
+         */
+        val lazyTitleScroll: LazyListState? = if (externalScroll == null) externalLazyScroll else null
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -354,13 +383,25 @@ object DhKit {
         ) {
             if (adaptiveTitle) {
                 // 通栏：**不套** PAD_CARD 的 Box（理由见 `adaptiveTitle` 的参数文档）
-                DhAdaptiveTitleBar(
-                    title = title,
-                    scrollState = titleScroll,
-                    onBack = onBack,
-                    subtitle = sub,
-                    actions = actions ?: {}
-                )
+                // 【跨两个重载分派】`DhAdaptiveTitleBar` 本身就有 ScrollState / LazyListState
+                //   两个重载，这里只按"谁非空"选一个 —— 不做类型转换（总像素反推不可靠）。
+                if (lazyTitleScroll != null) {
+                    DhAdaptiveTitleBar(
+                        title = title,
+                        scrollState = lazyTitleScroll,
+                        onBack = onBack,
+                        subtitle = sub,
+                        actions = actions ?: {}
+                    )
+                } else {
+                    DhAdaptiveTitleBar(
+                        title = title,
+                        scrollState = titleScroll,
+                        onBack = onBack,
+                        subtitle = sub,
+                        actions = actions ?: {}
+                    )
+                }
             } else {
                 Box(modifier = Modifier.padding(horizontal = PAD_CARD.dp)) {
                     TopBar(title = title, sub = sub, onBack = onBack, actions = actions)

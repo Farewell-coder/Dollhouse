@@ -116,6 +116,9 @@ object AppearancePage {
     @Composable
     private fun Content(act: MainActivity) {
         var tab by remember { mutableStateOf(TAB_THEME) }
+        // 【大标题栏需要】收起进度要读这个 state，而它必须声明在 `DhKit.Page(` **之前**
+        //   —— 原来它写在 content lambda 里（Page 之后），当参数传不进去。
+        val contentScroll = rememberScrollState()
 
         DhKit.Page(
             title = "外观",
@@ -123,17 +126,18 @@ object AppearancePage {
             onBack = { PageStack.popIfTop(act, KEY) },
             // 【自带滚动】四个 Tab 各自是独立滚动区（内容长度不同），
             //   外层再滚一层会导致「滚到底才切 Tab」的错位感。
-            scrollable = false
+            scrollable = false,
+            // 【大标题栏·批 3】本页 30 处控件（全仓最多）—— 之前因为 scrollable=false
+            //   拿不到滚动进度而无法接；现在靠 externalScroll 把内容区的 state 交给 Page。
+            adaptiveTitle = true,
+            externalScroll = contentScroll
         ) {
             // ---------- 顶栏 Tab ----------
             TabBar(tab) { tab = it }
             Spacer(Modifier.height(DhDesign.Space.md.dp))
 
             // ---------- 内容 ----------
-            // 【越界回弹·P1 试点】把 ScrollState 提到变量，才能喂给 bounceOverscroll。
-            //   改造前是 `.verticalScroll(rememberScrollState())` 内联写法 ——
-            //   状态拿不到，也就没法在外层挂 nestedScroll。
-            val contentScroll = rememberScrollState()
+            // 【越界回弹·P1 试点】contentScroll 已在 Page 之前声明（大标题栏也要用）。
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

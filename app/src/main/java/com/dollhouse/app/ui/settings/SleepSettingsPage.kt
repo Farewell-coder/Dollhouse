@@ -42,7 +42,9 @@ object SleepSettingsPage {
     }
 
     @Composable
-    private fun Content(act: MainActivity) {
+    private fun Content(act: MainActivity) {,
+            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         DhKit.Page(title = "睡觉模式", onBack = { PageStack.popIfTop(act, TAG_PAGE) }) {
             // 【v0.2.6·安静时段】与睡觉模式并列但语义不同：
             //   睡觉 = 省电休眠；安静 = 到点不主动开口（问候、随机台词、通知）。
