@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,6 +49,7 @@ import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.DhKit.readableSheet
 import com.dollhouse.app.ui.compose.DhTokens
+import com.dollhouse.app.ui.compose.bounceOverscroll
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.kit.DhDivider
 import com.dollhouse.app.ui.kit.DhTag
@@ -341,8 +343,17 @@ object ChatListScreen {
                 }
 
                 else -> {
+                    // 【越界回弹·P1】本页只有这一层滚动（无 DhKit.Page、无外层 verticalScroll），
+                    //   所以挂在这里不会出现「嵌套两圈、拉一下弹两下」的叠加越界。
+                    val listState = rememberLazyListState()
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().readableSheet(
+                        state = listState,
+                        modifier = Modifier
+                            // 【顺序】bounceOverscroll 内部是 nestedScroll，必须挂在
+                            //   同一个 LazyColumn 节点上、且在 fillMaxSize 之前 ——
+                            //   它靠 onPostScroll 的 available 拿「列表已到边还剩多少」。
+                            .bounceOverscroll(listState)
+                            .fillMaxSize().readableSheet(
                             onPhoto = onPhoto,
                             fill = Color(UiKit.SOFT),
                             cornerDp = DhDesign.Radius.xl

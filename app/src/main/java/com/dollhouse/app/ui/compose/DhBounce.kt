@@ -198,7 +198,7 @@ fun Modifier.bounceOverscroll(
  *   所以 `remember` 捕获第一个 lambda 也不会过期。
  */
 @Composable
-private fun bounceOverscrollImpl(
+private fun Modifier.bounceOverscrollImpl(
     isScrollInProgress: () -> Boolean,
     maxOverscroll: Float,
 ): Modifier {
