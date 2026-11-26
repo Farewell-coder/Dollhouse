@@ -210,7 +210,9 @@ object DollImportWizardPage {
         DhKit.Page(
             title = "导入动作资源",
             sub = "选文件 → 检查 → 选方式 → 确认",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            // 【大标题栏·批 2】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             // ============ ① 选文件 ============
             DhKit.SectionLabel("① 选择文件", iconRes = Icons.IC_FOLDER_OPEN)

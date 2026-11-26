@@ -212,7 +212,9 @@ object ProviderEditPage {
             sub = "自定义（OpenAI 兼容）",
             onBack = { ProviderNav.back(act) },
             bottomPadDp = bottomPadDp,
-            onScroll = onScroll
+            onScroll = onScroll,
+            // 【大标题栏·批 2】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             // —— 主表单 ——
             DhKit.Card {

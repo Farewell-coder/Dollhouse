@@ -137,7 +137,9 @@ object FriendProfilePage {
         DhKit.Page(
             title = "好友资料",
             sub = name,
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            // 【大标题栏·批 2】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             Header(name = name, bio = bio, avatar = avatar)
 

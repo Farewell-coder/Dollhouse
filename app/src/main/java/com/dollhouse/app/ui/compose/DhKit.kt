@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -294,12 +295,45 @@ object DhKit {
          *   在本工程仍然可见：页面底是透明的，栏下面就是背景图。
          */
         adaptiveTitle: Boolean = false,
+        /**
+         * **外部滚动状态**：页面内容自己滚（`scrollable = false`）、而自适应标题栏需要
+         * 跟着收起的场景。
+         *
+         * 【为什么需要它】本工程有 10 个最该用大标题的页面（外观 30 个控件、动作编辑 22 个…）
+         *   都是「内容自己滚」——`Page` 不提供滚动条，进度就只能恒为 0，标题栏永远展开。
+         *   把这些页面内部那个 `rememberScrollState()` / `LazyListState` 的位移喂进来，
+         *   标题栏才动得起来。
+         *
+         * 【只在 `adaptiveTitle = true` 时有作用】本参数**不会**自动打开大标题 ——
+         *   传了但 `adaptiveTitle = false` 时，它被完全忽略（见下面 `titleScroll` 的用法），
+         *   不会改变任何渲染。要开大标题必须显式传 `adaptiveTitle = true`。
+         *
+         * 【与 `scrollable` 的关系】两者互不替代：
+         *   · `scrollable = true`（默认）→ 本页自己滚，通常不需要传本参数；
+         *   · `scrollable = false` + 本参数 → 内容自己滚，标题栏读外部的位移。
+         *   若两个都给了：内部滚动仍用内部 state（否则整页滚不动），标题栏读外部 ——
+         *   这会刻意让两者不同步，属于误用，但不会崩。
+         *
+         * 【类型为什么是 ScrollState 而不是 LazyListState】`DhAdaptiveTitleBar` 两种都有重载；
+         *   这里收 `ScrollState` 是因为它是"通用滚动位移"的最小接口，而 Lazy 列表的
+         *   总像素并不可得（见 `DhAdaptiveTitleBar` 里 Lazy 重载的注释）。
+         *   用 `LazyColumn` 的页面请给内容外面套 `Modifier.verticalScroll(state)`，
+         *   或者等我们补 `LazyListState` 版本。
+         */
+        externalScroll: ScrollState? = null,
         content: @Composable ColumnScope.() -> Unit
     ) {
         // 【上移 4 行】原先 `rememberScrollState()` 只在 `scrollable` 分支里创建；
         //   自适应标题栏也要读同一个 state，故提到函数顶部。
         //   对 `adaptiveTitle = false` 无行为影响（不滚动时多创建一个状态对象而已）。
+        //
+        // 【为什么不按 externalScroll 省掉这个对象】省下来的是几十字节，代价是
+        //   `remember` 变成条件调用（槽位结构随参数变化）—— 而 `scrollable` 分支
+        //   本来就需要它。保持无条件创建，逻辑最简单。
         val scroll = rememberScrollState()
+        // 标题栏读谁：有外部就给外部，否则读自己的。**只在 adaptiveTitle 分支里被用到**，
+        // 所以 `externalScroll != null && adaptiveTitle == false` 时它没有任何作用。
+        val titleScroll: ScrollState = externalScroll ?: scroll
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -322,7 +356,7 @@ object DhKit {
                 // 通栏：**不套** PAD_CARD 的 Box（理由见 `adaptiveTitle` 的参数文档）
                 DhAdaptiveTitleBar(
                     title = title,
-                    scrollState = scroll,
+                    scrollState = titleScroll,
                     onBack = onBack,
                     subtitle = sub,
                     actions = actions ?: {}

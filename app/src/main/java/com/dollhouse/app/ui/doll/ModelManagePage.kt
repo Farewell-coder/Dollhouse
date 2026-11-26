@@ -133,7 +133,9 @@ object ModelManagePage {
         DhKit.Page(
             title = "模型",
             sub = doll?.name ?: "这只人偶",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            // 【大标题栏·批 2】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             DhKit.Card {
                 DhKit.CardTitle("当前模型", iconRes = Icons.IC_IMAGE)

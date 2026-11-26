@@ -196,7 +196,9 @@ object DollActionPage {
                     newGroup = DollAnim.GROUP_MANUAL
                     newOpen = true
                 }
-            }
+            },
+            // 【大标题栏·批 2】首屏是长滚动内容（scrollable=true），滚动时标题收起。
+            adaptiveTitle = true
         ) {
             val total = remember(groups) {
                 var n = 0
