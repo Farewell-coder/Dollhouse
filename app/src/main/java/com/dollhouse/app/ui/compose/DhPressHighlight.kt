@@ -99,6 +99,8 @@ fun Modifier.pressHighlight(
     softness: Float = DEFAULT_SOFTNESS,
     followSpeed: Float = DEFAULT_FOLLOW_SPEED,
     directionSensitivity: Float = DEFAULT_DIRECTION_SENSITIVITY,
+    scrollThresholdRatio: Float = DEFAULT_SCROLL_THRESHOLD_RATIO,
+    horizontalThresholdRatio: Float = DEFAULT_HORIZONTAL_THRESHOLD_RATIO,
 ): Modifier {
     val highlight = remember { PressHighlightState() }
     val radiusPx = with(LocalDensity.current) { radiusDp.dp.toPx() }
@@ -120,6 +122,21 @@ fun Modifier.pressHighlight(
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 highlight.onDown(down.position, down.uptimeMillis)
 
+                // 【滚动判定·QZX 的 `qzxButtonScrollThresholdRatio` / `HorizontalThresholdRatio`】
+                //   本组件自己跟踪按压（`pressable` 不暴露 interactionSource），所以拿不到
+                //   `clickable` 那套「被滚动抢走就 Cancel」的现成机制 —— 必须自己判。
+                //
+                //   QZX 用的就是「位移超过控件尺寸的一定比例 → 认为用户在滚动而非按压」：
+                //     · 纵向阈值 = 高度 × 0.2
+                //     · 横向阈值 = 宽度 × 0.15
+                //   超过就收掉高光，效果与 `clickable` 取消按压一致。
+                //
+                //   【为什么这对大控件反而更好】阈值按尺寸缩放：328dp 宽的卡片横向可走 49dp，
+                //   足够撑起「甩」的观感；而 48dp 的图标按钮横向只走 7dp 就取消 ——
+                //   正好印证「小控件上做跟手高光没意义」。
+                val maxDx = size.width * horizontalThresholdRatio
+                val maxDy = size.height * scrollThresholdRatio
+
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     val change = event.changes.firstOrNull { it.id == down.id }
@@ -131,6 +148,13 @@ fun Modifier.pressHighlight(
                         break
                     }
                     if (!change.pressed) {
+                        highlight.onUp()
+                        break
+                    }
+                    // 位移越过阈值 → 判定为滚动/拖动，收掉高光（不 consume，滚动照常）。
+                    if (kotlin.math.abs(change.position.x - down.position.x) > maxDx ||
+                        kotlin.math.abs(change.position.y - down.position.y) > maxDy
+                    ) {
                         highlight.onUp()
                         break
                     }
@@ -344,3 +368,15 @@ private const val DEFAULT_FOLLOW_SPEED = 0.6f
 
 /** 方向敏感度：**0.5**（QZX 默认）。乘在外推时长上，0 = 完全不甩、纯贴合。 */
 private const val DEFAULT_DIRECTION_SENSITIVITY = 0.5f
+
+/**
+ * 纵向滚动判定阈值比例：**0.2** —— 位移超过 `高度 × 0.2` 即认为用户在滚动，收掉高光。
+ * QZX `qzxButtonScrollThresholdRatio` 默认值。
+ */
+private const val DEFAULT_SCROLL_THRESHOLD_RATIO = 0.2f
+
+/**
+ * 横向滚动判定阈值比例：**0.15** —— 位移超过 `宽度 × 0.15` 即收掉高光。
+ * QZX `qzxButtonHorizontalThresholdRatio` 默认值。
+ */
+private const val DEFAULT_HORIZONTAL_THRESHOLD_RATIO = 0.15f
