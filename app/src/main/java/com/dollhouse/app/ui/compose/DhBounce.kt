@@ -347,11 +347,14 @@ private suspend fun settle(
  * · **垂直轴轻微拉伸**：取 `squash × 0.5`，让"被推了一下"有体积感而不是单纯缩小；
  * · **小幅倾斜**：横向拖动时按比例给 `rotationZ`，上限 [DhBounce.CARD_MAX_TILT_DEG]。
  *
+ * ## 为什么不需要 `@Composable`
+ * 它只往 `graphicsLayer` 里挂一个 block，不读组合期状态（拖动量由调用方以 lambda 喂入、
+ * 所有量都在 layer 块里算）。少一层 `@Composable` 意味着它也能在非组合语境里拼进 modifier 链。
+ *
  * ## reduceMotion
  * **整体关闭**：形变本身就是"动画"，关动画的用户不该看到内容在他手指下变形。
  * 这里读的是 `DhAnim.reduceMotion()` 的进程级镜像 —— 因为它跑在 `graphicsLayer` 里（非组合期）。
  */
-@Composable
 fun Modifier.cardDeform(
     dragOffset: () -> Offset = { Offset.Zero },
 ): Modifier {
