@@ -32,6 +32,7 @@ import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.compose.pressHighlight
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.SwipeToDelete
@@ -274,6 +275,10 @@ object ProviderModelsPage {
                     .pressable(onClick)
                     .clip(RoundedCornerShape(DhKit.R_CARD.dp))
                     .background(c.acc)
+                    // 【跟手高光·试点 1/2】QZX 按钮的 ② 层反馈。
+                    //   位置：clip 之内（不溢出按钮形状）、background 之后（否则被实底盖住）。
+                    //   本按钮 ~120×44dp，200dp 光斑在上面有可见的渐变过渡。
+                    .pressHighlight()
                     .padding(start = 20.dp, top = DhDesign.Space.md.dp, end = 22.dp, bottom = DhDesign.Space.md.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
