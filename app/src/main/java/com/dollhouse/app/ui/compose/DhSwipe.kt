@@ -106,7 +106,7 @@ fun SwipeToDelete(
             // 【为什么用带 block 的重载】吸附过程也要把位移推给 `onDragOffset`，
             //   否则形变会停在松手那一刻、等吸附结束后突然复位（"卡一下再弹回"）。
             //   逐帧推出去，形变才跟着卡片的回弹一起回正。
-            offset.animateTo(to, DhAnim.SWIPE_SETTLE) { _, v -> onDragOffset(Offset(v, 0f)) }
+            offset.animateTo(to, DhAnim.SWIPE_SETTLE) { onDragOffset(Offset(value, 0f)) }
         }
     }
 
