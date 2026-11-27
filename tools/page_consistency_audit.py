@@ -15,7 +15,7 @@ Dollhouse · 页面级视觉一致性审计
   对每个页面级 Composable（`XxxPage` / `XxxScreen` / `XxxContent`），比对四类应当统一的量：
 
   P1 页面水平内边距 —— 规范 16dp（= DhDesign.Space.lg = DhKit.PAD_CARD.pageX）
-  P2 页面脚手架    —— 是否走 `DhKit.Page(...)`（它统一处理 padding/滚动/顶栏）
+  P2 页面脚手架    —— 是否走 `DhKit.Page(...)` 或 `QzxPage(...)`（两者都统一处理 padding/滚动/顶栏）
   P3 顶栏          —— 是 `DhKit.Page` 自带，还是自建
   P4 卡片间距      —— `DhKit.Card` 之间的 gap（规范 Space.cardGap = 12）
 
@@ -82,6 +82,11 @@ def is_page_name(name):
 EXEMPT = {
     ("ui/compose/DhKit.kt", "Page"):
         "这是页面脚手架**自身**的定义（DhKit.Page），不是页面。",
+    ("ui/qzx/QzxControls.kt", "QzxStepperRowContent"):
+        "这是**行渲染函数**（QzxRow 的 when 分支调用），不是页面。"
+        "它名字以 Content 结尾被 P 规则误当成页面入口；行本身没有页面级边距。",
+    ("ui/qzx/QzxPage.kt", "QzxPage"):
+        "这是页面脚手架**自身**的定义（QzxPage），不是页面 —— 与 DhKit.Page 同理。",
     ("pet/DollHomeOverlay.kt", "Content"):
         "桌宠悬浮层：自绘 View 覆盖在桌面上，没有页面栈、没有顶栏，不适用页面级边距。",
     ("pet/DollRangeOverlay.kt", "Content"):
@@ -267,7 +272,7 @@ def scan_pages():
                 })
                 continue
 
-            uses_page = bool(re.search(r"\bDhKit\.Page\s*\(", body))
+            uses_page = bool(re.search(r"\b(?:DhKit\.|Qzx)Page\s*\(", body))
 
             # P1：页面根级水平 padding。
             #   只认「Column/LazyColumn/Box 等直接出现 horizontal = N」的行，
@@ -411,7 +416,7 @@ def classify(pages, spec):
 
         # P2：脚手架
         if not pg["usesPage"]:
-            problems.append("未走 DhKit.Page")
+            problems.append("未走 DhKit.Page / QzxPage")
         else:
             # 【走脚手架后仍自加水平 padding】= 双倍边距，这是跨页不一致的常见来源。
             #   早先 _root_container_head 在 `DhKit.Page(` 的 `{` 处就停了，
