@@ -207,10 +207,10 @@ object LamdaPage {
 
             section(
                 id = "status", title = "服务状态",
-                titleIcon = painterResource(Design.icons.SERVER), flat = flat
+                titleIconRes = Design.icons.SERVER, flat = flat
             ) {
                 // 【为什么整行可点】状态来自真实探测，用户有疑问时最直接的答案就是「再探一次」。
-                item(statusText, icon = painterResource(statusIcon))
+                item(statusText, iconRes = statusIcon)
                     .titleTint(statusColor)
                     .onClick { refresh(st, null) }
 
@@ -231,16 +231,16 @@ object LamdaPage {
 
             section(
                 id = "install", title = "安装",
-                titleIcon = painterResource(Design.icons.DOWNLOAD), flat = flat
+                titleIconRes = Design.icons.DOWNLOAD, flat = flat
             ) {
                 // 下载：本地已有文件（含半截）就置灰 —— 不静默覆盖、不静默续传。
-                item("下载服务器包", icon = painterResource(Design.icons.DOWNLOAD))
+                item("下载服务器包", iconRes = Design.icons.DOWNLOAD)
                     .arrow()
                     .enabled(idle && s != null && !hasFile)
                     .spot("lamda.download")
                     .onClick { download(st) }
                 // 解包：只有包完整时才允许点。半截包解出来的是坏文件，服务起不来还难排查。
-                item("解包到本地", icon = painterResource(Design.icons.UNPACK))
+                item("解包到本地", iconRes = Design.icons.UNPACK)
                     .arrow()
                     .enabled(idle && pkgReady && !installed)
                     .spot("lamda.unpack")
@@ -263,15 +263,15 @@ object LamdaPage {
 
             section(
                 id = "run", title = "运行",
-                titleIcon = painterResource(Design.icons.START), flat = flat
+                titleIconRes = Design.icons.START, flat = flat
             ) {
                 // 【互斥规则】跑着的时候不给点启动、没跑的时候不给点停止。
-                item("启动服务", icon = painterResource(Design.icons.START))
+                item("启动服务", iconRes = Design.icons.START)
                     .arrow()
                     .enabled(idle && installed && !running)
                     .spot("lamda.start")
                     .onClick { start(st) }
-                item("停止服务", icon = painterResource(Design.icons.STOP))
+                item("停止服务", iconRes = Design.icons.STOP)
                     .arrow()
                     .enabled(idle && running)
                     .spot("lamda.stop")
@@ -281,7 +281,7 @@ object LamdaPage {
                 switch(
                     "自动保活",
                     checked = autoOn,
-                    icon = painterResource(Icons.IC_SHIELD_CHECK)
+                    iconRes = Icons.IC_SHIELD_CHECK
                 ).spot("lamda.keepAlive")
                     .onChecked { now ->
                         autoOn = now
@@ -313,10 +313,10 @@ object LamdaPage {
 
             section(
                 id = "delete", title = "删除",
-                titleIcon = painterResource(Design.icons.DELETE), flat = flat
+                titleIconRes = Design.icons.DELETE, flat = flat
             ) {
                 // 【危险行】整行红字 + 二次确认。204MB 服务器包删掉不可撤销。
-                item("删除服务器包", value = "约 204 MB", icon = painterResource(Design.icons.DELETE))
+                item("删除服务器包", value = "约 204 MB", iconRes = Design.icons.DELETE)
                     .danger()
                     .arrow()
                     .enabled(idle)
@@ -330,26 +330,26 @@ object LamdaPage {
 
             section(
                 id = "ability", title = "AI 能做什么",
-                titleIcon = painterResource(Design.icons.AI), flat = flat
+                titleIconRes = Design.icons.AI, flat = flat
             ) {
                 // 按**真实实现**逐项列，不合并成一整段，也不虚构没有的能力。
-                item("打开 / 关闭应用", icon = painterResource(Design.icons.APP))
+                item("打开 / 关闭应用", iconRes = Design.icons.APP)
                     .desc("按包名或应用名启动、结束某个应用").enabled(false)
-                item("点按", icon = painterResource(Design.icons.TAP))
+                item("点按", iconRes = Design.icons.TAP)
                     .desc("按坐标点一下屏幕上的元素").enabled(false)
-                item("长按", icon = painterResource(Design.icons.LONG_PRESS))
+                item("长按", iconRes = Design.icons.LONG_PRESS)
                     .desc("按住不放，触发长按菜单或选择").enabled(false)
-                item("滑动", icon = painterResource(Design.icons.SWIPE))
+                item("滑动", iconRes = Design.icons.SWIPE)
                     .desc("从一点划到另一点，用来翻页与滚动").enabled(false)
-                item("回主页 / 返回", icon = painterResource(Design.icons.HOME))
+                item("回主页 / 返回", iconRes = Design.icons.HOME)
                     .desc("回到桌面，或退回上一个界面").enabled(false)
-                item("唤醒屏幕", icon = painterResource(Design.icons.WAKE))
+                item("唤醒屏幕", iconRes = Design.icons.WAKE)
                     .desc("点亮屏幕（不解锁，解锁仍需主人自己来）").enabled(false)
-                item("输入文字 / 清空输入框", icon = painterResource(Design.icons.KEYBOARD))
+                item("输入文字 / 清空输入框", iconRes = Design.icons.KEYBOARD)
                     .desc("往当前焦点里打字，也能把输入框清干净").enabled(false)
-                item("读写剪贴板", icon = painterResource(Design.icons.CLIPBOARD))
+                item("读写剪贴板", iconRes = Design.icons.CLIPBOARD)
                     .desc("读取剪贴板内容，或把一段文字放进去").enabled(false)
-                item("读取当前界面结构", icon = painterResource(Design.icons.OBSERVE))
+                item("读取当前界面结构", iconRes = Design.icons.OBSERVE)
                     .desc("返回屏幕的层级与可点元素，据此判断该点哪里").enabled(false)
                 note(
                     "服务启动后，小肥鱼会多出上面这组设备操作能力。" +

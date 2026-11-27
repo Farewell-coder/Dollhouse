@@ -72,7 +72,7 @@ object SleepSettingsPage {
                 section(
                     id = "quiet",
                     title = "安静时段",
-                    titleIcon = painterResource(Icons.IC_CLOCK_3),
+                    titleIconRes = Icons.IC_CLOCK_3,
                     collapsible = true,
                     expanded = PetPrefs.cardOpen(ctx, "安静时段"),
                     onToggle = { PetPrefs.setCardOpen(ctx, "安静时段", it) },
@@ -80,7 +80,7 @@ object SleepSettingsPage {
                     item(
                         "安静时段",
                         value = if (on) "已开启" else "已关闭",
-                        icon = painterResource(if (on) Icons.IC_CHECK else Icons.IC_CLOSE)
+                        iconRes = if (on) Icons.IC_CHECK else Icons.IC_CLOSE
                     ).valueTint(if (on) QzxColors.accent else null)
                         .arrow()
                         .spot("sleep.quiet")
@@ -92,7 +92,7 @@ object SleepSettingsPage {
                     item(
                         "开始时间",
                         value = QuietHours.format(start),
-                        icon = painterResource(Icons.IC_CLOCK_3)
+                        iconRes = Icons.IC_CLOCK_3
                     ).desc("点一下 +1 小时")
                         .arrow()
                         .spot("sleep.start")
@@ -104,7 +104,7 @@ object SleepSettingsPage {
                     item(
                         "结束时间",
                         value = QuietHours.format(end),
-                        icon = painterResource(Icons.IC_CLOCK_3)
+                        iconRes = Icons.IC_CLOCK_3
                     ).desc("点一下 +1 小时")
                         .arrow()
                         .spot("sleep.end")
@@ -122,7 +122,7 @@ object SleepSettingsPage {
                 section(
                     id = "help",
                     title = "说明",
-                    titleIcon = painterResource(Icons.IC_SPARKLES),
+                    titleIconRes = Icons.IC_SPARKLES,
                     collapsible = true,
                     expanded = PetPrefs.cardOpen(ctx, "说明"),
                     onToggle = { PetPrefs.setCardOpen(ctx, "说明", it) },

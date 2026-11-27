@@ -98,7 +98,7 @@ object ChatSettingsPage {
                 switch(
                     "流式输出",
                     checked = remember(tick) { PetPrefs.streamOutput(act) },
-                    icon = painterResource(Icons.IC_ACTIVITY)
+                    iconRes = Icons.IC_ACTIVITY
                 ).spot("chat.stream").onChecked { on ->
                     PetPrefs.setStreamOutput(act, on)
                     tick++
@@ -113,7 +113,7 @@ object ChatSettingsPage {
                 switch(
                     "思考过程",
                     checked = remember(tick) { PetPrefs.showThinking(act) },
-                    icon = painterResource(Icons.IC_BRAIN)
+                    iconRes = Icons.IC_BRAIN
                 ).spot("chat.thinking").onChecked { on ->
                     PetPrefs.setShowThinking(act, on)
                     tick++
@@ -132,7 +132,7 @@ object ChatSettingsPage {
                 switch(
                     "学习示例",
                     checked = remember(tick) { PetPrefs.learnEnabled(act) },
-                    icon = painterResource(Icons.IC_BOOK_HEART)
+                    iconRes = Icons.IC_BOOK_HEART
                 ).spot("chat.learnExamples").onChecked { on ->
                     PetPrefs.setLearnEnabled(act, on)
                     tick++

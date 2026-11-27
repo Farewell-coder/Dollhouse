@@ -4,33 +4,22 @@ import android.graphics.BitmapFactory
 import android.view.View
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,43 +33,107 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.dollhouse.app.MainActivity
+import androidx.compose.ui.window.Dialog
 import com.dollhouse.app.CoverCropActivity
-import com.dollhouse.app.PickFileActivity
+import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.DollAnim
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.DollSizeSpec
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.PetPrefs
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.pressable
-import com.dollhouse.app.ui.home.HomeUi
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhKit
-import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.design.LocalCompactHeight
+import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.qzx.LocalQzxScrollStates
+import com.dollhouse.app.ui.qzx.QzxButtonSpec
+import com.dollhouse.app.ui.qzx.QzxButtonStyle
+import com.dollhouse.app.ui.qzx.QzxChip
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxDialog
+import com.dollhouse.app.ui.qzx.QzxFonts
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.QzxPageScroll
+import com.dollhouse.app.ui.qzx.QzxPageScrollStates
+import com.dollhouse.app.ui.qzx.QzxSurface
+import com.dollhouse.app.ui.qzx.QzxTokens
+// 【必须显式 import】`chips` / `buttons` / `slider` 是 QzxSectionScope 的**顶层扩展函数**
+//   （在 QzxControls.kt 里，不在行型类内部），与 `item` / `note` / `input`（类成员）不同 ——
+//   漏 import 会编译不过（本仓 MemSettingsPage 也是这么 import 的）。
+import com.dollhouse.app.ui.qzx.buttons
+import com.dollhouse.app.ui.qzx.chips
+import com.dollhouse.app.ui.qzx.slider
 import com.dollhouse.app.ui.theme.Design
-import com.dollhouse.app.ui.theme.UiKit
 import com.dollhouse.app.ui.theme.Icons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
- * 【职责】人偶管理页：列表 + 启停 + 编辑入口 + 更多操作 + 添加面板。
+ * 【职责】人偶管理页：列表 + 启停 + 编辑入口 + 更多操作 + 列数。
  *
  * 【为什么用 PageStack】本页与编辑页是多层页面的前两层；统一走全 App 页面栈，
  *   返回键 / 退场动画 / 层数都不再各页各管一段。
+ *
+ * ## 【QZX 迁移】整页从旧 UI 系统迁到新声明式系统 `ui.qzx`
+ *
+ * | 旧 | 新 |
+ * |---|---|
+ * | `DhKit.Page(scrollable = false, adaptiveTitle = true, externalGridScroll = …)` | [QzxPage] + `scroll = QzxPageScroll.Grid` |
+ * | 自持 `rememberLazyGridState()` 再手传给标题栏 | 由 [QzxPage] 创建**唯一一份**，标题栏与网格从 [LocalQzxScrollStates] 取同一个 |
+ * | `Modifier.background(c.card) + clip + padding` 手拼的「格子」 | [QzxSurface]（卡底 + 边缘光 + 按压反馈由系统给） |
+ * | `DhForm.Alert` / `DhForm.Note` / `DhForm.Input` / `DhForm.PrimaryChip` | [QzxDialog]（纯文字确认）/ [QzxList] 的 `note` / `input` / `buttons` |
+ * | `DhKit.ActionRow` / `DhKit.SliderRow` | [QzxList] 的 `item(...).arrow()` / `slider(...)` |
+ * | `ModalBottomSheet` =2（添加面板 / 更多面板） | [DollPanel] + [QzxList] 的 section（行高 / 内边距 / 分隔线归系统） |
+ * | 自绘三点浮层（主菜单 + 列数二级菜单） | 「更多」→ 面板里的「列数」行 + 三枚选择 chip |
+ *
+ * ## 逐项对照：旧入口一个不少
+ *
+ * | 操作 | 旧实现 | 新实现 |
+ * |---|---|---|
+ * | 添加人偶 | 顶栏图标按钮 → 导入助手 | **同**（导航调用一字未改） |
+ * | 列数 | 浮层「列数」→ 二级菜单里三选一 | 「更多」面板 →「列数」行 → 三枚 chip（+「返回」回上一级） |
+ * | 启用 / 停止 · 编辑 · 更多操作 | 卡片底部三枚图标按钮 | **同**（三个等宽槽位，无障碍名逐字保留） |
+ * | 命名 / 改封面 / 换模型 / 模型 / 复制 / 删除 / 恢复 | 底部面板里的图标网格 | 面板里的 7 个列表行（删除 / 恢复仍按固定身份二选一） |
+ * | 封面来源（动作库 / 自己的图） | `DhForm.Alert` + 两颗 ActionRow | 面板里两行 item |
+ * | 挑帧（先挑动作、再挑帧） | 两级 `DhForm.Alert` | 两级面板；帧条走 `custom { }` 逃生口（见下） |
+ * | 恢复默认配置 | `DhForm.Alert` | [QzxDialog]（`confirmDestructive = true`：不可撤销的复位） |
+ * | 大小与位置 | `DhForm.Alert` + 3 个 `DhKit.SliderRow` + `PrimaryChip` | [DollPanel] + `slider` ×3 + `buttons`（签名不变，两个调用方零改动） |
+ *
+ * ## 本轮删掉的唯一一段（且**不可达**，不影响任何入口）
+ *
+ * 旧的「添加面板」`AddSheet`（模板 / 导入 两颗按钮）连同只被它引用的
+ * `PickFileActivity` 监听器一起删除。判据是代码本身：自 v0.1.5·R-062 把顶栏加号改成
+ * 直达「导入助手」之后，该文件里**再也没有任何一处把 `sheet` 置 true**（只有 `sheet = false`），
+ * 也就是说这个面板与它那两颗按钮**从来没有被用户看到过**。它承诺的两条路都另有入口：
+ * 空白模板在导入助手选择页底部，本地导入在助手第一步。
+ *
+ * ## 一个真实的能力缺口（已在交付里报告，未用旧系统糊过去）
+ *
+ * 迁移开工时 `QzxDialog` 只收 `message: String`（它刻意不做自定义布局），而本页有五处需要
+ * 「弹窗里放行与控件」。这里用一个 5 行的 [DollPanel] 壳补上：它只负责
+ * **模态 + 点外部 / 返回键关闭**（平台 [Dialog] 语义），内容一律走 `QzxList` ——
+ * 所以行高、内边距、分隔线、按钮对齐仍然全部归系统，页面里没有任何排版字面量。
+ *
+ * 【后续可整段删掉】`ui/qzx/QzxDialog.kt` 此刻正被并行改动、已经出现了
+ *   `content: (@Composable () -> Unit)?` 与 `dismissAction` 两个参数（**未提交**）。
+ *   本页没有依赖它：同一批里 `QzxList` 的新行型改动先前出现过又消失过，依赖未落稳的
+ *   qzx 接口会让本页随时编译不过。等那边落定后，把 [DollPanel] 的调用点换成
+ *   `QzxDialog(visible = true, title = …, content = { QzxList { … } })` 即可 ——
+ *   注意届时 section 要加 `flat = true`（弹窗自己已经是卡片，否则卡片套卡片）。
  */
 object DollListScreen {
     const val KEY = "doll:list"
+
+    /** 卡片宽高比：**竖矩形 3:4**（列数决定宽度，高度随之定下来，任何列数下都是竖的）。 */
+    private const val CARD_ASPECT = 0.75f
 
     @JvmStatic
     fun open(act: MainActivity) {
@@ -102,361 +155,350 @@ object DollListScreen {
         //   【为什么不用 List 状态再存一份】单一真源保持在 DollStore，这里只派生。
         val rev = DollState.rev
         val dolls = remember(rev) { DollStore.all(act) }
-        var sheet by remember { mutableStateOf(false) }
         var moreId by remember { mutableStateOf<String?>(null) }
-        // 【r13·需求B】命名 / 改封面的弹窗状态。
+        // 【r13·需求B】命名 / 改封面的状态。
         var renameId by remember { mutableStateOf<String?>(null) }
         var renameDraft by remember { mutableStateOf("") }
         var coverId by remember { mutableStateOf<String?>(null) }
-        // true = 正弹「封面从哪来」的选择窗。
+        // true = 正弹「封面从哪来」的选择面板。
         var coverAsk by remember { mutableStateOf(false) }
-        // true = 正弹「从动作库挑一帧」的挑帧窗。
+        // true = 正弹「从动作库挑一帧」的挑帧面板。
         var coverFromAnim by remember { mutableStateOf(false) }
-        // 【本轮·新增】尺寸设置窗（人偶级显示规格）与「恢复默认配置」确认窗。
+        // 【本轮·新增】「恢复默认配置」确认窗。
         var restoreId by remember { mutableStateOf<String?>(null) }
-        // 【r12】三点菜单：null = 关闭；0 = 主菜单；1 = 列数二级菜单。
+        // 【r12】「更多」浮层：-1 = 关闭；0 = 主菜单；1 = 列数二级。
         var menu by remember { mutableStateOf(-1) }
         // 列数全局记住（PetPrefs.dollCols），改完 bump 触发重组重排。
         var cols by remember(rev) { mutableStateOf(PetPrefs.dollCols(act)) }
-        // 【本地导入·r13 改造】走「任意文件」通道，**不再**只拉相册。
-        //   【为什么改】用户原话：「添加人偶那里 本地添加 你不要给我引导到相册 应该是我在 PS 里面
-        //     把所有的图层画好之后在 AE 里面导出 json 文件 应该是导入这个文件」。
-        //   现在拿到的可能是：单张图 / 动图 / json（帧清单或动画工程）/ 精灵图+描述 / 压缩包，
-        //   统一交给 [AnimImport] 解析成一组 PNG 帧，再作为「素材帧」存进该人偶的帧目录。
-        //   【仍然不用 rememberLauncherForActivityResult】宿主是原生 Activity + 自建 HostOwner，
-        //   提供不了 ActivityResultRegistryOwner，会在首帧组合期直接抛异常（见原注释）。
-        val importPick = object : PickFileActivity.FileListener {
-            override fun onFiles(paths: List<String>, failed: Boolean) {
-                if (paths.isEmpty()) {
-                    if (failed) {
-                        HomeUi.showNotice(act, "导入失败", "没能读取选中的文件，请重试。")
-                    }
-                    return
+
+        /**
+         * 切到某一列数：落盘 → 把每只人偶的封面换成该列数对应的那一张 → 刷新 → 关面板。
+         *
+         * 【为什么要换封面】用户裁封面时按三种比例各裁了一张（见 [CoverCropActivity]），
+         *   这里不换的话，三列排布下会拿着 1 列的竖图去凑 —— 白裁了。
+         *   没裁过的（老数据 / 只设过一次封面）返回 false，保留当前封面即可。
+         */
+        fun pickCols(n: Int) {
+            PetPrefs.setDollCols(act, n)
+            var changed = false
+            val all = DollStore.all(act)
+            for (d in all) {
+                if (DollStore.applyCoverForCols(act, d.id, n)) {
+                    changed = true
                 }
-                // 【为什么开线程】解析 json / 解包 / 拆动图 / 解码缩放全是重活，
-                //   主线程做会卡顿乃至 ANR。后台做完再回主线程刷新列表。
-                Thread({
-                    // 【顺序很关键】先建人偶拿到 id（它自带一个空白动作库），
-                    //   再用它的帧目录去解析成果文件，最后把第一帧设为形象图。
-                    val doll = DollStore.addTemplate(act, "本地导入")
-                    val dir = DollAnim.framesDir(act, doll.id, "import")
-                    val r = com.dollhouse.app.data.AnimImport.import(act, paths, dir)
-                    if (r.frames.isEmpty()) {
-                        // 没解析出任何帧就把这只空壳撤掉，别在列表里留一个没用的条目。
-                        DollStore.remove(act, doll.id)
-                        act.runOnUiThread {
-                            DollState.bump()
-                            HomeUi.showNotice(act, "没导入成功", r.note)
-                        }
-                        return@Thread
-                    }
-                    DollStore.setSpriteFromFrame(act, doll.id, r.frames[0])
-                    DollAnim.add(
-                        act, doll.id, "导入的动作", r.note,
-                        r.frames, r.fps, true
-                    )
-                    act.runOnUiThread {
-                        DollState.bump()
-                        HomeUi.showNotice(act, "已导入", r.note)
-                    }
-                }, "dh-doll-import").start()
             }
+            if (changed) {
+                DollState.bump()
+            }
+            cols = n
+            menu = -1
         }
-        // 【大标题栏·收尾】网格 state 必须声明在 `DhKit.Page(` **之前**才能当参数传
-        //   （与 contentScroll 那次同款作用域问题）。本页是 `LazyVerticalGrid`，
-        //   state 类型是 `LazyGridState`，所以走 `externalGridScroll`。
-        val gridState = rememberLazyGridState()
-        DhKit.Page(
+
+        QzxPage(
             title = "人偶",
             onBack = { PageStack.popIfTop(act, KEY) },
-            scrollable = false,
-            // 【大标题栏·收尾】本页 scrollable=false（网格自己滚），靠 externalGridScroll
-            //   把网格进度交给标题栏。002 的重载优先级：
-            //   externalScroll > externalLazyScroll > externalGridScroll > 内部 state。
-            adaptiveTitle = true,
-            externalGridScroll = gridState,
+            // 【Grid 模式】网格自己滚，QzxPage **不包裹**任何滚动容器（双层滚动在结构上不可能发生）。
+            scroll = QzxPageScroll.Grid,
+            // 【返回键】新系统不持有旧 drawable，图标必须由调用方给；不传就不画返回键。
+            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            // 【有背景图时栏底恒 88%】旧 `DhKit.Page(adaptiveTitle = true)` 内部也是读这个判断，
+            //   这里只是把它显式交进新系统（新系统不认识"背景图"这个概念）。
+            hasPhotoBackdrop = DhKit.hasPhotoBackdrop(),
             actions = {
                 // 【r15·图标+文字】顶栏空间宽裕 → 加文字，避免「这个加号是加什么」的猜测。
-                DhKit.IconButton(Icons.IC_PLUS, 20f, DhTokens.colors.title, label = "添加人偶") {
+                // 【为什么还是 DhKit.IconButton】新系统**没有公开的图标按钮**（QzxButton 只收文字），
+                //   与本批已迁移的 MyProfilePage 顶栏同一做法；语义名走 label，读屏念得到。
+                DhKit.IconButton(Icons.IC_PLUS, Design.SZ_MD, QzxColors.title, label = "添加人偶") {
                     // 【v0.1.5·R-062】加号直接进「添加角色」导入助手（第 1 屏标题就是它）。
                     //   【为什么不再弹中间那层面板】R-040 / R-056 要求导入最多三步，
                     //   再叠一个「模板 / 导入」选择面板就成了四步，且用户得先猜哪个才是「加角色」。
-                    //   空白模板与「给已有角色加动作」都还有各自的入口，功能一个都没少：
-                    //   · 空白模板 → 助手选择页底部的文字按钮；
-                    //   · 导入动作 → 卡片「动作」页里的导入向导。
                     ImportAssistantPage.open(act)
                 }
-                // 【r12】右上角三个点 → 弹出小卡片，第一项「列数」。
-                DhKit.IconButton(Icons.IC_MORE, 20f, DhTokens.colors.title, label = "更多") {
+                // 【r12】右上角三个点 → 列数面板。
+                DhKit.IconButton(Icons.IC_MORE, Design.SZ_MD, QzxColors.title, label = "更多") {
                     menu = if (menu == 0) -1 else 0
                 }
             }
         ) {
-            // 【r12】按列数换排布：一列 / 两列 / 三列。
-            // 【P2-a·紧凑高度】横屏 / 小屏（窗口高 < 480dp）时只收紧**纵向**行距
-            //   （cardGap 12 → sm 8），横向列距保持 cardGap —— 横屏宽度充足，压缩列距
-            //   反而会让卡片更挤；真正受限的是垂直方向「一屏能放几行卡片」。
-            val compact = LocalCompactHeight
-            LazyVerticalGrid(
-                // 【本轮·前置准备】原来没有 state（Compose 内部自管）。
-                //   显式持有它，等 002 的 externalGridScroll 到位后只需在 Page 上加一行参数。
-                state = gridState,
-                columns = GridCells.Fixed(cols),
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(DhDesign.Space.cardGap.dp),
-                verticalArrangement = Arrangement.spacedBy(
-                    (if (compact) DhDesign.Space.sm else DhDesign.Space.cardGap).dp
-                )
-            ) {
-                items(dolls, key = { it.id }, contentType = { "doll" }) { doll ->
-                    /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
-                    Box(Modifier.animateItem()) {
-                    DollCard(
-                        act = act,
-                        doll = doll,
-                        cols = cols,
-                        onEdit = {
-                            DollEditScreen.open(act, doll.id)
-                            menu = -1
-                        },
-                        onMore = { moreId = doll.id }
+            // 浮层（面板）与网格同一层：网格在下、面板以 Dialog 抬起（独立窗口，不参与此处布局）。
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 【与标题栏同一份 state】由 QzxPage 创建、经 CompositionLocal 分发；
+                //   取不到就是页面 scroll 参数写错了，requireGrid 会给出可定位的错误。
+                val grid = QzxPageScrollStates.requireGrid(LocalQzxScrollStates.current)
+                // 【P2-a·紧凑高度】横屏 / 小屏（窗口高 < 480dp）时只收紧**纵向**行距
+                //   （cardGap 17 → sm 8），横向列距保持 cardGap —— 横屏宽度充足，压缩列距
+                //   反而会让卡片更挤；真正受限的是垂直方向「一屏能放几行卡片」。
+                val compact = LocalCompactHeight
+                LazyVerticalGrid(
+                    state = grid,
+                    columns = GridCells.Fixed(cols),
+                    // 【不挂 qzxBounce】旧实现（`scrollable = false`）本来就没有回弹；
+                    //   迁移只换骨架、不改手感 —— 要统一加回弹应当整批页面一起加。
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(QzxTokens.Space.cardGap),
+                    verticalArrangement = Arrangement.spacedBy(
+                        if (compact) QzxTokens.Space.sm else QzxTokens.Space.cardGap
                     )
+                ) {
+                    items(dolls, key = { it.id }, contentType = { "doll" }) { doll ->
+                        /* 【v0.2.4·条目动画】新增 / 删除人偶时平滑让位，避免整屏重排。 */
+                        Box(Modifier.animateItem()) {
+                            DollCard(
+                                act = act,
+                                doll = doll,
+                                cols = cols,
+                                onEdit = {
+                                    DollEditScreen.open(act, doll.id)
+                                    menu = -1
+                                },
+                                onMore = { moreId = doll.id }
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        // 【r12】三点菜单（右上角浮层）：主菜单 + 列数二级菜单。
-        //   用 Box 绝对定位而不是 DropdownMenu —— 后者取 MaterialTheme 配色，
-        //   本工程刻意不建主题（见 DhTheme 头注释），会落到浅色默认值上。
-        if (menu >= 0) {
-            MenuOverlay(
-                cols = cols,
-                level = menu,
-                onPickCols = {
-                    PetPrefs.setDollCols(act, it)
-                    // 【r13·需求E】切列数时把封面换成该列数对应的那一张。
-                    //   用户裁封面时按三种比例各裁了一张（见 CoverCropActivity），
-                    //   这里不换的话，三列排布下会拿着 1 列的竖图去凑 —— 白裁了。
-                    //   没裁过的（老数据 / 只设过一次封面）返回 false，保留当前封面即可。
-                    var changed = false
-                    val all = DollStore.all(act)
-                    for (d in all) {
-                        if (DollStore.applyCoverForCols(act, d.id, it)) {
-                            changed = true
+            // ---------- 「更多」：列数 ----------
+            // 【r12】旧版是自绘三点浮层（主菜单 + 向左展开的二级卡片），因为本工程刻意不建
+            //   MaterialTheme，DropdownMenu 会落到 M3 浅色默认值上。迁到新系统后这件事
+            //   由 `QzxList` 的行型表达：一个「列数」行（右侧显示当前值）+ 三枚 chip，
+            //   当前值、可选项与切换逻辑全部原样保留。
+            if (menu >= 0) {
+                DollPanel(onDismiss = { menu = -1 }) {
+                    QzxList(modifier = Modifier.fillMaxWidth()) {
+                        section(id = "cols", title = "更多") {
+                            if (menu == 1) {
+                                // 二级：三选一。选中项由 chips 的高亮表达（= 当前列数）。
+                                chips(
+                                    title = "列数",
+                                    options = PetPrefs.DOLL_COLS.map {
+                                        QzxChip(label = colsName(it), id = it.toString())
+                                    },
+                                    selected = setOf(cols.toString()),
+                                    // 【点当前项也当作"选中"】旧的二级菜单里点任意一项（含当前列数）
+                                    //   都会落盘并关面板；chip 的 onToggle 对已选项给 on=false，
+                                    //   这里忽略 on，一律按"选中它"处理 —— 手感与旧版一致。
+                                    onToggle = { id, _ -> pickCols(id.toInt()) }
+                                )
+                                // 旧二级菜单里「列数」那一行点回主菜单（onBack）；这里显式给一行。
+                                item("返回", iconRes = Icons.IC_ARROW_LEFT)
+                                    .onClick { menu = 0 }
+                            } else {
+                                item(
+                                    "列数",
+                                    value = colsName(cols),
+                                    iconRes = Icons.IC_LAYOUT_TEMPLATE
+                                ).arrow()
+                                    .onClick { menu = 1 }
+                            }
                         }
                     }
-                    if (changed) {
+                }
+            }
+
+            // ---------- 卡片「更多」面板 ----------
+            val more = DollStore.byId(act, moreId)
+            if (more != null) {
+                DollPanel(onDismiss = { moreId = null }) {
+                    QzxList(modifier = Modifier.fillMaxWidth()) {
+                        section(
+                            id = "more",
+                            title = more.name,
+                            titleIconRes = Icons.IC_MORE
+                        ) {
+                            // 命名：打开命名面板（保留 moreId，面板关掉才清）。
+                            item("命名", iconRes = Icons.IC_SIGNATURE)
+                                .arrow()
+                                .onClick {
+                                    renameId = more.id
+                                    renameDraft = more.name
+                                    moreId = null
+                                }
+                            // 改封面：先弹「从哪来」的选择面板。
+                            item("改封面", iconRes = Icons.IC_IMAGE_PLUS)
+                                .arrow()
+                                .onClick {
+                                    coverId = more.id
+                                    coverAsk = true
+                                    moreId = null
+                                }
+                            // 【v0.1.5·19.2.3】在当前角色内换模型。先关面板再进页面，
+                            //   避免回退后底部面板还盖在列表上。
+                            item("换模型", iconRes = Icons.IC_REFRESH)
+                                .arrow()
+                                .onClick {
+                                    val id = more.id
+                                    moreId = null
+                                    ReplaceModelPage.open(act, id)
+                                }
+                            // 【v0.1.5·8.9】模型管理页：一屏看全四态状态 + 名字 / 大小 / 位置，
+                            //   两个动作（更换模型 / 调整位置）都在那一页里，这里只负责导航。
+                            item("模型", iconRes = Icons.IC_IMAGE)
+                                .arrow()
+                                .onClick {
+                                    val id = more.id
+                                    moreId = null
+                                    ModelManagePage.open(act, id)
+                                }
+                            item("复制", iconRes = Icons.IC_COPY)
+                                .onClick {
+                                    DollStore.duplicate(act, more.id)
+                                    moreId = null
+                                    DollState.bump()
+                                }
+                            // 内置默认配置不可删除：不渲染删除键。
+                            // 【r21·判据加固】从 `builtin` 标记改为**认固定身份** `id == DEFAULT_ID`
+                            //   （`DollStore.read()` 里有一条 `list[0].copy(builtin = true)` 的兜底分支，
+                            //   靠标记会把自建人偶误判成内置）。详见 [isFactoryDoll]。
+                            if (!isFactoryDoll(more)) {
+                                item("删除", iconRes = Icons.IC_TRASH)
+                                    .danger()
+                                    .onClick {
+                                        DollStore.remove(act, more.id)
+                                        moreId = null
+                                        DollState.bump()
+                                        HomeUi.notifyPetReload(act)
+                                    }
+                            }
+                            // 【只在默认配置上出现】「恢复默认」的语义是「回到下载软件时自带的样子」，
+                            //   这个概念对**自建人偶**不成立（出厂状态就是用户刚建出来的空样子）。
+                            // 【r21·文案缩短】「恢复」二字在本面板里语义完整（它只出现在默认配置上）。
+                            // 【v0.2.8】原「导出」入口已删：它产出的目录全工程零读取方（单向死路）。
+                            if (isFactoryDoll(more)) {
+                                item("恢复", iconRes = Icons.IC_ROTATE_CCW)
+                                    .onClick {
+                                        restoreId = more.id
+                                        moreId = null
+                                    }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---------- 命名 ----------
+            val renaming = DollStore.byId(act, renameId)
+            if (renaming != null) {
+                DollPanel(onDismiss = { renameId = null }) {
+                    QzxList(modifier = Modifier.fillMaxWidth()) {
+                        section(id = "rename", title = "命名") {
+                            input(
+                                "名字",
+                                renameDraft,
+                                iconRes = Icons.IC_SIGNATURE
+                            ).hint("给这只人偶起个名字")
+                                .onValueChange { renameDraft = it }
+                            buttons(
+                                QzxButtonSpec("保存") {
+                                    val name = renameDraft.trim()
+                                    if (name.isNotEmpty()) {
+                                        DollStore.update(act, renaming.copy(name = name))
+                                        DollState.bump()
+                                        HomeUi.notifyPetReload(act)
+                                    }
+                                    renameId = null
+                                },
+                                QzxButtonSpec("取消", QzxButtonStyle.Secondary) {
+                                    renameId = null
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ---------- 改封面：来源选择 ----------
+            if (coverAsk && coverId != null) {
+                DollPanel(onDismiss = { coverAsk = false; coverId = null }) {
+                    QzxList(modifier = Modifier.fillMaxWidth()) {
+                        section(id = "cover", title = "改封面") {
+                            note("封面只影响列表里这张卡片，不影响桌面上的人偶长相。")
+                            // 二选一：动作库的某一帧 / 自己的图片。
+                            item("从动作库选一帧", iconRes = Icons.IC_LIBRARY)
+                                .arrow()
+                                .onClick {
+                                    coverAsk = false
+                                    coverFromAnim = true
+                                }
+                            // 【r13·需求E】改走**封面裁剪页**，不再直接把原图当封面。
+                            //   需求原文：「选自己的图片 请定位到相册 并且得有编辑图片功能……
+                            //   比例得重新调整 符合那个比例 同时 得选择三次比例」。
+                            //   旧路径（PickFileActivity → setCoverFromFile）会把任意比例的原图
+                            //   直接存下来，卡片里靠 ContentScale.Fit 硬缩 —— 留边或裁切，
+                            //   正是用户要修的问题。现在由 CoverCropActivity 按三种列数各裁一张。
+                            item("用自己的图片", iconRes = Icons.IC_IMAGE_PLUS)
+                                .arrow()
+                                .onClick {
+                                    coverAsk = false
+                                    val id = coverId
+                                    coverId = null
+                                    if (id != null) {
+                                        CoverCropActivity.open(act, id)
+                                    }
+                                }
+                            buttons(
+                                QzxButtonSpec("取消", QzxButtonStyle.Secondary) {
+                                    coverAsk = false
+                                    coverId = null
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ---------- 改封面：从动作库挑帧 ----------
+            if (coverFromAnim && coverId != null) {
+                CoverPickPanel(
+                    act = act,
+                    dollId = coverId!!,
+                    onDismiss = {
+                        coverFromAnim = false
+                        coverId = null
+                    },
+                    onDone = {
+                        coverFromAnim = false
+                        coverId = null
                         DollState.bump()
                     }
-                    cols = it
-                    menu = -1
-                },
-                onOpenCols = { menu = 1 },
-                onBack = { menu = 0 },
-                onDismiss = { menu = -1 }
-            )
-        }
-        if (sheet) {
-            AddSheet(
-                onDismiss = { sheet = false },
-                onTemplate = {
-                    DollStore.addTemplate(act)
-                    sheet = false
-                    DollState.bump()
-                },
-                onImport = {
-                    sheet = false
-                    // 【r13】改走「任意文件」通道（不再只拉相册）：
-                    //   用户要导的是作图软件导出的成果文件（json / 动图 / 精灵图 / 压缩包）。
-                    PickFileActivity.setFileListener(importPick)
-                    PickFileActivity.startFiles(act, false)
-                }
-            )
-        }
-        val more = DollStore.byId(act, moreId)
-        if (more != null) {
-            MoreSheet(
-                doll = more,
-                onDismiss = { moreId = null },
-                onRename = {
-                    // 【r13·需求B】命名：打开改名弹窗（保留 moreId，弹窗关掉才清）。
-                    renameId = more.id
-                    renameDraft = more.name
-                    moreId = null
-                },
-onCover = {
-                     // 【r13·需求B】改封面：先弹「从哪来」的选择窗。
-                     coverId = more.id
-                     coverAsk = true
-                     moreId = null
-                 },
-                 onSwapModel = {
-                     // 【v0.1.5·19.2.3】在当前角色内换模型。先关面板再进页面，
-                     //   避免回退后底部面板还盖在列表上。
-                     val id = more.id
-                     moreId = null
-                     ReplaceModelPage.open(act, id)
-                 },
-                 onModel = {
-                     // 【v0.1.5·8.9】模型管理页：一屏看全四态状态 + 名字 / 大小 / 位置，
-                     //   两个动作（更换模型 / 调整位置）都在那一页里，这里只负责导航。
-                     val id = more.id
-                     moreId = null
-                     ModelManagePage.open(act, id)
-                 },
-                onCopy = {
-                    DollStore.duplicate(act, more.id)
-                    moreId = null
-                    DollState.bump()
-                },
-                onDelete = {
-                    DollStore.remove(act, more.id)
-                    moreId = null
-                    DollState.bump()
-                    HomeUi.notifyPetReload(act)
-                 },
-                 // 【v0.2.8·删「更多 → 导出」】这是一条**单向死路**，本轮清除。
-                 //
-                 // 【为什么删】它调 `DollStore.export()`，产出
-                 //   `getExternalFilesDir()/export/doll-<时间戳>/`（dolls.json + 封面立绘 + 动作帧），
-                 //   然后弹一句「导出完成」并给出路径 —— 用户理所当然地以为这是换机备份。
-                 //   但全工程**零个读取方**：我检索了 `export/doll` 与 `dolls.json`，
-                 //   除 `DollStore` 自己的写入点（1282 / 1346 行）外没有任何一处读取。
-                 //   也就是说导出的东西**永远导不回 App**，用户把它当成备份保存、
-                 //   换机时才发现是废纸 —— 这正是本轮「界面在说谎」命题的原型
-                 //   （此前已删「导出配置」「导出角色卡」两个同类入口，这一处是漏网的第三个）。
-                 //
-                 // 【为什么不是"改成导素材到电脑"】该目录在 `getExternalFilesDir` 下，
-                 //   属于**应用私有**外部目录：Android 11+ 上系统文件管理器基本不可浏览，
-                 //   用户要靠数据线 / adb 才拿得到；而它导出的封面立绘动作帧
-                 //   全量存档已经逐项包含且能真正恢复。留一条「导得出、看不见、回不来」
-                 //   的通道，比没有更糟。真要「把素材导到电脑」应当另做一个
-                 //   走系统分享 / SAF 的功能，而不是复用这条已死的老路。
-                 //
-                 // 【保留了什么】`DollStore.export()` 本体**未删** —— 它在 data 层，
-                 //   本轮 UI 修复不越界动它（lead 已划定范围）。已无 UI 调用点，
-                 //   下版连同 `ExportSheet` 一起做死代码清理时可一并处理。
-                onRestore = {
-                    restoreId = more.id
-                    moreId = null
-                }
-            )
-        }
+                )
+            }
 
-        // ---------- 恢复默认配置 ----------
-        // 【用户定案】「这个恢复的功能就是恢复默认配置的备份样子，
-        //   也就是下载软件的时候自带的样子」。
-        //   只重置**这只人偶**的动作库与个性化项，用户自己导入的动作 / 形象图保留。
-        val restoring = restoreId
-        if (restoring != null) {
-            DhForm.Alert(
-                title = "恢复默认配置",
-                onDismiss = { restoreId = null },
-                posText = "恢复",
-                onPos = {
-                    val n = DollAnim.restoreBuiltin(act, restoring)
-                    DollProfile.resetToFactory(act, restoring)
-                    DollState.bump()
-                    HomeUi.notifyPetReload(act)
-                    restoreId = null
-                    HomeUi.showNotice(
-                        act, "已恢复默认配置",
-                        if (n > 0) "补回了 " + n + " 个内置动作；大小与位置已回到自动适配。"
-                        else "内置动作本来就在；大小与位置已回到自动适配。"
-                    )
-                },
-                negText = "取消"
-            ) {
-                Text(
-                    text = "把这只人偶恢复成**刚装好软件时的样子**：\n\n" +
+            // ---------- 恢复默认配置 ----------
+            // 【用户定案】「这个恢复的功能就是恢复默认配置的备份样子，
+            //   也就是下载软件的时候自带的样子」。
+            //   只重置**这只人偶**的动作库与个性化项，用户自己导入的动作 / 形象图保留。
+            val restoring = restoreId
+            if (restoring != null) {
+                QzxDialog(
+                    visible = true,
+                    title = "恢复默认配置",
+                    // 旧文案里的 `**` 是写给人看的强调记号（旧 `DhForm.Alert` 也原样当正文画出来，
+                    // 屏幕上就是一对星号）。新系统只收纯文本，这里去掉记号、字句一字未改。
+                    message = "把这只人偶恢复成刚装好软件时的样子：\n\n" +
                         "· 动作库回到出厂状态（常驻 / 贴边 / 拖拽三格 + 全部内置动作）\n" +
                         "· 大小与位置回到自动适配\n" +
                         "· 手势、暂离、性格、聊天背景等个性化设置复位\n\n" +
-                        "你**自己导入**的动作和换过的形象图会保留，不会被清掉。",
-                    color = DhTokens.colors.sub,
-                    fontSize = UiKit.FS_BTN.sp, lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fontsBody
-                )
-            }
-        }
-
-        // ---------- 命名弹窗 ----------
-        val renaming = DollStore.byId(act, renameId)
-        if (renaming != null) {
-            DhForm.Alert(
-                title = "命名",
-                onDismiss = { renameId = null },
-                posText = "保存",
-                onPos = {
-                    val name = renameDraft.trim()
-                    if (name.isNotEmpty()) {
-                        DollStore.update(act, renaming.copy(name = name))
+                        "你自己导入的动作和换过的形象图会保留，不会被清掉。",
+                    confirmText = "恢复",
+                    dismissText = "取消",
+                    // 不可撤销的复位：确认键走危险色，且不默认聚焦（防误触）。
+                    confirmDestructive = true,
+                    onConfirm = {
+                        val n = DollAnim.restoreBuiltin(act, restoring)
+                        DollProfile.resetToFactory(act, restoring)
                         DollState.bump()
                         HomeUi.notifyPetReload(act)
-                    }
-                    renameId = null
-                },
-                negText = "取消"
-            ) {
-                DhForm.Input(
-                    value = renameDraft,
-                    onValueChange = { renameDraft = it },
-                    label = "名字",
-                    hint = "给这只人偶起个名字"
+                        restoreId = null
+                        HomeUi.showNotice(
+                            act, "已恢复默认配置",
+                            if (n > 0) "补回了 " + n + " 个内置动作；大小与位置已回到自动适配。"
+                            else "内置动作本来就在；大小与位置已回到自动适配。"
+                        )
+                    },
+                    onDismiss = { restoreId = null }
                 )
             }
-        }
-
-        // ---------- 改封面：来源选择 ----------
-        if (coverAsk && coverId != null) {
-            DhForm.Alert(
-                title = "改封面",
-                onDismiss = { coverAsk = false; coverId = null },
-                negText = "取消"
-            ) {
-                DhForm.Note("封面只影响列表里这张卡片，不影响桌面上的人偶长相。")
-                // 二选一：动作库的某一帧 / 自己的图片。
-                DhKit.ActionRow(
-                    label = "从动作库选一帧",
-                    iconRes = Icons.IC_LIBRARY
-                ) {
-                    coverAsk = false
-                    coverFromAnim = true
-                }
-                DhKit.ActionRow(
-                    label = "用自己的图片",
-                    iconRes = Icons.IC_IMAGE_PLUS
-                ) {
-                    coverAsk = false
-                    val id = coverId
-                    coverId = null
-                    if (id != null) {
-                        // 【r13·需求E】改走**封面裁剪页**，不再直接把原图当封面。
-                        //   需求原文：「选自己的图片 请定位到相册 并且得有编辑图片功能……
-                        //   比例得重新调整 符合那个比例 同时 得选择三次比例」。
-                        //   旧路径（PickFileActivity → setCoverFromFile）会把任意比例的
-                        //   原图直接存下来，卡片里靠 ContentScale.Fit 硬缩 —— 留边或裁切，
-                        //   正是用户要修的问题。现在由 CoverCropActivity 按三种列数
-                        //   各裁一张，比例与卡片严格吻合。
-                        CoverCropActivity.open(act, id)
-                    }
-                }
-            }
-        }
-
-        // ---------- 改封面：从动作库挑帧 ----------
-        if (coverFromAnim && coverId != null) {
-            CoverPickDialog(
-                act = act,
-                dollId = coverId!!,
-                onDismiss = { coverFromAnim = false; coverId = null },
-                onDone = {
-                    coverFromAnim = false
-                    coverId = null
-                    DollState.bump()
-                }
-            )
         }
     }
 
@@ -465,10 +507,15 @@ onCover = {
      *
      * 【为什么是竖矩形】需求定案：「把这个卡片改成竖着的矩形 不要横着的矩形」。
      *   旧卡片是通栏宽 + 固定 260dp 高（宽 > 高，横着）；现在改成固定宽高比 3:4，
-     *   列数决定宽度（一列 = 通栏 / 两列 = 半宽 / 三列 = 三分之一），高度随之定下来，
-     *   于是任何列数下都是一张竖矩形。
+     *   列数决定宽度（一列 = 通栏 / 两列 = 半宽 / 三列 = 三分之一），高度随之定下来。
      *
-     * @param cols 当前列数：用来等比缩放内边距、封面与按钮（定案 Q24「等比缩放就行」）。
+     * 【为什么卡内留白走 Spacer + Arrangement 而不是 padding】新系统的卡片表面
+     *   [QzxSurface] **不提供内容内边距参数**（卡内排版属于调用方的组合），而本页的
+     *   迁移约定是「页面里不出现 padding / height 字面量」——内边距一律由令牌给出，
+     *   这里用 `Arrangement.spacedBy`（行间）+ 首尾 `Spacer`（上下沿）表达，
+     *   数值仍然只来自 [QzxTokens]，没有一处 magick number。
+     *
+     * @param cols 当前列数：用来等比缩放封面解码尺寸与名字字号（定案 Q24「等比缩放就行」）。
      */
     @Composable
     private fun DollCard(
@@ -478,7 +525,6 @@ onCover = {
         onEdit: () -> Unit,
         onMore: () -> Unit
     ) {
-        val c = DhTokens.colors
         // 【r24·修内存】原来不论列数都按 1024px 解码：3 列时卡片实际只有 ~350px 宽，
         //   多出来的像素全部浪费成内存（4MB/张 vs 0.8MB/张）。
         //   按列数给目标边长：1 列铺满屏宽需要 1024，2 列 720，3 列 512。
@@ -499,134 +545,254 @@ onCover = {
             3 -> 0.55f
             else -> 1.0f
         }
-        val pad = (16 * k).dp
         // 按钮图标固定这一档，不乘 k。
         val btnDp = Design.SZ_MD
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // 【3:4 竖矩形】列数越小、卡片越窄，高度按比例缩短，始终保持竖着。
-                .aspectRatio(0.75f)
-                .clip(RoundedCornerShape(DhDesign.Radius.btn.dp))
-                .background(c.card)
-                .padding(pad)
-        ) {
-            // 名字
-            Text(
-                text = doll.name,
-                color = c.title,
-                fontSize = (UiKit.FS_BTN * k).sp,
-                fontFamily = DhTokens.fontsBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            // 封面：铺满整块区域（比例由用户裁剪时定，这里不再二次缩放）。
-            //
-            // 【r13 修 bug·封面没铺满】原实现是 `ContentScale.Fit` + `padding(6.dp)`：
-            //   ① `Fit` 是「完整装进框里」——只要图片比例与框不完全一致就**必然留边**，
-            //      截图里那条明显的空隙就是它；② `padding(6.dp)` 又让图片再缩进一圈。
-            //   而用户在裁剪页是按「这个框的比例」裁的（见 CoverCropActivity），
-            //   裁出来的图与框**本来就该严丝合缝**，再 Fit 一次纯属画蛇添足。
-            //   现在改用 `Crop` + 去掉内边距：比例一致时零留边、完全铺满；
-            //   万一某张老图比例不合，`Crop` 也只会裁掉边缘而不是留白条（视觉更干净）。
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(top = DhDesign.Space.md.dp * k)
-                    .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
-                    .background(c.soft)
-                    // 【r13·实测封面框比例】布局完成后把这块区域的真实宽高比写回偏好，
-                    //   供「改封面」裁剪页按它定裁剪框 —— 这样裁出来的图与卡片严丝合缝。
-                    //   【为什么在这里量】这里就是封面的**真实落点**：列数、字号缩放、
-                    //   系统显示大小的影响全都体现在这次测量里，比任何静态推导都准。
-                    //   【只写一次】比例只取决于列数（同一列数下所有卡片一样宽），
-                    //   所以比对一下不同才写，避免每帧都碰 SharedPreferences。
-                    .onSizeChanged { sz ->
-                        if (sz.width > 0 && sz.height > 0) {
-                            val r = sz.width.toFloat() / sz.height.toFloat()
-                            if (Math.abs(r - PetPrefs.coverRatioMeasured(act, cols)) > 0.005f) {
-                                PetPrefs.setCoverRatioMeasured(act, cols, r)
+        QzxSurface(modifier = Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT)) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(QzxTokens.Space.sm)
+            ) {
+                // 上沿 / 下沿留白：两个 `Spacer` 而不是 padding —— 见函数头「卡内留白」那段。
+                Spacer(Modifier.size(QzxTokens.Space.xs))
+                // 名字：居中单行（卡片窄，等宽居中比左对齐更耐看；仍按 k 等比缩小）。
+                Text(
+                    text = doll.name,
+                    color = QzxColors.title,
+                    fontSize = (QzxTokens.Type.ROW_TITLE_SP * k).sp,
+                    fontFamily = QzxFonts.bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // 封面：铺满整块区域（比例由用户裁剪时定，这里不再二次缩放）。
+                //
+                // 【r13 修 bug·封面没铺满】旧实现是 `ContentScale.Fit` + 一圈 6dp 内边距：
+                //   ① `Fit` 是「完整装进框里」——只要图片比例与框不完全一致就**必然留边**；
+                //   ② 额外的内边距又让图片再缩进一圈。而用户在裁剪页是按「这个框的比例」裁的
+                //   （见 CoverCropActivity），裁出来的图与框**本来就该严丝合缝**，再 Fit 一次纯属画蛇添足。
+                //   现在改用 `Crop` + 零内边距：比例一致时零留边、完全铺满。
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(QzxTokens.Radius.inner))
+                        .background(QzxColors.soft)
+                        // 【r13·实测封面框比例】布局完成后把这块区域的真实宽高比写回偏好，
+                        //   供「改封面」裁剪页按它定裁剪框 —— 这样裁出来的图与卡片严丝合缝。
+                        //   【为什么在这里量】这里就是封面的**真实落点**：列数、字号缩放、
+                        //   系统显示大小的影响全都体现在这次测量里，比任何静态推导都准。
+                        //   【只写一次】比例只取决于列数，所以比对一下不同才写，避免每帧都碰 SharedPreferences。
+                        .onSizeChanged { sz ->
+                            if (sz.width > 0 && sz.height > 0) {
+                                val r = sz.width.toFloat() / sz.height.toFloat()
+                                if (Math.abs(r - PetPrefs.coverRatioMeasured(act, cols)) > 0.005f) {
+                                    PetPrefs.setCoverRatioMeasured(act, cols, r)
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            // 【铺满】不设内边距 —— 图片直接顶到圆角边上，圆角由外层 clip 提供。
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        // 【r13·需求C】封面为空（新建模板就是这种状态）：给一个淡淡的占位，
+                        //   让用户一眼看出「这里可以放封面」，而不是一片空白让人以为坏了。
+                        DhKit.Icon(Icons.IC_IMAGE_PLUS, Design.SZ_LG, QzxColors.line)
+                    }
+                }
+                // 使用 / 编辑 / 更多（图标按钮，不配文字说明）
+                //
+                // 【r13 用户定案·布局】「就是一个在中间 另外两个在两（边）；缩小之后
+                //   就是他们三个的间距变小了 但是不能重叠 大小就不用变了」。
+                //   ⇒ 三个**等宽槽位**（weight 1f）横向排开，按钮在各自槽位里居中：
+                //     列数变小 → 槽位同步变窄 → 间距自动变小；
+                //     而按钮本身是固定尺寸、各占一个槽位，物理上不可能重叠。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        // 【r16·修·窄槽不加文字】列数 3 时每槽仅约 36dp，而「图标+文字」需要约 70dp
+                        //   —— 加了文字会挤出卡片或被裁。此处保持纯图标。
+                        // 【无障碍·P0】纯图标 + 无文字 = 读屏只会念「按钮」，故补 a11yName；
+                        //   这一颗的名字**随状态变**：当前启用 → 念「停用 X」。
+                        DhKit.IconButton(
+                            iconRes = if (doll.enabled) Icons.IC_SQUARE else Icons.IC_PLAY,
+                            sizeDp = btnDp,
+                            color = if (doll.enabled) QzxColors.accent else QzxColors.title,
+                            a11yName = if (doll.enabled) "停用 " + doll.name else "启用 " + doll.name
+                        ) {
+                            DollStore.toggleEnabled(act, doll.id)
+                            DollState.bump()
+                            HomeUi.notifyPetReload(act)
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        // 【无障碍·P0】纯图标 + 无文字，补 a11yName。
+                        DhKit.IconButton(
+                            iconRes = Icons.IC_EDIT,
+                            sizeDp = btnDp,
+                            color = QzxColors.title,
+                            a11yName = "编辑 " + doll.name,
+                            onClick = onEdit
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        // 【无障碍·P0】它打开的是「命名 / 封面 / 换模型 / 复制 / 删除 / 恢复」
+                        //   那一整套操作，名字取「更多操作」而不是「更多」——后者读屏听不出含义。
+                        DhKit.IconButton(
+                            iconRes = Icons.IC_MORE,
+                            sizeDp = btnDp,
+                            color = QzxColors.title,
+                            a11yName = "更多操作 " + doll.name,
+                            onClick = onMore
+                        )
+                    }
+                }
+                Spacer(Modifier.size(QzxTokens.Space.xs))
+            }
+        }
+    }
+
+    /**
+     * 【r13·需求B】「从动作库挑一帧」当封面：两级选择（先挑动作，再挑帧）。
+     *
+     * 【为什么做成两级】需求原文：「点击之后会有个弹窗询问你 是选择人偶动作库的某个动作的
+     *   某一帧还是自己的图片 封面」。一屏里塞不下「动作 × 帧」的全部组合，
+     *   分两级既符合描述，也不会让面板变成一张长列表。
+     *
+     * 【帧从哪来】[DollAnim.all] 里的每个动作都有自己的帧序列；用户导入的动作也有。
+     *   动作还没烘过帧时（frames 为空）该动作直接跳过 —— 点进去也没有帧可选。
+     */
+    @Composable
+    private fun CoverPickPanel(
+        act: MainActivity,
+        dollId: String,
+        onDismiss: () -> Unit,
+        onDone: () -> Unit
+    ) {
+        // -1 = 还在挑动作；>=0 = 已选定某个动作，正在挑帧。
+        var picked by remember(dollId) { mutableStateOf(-1) }
+        val actions = remember(dollId) {
+            DollAnim.all(act, dollId).filter { it.frames.isNotEmpty() }
+        }
+        val idx = picked
+
+        if (idx < 0) {
+            DollPanel(onDismiss = onDismiss) {
+                QzxList(modifier = Modifier.fillMaxWidth()) {
+                    section(id = "pickAction", title = "从动作库选一帧") {
+                        if (actions.isEmpty()) {
+                            note("这只人偶还没有可用的动作帧。先在「动作」页里烘一次或导入一组图。")
+                        } else {
+                            note("先选一个动作，再从它的帧里挑一张。")
+                            for (i in actions.indices) {
+                                val a = actions[i]
+                                item(
+                                    a.name + "（" + a.frames.size + " 帧）",
+                                    iconRes = Icons.IC_BLOCKS
+                                ).arrow()
+                                    .onClick { picked = i }
                             }
                         }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                if (bitmap != null) {
+                        buttons(
+                            QzxButtonSpec("取消", QzxButtonStyle.Secondary) { onDismiss() }
+                        )
+                    }
+                }
+            }
+            return
+        }
+
+        val action = actions[idx]
+        DollPanel(onDismiss = onDismiss) {
+            QzxList(modifier = Modifier.fillMaxWidth()) {
+                section(id = "pickFrame", title = action.name + " · 选一帧") {
+                    note("点任意一帧就把它设为封面。")
+                    // 【唯一用到逃生口的地方】`QzxList` 没有「横向图片条」这种行型
+                    //   （preview 是单张头像，item 只有图标位）。这里用 `custom { }` 承载一条
+                    //   可横向滚动的帧条 —— 这是系统文档里写明的逃生口：左右内边距与分隔线
+                    //   仍归系统，条内的间距 / 尺寸只取自令牌。
+                    custom {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(QzxTokens.Space.sm),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 帧数最多 120，用横向滚动展示。
+                            for (i in action.frames.indices) {
+                                val p = action.frames[i]
+                                CoverThumb(path = p, name = "第 " + (i + 1) + " 帧，设为封面") {
+                                    // 【为什么开线程】设封面要解码一张整图，主线程做会卡一下。
+                                    Thread({
+                                        DollStore.setCoverFromFrame(act, dollId, p)
+                                        act.runOnUiThread { onDone() }
+                                    }, "dh-cover-frame").start()
+                                }
+                            }
+                        }
+                    }
+                    buttons(
+                        QzxButtonSpec("返回", QzxButtonStyle.Secondary) { onDismiss() }
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * 挑帧用的小缩略图（只解码 1/4 尺寸，一屏几十张也不吃内存）。
+     *
+     * 【为什么是 [QzxSurface] 而不是自绘 Box】它本身就是新系统的「可点卡片表面」：
+     *   按压时背景压一档 + 缩放到 0.96，命中区有下限 —— 旧实现要自己 clip / border /
+     *   pressable 三件套，现在只剩「给尺寸 + 给无障碍名 + 给点击」。
+     *
+     * @param name 无障碍名。本瓦片内只有一张图（`contentDescription = null`）没有任何文字，
+     *   不给名字读屏只念「按钮」。这里由调用方按序号传入（「第 N 帧」），
+     *   否则一屏几十个瓦片全叫同一个名字，读屏用户无法知道选的是哪一帧。
+     */
+    @Composable
+    private fun CoverThumb(path: String, name: String, onClick: () -> Unit) {
+        var bmp by remember(path) { mutableStateOf<ImageBitmap?>(null) }
+        LaunchedEffect(path) {
+            bmp = withContext(Dispatchers.IO) {
+                try {
+                    val opt = BitmapFactory.Options()
+                    opt.inSampleSize = 4
+                    BitmapFactory.decodeFile(path, opt)?.asImageBitmap()
+                } catch (t: Throwable) {
+                    null
+                }
+            }
+        }
+        QzxSurface(
+            modifier = Modifier
+                .size(DhDesign.Size.avatarXl)
+                // 名字挂在可点区域上；里面的 Image 继续是 null（否则同一张图会被念两遍）。
+                .semantics { contentDescription = name },
+            corner = QzxTokens.Radius.inner,
+            onClick = onClick
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                val b = bmp
+                if (b != null) {
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
+                        bitmap = b,
                         contentDescription = null,
-                        // 【铺满】不设 padding —— 图片直接顶到圆角边上。
-                        //   圆角由外层的 clip 提供，图片自己不需要再留白。
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    // 【r13·需求C】封面为空（新建模板就是这种状态）：给一个淡淡的占位，
-                    //   让用户一眼看出「这里可以放封面」，而不是一片空白让人以为坏了。
-                    DhKit.Icon(Icons.IC_IMAGE_PLUS, Design.SZ_LG, c.line)
-                }
-            }
-            // 使用 / 编辑 / 更多（图标按钮，不配文字说明）
-            //
-            // 【r13 用户定案·布局】「就是一个在中间 另外两个在两（边）；缩小之后
-            //   就是他们三个的间距变小了 但是不能重叠 大小就不用变了」。
-            //   ⇒ 三个**等宽槽位**（weight 1f）横向排开，按钮在各自槽位里居中：
-            //     列数变小 → 槽位同步变窄 → 间距自动变小；
-            //     而按钮本身是固定尺寸、各占一个槽位，物理上不可能重叠。
-            //     比「right 对齐 + 手调间距」稳：无论卡片多窄都不需要再算 padding。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = DhDesign.Space.sm.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    // 【r16·修·窄槽不加文字】卡片底部三枚按钮处在「等分窄槽」里：
-                    //   列数 3 时每槽仅约 36dp，而「图标+文字」需要约 70dp ——
-                    //   加了文字会挤出卡片或被裁。此处保持纯图标（符合 DhKit.IconButton 的
-                    //   「宽裕处才加 label」约定）。
-                    // 【无障碍·P0·改正错误注释】原注释写「文字语义由卡片整体可点区域承载」——
-                    //   这是**错的**：卡片整体念的是人偶名，不会念这三颗按钮各自做什么。
-                    //   后果是读屏用户**完全无法启停人偶**（UI 侧这是唯一入口）。
-                    //   现在改用 `a11yName`（只挂语义、不渲染、不加交互），
-                    //   并且这一颗的名字**随状态变**：当前启用 → 念「停用 X」。
-                    DhKit.IconButton(
-                        iconRes = if (doll.enabled) Icons.IC_SQUARE else Icons.IC_PLAY,
-                        sizeDp = btnDp,
-                        color = if (doll.enabled) c.acc else c.title,
-                        // 名字描述的是**点下去会发生什么**，所以启用态给「停用」。
-                        // 带上人偶名：一屏有多张卡片，只念「停用」无法定位是哪一只。
-                        a11yName = if (doll.enabled) "停用 " + doll.name else "启用 " + doll.name
-                    ) {
-                        DollStore.toggleEnabled(act, doll.id)
-                        DollState.bump()
-                        HomeUi.notifyPetReload(act)
-                    }
-                }
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    // 【r16·修】同上一槽：窄槽内保持纯图标。
-                    // 【无障碍·P0】纯图标 + 无文字 = 读屏只会念「按钮」，故补 a11yName。
-                    DhKit.IconButton(
-                        iconRes = Icons.IC_EDIT,
-                        sizeDp = btnDp,
-                        color = c.title,
-                        a11yName = "编辑 " + doll.name,
-                        onClick = onEdit
-                    )
-                }
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    // 【r16·修】同上：窄槽内保持纯图标。
-                    // 【无障碍·P0】它打开的是「重命名 / 封面 / 换模型 / 复制 / 删除 / 导出 / 恢复」
-                    //   那一整套操作，名字取「更多操作」而不是「更多」——后者读屏听不出含义。
-                    DhKit.IconButton(
-                        iconRes = Icons.IC_MORE,
-                        sizeDp = btnDp,
-                        color = c.title,
-                        a11yName = "更多操作 " + doll.name,
-                        onClick = onMore
-                    )
+                    DhKit.Icon(Icons.IC_IMAGE, Design.SZ_SM, QzxColors.sub)
                 }
             }
         }
@@ -639,97 +805,96 @@ onCover = {
      *
      * 需求书第七节：「在现有人偶编辑器中，以尽量少改动现有布局的方式增加尺寸设置」，
      * 并列出「自动适配 / 人偶大小调整 / 水平与垂直位置 / 恢复默认设置」。
-     * 人偶管理页是人偶级参数的天然归属地 —— 缩放、封面、命名都在这儿，
-     * 尺寸放同一个「更多」菜单下，用户不用猜它在哪。
+     * 人偶管理页是人偶级参数的天然归属地 —— 缩放、封面、命名都在这儿。
      *
      * ## 为什么只有三个滑条
      *
      * 「自动适配」不是一个开关，而是**默认值本身**：大小 100% + 偏移 0 就等于
-     * 「按标准化画布算出的原生大小、居中」，也就是自动适配的结果。
-     * 多一个开关会出现「自动适配开、但大小滑条停在 180%」这种自相矛盾的状态。
-     * 需要自动适配就点「恢复自动适配」，它把三个值一起复位。
+     * 「按标准化画布算出的原生大小、居中」。多一个开关会出现「自动适配开、但大小滑条停在 180%」
+     * 这种自相矛盾的状态。需要自动适配就点「恢复自动适配」，它把三个值一起复位。
+     *
+     * ## 【QZX 迁移】调用点零改动
+     * 两个调用方（`DollLookTab` / `ModelManagePage`）都是 `if (showSize) { SizeDialog(...) }`，
+     * 本函数自己负责「弹窗」这件事 —— 迁到 [DollPanel] 后这个契约不变：
+     * 依旧是「调它 = 弹出一个模态窗」。
+     *
+     * 【为什么留在本文件而不是搬家】它依赖 [percentText] 与 `DollSizeSpec` 的一整套换算，
+     *   就地开放可见性（internal）比复制一份到 DollLookTab 更安全 —— 不会出现两份实现漂移。
      */
-    // 【本轮·从人偶管理页「更多」搬到编辑页的「外观」页签】
-    //   用户定案：「还有下面那个大小按键 移动到外观里面 不要在外面」。
-    //   理由站得住：大小 / 偏移是「这只人偶长什么样」的外观属性，与聊天背景、气泡样式同类，
-    //   放在外观页签里才和它的语义一致；人偶管理页的「更多」是管理动作（命名 / 封面 / 复制 / 删除 / 导出），
-    //   塞一个视觉参数进去反而让人猜不到归属。
-    //   【为什么留在本文件而不是搬家】它依赖 [percentText] 与 `DollSizeSpec` 的一整套换算，
-    //   就地开放可见性（internal）比复制一份到 DollLookTab 更安全 —— 不会出现两份实现漂移。
     @Composable
     internal fun SizeDialog(
         act: MainActivity,
         dollId: String,
         onDismiss: () -> Unit
     ) {
-        val c = DhTokens.colors
         // 【草稿态】滑条拖动是连续的，每动一下就落盘会产生大量 SharedPreferences 写入；
         //   这里先在内存里跟手，点「保存」才落盘（与编辑页的草稿层同一口径）。
         var specDraft by remember(dollId) { mutableStateOf(DollSizeSpec.spec(act, dollId)) }
-        DhForm.Alert(
-            title = "大小与位置",
-            onDismiss = onDismiss,
-            posText = "保存",
-            onPos = {
-                DollSizeSpec.setSpec(act, dollId, specDraft)
-                HomeUi.notifyPetReload(act)
-                onDismiss()
-            },
-            negText = "取消"
-        ) {
-            DhForm.Note(
-                "这里调的是这只人偶本身的大小，与动作无关 —— 换动作不会忽大忽小。"
-            )
-            // 【控件选型】全部走 [DhKit.SliderRow]（桥接 View 版 UiKit.Slider）。
-            //   本工程刻意不建 MaterialTheme，Compose 原生 Slider 会回落到 M3 默认配色，
-            //   轨道与刻度都和全 App 的胶囊滑条不是一个形态 —— 那正是「UI 突兀」的来源。
-            // ---------- 基础大小 ----------
-            // 取值范围 30~400，用「最大值 + 当前值」表达（SliderRow 的接口是 Int 量程）。
-            DhKit.SliderRow(
-                title = "人偶大小",
-                hint = "当前 " + specDraft.size + "%（100% = 按素材里角色的实际占比算出的原生大小）",
-                max = DollSizeSpec.Spec.SIZE_MAX,
-                value = specDraft.size
-            ) { v, _ ->
-                specDraft = specDraft.copy(size = DollSizeSpec.Spec.clampSize(v))
+        DollPanel(onDismiss = onDismiss) {
+            QzxList(modifier = Modifier.fillMaxWidth()) {
+                section(id = "size", title = "大小与位置") {
+                    note("这里调的是这只人偶本身的大小，与动作无关 —— 换动作不会忽大忽小。")
+                    // 【控件选型】全部走 `QzxList` 的 `slider` 行型：它桥接的是同一颗
+                    //   View 版 `UiKit.Slider`（胶囊轨道 + 刻度 + 终点标记）。
+                    //   不用 Compose 原生 Slider —— 那会回落到 M3 默认配色，与全 App 的胶囊滑条不是一个形态。
+                    // ---------- 基础大小 ----------
+                    // 取值范围 0~SIZE_MAX，用「最大值 + 当前值」表达（滑条接口是 Int 量程）。
+                    slider(
+                        title = "人偶大小",
+                        value = specDraft.size,
+                        range = 0..DollSizeSpec.Spec.SIZE_MAX,
+                        hint = "当前 " + specDraft.size +
+                            "%（100% = 按素材里角色的实际占比算出的原生大小）"
+                    ) { v, _ ->
+                        specDraft = specDraft.copy(size = DollSizeSpec.Spec.clampSize(v))
+                    }
+                    // ---------- 水平位置 ----------
+                    // 偏移是 -50% ~ +50%，滑条量程 0~100，取值时减 50 换算。
+                    slider(
+                        title = "水平位置",
+                        value = Math.round(specDraft.ox * 100f).toInt() + 50,
+                        range = 0..100,
+                        hint = percentText(specDraft.ox, true)
+                    ) { v, _ ->
+                        specDraft = specDraft.copy(
+                            ox = DollSizeSpec.Spec.clampOffset((v - 50) / 100f)
+                        )
+                    }
+                    // ---------- 垂直位置 ----------
+                    slider(
+                        title = "垂直位置",
+                        value = Math.round(specDraft.oy * 100f).toInt() + 50,
+                        range = 0..100,
+                        hint = percentText(specDraft.oy, false)
+                    ) { v, _ ->
+                        specDraft = specDraft.copy(
+                            oy = DollSizeSpec.Spec.clampOffset((v - 50) / 100f)
+                        )
+                    }
+                    note(
+                        "「恢复自动适配」= 大小回到 100%、位置回到居中。" +
+                            "100% 是按素材里角色实际占画布的比例算出来的，不是把整张图拉满。"
+                    )
+                    // ---------- 恢复自动适配 ----------
+                    // 【为什么不关窗】复位只是把三个值一起归位，用户通常还要接着微调 / 再保存。
+                    buttons(
+                        QzxButtonSpec("恢复自动适配", QzxButtonStyle.Secondary) {
+                            specDraft = DollSizeSpec.Spec.DEFAULT
+                            DollSizeSpec.reset(act, dollId)
+                            HomeUi.notifyPetReload(act)
+                        }
+                    )
+                    buttons(
+                        QzxButtonSpec("保存") {
+                            DollSizeSpec.setSpec(act, dollId, specDraft)
+                            HomeUi.notifyPetReload(act)
+                            onDismiss()
+                        },
+                        QzxButtonSpec("取消", QzxButtonStyle.Secondary) { onDismiss() }
+                    )
+                    note("提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。")
+                }
             }
-            // ---------- 水平位置 ----------
-            // 偏移是 -50% ~ +50%，滑条量程 0~100，取值时减 50 换算。
-            DhKit.SliderRow(
-                title = "水平位置",
-                hint = percentText(specDraft.ox, true),
-                max = 100,
-                value = Math.round(specDraft.ox * 100f).toInt() + 50
-            ) { v, _ ->
-                specDraft = specDraft.copy(ox = DollSizeSpec.Spec.clampOffset((v - 50) / 100f))
-            }
-            // ---------- 垂直位置 ----------
-            DhKit.SliderRow(
-                title = "垂直位置",
-                hint = percentText(specDraft.oy, false),
-                max = 100,
-                value = Math.round(specDraft.oy * 100f).toInt() + 50
-            ) { v, _ ->
-                specDraft = specDraft.copy(oy = DollSizeSpec.Spec.clampOffset((v - 50) / 100f))
-            }
-            Spacer(Modifier.height(DhDesign.Space.sm.dp))
-            // ---------- 恢复自动适配 ----------
-            DhForm.Note(
-                "「恢复自动适配」= 大小回到 100%、位置回到居中。" +
-                    "100% 是按素材里角色实际占画布的比例算出来的，不是把整张图拉满。"
-            )
-            DhForm.PrimaryChip("恢复自动适配") {
-                specDraft = DollSizeSpec.Spec.DEFAULT
-                DollSizeSpec.reset(act, dollId)
-                HomeUi.notifyPetReload(act)
-            }
-            Spacer(Modifier.height(DhDesign.Space.xs.dp))
-            Text(
-                text = "提示：调完若觉得桌面没变，先退出编辑页再看 —— 编辑期间桌面只显示预览。",
-                color = c.sub,
-                fontSize = UiKit.FS_TINY.sp, lineHeight = DhTokens.type.sub.lineHeight,
-                fontFamily = DhTokens.fontsBody
-            )
         }
     }
 
@@ -747,35 +912,25 @@ onCover = {
         }
     }
 
-    /** 添加面板：添加模板 / 本地导入。 */
-    @OptIn(ExperimentalMaterial3Api::class)
+    /**
+     * 带自定义内容的弹窗壳。
+     *
+     * 【为什么本文件自己写这 4 行】新系统的 [QzxDialog] 只收 `message: String`
+     *   —— 它刻意不做「自定义布局」（见 QzxDialog 文件头）。而本页的「更多 / 命名 /
+     *   改封面 / 挑帧 / 大小与位置」都必须在弹窗里放**行与控件**。
+     *
+     * 【它只负责三件事】模态、点外部 / 返回键关闭（平台 [Dialog] 自带这两条语义）、
+     *   把内容托到最上层。**不画卡底、不管排版** —— 内容一律是 `QzxList`，
+     *   卡片底 / 行高 / 内边距 / 分隔线全部由系统的 section 给。
+     *
+     * 【为什么不用 BackHandler】本工程的 Activity 继承 `android.app.Activity`、没有
+     *   `OnBackPressedDispatcherOwner`，自绘遮罩要想接返回键只能靠 `BackHandler`，
+     *   那会在真机上直接抛异常（QzxDialog 的注释里记着这条）。
+     */
     @Composable
-    private fun AddSheet(onDismiss: () -> Unit, onTemplate: () -> Unit, onImport: () -> Unit) {
-        val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val c = DhTokens.colors
-        // 【为什么显式配色】本工程的主题真源是 UiKit → DhColors，**刻意不建 MaterialTheme**
-        //   （见 DhTheme 文件头）。而 ModalBottomSheet 的默认取色来自 MaterialTheme.colorScheme，
-        //   在我们这儿会回落到 M3 默认的浅色方案 —— 深色主题下弹出白底面板，与全局撕裂。
-        //   故三个颜色槽位全部显式传入，并自绘拖拽把手，不依赖任何 M3 默认取色。
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = state,
-            // 【r13】面板底走 c.sheet：不透明 + 磨砂质感，与弹窗同一层口径。
-            containerColor = c.sheet,
-            contentColor = c.title,
-            scrimColor = c.scrim,
-            dragHandle = { SheetDragHandle() }
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = DhDesign.Space.xl.dp, vertical = DhDesign.Space.lg.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                DhKit.IconButton(Icons.IC_LAYOUT_TEMPLATE, 24f, c.title, label = "模板", onClick = onTemplate)
-                DhKit.IconButton(Icons.IC_FOLDER_OPEN, 24f, c.title, label = "导入", onClick = onImport)
-            }
-            Spacer(Modifier.height(16.dp))
+    private fun DollPanel(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+        Dialog(onDismissRequest = onDismiss) {
+            content()
         }
     }
 
@@ -794,325 +949,6 @@ onCover = {
         return doll.id == DollStore.DEFAULT_ID
     }
 
-    /**
-     * 卡片「更多」面板：命名 / 改封面 / 复制 / 删除 / 导出 / 恢复默认配置。
-     *
-     * 【本轮·新增「恢复默认配置」】用户定案：「这个恢复的功能就是恢复默认配置的备份样子，
-     *   也就是下载软件的时候自带的样子」。
-     *   它做两件事，且只对**这只人偶**生效：
-     *   ① 动作库回到出厂状态（三个固定位 + 全部内置动作，见 [DollAnim.restoreBuiltin]）；
-     *   ② 尺寸规格回到自动适配，表情 / 手势等个性化项一并复位（见 [DollProfile.resetToFactory]）。
-     *   保留用户自己导入的动作与形象图 —— 「恢复默认」不该等于「清空我的东西」。
-     */
-    @OptIn(ExperimentalMaterial3Api::class)
-    @Composable
-    private fun MoreSheet(
-        doll: DollStore.Doll,
-        onDismiss: () -> Unit,
-        onRename: () -> Unit,
-        onCover: () -> Unit,
-        onSwapModel: () -> Unit,
-        onModel: () -> Unit,
-        onCopy: () -> Unit,
-        onDelete: () -> Unit,
-        // 【v0.2.8】原 `onExport` 参数随「更多 → 导出」入口一并移除：
-        //   该入口的输出全工程无读取方（单向死路），详见调用点处的注释。
-        onRestore: () -> Unit
-    ) {
-        val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val c = DhTokens.colors
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = state,
-            // 【r13】面板底走 c.sheet：不透明 + 磨砂质感，与弹窗同一层口径。
-            containerColor = c.sheet,
-            contentColor = c.title,
-            scrimColor = c.scrim,
-            dragHandle = { SheetDragHandle() }
-        ) {
-            // 【本轮·修「两个面板并排挤爆」】原来七个入口全塞在一行 `SpaceEvenly` 里，
-            //   在 1080p 屏上每个按钮只剩约 46dp，「恢复默认配置」这种四字标签
-            //   直接被裁掉一半（和动作页顶栏同一个病）。
-            //   改成两行网格：每行 4 个，等分宽度，标签完整可读。
-            val perRow = 4
-            val all = ArrayList<Pair<Int, Pair<String, () -> Unit>>>()
-            // 【图标 + 文字】底部面板横向空间宽裕，按钮都补上文字，不用再靠图标猜功能。
-            all.add(Pair(Icons.IC_SIGNATURE, Pair("命名", onRename)))
-            all.add(Pair(Icons.IC_IMAGE_PLUS, Pair("改封面", onCover)))
-            // 【v0.1.5·19.2.3】更换模型：**在当前角色内**替换，不是新建角色。
-            //   与「添加角色」严格区分（19.2）：这里的身份 / 人格 / 记忆都不动。
-            all.add(Pair(Icons.IC_REFRESH, Pair("换模型", onSwapModel)))
-            // 【v0.1.5·8.9】模型管理：查看当前模型的四态状态与大小 / 位置，
-            //   与「换模型」并列但职责不同 —— 一个看与调，一个只做替换。
-            all.add(Pair(Icons.IC_IMAGE, Pair("模型", onModel)))
-            all.add(Pair(Icons.IC_COPY, Pair("复制", onCopy)))
-            // 内置默认配置不可删除：不渲染删除键。
-            // 【r21·判据加固】从 `builtin` 标记改为**认固定身份** `id == DEFAULT_ID`。
-            //   【为什么必须换】`DollStore.read()` 里有一条 `list[0].copy(builtin = true)`
-            //   的兜底分支：若历史存档里某个自建人偶排在首位被写成 builtin=true，
-            //   读出来就仍是 true —— 那会让自建人偶也冒出一个「删除」判据的反面
-            //   （即误判成「内置」而不给删除键）。
-            //   需求文档明确要求：删除与恢复默认必须用可靠的配置身份判断，不能只看标记。
-            if (!isFactoryDoll(doll)) {
-                all.add(Pair(Icons.IC_TRASH, Pair("删除", onDelete)))
-            }
-            // 【v0.2.8·删】原「导出」按钮已移除（单向死路，无法导回 App）。
-            //   换机请用「设置 → 备份与恢复 → 一键全量备份」，它才真正包含
-            //   人偶 / 人设 / 聊天 / 记忆 / 图片并能恢复回来。
-            // 【只在默认配置上出现】用户定案：「这个恢复默认 只需要默认配置有就好」。
-            //   「恢复默认」的语义是「回到下载软件时自带的样子」，这个概念对**自建人偶**
-            //   不成立 —— 自建人偶出厂状态就是用户自己刚建出来的空样子，
-            //   点了既多余又容易被误解成「清空我的设置」。
-            //   判据同样用固定身份，理由见上。
-            // 【r21·文案缩短】「恢复默认」四个字在 4 列网格里被裁掉（每格约 46dp，
-//   四字标签超出可用宽）。用户定案：「那个恢复默认4个字没展示 改成恢复吧」。
-//   菜单项的上下文已经足够清楚（它只出现在默认配置上），「恢复」二字语义完整。
-            if (isFactoryDoll(doll)) {
-                all.add(Pair(Icons.IC_ROTATE_CCW, Pair("恢复", onRestore)))
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = DhDesign.Space.md.dp, vertical = DhDesign.Space.sm.dp)
-            ) {
-                var i = 0
-                while (i < all.size) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        for (k in 0 until perRow) {
-                            val idx = i + k
-                            if (idx < all.size) {
-                                val it = all[idx]
-                                Box(
-                                    modifier = Modifier.weight(1f),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    DhKit.IconButton(it.first, 24f, c.title, label = it.second.first) {
-                                        it.second.second()
-                                    }
-                                }
-                            } else {
-                                // 占位，保证最后一行仍然等分（否则 5 个按钮会拉宽）。
-                                Box(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                    i += perRow
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-
-    /**
-     * 【r13·需求B】「从动作库挑一帧」当封面：两级选择（先挑动作，再挑帧）。
-     *
-     * 【为什么做成两级】需求原文：「点击之后会有个弹窗询问你 是选择人偶动作库的某个动作的
-     *   某一帧还是自己的图片 封面」。一屏里塞不下「动作 × 帧」的全部组合，
-     *   分两级既符合描述，也不会让弹窗变成一张长列表。
-     *
-     * 【帧从哪来】[DollAnim.all] 里的每个动作都有自己的帧序列；用户导入的动作也有。
-     *   动作还没烘过帧时（frames 为空）该动作直接跳过 —— 点进去也没有帧可选。
-     */
-    @Composable
-    private fun CoverPickDialog(
-        act: MainActivity,
-        dollId: String,
-        onDismiss: () -> Unit,
-        onDone: () -> Unit
-    ) {
-        // -1 = 还在挑动作；>=0 = 已选定某个动作，正在挑帧。
-        var picked by remember(dollId) { mutableStateOf(-1) }
-        val actions = remember(dollId) {
-            DollAnim.all(act, dollId).filter { it.frames.isNotEmpty() }
-        }
-        val idx = picked
-
-        if (idx < 0) {
-            DhForm.Alert(
-                title = "从动作库选一帧",
-                onDismiss = onDismiss,
-                negText = "取消"
-            ) {
-                if (actions.isEmpty()) {
-                    DhForm.Note("这只人偶还没有可用的动作帧。先在「动作」页里烘一次或导入一组图。")
-                } else {
-                    DhForm.Note("先选一个动作，再从它的帧里挑一张。")
-                    for (i in actions.indices) {
-                        val a = actions[i]
-                        DhKit.ActionRow(
-                            label = a.name + "（" + a.frames.size + " 帧）",
-                            iconRes = Icons.IC_BLOCKS
-                        ) { picked = i }
-                    }
-                }
-            }
-            return
-        }
-
-        val action = actions[idx]
-        DhForm.Alert(
-            title = action.name + " · 选一帧",
-            onDismiss = onDismiss,
-            negText = "返回"
-        ) {
-            DhForm.Note("点任意一帧就把它设为封面。")
-            // 帧数最多 120，用横向滚动展示。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                for (i in action.frames.indices) {
-                    val p = action.frames[i]
-                    CoverThumb(path = p, name = "第 " + (i + 1) + " 帧，设为封面") {
-                        Thread({
-                            DollStore.setCoverFromFrame(act, dollId, p)
-                            act.runOnUiThread { onDone() }
-                        }, "dh-cover-frame").start()
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * 挑帧用的小缩略图（只解码 1/4 尺寸，一屏几十张也不吃内存）。
-     *
-     * @param name 无障碍名。本瓦片内只有一张图（`contentDescription = null`）没有任何文字，
-     *   不给名字读屏只念「按钮」。这里由调用方按序号传入（「第 N 帧」），
-     *   否则一屏几十个瓦片全叫同一个名字，读屏用户无法知道选的是哪一帧。
-     */
-    @Composable
-    private fun CoverThumb(path: String, name: String, onClick: () -> Unit) {
-        val c = DhTokens.colors
-        var bmp by remember(path) { mutableStateOf<ImageBitmap?>(null) }
-        LaunchedEffect(path) {
-            bmp = withContext(Dispatchers.IO) {
-                try {
-                    val opt = BitmapFactory.Options()
-                    opt.inSampleSize = 4
-                    BitmapFactory.decodeFile(path, opt)?.asImageBitmap()
-                } catch (t: Throwable) {
-                    null
-                }
-            }
-        }
-        Box(
-            modifier = Modifier
-                .padding(end = DhDesign.Space.sm.dp)
-                .size(DhDesign.Size.avatarXl)
-                .clip(RoundedCornerShape(DhDesign.Radius.md.dp))
-                .background(c.soft)
-                .border(DhDesign.Size.hairline, c.line, RoundedCornerShape(DhDesign.Radius.md.dp))
-                // 名字挂在可点区域上；里面的 Image 继续是 null（否则同一张图会被念两遍）。
-                .semantics { contentDescription = name }
-                .pressable(onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            val b = bmp
-            if (b != null) {
-                Image(
-                    bitmap = b,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize().padding(3.dp),
-                    contentScale = ContentScale.Fit
-                )
-            } else {
-                DhKit.Icon(Icons.IC_IMAGE, Design.SZ_SM, c.sub)
-            }
-        }
-    }
-
-    /**
-     * 【r12】三点菜单浮层：主菜单（第一项「列数」）+ 列数二级菜单（向左展开）。
-     *
-     * 【为什么自绘】本工程刻意不建 MaterialTheme（见 DhTheme 头注释），
-     *   DropdownMenu 的取色会落到 M3 浅色默认值上，与暗色主题撕裂。
-     *
-     * 【布局】整体贴右上角；二级卡片在主卡片**左侧**并排（需求原文「向左」）。
-     *   点空白处关闭。
-     *
-     * @param level 0 = 主菜单；1 = 列数二级菜单
-     */
-    @Composable
-    private fun MenuOverlay(
-        cols: Int,
-        level: Int,
-        onPickCols: (Int) -> Unit,
-        onOpenCols: () -> Unit,
-        onBack: () -> Unit,
-        onDismiss: () -> Unit
-    ) {
-        val c = DhTokens.colors
-        // 点空白关闭：铺满全屏的透明层先吃掉点击。
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() },
-            contentAlignment = Alignment.TopEnd
-        ) {
-            Row(
-                modifier = Modifier.padding(top = 64.dp, end = DhDesign.Space.md.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                // 二级卡片（列数）：在主卡片左边。
-                if (level == 1) {
-                    MenuCard {
-                        for (n in PetPrefs.DOLL_COLS) {
-                            MenuItem(
-                                text = colsName(n) + if (n == cols) "  ✓" else "",
-                                selected = n == cols
-                            ) { onPickCols(n) }
-                        }
-                    }
-                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                }
-                // 主卡片。
-                MenuCard {
-                    MenuItem(text = "列数", selected = false) {
-                        if (level == 1) onBack() else onOpenCols()
-                    }
-                    // 【预留位置】需求定案：菜单结构留好口子，以后再加其它项。
-                }
-            }
-        }
-    }
-
-    /** 菜单小卡片外壳：CARD 底 + 圆角 + 描边。 */
-    @Composable
-    private fun MenuCard(content: @Composable () -> Unit) {
-        val c = DhTokens.colors
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(DhKit.R_CARD.dp))
-                .background(c.card)
-                .border(DhDesign.Size.hairline, c.stroke, RoundedCornerShape(DhKit.R_CARD.dp))
-                .padding(vertical = DhDesign.Space.sm.dp)
-        ) {
-            content()
-        }
-    }
-
-    /** 菜单项：一行文字；选中项用主色加粗。 */
-    @Composable
-    private fun MenuItem(text: String, selected: Boolean, onClick: () -> Unit) {
-        val c = DhTokens.colors
-        // E16-ALLOW: 下拉菜单项（"重命名"/"删除"/"设为封面"）：固定 2~4 字动宾短语
-        Text(
-            text = text,
-            modifier = Modifier
-                .pressable { onClick() }
-                .padding(horizontal = 18.dp, vertical = DhDesign.Space.md.dp),
-            color = if (selected) c.acc else c.title,
-            fontSize = UiKit.FS_BTN.sp,
-            fontFamily = if (selected) DhTokens.fontsBold else DhTokens.fonts,
-        )
-    }
-
     /** 列数的展示名。 */
     private fun colsName(n: Int): String {
         return when (n) {
@@ -1120,31 +956,5 @@ onCover = {
             2 -> "两列"
             else -> "三列"
         }
-    }
-
-    /**
-     * 自绘拖拽把手：M3 默认把手取 `MaterialTheme.colorScheme`，本工程没建主题，会取到浅色默认值。
-     *
-     * 【6dp/10dp 收敛】上下内边距原为 top=10 / bottom=6，两值都不在 Space 刻度上（R3 类）。
-     *   按 docs/SPACING_MAP.md §1 的映射表，10 → `sm`/`md`、6 → `sm`/`xs` 都合法；
-     *   取 `sm`/`sm` 的理由：① 与该文件既有的 6dp → `sm` 落档保持一致；
-     *   ② 上下合计仍是 16dp，把手整体占位高度（16 + 4 条）与他处面板口径不变，
-     *   只让 4dp 的条子在同一个抓取带内上移 2dp，不改变底部面板的整体留白。
-     */
-    @Composable
-    private fun SheetDragHandle() {
-        Box(
-            modifier = Modifier
-                .padding(top = DhDesign.Space.sm.dp, bottom = DhDesign.Space.sm.dp)
-                .width(32.dp)
-                .height(DhDesign.Space.xs.dp)
-                // 【圆角·刻意保留 2dp，不进 Radius 阶梯】
-                //   这是 32×4dp 的**拖动把手**：高度只有 4dp，圆角 2dp 刚好等于半高
-                //   → 视觉上是纯半圆胶囊。若改成 Radius.sm(8)/md(12)，圆角会**大于**
-                //   控件半高，Compose 会退化成"两端全圆"的同样观感但读代码的人会以为
-                //   有人忘了改。保留 2dp 并写清"= height/2"，比套一个语义不符的令牌更准确。
-                .clip(RoundedCornerShape(2.dp))
-                .background(DhTokens.colors.line)
-        )
     }
 }

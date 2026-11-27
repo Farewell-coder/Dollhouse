@@ -215,7 +215,7 @@ object AboutPage {
                 section(id = "intro") {
                     preview(
                         image = null,
-                        fallbackIcon = painterResource(Icons.IC_WHALE),
+                        fallbackIconRes = Icons.IC_WHALE,
                         title = "Dollhouse"
                     )
                     note(
@@ -239,7 +239,7 @@ object AboutPage {
                 section(id = "info") {
                     preview(
                         image = null,
-                        fallbackIcon = painterResource(Icons.IC_WHALE),
+                        fallbackIconRes = Icons.IC_WHALE,
                         title = "关于本软件"
                     )
                     item("作者", AUTHOR)
@@ -267,7 +267,7 @@ object AboutPage {
                     item(
                         if (checking) "正在检查…" else "检测更新",
                         value = if (checking) null else channel.label,
-                        icon = painterResource(Icons.IC_REFRESH)
+                        iconRes = Icons.IC_REFRESH
                     ).desc(notice ?: (channel.label + " · 需要联网"))
                         .arrow()
                         .enabled(!checking)
@@ -275,7 +275,7 @@ object AboutPage {
 
                     item(
                         "开发者选项",
-                        icon = painterResource(Icons.IC_SHIELD_CHECK)
+                        iconRes = Icons.IC_SHIELD_CHECK
                     ).desc("本地日志、错误详情与诊断包")
                         .arrow()
                         .spot("about.diagnostics")
@@ -283,7 +283,7 @@ object AboutPage {
 
                     // 【B4·合规】开源许可入口：只下载 APK 的用户也必须能拿到第三方许可文本
                     //   （见 app/build.gradle 的 syncLicenseAssets）。
-                    item("开源许可", icon = painterResource(Icons.IC_LIBRARY))
+                    item("开源许可", iconRes = Icons.IC_LIBRARY)
                         .desc("第三方组件清单与许可原文")
                         .arrow()
                         .onClick { showLicenses = true }

@@ -74,7 +74,7 @@ object FriendModelConfigPage {
                     switch(
                         "独立模型",
                         checked = overrideModel,
-                        icon = painterResource(Icons.IC_BOT)
+                        iconRes = Icons.IC_BOT
                     ).desc("只修改当前好友，不改变其他好友")
                         .onChecked { overrideModel = it }
 
@@ -82,7 +82,7 @@ object FriendModelConfigPage {
                         providers.forEach { p ->
                             item(
                                 (if (p.id == providerId) "● " else "") + p.name,
-                                icon = painterResource(Icons.IC_SERVER)
+                                iconRes = Icons.IC_SERVER
                             ).desc("选择供应商")
                                 .arrow()
                                 .onClick {
@@ -93,7 +93,7 @@ object FriendModelConfigPage {
                         models.forEach { m ->
                             item(
                                 (if (m.id == modelId) "● " else "") + m.displayName,
-                                icon = painterResource(Icons.IC_BOT)
+                                iconRes = Icons.IC_BOT
                             ).desc("聊天模型")
                                 .arrow()
                                 .onClick { modelId = m.id }
@@ -103,7 +103,7 @@ object FriendModelConfigPage {
                     item(
                         "识图模型：" + (visionModels.firstOrNull { it.id == visionModelId }
                             ?.displayName ?: "跟随全局"),
-                        icon = painterResource(Icons.IC_IMAGE)
+                        iconRes = Icons.IC_IMAGE
                     ).desc("仅影响当前好友当前会话")
                         .arrow()
                         .onClick { visionModelId = "" }
@@ -111,25 +111,25 @@ object FriendModelConfigPage {
                     visionModels.forEach { m ->
                         item(
                             (if (m.id == visionModelId) "● " else "") + m.displayName,
-                            icon = painterResource(Icons.IC_IMAGE)
+                            iconRes = Icons.IC_IMAGE
                         ).desc("设为当前会话识图模型")
                             .arrow()
                             .onClick { visionModelId = m.id }
                     }
 
-                    input("思考档位（0–5）", think, icon = painterResource(Icons.IC_BOT))
+                    input("思考档位（0–5）", think, iconRes = Icons.IC_BOT)
                         .onValueChange { think = it }
-                    input("温度（0–2）", temp, icon = painterResource(Icons.IC_BOT))
+                    input("温度（0–2）", temp, iconRes = Icons.IC_BOT)
                         .onValueChange { temp = it }
-                    input("Top P（0–1）", topP, icon = painterResource(Icons.IC_BOT))
+                    input("Top P（0–1）", topP, iconRes = Icons.IC_BOT)
                         .onValueChange { topP = it }
-                    input("最大输出 Token", maxTokens, icon = painterResource(Icons.IC_BOT))
+                    input("最大输出 Token", maxTokens, iconRes = Icons.IC_BOT)
                         .onValueChange { maxTokens = it }
 
                     switch(
                         "流式输出",
                         checked = stream,
-                        icon = painterResource(Icons.IC_BOT)
+                        iconRes = Icons.IC_BOT
                     ).desc("逐段显示正文")
                         .onChecked { stream = it }
 
@@ -137,7 +137,7 @@ object FriendModelConfigPage {
                     //   同一个语义（语义色），且新系统的 note 自带系统内边距，压在背景图上仍可读。
                     error?.let { note(it, color = QzxColors.danger) }
 
-                    item("保存当前好友配置", icon = painterResource(Icons.IC_CHECK))
+                    item("保存当前好友配置", iconRes = Icons.IC_CHECK)
                         .arrow()
                         .onClick {
                             val cfg = PersonaChatConfig()
@@ -163,7 +163,7 @@ object FriendModelConfigPage {
                             }
                         }
 
-                    item("全部恢复全局继承", icon = painterResource(Icons.IC_REFRESH))
+                    item("全部恢复全局继承", iconRes = Icons.IC_REFRESH)
                         .arrow()
                         .onClick {
                             PersonaChatConfigStore.clear(act, personaId, conversationId)

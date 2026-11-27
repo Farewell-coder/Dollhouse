@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.ui.theme.UiKit
@@ -90,7 +91,7 @@ enum class QzxBadgeTone { Neutral, Accent, Danger }
 data class QzxBadgeRow(val text: String, val tone: QzxBadgeTone) : QzxRow
 
 /** 卡内小标题（不折叠、不可点，只是把一张卡内部再分小节）。 */
-data class QzxLabelRow(val title: String, val icon: Painter?) : QzxRow
+data class QzxLabelRow(val title: String, val iconRes: Int?) : QzxRow
 
 // ───────────────────────── DSL ─────────────────────────
 
@@ -179,9 +180,9 @@ fun QzxSectionScope.badge(text: String, tone: QzxBadgeTone = QzxBadgeTone.Neutra
 }
 
 /** 卡内小标题：把一张卡内部再分小节（旧 `DhKit.SectionLabel` 的等价物）。 */
-fun QzxSectionScope.label(title: String, icon: Painter? = null) {
+fun QzxSectionScope.label(title: String, iconRes: Int? = null) {
     holders.add(object : QzxRowHolder {
-        override fun snapshot(): QzxRow = QzxLabelRow(title, icon)
+        override fun snapshot(): QzxRow = QzxLabelRow(title, iconRes)
     })
 }
 
@@ -204,7 +205,7 @@ fun QzxSectionScope.label(title: String, icon: Painter? = null) {
  */
 fun QzxSectionScope.preview(
     image: Painter?,
-    fallbackIcon: Painter?,
+    fallbackIconRes: Int?,
     title: String? = null,
     subtitle: String? = null,
     actions: List<QzxPreviewAction> = emptyList(),
@@ -212,7 +213,7 @@ fun QzxSectionScope.preview(
 ) {
     holders.add(object : QzxRowHolder {
         override fun snapshot(): QzxRow =
-            QzxRow.Preview(image, fallbackIcon, title, subtitle, actions, hint)
+            QzxRow.Preview(image, fallbackIconRes, title, subtitle, actions, hint)
     })
 }
 
@@ -481,9 +482,9 @@ internal fun QzxLabelRowContent(row: QzxLabelRow) {
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        row.icon?.let {
+        row.iconRes?.let {
             Icon(
-                painter = it,
+                painter = painterResource(it),
                 contentDescription = null,
                 modifier = Modifier.size(QzxTokens.Space.xl * 0.8f),
                 tint = QzxColors.sub

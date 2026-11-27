@@ -163,7 +163,7 @@ object MyProfilePage {
                     }
                     preview(
                         image = previewPainter,
-                        fallbackIcon = painterResource(Icons.IC_CIRCLE_USER),
+                        fallbackIconRes = Icons.IC_CIRCLE_USER,
                         title = "头像",
                         subtitle = "只存在这台设备上，不会上传",
                         actions = buildList {
@@ -196,7 +196,7 @@ object MyProfilePage {
                     )
 
                     // ---------- 昵称 ----------
-                    input("昵称", name, icon = painterResource(Icons.IC_PEN_LINE))
+                    input("昵称", name, iconRes = Icons.IC_PEN_LINE)
                         .hint(MyProfile.DEFAULT_NAME)
                         .spot("profile.name")
                         .onValueChange {
@@ -211,7 +211,7 @@ object MyProfilePage {
                     )
 
                     // ---------- 个性签名 ----------
-                    input("个性签名", bio, icon = painterResource(Icons.IC_USER))
+                    input("个性签名", bio, iconRes = Icons.IC_USER)
                         .hint("一句话介绍自己")
                         .counter(MyProfile.BIO_MAX)
                         .spot("profile.signature")

@@ -49,6 +49,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -117,7 +118,8 @@ sealed interface QzxRow {
         /** 设置项索引 id（见 [QzxItemBuilder.spot]）。*/
         val spotId: String? = null,
         /** 行前置图标（由调用方给 painter，新系统不持有任何图标资源）。*/
-        val icon: Painter? = null,
+        /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
+        val iconRes: Int? = null,
         /** 副说明：有值时行高自动升到 `rowTwoLine`。*/
         val desc: String? = null,
         /** 值文字的颜色覆盖（null = 默认副文本色）。*/
@@ -142,7 +144,8 @@ sealed interface QzxRow {
         val checked: Boolean,
         val onChecked: (Boolean) -> Unit,
         val spotId: String? = null,
-        val icon: Painter? = null,
+        /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
+        val iconRes: Int? = null,
         val desc: String? = null,
         val valueTint: Color? = null
     ) : QzxRow
@@ -153,7 +156,8 @@ sealed interface QzxRow {
         val placeholder: String?,
         val onValueChange: (String) -> Unit,
         val spotId: String? = null,
-        val icon: Painter? = null,
+        /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
+        val iconRes: Int? = null,
         val desc: String? = null,
         val valueTint: Color? = null,
         /** 字数上限：非空时右侧显示「当前长度/上限」。 */
@@ -166,7 +170,7 @@ sealed interface QzxRow {
          * 【为什么图标由调用方给】与 `QzxTitleBar.backIcon` 同一条原则：
          *   新系统不持有任何图标资源，删旧资源时编译不过的地方就是还没迁完的地方。
          */
-        val trailingIcon: Painter? = null,
+        val trailingIconRes: Int? = null,
         val trailingAction: (() -> Unit)? = null
     ) : QzxRow
 
@@ -176,7 +180,8 @@ sealed interface QzxRow {
         val options: List<QzxOption>,
         val onSelect: (QzxOption) -> Unit,
         val spotId: String? = null,
-        val icon: Painter? = null,
+        /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
+        val iconRes: Int? = null,
         val desc: String? = null,
         val valueTint: Color? = null
     ) : QzxRow
@@ -202,7 +207,7 @@ sealed interface QzxRow {
      */
     data class Preview(
         val image: Painter?,
-        val fallbackIcon: Painter?,
+        val fallbackIconRes: Int?,
         val title: String?,
         val subtitle: String?,
         val actions: List<QzxPreviewAction>,
@@ -234,7 +239,7 @@ internal interface QzxRowHolder {
 class QzxItemBuilder internal constructor(
     private val title: String,
     private var valueText: String?,
-    private val icon: Painter? = null
+    private val iconRes: Int? = null
 ) : QzxRowHolder {
     private var showArrow = false
     private var clickAction: (() -> Unit)? = null
@@ -319,7 +324,7 @@ class QzxItemBuilder internal constructor(
 class QzxSwitchBuilder internal constructor(
     private val title: String,
     private var checkedValue: Boolean,
-    private val icon: Painter? = null
+    private val iconRes: Int? = null
 ) : QzxRowHolder {
     private var changeAction: (Boolean) -> Unit = {}
     private var spotId: String? = null
@@ -350,7 +355,7 @@ class QzxSwitchBuilder internal constructor(
 class QzxInputBuilder internal constructor(
     private val title: String,
     private var valueText: String,
-    private val icon: Painter? = null
+    private val iconRes: Int? = null
 ) : QzxRowHolder {
     private var placeholderText: String? = null
     private var changeAction: (String) -> Unit = {}
@@ -359,7 +364,7 @@ class QzxInputBuilder internal constructor(
     private var valueTintColor: Color? = null
     private var counterLimit: Int? = null
     private var multilineHeight: Int? = null
-    private var trailingIconValue: Painter? = null
+    private var trailingIconResValue: Int? = null
     private var trailingActionValue: (() -> Unit)? = null
 
     /**
@@ -393,8 +398,8 @@ class QzxInputBuilder internal constructor(
     fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
 
     /** 输入框右端的尾置图标与动作（如搜索框的「关闭搜索」）。 */
-    fun trailing(icon: Painter, onClick: () -> Unit): QzxInputBuilder = apply {
-        trailingIconValue = icon
+    fun trailing(iconRes: Int, onClick: () -> Unit): QzxInputBuilder = apply {
+        trailingIconResValue = iconRes
         trailingActionValue = onClick
     }
 
@@ -412,7 +417,7 @@ class QzxSelectBuilder internal constructor(
     private val title: String,
     private var valueText: String?,
     private val options: List<QzxOption>,
-    private val icon: Painter? = null
+    private val iconRes: Int? = null
 ) : QzxRowHolder {
     private var selectAction: (QzxOption) -> Unit = {}
     private var spotId: String? = null
@@ -447,7 +452,7 @@ class QzxSectionScope internal constructor(
     internal val expanded: Boolean = true,
     internal val onToggle: ((Boolean) -> Unit)? = null,
     /** 分区标题左侧图标（旧 `Card(titleIcon=…)` 的等价物）。 */
-    internal val titleIcon: Painter? = null,
+    internal val titleIconRes: Int? = null,
     /** 嵌入形态：不画卡片底 / 圆角 / 边缘光（用于"已经在父卡片内部"的分区）。 */
     internal val flat: Boolean = false,
 ) {
@@ -457,29 +462,29 @@ class QzxSectionScope internal constructor(
     fun item(
         title: String,
         value: String? = null,
-        icon: Painter? = null
-    ): QzxItemBuilder = QzxItemBuilder(title, value, icon).also { holders.add(it) }
+        iconRes: Int? = null
+    ): QzxItemBuilder = QzxItemBuilder(title, value, iconRes).also { holders.add(it) }
 
     /** 开关行：`switch("自动更新", checked = true).onChecked { }` */
     fun switch(
         title: String,
         checked: Boolean,
-        icon: Painter? = null
-    ): QzxSwitchBuilder = QzxSwitchBuilder(title, checked, icon).also { holders.add(it) }
+        iconRes: Int? = null
+    ): QzxSwitchBuilder = QzxSwitchBuilder(title, checked, iconRes).also { holders.add(it) }
 
     /** 输入行：`input("API 地址", value = url).hint("https://…").onValueChange { }` */
     fun input(
         title: String,
         value: String,
-        icon: Painter? = null
-    ): QzxInputBuilder = QzxInputBuilder(title, value, icon).also { holders.add(it) }
+        iconRes: Int? = null
+    ): QzxInputBuilder = QzxInputBuilder(title, value, iconRes).also { holders.add(it) }
 
     /** 选择行：`select("语言", value = lang, options = langs).onSelect { }` */
     fun select(
         title: String,
         value: String?,
         options: List<QzxOption>,
-        icon: Painter? = null
+        iconRes: Int? = null
     ): QzxSelectBuilder = QzxSelectBuilder(title, value, options, icon).also { holders.add(it) }
 
     /**
@@ -547,7 +552,7 @@ class QzxListScope {
         /** 折叠状态变化回调（通常写进 `PetPrefs.cardOpen`）。 */
         onToggle: ((Boolean) -> Unit)? = null,
         /** 分区标题左侧图标。 */
-        titleIcon: Painter? = null,
+        titleIconRes: Int? = null,
         /**
          * 嵌入形态：**不画**卡片底 / 圆角 / 边缘光，直接把行铺在父容器上。
          *
@@ -560,7 +565,7 @@ class QzxListScope {
     ) {
         sections.add(
             QzxSectionScope(
-                id, title, footer, collapsible, expanded, onToggle, titleIcon, flat
+                id, title, footer, collapsible, expanded, onToggle, titleIconRes, flat
             ).apply(content)
         )
     }
@@ -814,7 +819,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                 QzxRowLeading(
                     title = titleOf(row.title, row.spotId),
                     desc = row.desc,
-                    icon = row.icon,
+                    iconRes = row.iconRes,
                     titleColor = row.titleTint ?: if (row.danger) c.danger else null,
                     modifier = Modifier.weight(1f)
                 )
@@ -841,7 +846,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                 QzxRowLeading(
                     title = titleOf(row.title, row.spotId),
                     desc = row.desc,
-                    icon = row.icon,
+                    iconRes = row.iconRes,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(checked = row.checked, onCheckedChange = row.onChecked)
@@ -862,7 +867,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     QzxRowLeading(
                         title = titleOf(row.title, row.spotId),
                         desc = row.desc,
-                        icon = row.icon,
+                        iconRes = row.iconRes,
                         modifier = Modifier.weight(1f)
                     )
                     if (!current.isNullOrEmpty()) {
@@ -901,7 +906,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     QzxRowLeading(
                         title = titleOf(row.title, row.spotId),
                         desc = row.desc,
-                        icon = row.icon,
+                        iconRes = row.iconRes,
                         modifier = Modifier.weight(1f)
                     )
                     row.counterMax?.let { max ->
@@ -958,7 +963,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     }
                     // 【尾置动作】搜索框的「关闭」之类。图标由调用方给（新系统不持有图标资源）。
                     //   命中区仍是 minTouch —— 它只有图标大小，但必须点得到。
-                    if (row.trailingIcon != null && row.trailingAction != null) {
+                    if (row.trailingIconRes != null && row.trailingAction != null) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
@@ -967,7 +972,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                painter = row.trailingIcon,
+                                painter = painterResource(row.trailingIconRes),
                                 contentDescription = null,
                                 tint = c.sub,
                                 modifier = Modifier.size(QzxTokens.Space.xl.dp)
@@ -1005,9 +1010,9 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                                 modifier = Modifier.fillMaxWidth(),
                                 contentScale = ContentScale.Crop
                             )
-                        } else if (row.fallbackIcon != null) {
+                        } else if (row.fallbackIconRes != null) {
                             Icon(
-                                painter = row.fallbackIcon,
+                                painter = painterResource(row.fallbackIconRes),
                                 contentDescription = null,
                                 modifier = Modifier.size(PREVIEW_SIZE * 0.45f),
                                 tint = c.sub
@@ -1106,22 +1111,27 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
 /**
  * 行左侧的"图标 + 标题(+副说明)"组合。
  *
- * 【为什么图标是 `Painter` 而不是资源 id】新系统**不持有任何图标资源**：
- * 旧包 `ui.theme.Icons` 是上一代的 drawable，用户要求"原来的元素一个都不要了"。
- * 收 `Painter?` 意味着调用方想给什么就给什么（旧资源、`ImageVector`、将来 `QzxIcons`），
- * 而新系统对资源零依赖 —— 这是唯一"不碰资源又不挡路"的形态。
+ * 【为什么图标收 `Int` 资源 id 而不是 `Painter`】
+ * 1. **必须是 Int**：`item(...)` / `switch(...)` 是在 `QzxSectionScope.() -> Unit` 里调用的，
+ *    那个 lambda **不是 `@Composable`** —— 在里面调 `painterResource(...)` 会编译报
+ *    「Composable invocations can only happen from the context of a @Composable function」。
+ *    收 `Int` 则调用方只写 `Icons.IC_MOON`（它本身就是 `R.drawable.*`），零组合期调用。
+ * 2. **仍然不持有资源**：`painterResource` 在**渲染期**（`@Composable` 的渲染函数里）解析，
+ *    资源 id 始终由调用方给 —— 删旧资源时编译不过的地方，仍然就是还没迁完的地方。
+ *
+ * （`Preview.image` 例外：那是 `BitmapPainter`，不是资源 id，保留 `Painter`。）
  */
 @Composable
 private fun QzxRowLeading(
     title: String,
     desc: String?,
-    icon: Painter?,
+    iconRes: Int?,
     titleColor: Color? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (icon != null) {
+    if (iconRes != null) {
         Icon(
-            painter = icon,
+            painter = painterResource(iconRes),
             contentDescription = null,
             modifier = Modifier.size(ROW_ICON_SIZE),
             tint = QzxColors.sub

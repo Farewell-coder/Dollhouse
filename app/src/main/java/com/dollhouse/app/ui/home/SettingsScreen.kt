@@ -1042,7 +1042,7 @@ object SettingsScreen {
                     title = "lamda 设备控制",
                     // 只报「开机自启」这一个本页读得到的状态；其余配置在 LamdaPage 内部。
                     value = if (PetPrefs.lamdaAutoStart(act)) "自启开启" else "自启关闭",
-                    icon = painterResource(Icons.IC_GAMEPAD_2),
+                    iconRes = Icons.IC_GAMEPAD_2,
                 )
                     .desc("用手机控制另一台设备")
                     .arrow()
@@ -1052,7 +1052,7 @@ object SettingsScreen {
                 item(
                     title = "随机走位",
                     value = if (PetPrefs.wanderEnabled(act)) "已开启" else "已关闭",
-                    icon = painterResource(Icons.IC_WAYPOINTS),
+                    iconRes = Icons.IC_WAYPOINTS,
                 )
                     .desc("人偶自己在屏幕上缓慢游走")
                     .arrow()
@@ -1062,7 +1062,7 @@ object SettingsScreen {
                     title = "睡觉模式",
                     // 【刻意无值】睡觉模式没有独立开关（由快捷菜单触发），
                     //   唯一可读的「安静时段」是同页另一件事，当它的值会误导。
-                    icon = painterResource(Icons.IC_MOON),
+                    iconRes = Icons.IC_MOON,
                 )
                     .desc("人偶低功耗休眠，点击唤醒")
                     .arrow()
@@ -1078,7 +1078,7 @@ object SettingsScreen {
                     //   用户能一眼看出**具体是哪两项**；6 字 + 分隔符不挤标题。
                     value = (if (PetPrefs.streamOutput(act)) "流式" else "非流式") + " · " +
                         (if (PetPrefs.showThinking(act)) "思考" else "无思考"),
-                    icon = painterResource(Icons.IC_MESSAGE_SQUARE_HEART),
+                    iconRes = Icons.IC_MESSAGE_SQUARE_HEART,
                 )
                     .desc("流式输出、思考过程")
                     .arrow()
@@ -1089,7 +1089,7 @@ object SettingsScreen {
                     // 【未设置时给动作暗示】空串 = 跟随当前模型能力，
                     //   报"跟随当前模型"而不是"未设置"——后者听起来像缺配置，其实是默认行为。
                     value = PetPrefs.visionModel(act).ifBlank { "跟随当前模型" },
-                    icon = painterResource(Icons.IC_BOT),
+                    iconRes = Icons.IC_BOT,
                 )
                     .desc("用哪个模型来看图片")
                     .arrow()
@@ -1103,7 +1103,7 @@ object SettingsScreen {
                     } else {
                         "自动关闭"
                     },
-                    icon = painterResource(Icons.IC_BOOK_OPEN),
+                    iconRes = Icons.IC_BOOK_OPEN,
                 )
                     .desc("抽取与检索策略")
                     .arrow()
@@ -1181,7 +1181,7 @@ object SettingsScreen {
                     title = "供应商",
                     // 【宁可说"未配置"也不报 0】0 个供应商是"还没开始"，不是"有 0 个东西"。
                     value = if (providerCount == 0) "未配置" else providerCount.toString() + " 个",
-                    icon = painterResource(Icons.IC_SERVER),
+                    iconRes = Icons.IC_SERVER,
                 )
                     .desc("接口地址、密钥与模型列表")
                     // 未配置时才染错色（原 `valueTint = if (providerCount == 0) err else null`）
@@ -1194,7 +1194,7 @@ object SettingsScreen {
                     // 【今日 in+out，与「当日总览」同一口径】没有数据时显示 `—` 而不是 `0`：
                     //   `0` 读作"今天真的没用过"，`—` 读作"还没有任何记录"；后者不会让人以为统计坏了。
                     value = if (todayTokens <= 0L) "—" else fmtTokenShort(todayTokens),
-                    icon = painterResource(Icons.IC_GAUGE),
+                    iconRes = Icons.IC_GAUGE,
                 )
                     .desc("查看模型使用统计")
                     .arrow()
@@ -1263,7 +1263,7 @@ object SettingsScreen {
                     title = "管理人偶",
                     // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
                     value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
-                    icon = painterResource(Icons.IC_LAYERS),
+                    iconRes = Icons.IC_LAYERS,
                 )
                     .desc("封面、动作、启停、删除")
                     .arrow()
@@ -1290,7 +1290,7 @@ object SettingsScreen {
                         PetPrefs.bgEnabled(act) -> "有背景"
                         else -> "背景已关"
                     },
-                    icon = painterResource(Icons.IC_PALETTE),
+                    iconRes = Icons.IC_PALETTE,
                 )
                     .desc("主题 · 背景 · 聊天气泡 · 弹窗")
                     .arrow()
@@ -1299,7 +1299,7 @@ object SettingsScreen {
                 item(
                     title = "当前主题",
                     value = ThemeManager.MODE_NAMES[HomeState.themeMode],
-                    icon = painterResource(Icons.IC_SUN),
+                    iconRes = Icons.IC_SUN,
                 )
                     // 索引表里有 `appearance.mode` → 标题以表为准
                     .spot("appearance.mode")
@@ -1313,7 +1313,7 @@ object SettingsScreen {
                         PetPrefs.bgEnabled(act) -> "已开启"
                         else -> "已关闭"
                     },
-                    icon = painterResource(Icons.IC_IMAGE),
+                    iconRes = Icons.IC_IMAGE,
                 )
                     // 索引表里有 `appearance.bgEnable`（"使用自定义背景"）
                     .spot("appearance.bgEnable")

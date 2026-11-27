@@ -123,7 +123,7 @@ object VisionModelPage {
                     item(
                         "当前识图模型",
                         value = nowText,
-                        icon = painterResource(Icons.IC_EYE)
+                        iconRes = Icons.IC_EYE
                     ).valueTint(
                         // 【语义色】失效是"要处理"的状态，用错误色；正常用默认副文本色。
                         if (picked.isNotEmpty() && curRecord == null) QzxColors.danger else null
@@ -138,7 +138,7 @@ object VisionModelPage {
                                 "去「提供商 → 某个模型 → 能力」里把「视觉」打开，它才会出现在这里。"
                         )
                     } else {
-                        item("跟随当前聊天模型", icon = painterResource(Icons.IC_BOT))
+                        item("跟随当前聊天模型", iconRes = Icons.IC_BOT)
                             // 【P1-e】默认行为解释，属可选了解。
                             .desc("不单独指定，用到哪个模型就用哪个的看图能力")
                             .arrow()
@@ -154,7 +154,7 @@ object VisionModelPage {
                             item(
                                 m.displayName,
                                 value = if (m.id == picked) "✓" else null,
-                                icon = painterResource(Icons.IC_EYE)
+                                iconRes = Icons.IC_EYE
                             ).desc(if (pv == null) "供应商已删除" else pv.name)
                                 .valueTint()
                                 .arrow()

@@ -108,7 +108,7 @@ object MemSettingsPage {
                     switch(
                         "自动整理",
                         checked = remember(tick) { PetPrefs.mem2Auto(act) },
-                        icon = painterResource(Icons.IC_SAVE)
+                        iconRes = Icons.IC_SAVE
                     ).spot("mem.autosave")
                         .onChecked { on ->
                             PetPrefs.setMem2Auto(act, on)
@@ -157,7 +157,7 @@ object MemSettingsPage {
                     switch(
                         "按相关性检索",
                         checked = remember(tick) { PetPrefs.mem2Search(act) },
-                        icon = painterResource(Icons.IC_SCAN)
+                        iconRes = Icons.IC_SCAN
                     ).spot("mem.retrieve")
                         .onChecked { on ->
                             PetPrefs.setMem2Search(act, on)

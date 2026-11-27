@@ -145,7 +145,7 @@ object FriendProfilePage {
                 section(id = "identity") {
                     preview(
                         image = avatarPainter,
-                        fallbackIcon = painterResource(Icons.IC_CIRCLE_USER),
+                        fallbackIconRes = Icons.IC_CIRCLE_USER,
                         title = name,
                         subtitle = bio,
                     )
@@ -155,19 +155,19 @@ object FriendProfilePage {
                 section(
                     id = "persona",
                     title = "人格",
-                    titleIcon = painterResource(Icons.IC_SIGNATURE),
+                    titleIconRes = Icons.IC_SIGNATURE,
                     collapsible = true
                 ) {
                     note("她是谁、怎么说话、开场说什么，都在这里。")
                     item(
                         "角色设定",
-                        icon = painterResource(Icons.IC_BOOK_HEART)
+                        iconRes = Icons.IC_BOOK_HEART
                     ).desc("性格 / 世界观 / 说话风格 / 开场白")
                         .arrow()
                         .onClick { DollPersonaPage.open(act, personaId) }
                     item(
                         "交谈内容",
-                        icon = painterResource(Icons.IC_MESSAGE_SQUARE)
+                        iconRes = Icons.IC_MESSAGE_SQUARE
                     ).desc("她随机冒出的台词，一条一句")
                         .arrow()
                         .onClick { DollTalkPage.open(act, personaId) }
@@ -177,13 +177,13 @@ object FriendProfilePage {
                 section(
                     id = "model",
                     title = "模型",
-                    titleIcon = painterResource(Icons.IC_BOT),
+                    titleIconRes = Icons.IC_BOT,
                     collapsible = true
                 ) {
                     note("只影响这一个人偶长什么样、用哪个模型回应。")
                     item(
                         "模型与生成参数",
-                        icon = painterResource(Icons.IC_BOT)
+                        iconRes = Icons.IC_BOT
                     ).desc("独立供应商、聊天模型、思考与采样参数")
                         .arrow()
                         .onClick {
@@ -191,19 +191,19 @@ object FriendProfilePage {
                         }
                     item(
                         "模型管理",
-                        icon = painterResource(Icons.IC_LAYERS)
+                        iconRes = Icons.IC_LAYERS
                     ).desc("查看当前模型、替换或导入素材")
                         .arrow()
                         .onClick { ModelManagePage.open(act, personaId) }
                     item(
                         "更换模型",
-                        icon = painterResource(Icons.IC_REFRESH)
+                        iconRes = Icons.IC_REFRESH
                     ).desc("替换视觉模型；人格与记忆不变")
                         .arrow()
                         .onClick { ReplaceModelPage.open(act, personaId) }
                     item(
                         "提供商与模型列表",
-                        icon = painterResource(Icons.IC_SERVER)
+                        iconRes = Icons.IC_SERVER
                     ).desc("接口地址、密钥与可用模型")
                         .arrow()
                         .onClick { ProviderNav.open(act) }
@@ -213,19 +213,19 @@ object FriendProfilePage {
                 section(
                     id = "memory",
                     title = "记忆",
-                    titleIcon = painterResource(Icons.IC_BRAIN),
+                    titleIconRes = Icons.IC_BRAIN,
                     collapsible = true
                 ) {
                     note("记忆按人偶分库，与其它人偶完全隔离。")
                     item(
                         "记忆库",
-                        icon = painterResource(Icons.IC_BRAIN)
+                        iconRes = Icons.IC_BRAIN
                     ).desc("她记住的条目、来源与关联")
                         .arrow()
                         .onClick { MemPage.open(act, personaId) }
                     item(
                         "记忆库设置",
-                        icon = painterResource(Icons.IC_SLIDERS_HORIZONTAL)
+                        iconRes = Icons.IC_SLIDERS_HORIZONTAL
                     ).desc("抽取与检索策略（全局）")
                         .arrow()
                         .onClick { MemSettingsPage.open(act) }
@@ -235,18 +235,18 @@ object FriendProfilePage {
                 section(
                     id = "appearance",
                     title = "外观",
-                    titleIcon = painterResource(Icons.IC_PALETTE),
+                    titleIconRes = Icons.IC_PALETTE,
                     collapsible = true
                 ) {
                     item(
                         "外观设置",
-                        icon = painterResource(Icons.IC_PALETTE)
+                        iconRes = Icons.IC_PALETTE
                     ).desc("当前好友的聊天背景与她发出的气泡")
                         .arrow()
                         .onClick { FriendAppearancePage.open(act, personaId) }
                     item(
                         "我的资料",
-                        icon = painterResource(Icons.IC_CIRCLE_USER)
+                        iconRes = Icons.IC_CIRCLE_USER
                     ).desc("我自己的头像与昵称")
                         .arrow()
                         .onClick { MyProfilePage.open(act) }
@@ -256,33 +256,33 @@ object FriendProfilePage {
                 section(
                     id = "list",
                     title = "列表行为",
-                    titleIcon = painterResource(Icons.IC_LIST_CHECKS),
+                    titleIconRes = Icons.IC_LIST_CHECKS,
                     collapsible = true
                 ) {
                     note("只影响聊天列表里的展示，不改聊天记录。")
                     switch(
                         "置顶聊天",
                         checked = chatState.pinned,
-                        icon = painterResource(Icons.IC_PIN)
+                        iconRes = Icons.IC_PIN
                     ).desc("让这条对话排在列表最前")
                         .onChecked { on -> saveState(chatState.copy(pinned = on)) }
                     switch(
                         "归档",
                         checked = chatState.archived,
-                        icon = painterResource(Icons.IC_LAYERS)
+                        iconRes = Icons.IC_LAYERS
                     ).desc("收进归档，不占用主列表")
                         .onChecked { on -> saveState(chatState.copy(archived = on)) }
                     switch(
                         "免打扰",
                         checked = chatState.muted,
-                        icon = painterResource(Icons.IC_BELL)
+                        iconRes = Icons.IC_BELL
                     ).desc("新消息不再提醒，但仍计数")
                         .onChecked { on -> saveState(chatState.copy(muted = on)) }
                     // 【条件渲染保留】未读数 > 0 时值显示「N 条」且可点，否则显示「已读」并置灰。
                     item(
                         "标记为已读",
                         value = if (chatState.unread > 0) chatState.unread.toString() + " 条" else "已读",
-                        icon = painterResource(Icons.IC_CHECK)
+                        iconRes = Icons.IC_CHECK
                     ).desc("清掉列表上的未读角标")
                         .enabled(chatState.unread > 0)
                         .onClick { saveState(chatState.copy(unread = 0)) }
@@ -292,23 +292,23 @@ object FriendProfilePage {
                 section(
                     id = "data",
                     title = "数据管理",
-                    titleIcon = painterResource(Icons.IC_LAYERS),
+                    titleIconRes = Icons.IC_LAYERS,
                     collapsible = true
                 ) {
                     note("聊天与人偶、记忆分开存放：清理聊天不会动她的人设和记忆。")
                     item(
                         "清空全部会话",
-                        icon = painterResource(Icons.IC_ERASER)
+                        iconRes = Icons.IC_ERASER
                     ).desc("该好友全部会话的消息归零，人偶与记忆保留")
                         .onClick { confirmClear = true }
                     item(
                         "删除聊天",
-                        icon = painterResource(Icons.IC_TRASH)
+                        iconRes = Icons.IC_TRASH
                     ).desc("删除这条对话；不会删除人偶记忆")
                         .onClick { confirmDelete = true }
                     item(
                         "管理人偶",
-                        icon = painterResource(Icons.IC_USERS)
+                        iconRes = Icons.IC_USERS
                         // 【文案统一】原来 label 叫「人偶」、desc 同一句里叫「角色」——
                         //   同一个控件里两个词，用户会以为是两种东西。
                     ).desc("封面、动作、启停与删除人偶")
@@ -316,7 +316,7 @@ object FriendProfilePage {
                         .onClick { DollListScreen.open(act) }
                     item(
                         "Token 统计",
-                        icon = painterResource(Icons.IC_GAUGE)
+                        iconRes = Icons.IC_GAUGE
                     ).desc("查看模型使用量")
                         .arrow()
                         .onClick { TokenStat.open(act) }

@@ -112,7 +112,7 @@ object PermissionPage {
                 section(
                     id = "system",
                     title = "系统授权",
-                    titleIcon = painterResource(Icons.IC_SHIELD_CHECK),
+                    titleIconRes = Icons.IC_SHIELD_CHECK,
                     collapsible = true,
                 ) {
                     item(
@@ -123,14 +123,14 @@ object PermissionPage {
                             ShizukuBridge.S_NOT_INSTALLED -> "待处理"
                             else -> "未授权"
                         },
-                        icon = painterResource(
+                        iconRes = 
                             when (sh) {
                                 ShizukuBridge.S_GRANTED -> Icons.IC_CHECK_CIRCLE
                                 ShizukuBridge.S_NOT_RUNNING -> Icons.IC_WARNING
                                 ShizukuBridge.S_NOT_INSTALLED -> Icons.IC_WARNING
                                 else -> Icons.IC_X_CIRCLE
                             }
-                        )
+                        
                     ).desc("通过 ADB 授权后可用系统级能力")
                         .valueTint(
                             when (sh) {
@@ -149,7 +149,7 @@ object PermissionPage {
                     item(
                         "悬浮窗",
                         value = grantedText(HomeState.overlay),
-                        icon = painterResource(grantedIcon(HomeState.overlay))
+                        iconRes = grantedIcon(HomeState.overlay)
                     ).desc("人偶要浮在其他应用上就必须有它")
                         .valueTint(grantedTint(HomeState.overlay))
                         .arrow()
@@ -159,7 +159,7 @@ object PermissionPage {
                     item(
                         "通知",
                         value = grantedText(HomeState.notif),
-                        icon = painterResource(grantedIcon(HomeState.notif))
+                        iconRes = grantedIcon(HomeState.notif)
                     ).desc("保活通知与消息提醒")
                         .valueTint(grantedTint(HomeState.notif))
                         .arrow()
@@ -169,7 +169,7 @@ object PermissionPage {
                     item(
                         "电池优化白名单",
                         value = grantedText(HomeState.battery),
-                        icon = painterResource(grantedIcon(HomeState.battery))
+                        iconRes = grantedIcon(HomeState.battery)
                     ).desc("加入后不容易被系统清掉")
                         .valueTint(grantedTint(HomeState.battery))
                         .arrow()
@@ -181,13 +181,13 @@ object PermissionPage {
                 section(
                     id = "keepalive",
                     title = "后台存活",
-                    titleIcon = painterResource(Icons.IC_ACTIVITY),
+                    titleIconRes = Icons.IC_ACTIVITY,
                     collapsible = true,
                 ) {
                     switch(
                         "无感保活",
                         checked = HomeState.keepAlive,
-                        icon = painterResource(Icons.IC_ACTIVITY)
+                        iconRes = Icons.IC_ACTIVITY
                     ).desc("允许应用持续执行相关后台任务")
                         .spot("permission.keepalive")
                         .onChecked { on -> HomeUi.onKeepAliveChanged(on, act) }
@@ -195,7 +195,7 @@ object PermissionPage {
                     switch(
                         "隐藏后台卡片",
                         checked = HomeState.hideRecents,
-                        icon = painterResource(Icons.IC_EYE_OFF)
+                        iconRes = Icons.IC_EYE_OFF
                     ).desc("不在最近任务里露出这一页")
                         .spot("permission.hideRecents")
                         .onChecked { on -> HomeUi.onHideRecentsChanged(on, act) }
@@ -207,13 +207,13 @@ object PermissionPage {
                 section(
                     id = "channel",
                     title = "启停通道",
-                    titleIcon = painterResource(Icons.IC_LAYOUT_GRID),
+                    titleIconRes = Icons.IC_LAYOUT_GRID,
                     collapsible = true,
                 ) {
                     switch(
                         "快捷磁贴",
                         checked = HomeState.tile,
-                        icon = painterResource(Icons.IC_LAYOUT_GRID)
+                        iconRes = Icons.IC_LAYOUT_GRID
                     ).desc("从下拉快捷开关直接起停人偶")
                         .spot("permission.tile")
                         .onChecked { on -> HomeUi.onTileSwitchChanged(on, act) }
@@ -221,7 +221,7 @@ object PermissionPage {
                     item(
                         "开关指令",
                         value = "复制",
-                        icon = painterResource(Icons.IC_LINK_2)
+                        iconRes = Icons.IC_LINK_2
                     ).desc("复制一条可粘贴到别处的指令")
                         .arrow()
                         .spot("permission.shellCommand")
