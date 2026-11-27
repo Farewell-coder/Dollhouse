@@ -1,5 +1,11 @@
 package com.dollhouse.app.ui.qzx
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -30,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,14 +94,20 @@ sealed interface QzxRow {
         val arrow: Boolean,
         val onClick: (() -> Unit)?,
         /** 设置项索引 id（见 [QzxItemBuilder.spot]）。*/
-        val spotId: String? = null
+        val spotId: String? = null,
+        /** 行前置图标（由调用方给 painter，新系统不持有任何图标资源）。*/
+        val icon: Painter? = null,
+        /** 副说明：有值时行高自动升到 `rowTwoLine`。*/
+        val desc: String? = null
     ) : QzxRow
 
     data class Toggle(
         val title: String,
         val checked: Boolean,
         val onChecked: (Boolean) -> Unit,
-        val spotId: String? = null
+        val spotId: String? = null,
+        val icon: Painter? = null,
+        val desc: String? = null
     ) : QzxRow
 
     data class Input(
@@ -100,7 +115,9 @@ sealed interface QzxRow {
         val value: String,
         val placeholder: String?,
         val onValueChange: (String) -> Unit,
-        val spotId: String? = null
+        val spotId: String? = null,
+        val icon: Painter? = null,
+        val desc: String? = null
     ) : QzxRow
 
     data class Select(
@@ -108,8 +125,19 @@ sealed interface QzxRow {
         val value: String?,
         val options: List<QzxOption>,
         val onSelect: (QzxOption) -> Unit,
-        val spotId: String? = null
+        val spotId: String? = null,
+        val icon: Painter? = null,
+        val desc: String? = null
     ) : QzxRow
+
+    /**
+     * 说明文字行（`note`）。
+     *
+     * 【为什么要有】设置页大量需要"一段解释"（旧系统走 `DhForm.Note`）。
+     * 新系统自带这一行型：**不依赖旧 `DhForm`**，字号/行高/颜色由令牌决定，
+     * 左右内边距与上下文一致。
+     */
+    data class Note(val text: String) : QzxRow
 
     /** 逃生口：调用方给一段任意内容，但**仍然**由系统负责左右内边距与分隔线。 */
     data class Custom(val content: @Composable () -> Unit) : QzxRow
@@ -135,11 +163,16 @@ internal interface QzxRowHolder {
  */
 class QzxItemBuilder internal constructor(
     private val title: String,
-    private var valueText: String?
+    private var valueText: String?,
+    private val icon: Painter? = null
 ) : QzxRowHolder {
     private var showArrow = false
     private var clickAction: (() -> Unit)? = null
     private var spotId: String? = null
+    private var descText: String? = null
+
+    /** 副说明（第二行小字）。有它时行高自动升到 `rowTwoLine`。 */
+    fun desc(text: String): QzxItemBuilder = apply { descText = text }
 
     /** 右侧显示一个箭头（表示"点进去还有一层"）。 */
     fun arrow(show: Boolean = true): QzxItemBuilder = apply { showArrow = show }
@@ -168,16 +201,21 @@ class QzxItemBuilder internal constructor(
     fun spot(id: String): QzxItemBuilder = apply { spotId = id }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Item(title, valueText, showArrow, clickAction, spotId)
+        QzxRow.Item(title, valueText, showArrow, clickAction, spotId, icon, descText)
 }
 
 /** 开关行。 */
 class QzxSwitchBuilder internal constructor(
     private val title: String,
-    private var checkedValue: Boolean
+    private var checkedValue: Boolean,
+    private val icon: Painter? = null
 ) : QzxRowHolder {
     private var changeAction: (Boolean) -> Unit = {}
     private var spotId: String? = null
+    private var descText: String? = null
+
+    /** 副说明。 */
+    fun desc(text: String): QzxSwitchBuilder = apply { descText = text }
 
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxSwitchBuilder = apply { spotId = id }
@@ -188,17 +226,23 @@ class QzxSwitchBuilder internal constructor(
     /** 覆盖当前值（一般不用 —— 值应由调用方状态驱动）。 */
     fun checked(v: Boolean): QzxSwitchBuilder = apply { checkedValue = v }
 
-    override fun snapshot(): QzxRow = QzxRow.Toggle(title, checkedValue, changeAction, spotId)
+    override fun snapshot(): QzxRow =
+        QzxRow.Toggle(title, checkedValue, changeAction, spotId, icon, descText)
 }
 
 /** 输入行。 */
 class QzxInputBuilder internal constructor(
     private val title: String,
-    private var valueText: String
+    private var valueText: String,
+    private val icon: Painter? = null
 ) : QzxRowHolder {
     private var placeholderText: String? = null
     private var changeAction: (String) -> Unit = {}
     private var spotId: String? = null
+    private var descText: String? = null
+
+    /** 副说明。 */
+    fun desc(text: String): QzxInputBuilder = apply { descText = text }
 
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxInputBuilder = apply { spotId = id }
@@ -210,17 +254,22 @@ class QzxInputBuilder internal constructor(
     fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Input(title, valueText, placeholderText, changeAction, spotId)
+        QzxRow.Input(title, valueText, placeholderText, changeAction, spotId, icon, descText)
 }
 
 /** 选择行（点开一个下拉）。 */
 class QzxSelectBuilder internal constructor(
     private val title: String,
     private var valueText: String?,
-    private val options: List<QzxOption>
+    private val options: List<QzxOption>,
+    private val icon: Painter? = null
 ) : QzxRowHolder {
     private var selectAction: (QzxOption) -> Unit = {}
     private var spotId: String? = null
+    private var descText: String? = null
+
+    /** 副说明。 */
+    fun desc(text: String): QzxSelectBuilder = apply { descText = text }
 
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxSelectBuilder = apply { spotId = id }
@@ -229,7 +278,7 @@ class QzxSelectBuilder internal constructor(
     fun onSelect(block: (QzxOption) -> Unit): QzxSelectBuilder = apply { selectAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Select(title, valueText, options, selectAction, spotId)
+        QzxRow.Select(title, valueText, options, selectAction, spotId, icon, descText)
 }
 
 // ───────────────────────────── DSL 作用域 ─────────────────────────────
@@ -238,25 +287,41 @@ class QzxSelectBuilder internal constructor(
 class QzxSectionScope internal constructor(
     internal val id: String,
     internal val title: String?,
-    internal val footer: String?
+    internal val footer: String?,
+    internal val collapsible: Boolean = false,
+    internal val expanded: Boolean = true,
+    internal val onToggle: ((Boolean) -> Unit)? = null,
 ) {
     internal val holders = mutableListOf<QzxRowHolder>()
 
     /** 普通行：`item("标题", "右侧值").arrow().onClick { }` */
-    fun item(title: String, value: String? = null): QzxItemBuilder =
-        QzxItemBuilder(title, value).also { holders.add(it) }
+    fun item(
+        title: String,
+        value: String? = null,
+        icon: Painter? = null
+    ): QzxItemBuilder = QzxItemBuilder(title, value, icon).also { holders.add(it) }
 
     /** 开关行：`switch("自动更新", checked = true).onChecked { }` */
-    fun switch(title: String, checked: Boolean): QzxSwitchBuilder =
-        QzxSwitchBuilder(title, checked).also { holders.add(it) }
+    fun switch(
+        title: String,
+        checked: Boolean,
+        icon: Painter? = null
+    ): QzxSwitchBuilder = QzxSwitchBuilder(title, checked, icon).also { holders.add(it) }
 
     /** 输入行：`input("API 地址", value = url).hint("https://…").onValueChange { }` */
-    fun input(title: String, value: String): QzxInputBuilder =
-        QzxInputBuilder(title, value).also { holders.add(it) }
+    fun input(
+        title: String,
+        value: String,
+        icon: Painter? = null
+    ): QzxInputBuilder = QzxInputBuilder(title, value, icon).also { holders.add(it) }
 
     /** 选择行：`select("语言", value = lang, options = langs).onSelect { }` */
-    fun select(title: String, value: String?, options: List<QzxOption>): QzxSelectBuilder =
-        QzxSelectBuilder(title, value, options).also { holders.add(it) }
+    fun select(
+        title: String,
+        value: String?,
+        options: List<QzxOption>,
+        icon: Painter? = null
+    ): QzxSelectBuilder = QzxSelectBuilder(title, value, options, icon).also { holders.add(it) }
 
     /**
      * 显式分隔线。
@@ -268,6 +333,13 @@ class QzxSectionScope internal constructor(
     fun divider() {
         holders.add(object : QzxRowHolder {
             override fun snapshot(): QzxRow = QzxRow.Divider
+        })
+    }
+
+    /** 说明文字行（不依赖旧 `DhForm`）。 */
+    fun note(text: String) {
+        holders.add(object : QzxRowHolder {
+            override fun snapshot(): QzxRow = QzxRow.Note(text)
         })
     }
 
@@ -294,9 +366,26 @@ class QzxListScope {
         id: String,
         title: String? = null,
         footer: String? = null,
+        /**
+         * 是否可折叠。
+         *
+         * 【为什么必须有】旧系统的折叠卡有 **47 处**，而且折叠态写进
+         * `PetPrefs.cardOpen` —— 用户已经习惯"进页面看到一列标题、点开才看内容"。
+         * 没有它，迁完的设置页会**明显更难用**（这不是观感问题，是信息架构变化）。
+         */
+        collapsible: Boolean = false,
+        /**
+         * 当前是否展开。**只在给了 [onToggle] 时才被采纳**（状态由调用方持有）。
+         * 不给 [onToggle] 时本组件内部 remember，[expanded] 只作初值。
+         */
+        expanded: Boolean = true,
+        /** 折叠状态变化回调（通常写进 `PetPrefs.cardOpen`）。 */
+        onToggle: ((Boolean) -> Unit)? = null,
         content: QzxSectionScope.() -> Unit
     ) {
-        sections.add(QzxSectionScope(id, title, footer).apply(content))
+        sections.add(
+            QzxSectionScope(id, title, footer, collapsible, expanded, onToggle).apply(content)
+        )
     }
 }
 
@@ -342,7 +431,21 @@ private fun QzxSection(
     spotTitle: (String) -> String?,
 ) {
     val c = QzxColors
-    if (!section.title.isNullOrEmpty()) {
+    // 【折叠状态归谁】调用方给了 onToggle ⇒ 状态在调用方（通常落盘到 PetPrefs）；
+    //   没给 ⇒ 组件内部 remember（够用的默认值，且不会因为列表每帧重建模型而丢）。
+    var innerExpanded by remember(section.id) { mutableStateOf(section.expanded) }
+    val expanded = if (section.onToggle != null) section.expanded else innerExpanded
+    fun toggle() {
+        val next = !expanded
+        if (section.onToggle != null) {
+            section.onToggle(next)
+        } else {
+            innerExpanded = next
+        }
+    }
+
+    // 卡外标签：可折叠时标题挪进卡内当页头，这里就不画了（否则一句话出现两次）。
+    if (!section.collapsible && !section.title.isNullOrEmpty()) {
         Text(
             text = section.title,
             modifier = Modifier.padding(
@@ -357,10 +460,51 @@ private fun QzxSection(
 
     val rows = normalize(section.holders.map { it.snapshot() }, autoDivider)
     QzxSurface {
-        rows.forEach { row ->
-            when (row) {
-                QzxRow.Divider -> QzxDivider()
-                else -> QzxRowView(row, spotTitle)
+        if (section.collapsible) {
+            // ── 卡内页头：整行可点，箭头随展开态翻转 ──────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = QzxTokens.Size.minTouch.dp)
+                    .clickable(onClick = { toggle() })
+                    .padding(
+                        start = QzxTokens.Space.listH,
+                        end = QzxTokens.Space.listH,
+                        top = QzxTokens.Space.md,
+                        bottom = QzxTokens.Space.md
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                QzxRowTitle(section.title.orEmpty(), Modifier.weight(1f))
+                Spacer(Modifier.width(QzxTokens.Space.xs))
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        // 收起时朝下（"点我能展开"），展开时朝上
+                        rotationZ = if (expanded) 180f else 0f
+                    }
+                ) {
+                    QzxChevron(down = true)
+                }
+            }
+        }
+        // 【折叠时不占高度】用 AnimatedVisibility 而不是 alpha=0：
+        //   后者仍参与 measure/layout，收起的分区会留一大块空白。
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(
+                animationSpec = tween(QzxTokens.Motion.SECTION_TOGGLE)
+            ) + fadeIn(animationSpec = tween(QzxTokens.Motion.SECTION_TOGGLE)),
+            exit = shrinkVertically(
+                animationSpec = tween(QzxTokens.Motion.SECTION_TOGGLE)
+            ) + fadeOut(animationSpec = tween(QzxTokens.Motion.SECTION_TOGGLE))
+        ) {
+            Column {
+                rows.forEach { row ->
+                    when (row) {
+                        QzxRow.Divider -> QzxDivider()
+                        else -> QzxRowView(row, spotTitle)
+                    }
+                }
             }
         }
     }
@@ -395,13 +539,23 @@ private fun QzxDivider() {
 }
 
 /** 行高由系统给：下限 = 单行/双行档，内容更长时自动长高。 */
-private fun rowMinHeight(row: QzxRow): Int = when (row) {
-    is QzxRow.Item -> QzxTokens.Size.rowOneLine
-    is QzxRow.Toggle -> QzxTokens.Size.rowOneLine
-    is QzxRow.Select -> QzxTokens.Size.rowOneLine
-    is QzxRow.Input -> QzxTokens.Size.rowTwoLine
-    else -> 0
+private fun rowMinHeight(row: QzxRow): Int {
+    val twoLine = QzxTokens.Size.rowTwoLine
+    val oneLine = QzxTokens.Size.rowOneLine
+    // 【有副说明就是双行】行高由"内容需要几行"决定，而不是由行型决定 ——
+    //   这样同一个 item 加不加 desc 都能自适应，调用方不必知道 56/64 这两个数。
+    fun pick(desc: String?, fallback: Int) = if (desc.isNullOrEmpty()) fallback else twoLine
+    return when (row) {
+        is QzxRow.Item -> pick(row.desc, oneLine)
+        is QzxRow.Toggle -> pick(row.desc, oneLine)
+        is QzxRow.Select -> pick(row.desc, oneLine)
+        is QzxRow.Input -> twoLine
+        else -> 0
+    }
 }
+
+/** 行前置图标的边长。`Space.xl`(20dp) 是全系统唯一一档 20dp —— 借用它，避免再开一个令牌。 */
+private val ROW_ICON_SIZE = QzxTokens.Space.xl
 
 @Composable
 private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
@@ -438,7 +592,12 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                 ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                QzxRowTitle(titleOf(row.title, row.spotId), Modifier.weight(1f))
+                QzxRowLeading(
+                    title = titleOf(row.title, row.spotId),
+                    desc = row.desc,
+                    icon = row.icon,
+                    modifier = Modifier.weight(1f)
+                )
                 if (!row.value.isNullOrEmpty()) {
                     Text(
                         text = row.value,
@@ -459,7 +618,12 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
 
         is QzxRow.Toggle -> {
             Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
-                QzxRowTitle(titleOf(row.title, row.spotId), Modifier.weight(1f))
+                QzxRowLeading(
+                    title = titleOf(row.title, row.spotId),
+                    desc = row.desc,
+                    icon = row.icon,
+                    modifier = Modifier.weight(1f)
+                )
                 Switch(checked = row.checked, onCheckedChange = row.onChecked)
             }
         }
@@ -475,7 +639,12 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         .clickable { expanded = true },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    QzxRowTitle(titleOf(row.title, row.spotId), Modifier.weight(1f))
+                    QzxRowLeading(
+                        title = titleOf(row.title, row.spotId),
+                        desc = row.desc,
+                        icon = row.icon,
+                        modifier = Modifier.weight(1f)
+                    )
                     if (!current.isNullOrEmpty()) {
                         Text(
                             text = current,
@@ -508,7 +677,14 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
         is QzxRow.Input -> {
             var text by remember(row.value) { mutableStateOf(row.value) }
             Column(modifier = base) {
-                QzxRowTitle(titleOf(row.title, row.spotId), Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    QzxRowLeading(
+                        title = titleOf(row.title, row.spotId),
+                        desc = row.desc,
+                        icon = row.icon,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 Spacer(Modifier.height(QzxTokens.Space.xs))
                 Box(
                     modifier = Modifier
@@ -546,6 +722,25 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
             }
         }
 
+        is QzxRow.Note -> {
+            // 说明文字：由系统排版（左右内边距与行一致、字号走令牌），
+            // 不依赖旧 `DhForm.Note`。
+            Text(
+                text = row.text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = QzxTokens.Space.listH,
+                        end = QzxTokens.Space.listH,
+                        top = QzxTokens.Space.sm,
+                        bottom = QzxTokens.Space.sm
+                    ),
+                color = c.sub,
+                fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
+            )
+        }
+
         is QzxRow.Custom -> {
             Box(
                 modifier = Modifier
@@ -560,6 +755,45 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
         }
 
         QzxRow.Divider -> QzxDivider()
+    }
+}
+
+/**
+ * 行左侧的"图标 + 标题(+副说明)"组合。
+ *
+ * 【为什么图标是 `Painter` 而不是资源 id】新系统**不持有任何图标资源**：
+ * 旧包 `ui.theme.Icons` 是上一代的 drawable，用户要求"原来的元素一个都不要了"。
+ * 收 `Painter?` 意味着调用方想给什么就给什么（旧资源、`ImageVector`、将来 `QzxIcons`），
+ * 而新系统对资源零依赖 —— 这是唯一"不碰资源又不挡路"的形态。
+ */
+@Composable
+private fun QzxRowLeading(
+    title: String,
+    desc: String?,
+    icon: Painter?,
+    modifier: Modifier = Modifier,
+) {
+    if (icon != null) {
+        Icon(
+            painter = icon,
+            contentDescription = null,
+            modifier = Modifier.size(ROW_ICON_SIZE),
+            tint = QzxColors.sub
+        )
+        Spacer(Modifier.width(QzxTokens.Space.md))
+    }
+    Column(modifier = modifier) {
+        QzxRowTitle(title)
+        if (!desc.isNullOrEmpty()) {
+            Text(
+                text = desc,
+                color = QzxColors.sub,
+                fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
