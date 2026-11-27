@@ -83,6 +83,12 @@ data class QzxSliderRow(
     val onChange: (Int, Boolean) -> Unit,
 ) : QzxRow
 
+/** 徽标语气。 */
+enum class QzxBadgeTone { Neutral, Accent, Danger }
+
+/** 徽标行：一小块带语气色的标签（旧 `DhForm.Badge` 的等价物）。 */
+data class QzxBadgeRow(val text: String, val tone: QzxBadgeTone) : QzxRow
+
 /** 卡内小标题（不折叠、不可点，只是把一张卡内部再分小节）。 */
 data class QzxLabelRow(val title: String, val icon: Painter?) : QzxRow
 
@@ -157,6 +163,18 @@ fun QzxSectionScope.slider(
 ) {
     holders.add(object : QzxRowHolder {
         override fun snapshot(): QzxRow = QzxSliderRow(title, value, range, hint, onChange)
+    })
+}
+
+/**
+ * 徽标行：`badge("已过期", QzxBadgeTone.Danger)`。
+ *
+ * 【为什么是"语气"而不是颜色】和 `danger()` 同一条原则：调用方表达**含义**，
+ * 具体色值由系统给 —— 否则每个页面都会挑一个自己的红。
+ */
+fun QzxSectionScope.badge(text: String, tone: QzxBadgeTone = QzxBadgeTone.Neutral) {
+    holders.add(object : QzxRowHolder {
+        override fun snapshot(): QzxRow = QzxBadgeRow(text, tone)
     })
 }
 
@@ -369,6 +387,50 @@ internal fun QzxSliderRowContent(row: QzxSliderRow) {
                 color = c.sub,
                 fontSize = QzxTokens.Type.FOOTER_SP.sp,
                 lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
+            )
+        }
+    }
+}
+
+/** 徽标。语气 → 底色/字色全由系统映射。 */
+@Composable
+internal fun QzxBadgeRowContent(row: QzxBadgeRow) {
+    val c = QzxColors
+    val bg = when (row.tone) {
+        QzxBadgeTone.Neutral -> c.soft
+        QzxBadgeTone.Accent -> c.accent
+        QzxBadgeTone.Danger -> c.danger
+    }
+    val fg = when (row.tone) {
+        QzxBadgeTone.Neutral -> c.title
+        QzxBadgeTone.Accent -> c.onAccent
+        QzxBadgeTone.Danger -> c.onAccent
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = QzxTokens.Space.listH,
+                end = QzxTokens.Space.listH,
+                top = QzxTokens.Space.xs,
+                bottom = QzxTokens.Space.xs
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(QzxTokens.Radius.pill))
+                .background(bg)
+                .padding(
+                    horizontal = QzxTokens.Space.sm,
+                    vertical = QzxTokens.Space.xxs
+                )
+        ) {
+            Text(
+                text = row.text,
+                color = fg,
+                fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp,
+                maxLines = 1
             )
         }
     }
