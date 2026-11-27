@@ -24,7 +24,6 @@ import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Design
-import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「交谈内容」子页：这只人偶在「交谈」机制下会冒出的台词，一条一句。
