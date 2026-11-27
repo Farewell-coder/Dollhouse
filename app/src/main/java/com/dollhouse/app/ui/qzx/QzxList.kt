@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -118,7 +119,13 @@ sealed interface QzxRow {
         /** 副说明：有值时行高自动升到 `rowTwoLine`。*/
         val desc: String? = null,
         /** 值文字的颜色覆盖（null = 默认副文本色）。*/
-        val valueTint: Color? = null
+        val valueTint: Color? = null,
+        /** 危险行：**整行标题**用错误色（删除类行必须与普通行一眼分开）。*/
+        val danger: Boolean = false,
+        /** 是否可点。false = 整行变淡且不响应点击（"此刻不能做这件事"）。*/
+        val enabled: Boolean = true,
+        /** 标题颜色覆盖（状态色：连接成功/失败这类**数据驱动**的颜色，不是样式选择）。*/
+        val titleTint: Color? = null
     ) : QzxRow
 
     data class Toggle(
@@ -215,6 +222,34 @@ class QzxItemBuilder internal constructor(
     private var spotId: String? = null
     private var descText: String? = null
     private var valueTintColor: Color? = null
+    private var dangerRow = false
+    private var rowEnabled = true
+    private var titleTintColor: Color? = null
+
+    /**
+     * 是否可点。`false` 时整行变淡、不挂点击。
+     *
+     * 【为什么需要】"此刻不能做这件事"是**状态**而不是"忘了写 onClick"：
+     *   下载按钮在已有文件时必须置灰可读，而不是消失或点了没反应。
+     */
+    fun enabled(on: Boolean): QzxItemBuilder = apply { rowEnabled = on }
+
+    /**
+     * 标题用**数据色**（例如连接状态：绿=已连接 / 红=失败）。
+     *
+     * 【与 [danger] 的分工】`danger()` 是"这一类操作危险"（静态语义）；
+     *   本方法是"这一行此刻处于什么状态"（动态数据）。两者都不让调用方挑选具体色值。
+     */
+    fun titleTint(color: Color?): QzxItemBuilder = apply { titleTintColor = color }
+
+    /**
+     * 危险行：整行标题用 [QzxColors.danger]。
+     *
+     * 【为什么是语义而不是让你传色值】"删除"这一类的行必须在**任何主题**下都明显不同于普通行；
+     * 让调用方传 `Color` 就等于每页各挑一个红。这里只表达"这是危险操作"，具体红由系统给。
+     * **不影响值文字**：值仍走 `valueTint` / 默认副文本色（除非你另外声明）。
+     */
+    fun danger(): QzxItemBuilder = apply { dangerRow = true }
 
     /** 副说明（第二行小字）。有它时行高自动升到 `rowTwoLine`。 */
     fun desc(text: String): QzxItemBuilder = apply { descText = text }
@@ -250,7 +285,10 @@ class QzxItemBuilder internal constructor(
     fun spot(id: String): QzxItemBuilder = apply { spotId = id }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Item(title, valueText, showArrow, clickAction, spotId, icon, descText, valueTintColor)
+        QzxRow.Item(
+            title, valueText, showArrow, if (rowEnabled) clickAction else null,
+            spotId, icon, descText, valueTintColor, dangerRow, rowEnabled, titleTintColor
+        )
 }
 
 /** 开关行。 */
@@ -684,6 +722,9 @@ private fun rowMinHeight(row: QzxRow): Int {
 /** 行前置图标的边长。`Space.xl`(20dp) 是全系统唯一一档 20dp —— 借用它，避免再开一个令牌。 */
 private val ROW_ICON_SIZE = QzxTokens.Space.xl
 
+/** 不可点行的整体透明度（QZX 的禁用态也是"变淡但仍可读"）。 */
+private const val DISABLED_ROW_ALPHA = 0.38f
+
 /** 预览区块的头像边长（72dp：足够看清脸，又不至于把行撑成"大卡片"）。 */
 private val PREVIEW_SIZE = QzxTokens.Space.xxl * 3
 
@@ -709,7 +750,9 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
     when (row) {
         is QzxRow.Item -> {
             Row(
-                modifier = base.then(
+                modifier = base
+                    .alpha(if (row.enabled) 1f else DISABLED_ROW_ALPHA)
+                    .then(
                     if (row.onClick != null) {
                         Modifier
                             // 行本身的下限已经 ≥ rowOneLine，这里再声明一次命中区下限：
@@ -726,6 +769,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     title = titleOf(row.title, row.spotId),
                     desc = row.desc,
                     icon = row.icon,
+                    titleColor = row.titleTint ?: if (row.danger) c.danger else null,
                     modifier = Modifier.weight(1f)
                 )
                 if (!row.value.isNullOrEmpty()) {
@@ -988,6 +1032,7 @@ private fun QzxRowLeading(
     title: String,
     desc: String?,
     icon: Painter?,
+    titleColor: Color? = null,
     modifier: Modifier = Modifier,
 ) {
     if (icon != null) {
@@ -1000,7 +1045,7 @@ private fun QzxRowLeading(
         Spacer(Modifier.width(QzxTokens.Space.md))
     }
     Column(modifier = modifier) {
-        QzxRowTitle(title)
+        QzxRowTitle(title, colorOverride = titleColor)
         if (!desc.isNullOrEmpty()) {
             Text(
                 text = desc,
@@ -1015,11 +1060,15 @@ private fun QzxRowLeading(
 }
 
 @Composable
-private fun QzxRowTitle(text: String, modifier: Modifier = Modifier) {
+private fun QzxRowTitle(
+    text: String,
+    modifier: Modifier = Modifier,
+    colorOverride: Color? = null,
+) {
     Text(
         text = text,
         modifier = modifier,
-        color = QzxColors.title,
+        color = colorOverride ?: QzxColors.title,
         fontSize = QzxTokens.Type.ROW_TITLE_SP.sp,
         lineHeight = (QzxTokens.Type.ROW_TITLE_SP + QzxTokens.Type.LINE_GAP_SP).sp,
         maxLines = 2,

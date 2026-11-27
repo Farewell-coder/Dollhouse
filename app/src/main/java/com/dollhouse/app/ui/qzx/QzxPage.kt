@@ -19,6 +19,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.ui.design.DhDesign
 
@@ -185,6 +186,16 @@ fun QzxPage(
     actions: @Composable RowScope.() -> Unit = {},
     scroll: QzxPageScroll = QzxPageScroll.Auto,
     contentPadding: PaddingValues = PaddingValues(horizontal = DhDesign.Space.cardPad.dp),
+    /**
+     * 返回键图标。**由调用方给**（新系统不持有旧 drawable）。
+     * @param backIcon 为 null 时不画返回键 —— 一级页（无返回）本就该这么传。
+     */
+    backIcon: Painter? = null,
+    /**
+     * 是否有背景图。**由调用方给**（这是 App 的行为，不属于 UI 系统）。
+     * 为 true 时标题栏栏底恒 88%（否则展开态近乎全透，大标题会直接压在照片上）。
+     */
+    hasPhotoBackdrop: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     // Auto 归一到 Lazy —— 理由见 enum 与文件头「Auto 的真相」。
@@ -209,18 +220,22 @@ fun QzxPage(
             scrollState != null -> QzxTitleBar(
                 title = title, scrollState = scrollState,
                 onBack = onBack, subtitle = subtitle, actions = actions,
+                backIcon = backIcon, hasPhotoBackdrop = hasPhotoBackdrop,
             )
             lazyState != null -> QzxTitleBar(
                 title = title, scrollState = lazyState,
                 onBack = onBack, subtitle = subtitle, actions = actions,
+                backIcon = backIcon, hasPhotoBackdrop = hasPhotoBackdrop,
             )
             gridState != null -> QzxTitleBar(
                 title = title, scrollState = gridState,
                 onBack = onBack, subtitle = subtitle, actions = actions,
+                backIcon = backIcon, hasPhotoBackdrop = hasPhotoBackdrop,
             )
             // None：静态紧凑栏（大标题永不收起，那它就不该占 120dp）
             else -> QzxTitleBar(
                 title = title, onBack = onBack, subtitle = subtitle, actions = actions,
+                backIcon = backIcon,
             )
         }
 

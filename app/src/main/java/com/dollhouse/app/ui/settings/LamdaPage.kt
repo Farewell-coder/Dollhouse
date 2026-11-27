@@ -7,11 +7,8 @@ import android.view.View
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,24 +17,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.device.LamdaManager
 import com.dollhouse.app.device.ShizukuBridge
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
-import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
-import com.dollhouse.app.ui.theme.UiKit
 
 /**
  * 【职责】设置页「lamda 设备控制」：安装 / 启动 / 停止服务，并说明 AI 能拿它做什么。
@@ -128,19 +120,17 @@ object LamdaPage {
     /* ============================== 渲染 ============================== */
     @Composable
     private fun LamdaContent(ctx: Context, st: UiState) {
-        DhKit.Page(
+        QzxPage(
             title = "lamda 设备控制",
-            sub = "让 AI 能操作手机（shell 级命令通道）",
+            subtitle = "让 AI 能操作手机（shell 级命令通道）",
             onBack = { ProviderNav.handleBack(ctx) },
-            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
-            adaptiveTitle = true
         ) {
             LamdaCards(ctx, st)
         }
     }
 
     /**
-     * 【r13】「实验」卡片的**展开式**正文：与整页形态共用同一批卡片，只是不套 [DhKit.Page]。
+     * 【r13】「实验」卡片的**展开式**正文：与整页形态共用同一批卡片，只是不套页面外壳。
      *
      * 【为什么必须共用】用户定案设置页的「实验」是**展开式卡片**（不跳页）。若为它另写一套
      *   卡片，两个入口迟早会长成两种长相 —— 这正是工程一直在收口的事。
@@ -163,7 +153,12 @@ object LamdaPage {
         LamdaCards(act, state, true)
     }
 
-    /** 【r13】实验正文的五张卡片：整页形态与展开式卡片共用这一份。 */
+    /**
+     * 【r13】实验正文的五张卡片：整页形态与展开式卡片共用这一份。
+     *
+     * 【QZX 迁移】整页与嵌入形态共用一个 `QzxList`，`flat` 直接透传给每个 section ——
+     * 嵌入设置页卡片时不再画第二层卡片底（否则是双层圆角 + 双层边缘光）。
+     */
     @Composable
     private fun LamdaCards(ctx: Context, st: UiState, flat: Boolean = false) {
         // 本帧认定的「正在跑的动作名」：动作刚发起时 LamdaManager 侧的标记可能还没来得及置上，
@@ -171,314 +166,215 @@ object LamdaPage {
         val busy = st.busyKey ?: LamdaManager.busyAction()
         val idle = busy == null
         val s = st.snap
-        statusCard(ctx, st, s, st.hint, busy, flat)
-        installCard(ctx, st, s, idle, flat)
-        runCard(ctx, st, s, idle, flat)
-        deleteCard(ctx, st, idle, flat)
-        abilityCard(ctx, flat)
-    }
-    /** 卡片头：图标 + 标题（原 LamdaUiKit.header 的 Compose 等价物）。 */
-    @Composable
-    private fun CardHead(text: String, iconRes: Int) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            DhKit.Icon(iconRes = iconRes, sizeDp = 16f, color = DhTokens.colors.acc)
-            Spacer(Modifier.width(DhDesign.Space.sm.dp))
-            DhKit.CardTitle(text)
-        }
-    }
-    /** 可点行：图标 + 名称 + 右箭头。禁用时整体降透明度并吃掉点击。 */
-    @Composable
-    private fun ActionRow(
-        /**
-         * 行名称。【为什么可空且默认 null】自纠错口径同 `DhKit.ActionRow`：接线的行不写标题字面量。
-         */
-        name: String? = null,
-        iconRes: Int,
-        enabled: Boolean,
-        danger: Boolean,
-        /**
-         * 【P1-e·设置索引】设置项登记。
-         * 【参数位置·必须】在 `onClick`（末位、非空、被尾随 lambda 绑定）**之前**。
-         */
-        spot: SettingsSpot? = null,
-        onClick: () -> Unit
-    ) {
-        val title = SettingsSpots.spotTitle(spot, name)
-        val c = DhTokens.colors
-        val fg = when {
-            !enabled -> c.sub
-            danger -> c.err
-            else -> c.acc
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .alpha(if (enabled) 1f else 0.38f)
-                .clip(RoundedCornerShape(DhKit.R_ROW.dp))
-                .then(if (enabled) Modifier.pressable(onClick) else Modifier)
-                .padding(horizontal = DhDesign.Space.xs.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 【r12】18f 不在 [Design] 的图标五档内 → 归到 SZ_MD(20)。
-            DhKit.Icon(iconRes = iconRes, sizeDp = Design.SZ_MD, color = fg)
-            Spacer(Modifier.width(DhDesign.Space.md.dp))
-            // E16-ALLOW: 分组行名称 `name`：同上，固定项名
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                color = fg,
-                fontSize = UiKit.FS_BTN.sp,
-                fontFamily = DhTokens.fonts
-            )
-            DhKit.Icon(iconRes = Icons.IC_CHEVRON_RIGHT, sizeDp = 16f, color = fg)
-        }
-    }
-    /** 能力行：图标 + 名称 + 描述（两行文字，不折叠）。 */
-    @Composable
-    private fun CapabilityRow(name: String, desc: String, iconRes: Int) {
-        val c = DhTokens.colors
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            Box(modifier = Modifier.padding(top = 1.dp)) {
-                DhKit.Icon(iconRes = iconRes, sizeDp = 16f, color = c.acc)
+
+        // ── 状态行：文字 / 颜色 / 图标一次设齐，漏不掉其中任何一项 ──────────────
+        val statusText: String
+        val statusColor: Color
+        val statusIcon: Int
+        if (st.hint != null) {
+            // 动作进行中 / 动作结果：这一句比「服务状态」更能回答用户此刻的疑问。
+            val h = st.hint!!
+            statusText = h.text
+            statusColor = Color(h.color)
+            statusIcon = when {
+                h.busy -> Icons.IC_SPINNER
+                h.color == Design.err() -> Icons.IC_WARNING
+                h.color == Design.ok() -> Icons.IC_CHECK_CIRCLE
+                else -> Icons.IC_INFO
             }
-            Spacer(Modifier.width(DhDesign.Space.md.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                // E16-ALLOW: 值行标签 `label`：固定项名（"设备地址"/"端口"）
-                Text(
-                    text = name,
-                    color = c.title,
-                    fontSize = UiKit.FS_BTN.sp,
-                    fontFamily = DhTokens.fontsBody
-                )
-                // 【E16·真问题（原 ALLOW 理由错：这里不是 value 而是 desc）】
-                //   `desc` 是能力说明，例如「返回屏幕的层级与可点元素，据此判断该点哪里」
-                //   实测 42 视觉字，窄屏必然 2~3 行。补行高（下方已有，见 lineHeight）。
-                Text(
-                    text = desc,
-                    modifier = Modifier.padding(top = 2.dp),
-                    color = c.sub,
-                    fontSize = UiKit.FS_TINY.sp,
-                    lineHeight = DhTokens.type.sub.lineHeight,
-                    fontFamily = DhTokens.fontsBody
-                )
-            }
+        } else if (s == null) {
+            statusText = "正在检查…"
+            statusColor = Color(Design.neutral())
+            statusIcon = Icons.IC_SPINNER
+        } else {
+            statusText = s.status.label()
+            statusColor = Color(s.status.color())
+            statusIcon = s.status.icon()
         }
-    }
-    /** 信息行：左标签 + 右等宽值。 */
-    @Composable
-    private fun InfoLine(label: String, value: String) {
-        val c = DhTokens.colors
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = DhDesign.Space.md.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // E16-ALLOW: 值行标签 `label`：固定项名（"设备地址"/"端口"），`weight(1f)` 单行
-            Text(
-                text = label,
-                modifier = Modifier.weight(1f),
-                color = c.sub,
-                fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fontsBody
-            )
-            // E16-ALLOW: 值行右值 `value`（"已连接"/"未连接"/IP:端口）：短状态串，`weight` 单行
-            Text(
-                text = value,
-                color = c.title,
-                fontSize = UiKit.FS_TINY.sp,
-                fontFamily = DhTokens.fontsBold,
-            )
-        }
-    }
-    /** 服务状态：一态一图标一颜色，全部由 [Design.Status] 绑定。 */
-    @Composable
-    private fun statusCard(ctx: Context, st: UiState, s: Snap?, hint: Hint?, busy: String?,
-                           flat: Boolean = false) {
-        DhKit.Card(flat = flat, spacingBottom = !flat) {
-            CardHead("服务状态", Design.icons.SERVER)
-            val text: String
-            val color: Color
-            val icon: Int
-            if (hint != null) {
-                // 动作进行中 / 动作结果：这一句比「服务状态」更能回答用户此刻的疑问。
-                text = hint.text
-                color = Color(hint.color)
-                icon = when {
-                    hint.busy -> Icons.IC_SPINNER
-                    hint.color == Design.err() -> Icons.IC_WARNING
-                    hint.color == Design.ok() -> Icons.IC_CHECK_CIRCLE
-                    else -> Icons.IC_INFO
-                }
-            } else if (s == null) {
-                text = "正在检查…"
-                color = Color(Design.neutral())
-                icon = Icons.IC_SPINNER
-            } else {
-                // 文字 / 颜色 / 图标一次设齐，漏不掉其中任何一项。
-                text = s.status.label()
-                color = Color(s.status.color())
-                icon = s.status.icon()
-            }
-            // 【为什么让它可点】状态来自真实探测，用户有疑问时最直接的答案就是「再探一次」。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(DhKit.R_ROW.dp))
-                    .pressable { refresh(st, null) }
-                    .padding(horizontal = DhDesign.Space.xs.dp, vertical = DhDesign.Space.sm.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 【v0.1.0·修·图标偏小】这是状态行主图标（右侧文字 15sp），按 [Design] 口径走 SZ_SM。
-                DhKit.Icon(iconRes = icon, sizeDp = Design.SZ_SM, color = color)
-                Spacer(Modifier.width((Design.GAP_ICON / 2).dp))
-                // E16-ALLOW: 测试按钮文字 `text`（"测试连接"/"发送"）：2~4 字按钮文案，药丸定高
-                // 【E16·真问题】text 可能来自 hint.text（job 返回值 / 异常 / 下载进度 / 路径），
-                //   无长度上限 → 会换行，补行高。
-                Text(
-                    text = text,
-                    color = color,
-                    fontSize = UiKit.FS_BTN.sp,
-                    lineHeight = DhTokens.type.body.lineHeight,
-                    fontFamily = DhTokens.fontsBody
-                )
-            }
-            if (busy != null) {
-                DhForm.Note("正在" + busyLabel(busy) + "中，等它跑完再操作，重复点容易把文件写坏。")
-            } else if (s != null && s.status == Design.Status.UNKNOWN) {
-                DhForm.Note("Shizuku 没就绪，查不到服务状态。"
-                    + "安装与启停都靠它的 shell 通道，请先确认 Shizuku 在运行且已给本应用授权。")
-            } else if (s != null && s.status == Design.Status.PARTIAL) {
-                DhForm.Note("上次下载没有完成，本地留了一份不完整的文件。"
-                    + "建议先用下面的「删除」清干净，再重新下载。")
-            }
-        }
-    }
-    /** 安装：下载 + 解包。 */
-    @Composable
-    private fun installCard(ctx: Context, st: UiState, s: Snap?, idle: Boolean,
-                            flat: Boolean = false) {
-        // 把快照读成局部量：不再到处写 !!，也就不会有依赖短路求值的脆弱判断。
+
+        // 快照读成局部量：不再到处写 !!，也就不会有依赖短路求值的脆弱判断。
         val hasFile = s != null && s.hasFile
         val pkgReady = s != null && s.pkgReady
         val installed = s != null && s.installed
-        DhKit.Card(flat = flat, spacingBottom = !flat) {
-            CardHead("安装", Design.icons.DOWNLOAD)
-            // 下载：本地已有文件（含半截）就置灰。理由见 LamdaManager.download —— 不静默覆盖、不静默续传。
-            ActionRow(spot = spot("lamda.download"), iconRes = Design.icons.DOWNLOAD,
-                enabled = idle && s != null && !hasFile, danger = false) { download(st) }
-            // 解包：只有包完整时才允许点。半截包解出来的是坏文件，服务起不来还难排查。
-            ActionRow(spot = spot("lamda.unpack"), iconRes = Design.icons.UNPACK,
-                enabled = idle && pkgReady && !installed, danger = false) { install(st) }
-            if (hasFile && !pkgReady) {
-                DhForm.Note("本地有一份体积不完整的服务器包，"
-                    + "下载与解包都已停用。请先用下面的「删除」清掉它，再重新下载。")
-            } else if (hasFile) {
-                DhForm.Note(LamdaManager.downloadRefusedText(ctx) + "。")
-            } else if (s != null) {
-                DhForm.Note("服务器包不随 App 分发，首次使用需下载一次。"
-                    + "解包到 /data/local/tmp/server，全程以 shell 身份执行，不需要 root。")
-            }
-        }
-    }
-    /** 运行：启停 + 自动保活 + 服务接口信息。 */
-    @Composable
-    private fun runCard(ctx: Context, st: UiState, s: Snap?, idle: Boolean,
-                        flat: Boolean = false) {
-        // 【互斥规则】跑着的时候不给点启动、没跑的时候不给点停止。以前两个都能点，
-        //   点错一个只会得到一句「已经在运行 / 没在运行」，纯属浪费一次往返。
         val running = s != null && s.status == Design.Status.RUNNING
-        val installed = s != null && s.installed
-        DhKit.Card(flat = flat, spacingBottom = !flat) {
-            CardHead("运行", Design.icons.START)
-            ActionRow(spot = spot("lamda.start"), iconRes = Design.icons.START, enabled = idle && installed && !running, danger = false) { start(st) }
-            ActionRow(spot = spot("lamda.stop"), iconRes = Design.icons.STOP, enabled = idle && running, danger = false) { stop(st) }
-            // 【自动保活】开关必须落到真实配置上：重进页面读的是 prefs，不是内存里的临时值。
-            var autoOn by remember { mutableStateOf(PetPrefs.lamdaAutoStart(ctx)) }
-            DhKit.SwitchRow(spot = spot("lamda.keepAlive"), iconRes = Icons.IC_SHIELD_CHECK, checked = autoOn, onCheckedChange = { now ->
-                autoOn = now
-                PetPrefs.setLamdaAutoStart(ctx, now)
-                if (now) {
-                    // 用户刚开就希望它马上可用，别让他等下一轮巡检。
-                    LamdaManager.resumeGuard()
-                    runAsync(st, "start", "正在检查服务…") {
-                        if (LamdaManager.probe()) {
-                            "服务运行中"
-                        } else if (LamdaManager.installed(ctx)) {
-                            LamdaManager.start()
-                        } else {
-                            "（还没解包安装服务器包）"
+        // 【自动保活】开关落到真实配置上：重进页面读的是 prefs，不是内存里的临时值。
+        var autoOn by remember { mutableStateOf(PetPrefs.lamdaAutoStart(ctx)) }
+        // 【删除确认】安全网：204MB 服务器包删掉不可撤销，必须二次确认。
+        var confirm by remember { mutableStateOf(false) }
+
+        QzxList(spotTitle = { spot(it)?.title }) {
+
+            section(
+                id = "status", title = "服务状态",
+                titleIcon = painterResource(Design.icons.SERVER), flat = flat
+            ) {
+                // 【为什么整行可点】状态来自真实探测，用户有疑问时最直接的答案就是「再探一次」。
+                item(statusText, icon = painterResource(statusIcon))
+                    .titleTint(statusColor)
+                    .onClick { refresh(st, null) }
+
+                if (busy != null) {
+                    note("正在" + busyLabel(busy) + "中，等它跑完再操作，重复点容易把文件写坏。")
+                } else if (s != null && s.status == Design.Status.UNKNOWN) {
+                    note(
+                        "Shizuku 没就绪，查不到服务状态。" +
+                            "安装与启停都靠它的 shell 通道，请先确认 Shizuku 在运行且已给本应用授权。"
+                    )
+                } else if (s != null && s.status == Design.Status.PARTIAL) {
+                    note(
+                        "上次下载没有完成，本地留了一份不完整的文件。" +
+                            "建议先用下面的「删除」清干净，再重新下载。"
+                    )
+                }
+            }
+
+            section(
+                id = "install", title = "安装",
+                titleIcon = painterResource(Design.icons.DOWNLOAD), flat = flat
+            ) {
+                // 下载：本地已有文件（含半截）就置灰 —— 不静默覆盖、不静默续传。
+                item("下载服务器包", icon = painterResource(Design.icons.DOWNLOAD))
+                    .arrow()
+                    .enabled(idle && s != null && !hasFile)
+                    .spot("lamda.download")
+                    .onClick { download(st) }
+                // 解包：只有包完整时才允许点。半截包解出来的是坏文件，服务起不来还难排查。
+                item("解包到本地", icon = painterResource(Design.icons.UNPACK))
+                    .arrow()
+                    .enabled(idle && pkgReady && !installed)
+                    .spot("lamda.unpack")
+                    .onClick { install(st) }
+
+                if (hasFile && !pkgReady) {
+                    note(
+                        "本地有一份体积不完整的服务器包，" +
+                            "下载与解包都已停用。请先用下面的「删除」清掉它，再重新下载。"
+                    )
+                } else if (hasFile) {
+                    note(LamdaManager.downloadRefusedText(ctx) + "。")
+                } else if (s != null) {
+                    note(
+                        "服务器包不随 App 分发，首次使用需下载一次。" +
+                            "解包到 /data/local/tmp/server，全程以 shell 身份执行，不需要 root。"
+                    )
+                }
+            }
+
+            section(
+                id = "run", title = "运行",
+                titleIcon = painterResource(Design.icons.START), flat = flat
+            ) {
+                // 【互斥规则】跑着的时候不给点启动、没跑的时候不给点停止。
+                item("启动服务", icon = painterResource(Design.icons.START))
+                    .arrow()
+                    .enabled(idle && installed && !running)
+                    .spot("lamda.start")
+                    .onClick { start(st) }
+                item("停止服务", icon = painterResource(Design.icons.STOP))
+                    .arrow()
+                    .enabled(idle && running)
+                    .spot("lamda.stop")
+                    .onClick { stop(st) }
+
+                // 【自动保活】开关必须落到真实配置上：重进页面读的是 prefs。
+                switch(
+                    "自动保活",
+                    checked = autoOn,
+                    icon = painterResource(Icons.IC_SHIELD_CHECK)
+                ).spot("lamda.keepAlive")
+                    .onChecked { now ->
+                        autoOn = now
+                        PetPrefs.setLamdaAutoStart(ctx, now)
+                        if (now) {
+                            // 用户刚开就希望它马上可用，别让他等下一轮巡检。
+                            LamdaManager.resumeGuard()
+                            runAsync(st, "start", "正在检查服务…") {
+                                if (LamdaManager.probe()) {
+                                    "服务运行中"
+                                } else if (LamdaManager.installed(ctx)) {
+                                    LamdaManager.start()
+                                } else {
+                                    "（还没解包安装服务器包）"
+                                }
+                            }
                         }
                     }
-                }
-            })
-            DhForm.Note("服务掉了或手机重启后，自动把它拉回来。")
-            // 【技术信息】端口与接口形态属于「查得到但不需要抢注意力」的内容，
-            //   用等宽小字单独成行，不用大段说明文字淹没页面。
-            CardHead("服务接口", Icons.IC_CABLE)
-            InfoLine("协议", "HTTP + MCP")
-            InfoLine("监听地址", "127.0.0.1:65000")
-            DhForm.Note("开机后需要重新启动一次；打开上面的开关后，"
-                + "只要小肥鱼在屏幕上（桌宠在运行），她会每隔一分钟看一眼服务，掉了就拉回来。")
-        }
-    }
-    /** 删除：危险操作，独立成块并与普通操作在视觉上分开。 */
-    @Composable
-    private fun deleteCard(ctx: Context, st: UiState, idle: Boolean, flat: Boolean = false) {
-        var confirm by remember { mutableStateOf(false) }
-        DhKit.Card(flat = flat, spacingBottom = !flat) {
-            CardHead("删除", Design.icons.DELETE)
-            ActionRow(spot = spot("lamda.remove"), iconRes = Design.icons.DELETE, enabled = idle, danger = true) { confirm = true }
-            DhForm.Note("会先停掉服务，再删掉 /data/local/tmp 下解包出来的文件，"
-                + "最后删掉下载的服务器包（约 204 MB）。删完想再用，需要重新下载并解包。")
-        }
-        if (confirm) {
-            DhForm.Alert(
-                title = "删除 lamda？",
-                onDismiss = { confirm = false },
-                posText = "删除",
-                onPos = {
-                    runAsync(st, "delete", "正在删除…") { LamdaManager.deleteAll(ctx) }
-                },
-                negText = "取消"
+                note("服务掉了或手机重启后，自动把它拉回来。")
+
+                // 【技术信息】端口与接口形态属于「查得到但不需要抢注意力」的内容。
+                item("协议", value = "HTTP + MCP").enabled(false)
+                item("监听地址", value = "127.0.0.1:65000").enabled(false)
+                note(
+                    "开机后需要重新启动一次；打开上面的开关后，" +
+                        "只要小肥鱼在屏幕上（桌宠在运行），她会每隔一分钟看一眼服务，掉了就拉回来。"
+                )
+            }
+
+            section(
+                id = "delete", title = "删除",
+                titleIcon = painterResource(Design.icons.DELETE), flat = flat
             ) {
-                Text(
-                    text = "会先停掉 lamda 服务，然后删除 /data/local/tmp 下解包出来的文件"
-                        + "和下载的服务器包（约 204 MB）。\n这个操作不能撤销，删完想再用需要重新下载并解包。",
-                    color = DhTokens.colors.title,
-                    fontSize = UiKit.FS_TINY.sp,
-                    fontFamily = DhTokens.fontsBody,
-                    lineHeight = (UiKit.FS_TINY + 3f).sp
+                // 【危险行】整行红字 + 二次确认。204MB 服务器包删掉不可撤销。
+                item("删除服务器包", value = "约 204 MB", icon = painterResource(Design.icons.DELETE))
+                    .danger()
+                    .arrow()
+                    .enabled(idle)
+                    .spot("lamda.remove")
+                    .onClick { confirm = true }
+                note(
+                    "会先停掉服务，再删掉 /data/local/tmp 下解包出来的文件，" +
+                        "最后删掉下载的服务器包（约 204 MB）。删完想再用，需要重新下载并解包。"
+                )
+            }
+
+            section(
+                id = "ability", title = "AI 能做什么",
+                titleIcon = painterResource(Design.icons.AI), flat = flat
+            ) {
+                // 按**真实实现**逐项列，不合并成一整段，也不虚构没有的能力。
+                item("打开 / 关闭应用", icon = painterResource(Design.icons.APP))
+                    .desc("按包名或应用名启动、结束某个应用").enabled(false)
+                item("点按", icon = painterResource(Design.icons.TAP))
+                    .desc("按坐标点一下屏幕上的元素").enabled(false)
+                item("长按", icon = painterResource(Design.icons.LONG_PRESS))
+                    .desc("按住不放，触发长按菜单或选择").enabled(false)
+                item("滑动", icon = painterResource(Design.icons.SWIPE))
+                    .desc("从一点划到另一点，用来翻页与滚动").enabled(false)
+                item("回主页 / 返回", icon = painterResource(Design.icons.HOME))
+                    .desc("回到桌面，或退回上一个界面").enabled(false)
+                item("唤醒屏幕", icon = painterResource(Design.icons.WAKE))
+                    .desc("点亮屏幕（不解锁，解锁仍需主人自己来）").enabled(false)
+                item("输入文字 / 清空输入框", icon = painterResource(Design.icons.KEYBOARD))
+                    .desc("往当前焦点里打字，也能把输入框清干净").enabled(false)
+                item("读写剪贴板", icon = painterResource(Design.icons.CLIPBOARD))
+                    .desc("读取剪贴板内容，或把一段文字放进去").enabled(false)
+                item("读取当前界面结构", icon = painterResource(Design.icons.OBSERVE))
+                    .desc("返回屏幕的层级与可点元素，据此判断该点哪里").enabled(false)
+                note(
+                    "服务启动后，小肥鱼会多出上面这组设备操作能力。" +
+                        "服务没启动时，这组能力不会下发给模型，聊天与其他功能不受影响。"
                 )
             }
         }
+
+        // 【删除确认·安全网】文案、按钮、destructive 语义与旧 `DhForm.Alert` 逐字一致：
+        //   标题「删除 lamda？」/ 正按钮「删除」/ 负按钮「取消」/ 点遮罩与返回键 = 取消除此之外不落盘。
+        QzxDialog(
+            visible = confirm,
+            title = "删除 lamda？",
+            message = "会先停掉 lamda 服务，然后删除 /data/local/tmp 下解包出来的文件" +
+                "和下载的服务器包（约 204 MB）。\n这个操作不能撤销，删完想再用需要重新下载并解包。",
+            confirmText = "删除",
+            dismissText = "取消",
+            confirmDestructive = true,
+            onConfirm = {
+                confirm = false
+                runAsync(st, "delete", "正在删除…") { LamdaManager.deleteAll(ctx) }
+            },
+            onDismiss = { confirm = false }
+        )
     }
-    /**
-     * AI 能力：按**真实实现**逐项列，不合并成一整段，也不虚构没有的能力。
-     * 每一项都对应 LamdaTool 里真实存在的动作。
-     */
-    @Composable
-    private fun abilityCard(ctx: Context, flat: Boolean = false) {
-        DhKit.Card(flat = flat, spacingBottom = !flat) {
-            CardHead("AI 能做什么", Design.icons.AI)
-            CapabilityRow("打开 / 关闭应用", "按包名或应用名启动、结束某个应用", Design.icons.APP)
-            CapabilityRow("点按", "按坐标点一下屏幕上的元素", Design.icons.TAP)
-            CapabilityRow("长按", "按住不放，触发长按菜单或选择", Design.icons.LONG_PRESS)
-            CapabilityRow("滑动", "从一点划到另一点，用来翻页与滚动", Design.icons.SWIPE)
-            CapabilityRow("回主页 / 返回", "回到桌面，或退回上一个界面", Design.icons.HOME)
-            CapabilityRow("唤醒屏幕", "点亮屏幕（不解锁，解锁仍需主人自己来）", Design.icons.WAKE)
-            CapabilityRow("输入文字 / 清空输入框", "往当前焦点里打字，也能把输入框清干净", Design.icons.KEYBOARD)
-            CapabilityRow("读写剪贴板", "读取剪贴板内容，或把一段文字放进去", Design.icons.CLIPBOARD)
-            CapabilityRow("读取当前界面结构", "返回屏幕的层级与可点元素，据此判断该点哪里", Design.icons.OBSERVE)
-            DhForm.Note("服务启动后，小肥鱼会多出上面这组设备操作能力。"
-                + "服务没启动时，这组能力不会下发给模型，聊天与其他功能不受影响。")
-        }
-    }
+
     /* ============================== 探测 ============================== */
     /**
      * 探一次状态，完成后回主线程刷新。

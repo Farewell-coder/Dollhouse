@@ -14,6 +14,8 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.QzxPageScroll
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.doll.DollListScreen
 import com.dollhouse.app.ui.doll.DollState
@@ -214,7 +216,11 @@ object SettingsScreen {
             return
         }
 
-        DhKit.Page(
+        // 【新 UI 系统·第一页】骨架换成 `QzxPage`：它自带**新**大标题栏（QZX 规格）
+        //   与越界回弹，且滚动状态由它统一持有并分发给标题栏/回弹（旧系统靠人手传）。
+        //   `scroll = Scroll` 是因为本页内容是 6 个既有 Composable（普通 Column），
+        //   不是懒加载列表 —— 由 QzxPage 负责包裹 verticalScroll。
+        QzxPage(
             title = "设置",
             onBack = {
                 // 【返回】设置页是覆盖层，退层即可露出它下面的主页 ——
@@ -222,8 +228,12 @@ object SettingsScreen {
                 com.dollhouse.app.ui.compose.PageStack.pop(act)
             },
             actions = { SearchAction() },
-            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
-            adaptiveTitle = true
+            scroll = QzxPageScroll.Scroll,
+            // 【图标由调用方给】新系统不持有旧 drawable（删旧资源时这里会编译不过，
+            //   正好是"没迁完"的信号，而不是静默退化）。
+            backIcon = androidx.compose.ui.res.painterResource(Icons.IC_ARROW_LEFT),
+            // 【有没有背景图是 App 的行为，不是 UI 系统的职责】传一个 Boolean 进来。
+            hasPhotoBackdrop = DhKit.hasPhotoBackdrop()
         ) {
             // 【本轮·补设计稿要求的资料卡】设计稿 §4.6 的设置页是「资料卡 + 分组导航行」结构：
             //   顶部一张 Profile card（头像 56 + 我的资料 + 说明 + 箭头），下面是分组入口。
