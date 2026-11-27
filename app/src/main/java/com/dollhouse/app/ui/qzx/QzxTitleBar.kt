@@ -336,7 +336,7 @@ private fun QzxTitleBarImpl(
                 //   而不是偷偷回退到旧 drawable —— 否则删掉旧资源时这里会静默失效/编译不过。
                 if (onBack != null && backIconRes != null) {
                     QzxIconAction(
-                        painter = painterResource(backIconRes),
+                        iconRes = backIconRes,
                         sizeDp = DhDesign.Size.iconMd.value,
                         tint = c.title,
                         a11yName = "返回",
@@ -442,7 +442,7 @@ private fun QzxCompactBar(
     ) {
         if (onBack != null && backIconRes != null) {
             QzxIconAction(
-                painter = painterResource(backIconRes),
+                iconRes = backIconRes,
                 sizeDp = DhDesign.Size.iconMd.value,
                 tint = c.title,
                 a11yName = "返回",
@@ -475,8 +475,18 @@ private fun QzxCompactBar(
  *   按压反馈由 `QzxPage` / 内容组件自己的动效承担。
  */
 @Composable
-private fun QzxIconAction(
-    painter: Painter,
+fun QzxIconButton(
+    iconRes: Int,
+    a11yName: String,
+    onClick: () -> Unit,
+    tint: Color = QzxColors.sub,
+    sizeDp: Float = 20f,
+) {
+    QzxIconAction(iconRes, sizeDp, tint, a11yName, onClick)
+}
+
+internal fun QzxIconAction(
+    iconRes: Int,
     sizeDp: Float,
     tint: Color,
     a11yName: String,
@@ -515,7 +525,7 @@ private fun QzxIconAction(
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painter,
+            painter = painterResource(iconRes),
             contentDescription = null,
             modifier = Modifier.size(sizeDp.dp),
             colorFilter = ColorFilter.tint(tint),
