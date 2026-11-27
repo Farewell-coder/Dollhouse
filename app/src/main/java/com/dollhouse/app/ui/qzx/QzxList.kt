@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -122,6 +124,13 @@ sealed interface QzxRow {
         val valueTint: Color? = null,
         /** 危险行：**整行标题**用错误色（删除类行必须与普通行一眼分开）。*/
         val danger: Boolean = false,
+        /**
+         * 长按动作（null = 不响应长按）。
+         *
+         * 【为什么需要它】记忆列表这类「点按编辑 + 长按删除」的交互，只在 `onClick` 里
+         *   表达不了 —— 把删除挪到别的按钮上是**行为改变**，不是等价迁移。
+         */
+        val onLongClick: (() -> Unit)? = null,
         /** 是否可点。false = 整行变淡且不响应点击（"此刻不能做这件事"）。*/
         val enabled: Boolean = true,
         /** 标题颜色覆盖（状态色：连接成功/失败这类**数据驱动**的颜色，不是样式选择）。*/
@@ -150,7 +159,15 @@ sealed interface QzxRow {
         /** 字数上限：非空时右侧显示「当前长度/上限」。 */
         val counterMax: Int? = null,
         /** 多行输入的最小高度（null = 单行）。 */
-        val multilineMinHeight: Int? = null
+        val multilineMinHeight: Int? = null,
+        /**
+         * 输入框右端的尾置图标与动作（如搜索框的「关闭搜索」）。
+         *
+         * 【为什么图标由调用方给】与 `QzxTitleBar.backIcon` 同一条原则：
+         *   新系统不持有任何图标资源，删旧资源时编译不过的地方就是还没迁完的地方。
+         */
+        val trailingIcon: Painter? = null,
+        val trailingAction: (() -> Unit)? = null
     ) : QzxRow
 
     data class Select(
@@ -221,6 +238,7 @@ class QzxItemBuilder internal constructor(
 ) : QzxRowHolder {
     private var showArrow = false
     private var clickAction: (() -> Unit)? = null
+    private var longClickAction: (() -> Unit)? = null
     private var spotId: String? = null
     private var descText: String? = null
     private var valueTintColor: Color? = null
@@ -269,6 +287,9 @@ class QzxItemBuilder internal constructor(
     /** 点击回调。不设 = 不可点（此时不画箭头，也不会有按压反馈）。 */
     fun onClick(block: () -> Unit): QzxItemBuilder = apply { clickAction = block }
 
+    /** 长按动作（如记忆列表的「长按删除」）。与 [onClick] 可共存。 */
+    fun onLongClick(block: () -> Unit): QzxItemBuilder = apply { longClickAction = block }
+
     /**
      * 绑定**设置项索引 id**（如 `"appearance.mode"`）。
      *
@@ -289,7 +310,8 @@ class QzxItemBuilder internal constructor(
     override fun snapshot(): QzxRow =
         QzxRow.Item(
             title, valueText, showArrow, if (rowEnabled) clickAction else null,
-            spotId, icon, descText, valueTintColor, dangerRow, rowEnabled, titleTintColor
+            spotId, icon, descText, valueTintColor, dangerRow, rowEnabled, titleTintColor,
+            onLongClick = if (rowEnabled) longClickAction else null
         )
 }
 
@@ -337,6 +359,8 @@ class QzxInputBuilder internal constructor(
     private var valueTintColor: Color? = null
     private var counterLimit: Int? = null
     private var multilineHeight: Int? = null
+    private var trailingIconValue: Painter? = null
+    private var trailingActionValue: (() -> Unit)? = null
 
     /**
      * 多行输入：规则文本这类内容必须能看到好几行，单行输入会把它们藏在横向滚动里。
@@ -368,10 +392,18 @@ class QzxInputBuilder internal constructor(
     /** 值变化回调。 */
     fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
 
+    /** 输入框右端的尾置图标与动作（如搜索框的「关闭搜索」）。 */
+    fun trailing(icon: Painter, onClick: () -> Unit): QzxInputBuilder = apply {
+        trailingIconValue = icon
+        trailingActionValue = onClick
+    }
+
     override fun snapshot(): QzxRow =
         QzxRow.Input(
             title, valueText, placeholderText, changeAction, spotId, icon, descText,
-            valueTintColor, counterLimit, multilineHeight
+            valueTintColor, counterLimit, multilineHeight,
+            trailingIcon = trailingIconValue,
+            trailingAction = trailingActionValue
         )
 }
 
@@ -762,14 +794,19 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                 modifier = base
                     .alpha(if (row.enabled) 1f else DISABLED_ROW_ALPHA)
                     .then(
-                    if (row.onClick != null) {
+                    if (row.onClick == null && row.onLongClick == null) {
+                        Modifier
+                    } else {
                         Modifier
                             // 行本身的下限已经 ≥ rowOneLine，这里再声明一次命中区下限：
                             // 它保证"将来有人把行高调到 40"时仍然点得到。
                             .heightIn(min = QzxTokens.Size.minTouch.dp)
-                            .clickable(onClick = row.onClick)
-                    } else {
-                        Modifier
+                            // 【为什么用 combinedClickable】长按要能和点击共存（点按编辑 /
+                            //   长按删除）；`clickable` 不支持长按。
+                            .combinedClickable(
+                                onClick = row.onClick ?: {},
+                                onLongClick = row.onLongClick
+                            )
                     }
                 ),
                 verticalAlignment = Alignment.CenterVertically
@@ -918,6 +955,24 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                             lineHeight = (QzxTokens.Type.ROW_VALUE_SP +
                                 QzxTokens.Type.LINE_GAP_SP).sp
                         )
+                    }
+                    // 【尾置动作】搜索框的「关闭」之类。图标由调用方给（新系统不持有图标资源）。
+                    //   命中区仍是 minTouch —— 它只有图标大小，但必须点得到。
+                    if (row.trailingIcon != null && row.trailingAction != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .sizeIn(minWidth = QzxTokens.Size.minTouch.dp, minHeight = QzxTokens.Size.minTouch.dp)
+                                .clickable(onClick = row.trailingAction),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = row.trailingIcon,
+                                contentDescription = null,
+                                tint = c.sub,
+                                modifier = Modifier.size(QzxTokens.Space.xl.dp)
+                            )
+                        }
                     }
                 }
             }

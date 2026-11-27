@@ -75,6 +75,17 @@ fun QzxDialog(
      *   保证按钮永远在屏幕内（与 message 的限高是同一个理由）。
      */
     content: (@Composable () -> Unit)? = null,
+    /**
+     * 负按钮的独立动作（默认 null = 用 [onDismiss]）。
+     *
+     * 【为什么需要】「编辑记忆」这类弹窗的负按钮是**删除**，不是关闭 ——
+     *   它要执行删除再关闭，而不是单纯关掉弹窗。把删除挪到别处是**行为改变**，
+     *   不是等价迁移，所以这里必须允许负按钮走自己的回调。
+     *
+     * 【语义边界】`dismissAction != null` 时负按钮只调它，**不自动关闭** ——
+     *   由调用方决定删完要不要 `onDismiss()`（有的删除要先弹二次确认）。
+     */
+    dismissAction: (() -> Unit)? = null,
 ) {
     if (!visible) {
         // 【关键】不组合任何节点。
@@ -142,7 +153,11 @@ fun QzxDialog(
             ) {
                 // 取消永远在左、确认在右 —— 与系统对话框的肌肉记忆一致。
                 if (dismissText != null) {
-                    QzxDialogButton(text = dismissText, color = c.sub, onClick = onDismiss)
+                    QzxDialogButton(
+                        text = dismissText,
+                        color = c.sub,
+                        onClick = dismissAction ?: onDismiss
+                    )
                 }
                 if (confirmText != null && onConfirm != null) {
                     Spacer(Modifier.width(QzxTokens.Space.sm))
