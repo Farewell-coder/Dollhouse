@@ -20,6 +20,7 @@ import com.dollhouse.app.ui.qzx.QzxList
 import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.qzx.QzxPreviewAction
 import com.dollhouse.app.ui.qzx.preview
+import com.dollhouse.app.ui.qzx.QzxColors
 import com.dollhouse.app.ui.home.ProfileState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -72,12 +73,6 @@ object MyProfilePage {
         // 【重读信号】与抽屉共用 [ProfileState]：本页保存后 bump，抽屉头部随之刷新。
         val tick = ProfileState.tick
 
-        // 【必须在组合期算】QzxList 的 DSL lambda 不是 @Composable，remember 不能写在里面。
-        //   这里先算好头像位图，lambda 里只引用变量。
-        val shownBmp: android.graphics.Bitmap? = avatar
-        val previewPainter = remember(shownBmp) {
-            shownBmp?.takeIf { !it.isRecycled }?.let { BitmapPainter(it.asImageBitmap()) }
-        }
         var name by remember(tick) { mutableStateOf(MyProfile.name(act).let { if (it == MyProfile.DEFAULT_NAME) "" else it }) }
         var bio by remember(tick) { mutableStateOf(MyProfile.bio(act)) }
         // 【草稿态头像】null = 未改动（沿用已生效的头像）；"" = 用户点了「移除」；
@@ -91,6 +86,11 @@ object MyProfilePage {
                 p.isEmpty() -> null
                 else -> MyProfile.bitmapOf(act, p, 384)
             }
+        }
+        // 【必须在组合期算】QzxList 的 DSL lambda 不是 @Composable，remember 不能写在里面。
+        //   这里先算好预览位图，lambda 里只引用变量。
+        val previewPainter = remember(avatar) {
+            avatar?.takeIf { !it.isRecycled }?.let { BitmapPainter(it.asImageBitmap()) }
         }
         // 「移除头像」的可见性：已生效有头像，或草稿态有图（且未标记移除）时都该能点。
         val canRemove = (pendingAvatar?.isNotEmpty() == true) ||
