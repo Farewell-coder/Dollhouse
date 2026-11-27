@@ -38,9 +38,16 @@ import com.dollhouse.app.ui.design.DhDesign
  *
  * ## `content` 为什么是 `@Composable () -> Unit` 而不是 `ColumnScope.() -> Unit`
  *
- * 因为内容腿 `QzxList` 自带 `LazyColumn`，它**不需要**也不该拿到外层 `ColumnScope`——
- * 有了 scope 反而容易写成「`Modifier.weight(1f)` 塞进 LazyColumn 的 item 里」这种非法用法。
- * 保持无 scope，`QzxList` 就是一个普通 Composable，想放哪放哪。
+ * 因为内容腿 `QzxList` 是一个**普通 `Column`**（不是 `LazyColumn`，`grep LazyColumn` 在
+ * `QzxList.kt` 里是 0 处），它**不需要**也不该拿到外层 `ColumnScope`——
+ * 有了 scope 反而容易写成 `Modifier.weight(1f)` 这种「只有 `ColumnScope` 才合法、
+ * 但语义上不该由内容腿决定」的用法。保持无 scope，`QzxList` 就是一个普通 Composable，
+ * 想放哪放哪。
+ *
+ * 【勘误·2026-11】这段原文写的是「`QzxList` 自带 `LazyColumn`」——**那是错的**，
+ *   实现是 `Column`。这句话误导过一次迁移（有人据此认为 `QzxList` 不能放进
+ *   `verticalScroll`，怕双层滚动，于是整页卡住一轮）。
+ *   `Column` 放进 `verticalScroll` 是**正确用法**，不存在双层滚动。
  *
  * ## 和 `QzxList` 怎么配合（完整用例）
  *
