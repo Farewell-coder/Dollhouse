@@ -17,8 +17,14 @@ import com.dollhouse.app.core.Logs
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
+import androidx.compose.ui.res.painterResource
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.qzx.QzxButtonSpec
+import com.dollhouse.app.ui.qzx.QzxButtonStyle
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.buttons
+import com.dollhouse.app.ui.qzx.stepper
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.Icons
 
@@ -87,154 +93,135 @@ object MemSettingsPage {
         // 每次改动都 bump 一次，让控件立刻反映到界面（prefs 是同步读的）。
         var tick by remember { mutableStateOf(0) }
 
-        DhKit.Page(
+        QzxPage(
             title = "记忆库设置",
-            sub = "抽取与检索的全局策略",
+            subtitle = "抽取与检索的全局策略",
             onBack = { closeIfOpen(act) },
-            // 【试点·iOS 大标题】与 ChatSettingsPage 同批试点：首屏即列表、无 Lazy。
-            adaptiveTitle = true
         ) {
-            // ---------------- 自动保存 ----------------
-            DhKit.Card(collapsibleTitle = "自动保存") {
-                DhForm.Note("开着她才会在聊天里自己记东西；关掉后只能手动加。")
-                DhKit.SwitchRow(
-                    spot = spot("mem.autosave"),
-                    iconRes = Icons.IC_SAVE,
-                    checked = remember(tick) { PetPrefs.mem2Auto(act) }
-                ) { on ->
-                    PetPrefs.setMem2Auto(act, on)
-                    tick++
-                }
-                val idx = remember(tick) { PetPrefs.mem2IntervalIndex(act) }
-                DhKit.StepperRow(
-                    spot = spot("mem.interval"),
-                    value = PetPrefs.MEM2_INTERVALS[idx].toString() + " 分钟",
-                    canMinus = idx > 0,
-                    canPlus = idx < PetPrefs.MEM2_INTERVALS.size - 1,
-                    onMinus = {
-                        PetPrefs.setMem2IntervalIndex(act, idx - 1)
-                        tick++
-                    },
-                    onPlus = {
-                        PetPrefs.setMem2IntervalIndex(act, idx + 1)
-                        tick++
-                    }
-                )
-                DhForm.Note("每隔这么久，后台会把这段时间的新内容整理一次写进记忆库。")
-            }
+            QzxList(spotTitle = { spot(it)?.title }) {
 
-            // ---------------- 提取规则 ----------------
-            DhKit.Card(collapsibleTitle = "提取规则") {
-                DhForm.Note("写一段你的要求，会拼进抽取时的提示词。比如「只记项目决策和我的偏好，按项目分类」。")
-                var rule by remember(tick) { mutableStateOf(PetPrefs.memExtractRule(act)) }
-                DhForm.InputMultiline(
-                    value = rule,
-                    onValueChange = { rule = it },
-                    label = null,
-                    hint = "留空表示不加额外规则",
-                    minHeight = 80
-                )
-                Spacer(Modifier.height(DhDesign.Space.sm.dp))
-                DhKit.ActionRow(
-                    spot = spot("mem.rule"),
-                    iconRes = Icons.IC_CHECK,
-                    showChevron = true
-                ) {
-                    PetPrefs.setMemExtractRule(act, rule)
-                    tick++
-                }
-            }
-
-            // ---------------- 检索 ----------------
-            DhKit.Card(collapsibleTitle = "检索") {
-                DhForm.Note("开着时，每次开口前按相关性挑几条记忆带上；关掉就只按时间取最近的。")
-                DhKit.SwitchRow(
-                    spot = spot("mem.retrieve"),
-                    iconRes = Icons.IC_SCAN,
-                    checked = remember(tick) { PetPrefs.mem2Search(act) }
-                ) { on ->
-                    PetPrefs.setMem2Search(act, on)
-                    tick++
+                // ---------------- 自动保存 ----------------
+                section(id = "autosave", title = "自动保存", collapsible = true) {
+                    note("开着她才会在聊天里自己记东西；关掉后只能手动加。")
+                    switch(
+                        "自动整理",
+                        checked = remember(tick) { PetPrefs.mem2Auto(act) },
+                        icon = painterResource(Icons.IC_SAVE)
+                    ).spot("mem.autosave")
+                        .onChecked { on ->
+                            PetPrefs.setMem2Auto(act, on)
+                            tick++
+                        }
+                    val idx = remember(tick) { PetPrefs.mem2IntervalIndex(act) }
+                    stepper(
+                        title = "整理间隔",
+                        value = PetPrefs.MEM2_INTERVALS[idx].toString() + " 分钟",
+                        canMinus = idx > 0,
+                        canPlus = idx < PetPrefs.MEM2_INTERVALS.size - 1,
+                        onMinus = {
+                            PetPrefs.setMem2IntervalIndex(act, idx - 1)
+                            tick++
+                        },
+                        onPlus = {
+                            PetPrefs.setMem2IntervalIndex(act, idx + 1)
+                            tick++
+                        }
+                    )
+                    note("每隔这么久，后台会把这段时间的新内容整理一次写进记忆库。")
                 }
 
-                // 模式：一键预设三档权重。
-                val mode = remember(tick) { PetPrefs.mem2Mode(act) }
-                DhKit.StepperRow(
-                    spot = spot("mem.mode"),
-                    value = MODE_NAMES[mode],
-                    canMinus = mode > 0,
-                    canPlus = mode < MODE_NAMES.size - 1,
-                    onMinus = {
-                        PetPrefs.setMem2Mode(act, mode - 1)
-                        tick++
-                    },
-                    onPlus = {
-                        PetPrefs.setMem2Mode(act, mode + 1)
-                        tick++
-                    }
-                )
-                DhForm.Note("平衡：三者兼顾；关键词优先：只认字面命中；关联优先：顺着记忆之间的连线找。")
+                // ---------------- 提取规则 ----------------
+                section(id = "rule", title = "提取规则", collapsible = true) {
+                    note(
+                        "写一段你的要求，会拼进抽取时的提示词。" +
+                            "比如「只记项目决策和我的偏好，按项目分类」。"
+                    )
+                    var rule by remember(tick) { mutableStateOf(PetPrefs.memExtractRule(act)) }
+                    input("提取规则", rule)
+                        .hint("留空表示不加额外规则")
+                        .multiline(minHeight = 80)
+                        .onValueChange { rule = it }
+                    buttons(
+                        QzxButtonSpec("保存规则", style = QzxButtonStyle.Primary) {
+                            PetPrefs.setMemExtractRule(act, rule)
+                            tick++
+                        }
+                    )
+                }
 
-                // 权重细调：0~10。
-                val wk = remember(tick) { PetPrefs.mem2KeywordWeight(act) }
-                WRow(
-                    spot = spot("mem.wKeyword"),
-                    value = wk,
-                    onMinus = { PetPrefs.setMem2KeywordWeight(act, wk - 1); tick++ },
-                    onPlus = { PetPrefs.setMem2KeywordWeight(act, wk + 1); tick++ },
-                    canMinus = wk > 0,
-                    canPlus = wk < 10,
-                    hint = "你说的字在记忆里出现得越多，分越高。"
-                )
-                val wt = remember(tick) { PetPrefs.mem2TagWeight(act) }
-                WRow(
-                    spot = spot("mem.wTag"),
-                    value = wt,
-                    onMinus = { PetPrefs.setMem2TagWeight(act, wt - 1); tick++ },
-                    onPlus = { PetPrefs.setMem2TagWeight(act, wt + 1); tick++ },
-                    canMinus = wt > 0,
-                    canPlus = wt < 10,
-                    hint = "命中了记忆的标签时额外加分。"
-                )
-                val we = remember(tick) { PetPrefs.mem2EdgeWeight(act) }
-                WRow(
-                    spot = spot("mem.wLink"),
-                    value = we,
-                    onMinus = { PetPrefs.setMem2EdgeWeight(act, we - 1); tick++ },
-                    onPlus = { PetPrefs.setMem2EdgeWeight(act, we + 1); tick++ },
-                    canMinus = we > 0,
-                    canPlus = we < 10,
-                    hint = "命中一条后，顺着连线把它旁边的记忆也带出来。"
-                )
+                // ---------------- 检索 ----------------
+                section(id = "retrieve", title = "检索", collapsible = true) {
+                    note("开着时，每次开口前按相关性挑几条记忆带上；关掉就只按时间取最近的。")
+                    switch(
+                        "按相关性检索",
+                        checked = remember(tick) { PetPrefs.mem2Search(act) },
+                        icon = painterResource(Icons.IC_SCAN)
+                    ).spot("mem.retrieve")
+                        .onChecked { on ->
+                            PetPrefs.setMem2Search(act, on)
+                            tick++
+                        }
+
+                    // 模式：一键预设三档权重。
+                    val mode = remember(tick) { PetPrefs.mem2Mode(act) }
+                    stepper(
+                        title = "检索模式",
+                        value = MODE_NAMES[mode],
+                        canMinus = mode > 0,
+                        canPlus = mode < MODE_NAMES.size - 1,
+                        onMinus = {
+                            PetPrefs.setMem2Mode(act, mode - 1)
+                            tick++
+                        },
+                        onPlus = {
+                            PetPrefs.setMem2Mode(act, mode + 1)
+                            tick++
+                        }
+                    )
+                    note("平衡：三者兼顾；关键词优先：只认字面命中；关联优先：顺着记忆之间的连线找。")
+
+                    // 权重细调：0~10。
+                    val wk = remember(tick) { PetPrefs.mem2KeywordWeight(act) }
+                    stepper(
+                        title = "关键词权重",
+                        value = wk.toString(),
+                        hint = "你说的字在记忆里出现得越多，分越高。",
+                        canMinus = wk > 0,
+                        canPlus = wk < 10,
+                        onMinus = { PetPrefs.setMem2KeywordWeight(act, wk - 1); tick++ },
+                        onPlus = { PetPrefs.setMem2KeywordWeight(act, wk + 1); tick++ }
+                    )
+                    val wt = remember(tick) { PetPrefs.mem2TagWeight(act) }
+                    stepper(
+                        title = "标签权重",
+                        value = wt.toString(),
+                        hint = "命中了记忆的标签时额外加分。",
+                        canMinus = wt > 0,
+                        canPlus = wt < 10,
+                        onMinus = { PetPrefs.setMem2TagWeight(act, wt - 1); tick++ },
+                        onPlus = { PetPrefs.setMem2TagWeight(act, wt + 1); tick++ }
+                    )
+                    val we = remember(tick) { PetPrefs.mem2EdgeWeight(act) }
+                    stepper(
+                        title = "连线权重",
+                        value = we.toString(),
+                        hint = "命中一条后，顺着连线把它旁边的记忆也带出来。",
+                        canMinus = we > 0,
+                        canPlus = we < 10,
+                        onMinus = { PetPrefs.setMem2EdgeWeight(act, we - 1); tick++ },
+                        onPlus = { PetPrefs.setMem2EdgeWeight(act, we + 1); tick++ }
+                    )
+                }
+
+                // ---------------- 说明 ----------------
+                section(id = "help", title = "说明", collapsible = true) {
+                    note(
+                        "每只人偶一份独立记忆库，互不可见。要单独查看或编辑某只人偶的记忆，" +
+                            "去「人偶 → 编辑 → 人格 → 记忆库」。"
+                    )
+                }
             }
-
-            // ---------------- 说明 ----------------
-            DhForm.Note("每只人偶一份独立记忆库，互不可见。要单独查看或编辑某只人偶的记忆，"
-                    + "去「人偶 → 编辑 → 人格 → 记忆库」。")
         }
     }
-
-    /** 一条权重行 + 一行说明。 */
-    @Composable
-    private fun WRow(
-        spot: SettingsSpot?,
-        value: Int,
-        canMinus: Boolean,
-        canPlus: Boolean,
-        hint: String,
-        onMinus: () -> Unit,
-        onPlus: () -> Unit
-    ) {
-        DhKit.StepperRow(
-            spot = spot,
-            value = value.toString(),
-            canMinus = canMinus,
-            canPlus = canPlus,
-            onMinus = onMinus,
-            onPlus = onPlus
-        )
-        DhForm.Note(hint)
-    }
-
     private val MODE_NAMES = arrayOf("平衡", "关键词优先", "关联优先")
 }

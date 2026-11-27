@@ -148,7 +148,9 @@ sealed interface QzxRow {
         val desc: String? = null,
         val valueTint: Color? = null,
         /** 字数上限：非空时右侧显示「当前长度/上限」。 */
-        val counterMax: Int? = null
+        val counterMax: Int? = null,
+        /** 多行输入的最小高度（null = 单行）。 */
+        val multilineMinHeight: Int? = null
     ) : QzxRow
 
     data class Select(
@@ -334,6 +336,13 @@ class QzxInputBuilder internal constructor(
     private var descText: String? = null
     private var valueTintColor: Color? = null
     private var counterLimit: Int? = null
+    private var multilineHeight: Int? = null
+
+    /**
+     * 多行输入：规则文本这类内容必须能看到好几行，单行输入会把它们藏在横向滚动里。
+     * @param minHeight 最小高度（dp）
+     */
+    fun multiline(minHeight: Int = 80): QzxInputBuilder = apply { multilineHeight = minHeight }
 
     /** 副说明。 */
     fun desc(text: String): QzxInputBuilder = apply { descText = text }
@@ -362,7 +371,7 @@ class QzxInputBuilder internal constructor(
     override fun snapshot(): QzxRow =
         QzxRow.Input(
             title, valueText, placeholderText, changeAction, spotId, icon, descText,
-            valueTintColor, counterLimit
+            valueTintColor, counterLimit, multilineHeight
         )
 }
 
@@ -885,8 +894,16 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                             text = it
                             row.onValueChange(it)
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (row.multilineMinHeight != null) {
+                                    Modifier.heightIn(min = row.multilineMinHeight.dp)
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                        singleLine = row.multilineMinHeight == null,
                         textStyle = TextStyle(
                             color = c.title,
                             fontSize = QzxTokens.Type.ROW_VALUE_SP.sp
@@ -982,6 +999,14 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                 }
             }
         }
+
+        is QzxStepperRow -> QzxStepperRowContent(row)
+
+        is QzxChipsRow -> QzxChipsRowContent(row)
+
+        is QzxButtonsRow -> QzxButtonsRowContent(row)
+
+        is QzxLabelRow -> QzxLabelRowContent(row)
 
         is QzxRow.Note -> {
             // 说明文字：由系统排版（左右内边距与行一致、字号走令牌），
