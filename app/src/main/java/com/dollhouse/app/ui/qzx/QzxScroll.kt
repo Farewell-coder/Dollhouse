@@ -16,7 +16,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
-import com.dollhouse.app.ui.compose.DhAnim
 import kotlin.math.abs
 
 /**
@@ -24,7 +23,7 @@ import kotlin.math.abs
  *
  * ## 为什么单独成体系
  *
- * 本包是**新 UI 系统**（`ui/qzx`）。旧实现（`ui/compose/DhBounce.kt`）与之**并存但互不引用**：
+ * 本包是**新 UI 系统**（`ui/qzx`）。旧系统那份回弹实现与本包**并存但互不引用**：
  * 旧的是给旧界面用的，这里的是给声明式新界面用的。两者物理常量相同（都抄 QZX 文档），
  * 但**没有任何代码共享** —— 删掉旧包时不会牵连新包。
  *
@@ -202,7 +201,7 @@ private fun Modifier.qzxBounceImpl(
                 animate(
                     initialValue = displayed.floatValue,
                     targetValue = seed,
-                    animationSpec = DhAnim.PRESS_DOWN,
+                    animationSpec = QzxMotion.PRESS_DOWN,
                 ) { v, _ -> displayed.floatValue = v }
                 return available
             }
@@ -212,7 +211,7 @@ private fun Modifier.qzxBounceImpl(
                 if (raw[0] == 0f) {
                     return Velocity.Zero
                 }
-                qzxSettle(displayed, raw, DhAnim.BOUNCY)
+                qzxSettle(displayed, raw, QzxMotion.BOUNCY)
                 return Velocity.Zero
             }
         }

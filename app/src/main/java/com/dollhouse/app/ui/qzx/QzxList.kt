@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
@@ -98,7 +99,9 @@ sealed interface QzxRow {
         /** 行前置图标（由调用方给 painter，新系统不持有任何图标资源）。*/
         val icon: Painter? = null,
         /** 副说明：有值时行高自动升到 `rowTwoLine`。*/
-        val desc: String? = null
+        val desc: String? = null,
+        /** 值文字的颜色覆盖（null = 默认副文本色）。*/
+        val valueTint: Color? = null
     ) : QzxRow
 
     data class Toggle(
@@ -107,7 +110,8 @@ sealed interface QzxRow {
         val onChecked: (Boolean) -> Unit,
         val spotId: String? = null,
         val icon: Painter? = null,
-        val desc: String? = null
+        val desc: String? = null,
+        val valueTint: Color? = null
     ) : QzxRow
 
     data class Input(
@@ -117,7 +121,8 @@ sealed interface QzxRow {
         val onValueChange: (String) -> Unit,
         val spotId: String? = null,
         val icon: Painter? = null,
-        val desc: String? = null
+        val desc: String? = null,
+        val valueTint: Color? = null
     ) : QzxRow
 
     data class Select(
@@ -127,7 +132,8 @@ sealed interface QzxRow {
         val onSelect: (QzxOption) -> Unit,
         val spotId: String? = null,
         val icon: Painter? = null,
-        val desc: String? = null
+        val desc: String? = null,
+        val valueTint: Color? = null
     ) : QzxRow
 
     /**
@@ -137,7 +143,11 @@ sealed interface QzxRow {
      * 新系统自带这一行型：**不依赖旧 `DhForm`**，字号/行高/颜色由令牌决定，
      * 左右内边距与上下文一致。
      */
-    data class Note(val text: String) : QzxRow
+    data class Note(
+        val text: String,
+        /** 文字颜色（null = 副文本色）。错误态传 `QzxColors.danger` —— 语义色不是装饰。 */
+        val color: Color? = null
+    ) : QzxRow
 
     /** 逃生口：调用方给一段任意内容，但**仍然**由系统负责左右内边距与分隔线。 */
     data class Custom(val content: @Composable () -> Unit) : QzxRow
@@ -170,9 +180,14 @@ class QzxItemBuilder internal constructor(
     private var clickAction: (() -> Unit)? = null
     private var spotId: String? = null
     private var descText: String? = null
+    private var valueTintColor: Color? = null
 
     /** 副说明（第二行小字）。有它时行高自动升到 `rowTwoLine`。 */
     fun desc(text: String): QzxItemBuilder = apply { descText = text }
+
+    /** 值文字用强调色（`null` = 默认副文本色；也可传 `QzxColors.danger` 等语义色）。 */
+    fun valueTint(color: Color? = QzxColors.accent): QzxItemBuilder =
+        apply { valueTintColor = color }
 
     /** 右侧显示一个箭头（表示"点进去还有一层"）。 */
     fun arrow(show: Boolean = true): QzxItemBuilder = apply { showArrow = show }
@@ -201,7 +216,7 @@ class QzxItemBuilder internal constructor(
     fun spot(id: String): QzxItemBuilder = apply { spotId = id }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Item(title, valueText, showArrow, clickAction, spotId, icon, descText)
+        QzxRow.Item(title, valueText, showArrow, clickAction, spotId, icon, descText, valueTintColor)
 }
 
 /** 开关行。 */
@@ -213,9 +228,14 @@ class QzxSwitchBuilder internal constructor(
     private var changeAction: (Boolean) -> Unit = {}
     private var spotId: String? = null
     private var descText: String? = null
+    private var valueTintColor: Color? = null
 
     /** 副说明。 */
     fun desc(text: String): QzxSwitchBuilder = apply { descText = text }
+
+    /** 值文字用强调色（开关行一般不需要，保留是为了四类行 API 一致）。 */
+    fun valueTint(color: Color? = QzxColors.accent): QzxSwitchBuilder =
+        apply { valueTintColor = color }
 
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxSwitchBuilder = apply { spotId = id }
@@ -227,7 +247,7 @@ class QzxSwitchBuilder internal constructor(
     fun checked(v: Boolean): QzxSwitchBuilder = apply { checkedValue = v }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Toggle(title, checkedValue, changeAction, spotId, icon, descText)
+        QzxRow.Toggle(title, checkedValue, changeAction, spotId, icon, descText, valueTintColor)
 }
 
 /** 输入行。 */
@@ -240,9 +260,14 @@ class QzxInputBuilder internal constructor(
     private var changeAction: (String) -> Unit = {}
     private var spotId: String? = null
     private var descText: String? = null
+    private var valueTintColor: Color? = null
 
     /** 副说明。 */
     fun desc(text: String): QzxInputBuilder = apply { descText = text }
+
+    /** 值文字用强调色。 */
+    fun valueTint(color: Color? = QzxColors.accent): QzxInputBuilder =
+        apply { valueTintColor = color }
 
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxInputBuilder = apply { spotId = id }
@@ -254,7 +279,7 @@ class QzxInputBuilder internal constructor(
     fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Input(title, valueText, placeholderText, changeAction, spotId, icon, descText)
+        QzxRow.Input(title, valueText, placeholderText, changeAction, spotId, icon, descText, valueTintColor)
 }
 
 /** 选择行（点开一个下拉）。 */
@@ -267,9 +292,14 @@ class QzxSelectBuilder internal constructor(
     private var selectAction: (QzxOption) -> Unit = {}
     private var spotId: String? = null
     private var descText: String? = null
+    private var valueTintColor: Color? = null
 
     /** 副说明。 */
     fun desc(text: String): QzxSelectBuilder = apply { descText = text }
+
+    /** 值文字用强调色。 */
+    fun valueTint(color: Color? = QzxColors.accent): QzxSelectBuilder =
+        apply { valueTintColor = color }
 
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxSelectBuilder = apply { spotId = id }
@@ -278,7 +308,7 @@ class QzxSelectBuilder internal constructor(
     fun onSelect(block: (QzxOption) -> Unit): QzxSelectBuilder = apply { selectAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Select(title, valueText, options, selectAction, spotId, icon, descText)
+        QzxRow.Select(title, valueText, options, selectAction, spotId, icon, descText, valueTintColor)
 }
 
 // ───────────────────────────── DSL 作用域 ─────────────────────────────
@@ -291,6 +321,8 @@ class QzxSectionScope internal constructor(
     internal val collapsible: Boolean = false,
     internal val expanded: Boolean = true,
     internal val onToggle: ((Boolean) -> Unit)? = null,
+    /** 分区标题左侧图标（旧 `Card(titleIcon=…)` 的等价物）。 */
+    internal val titleIcon: Painter? = null,
 ) {
     internal val holders = mutableListOf<QzxRowHolder>()
 
@@ -336,10 +368,16 @@ class QzxSectionScope internal constructor(
         })
     }
 
-    /** 说明文字行（不依赖旧 `DhForm`）。 */
-    fun note(text: String) {
+    /**
+     * 说明文字行（不依赖旧 `DhForm`）。
+     *
+     * @param color 文字颜色，默认副文本色。**错误 / 警告必须传语义色**
+     *              （`QzxColors.danger` 等）—— 错误提示与普通说明同色，用户扫一眼分不出
+     *              哪条是"出问题了"，那是语义丢失而不只是不好看。
+     */
+    fun note(text: String, color: Color? = null) {
         holders.add(object : QzxRowHolder {
-            override fun snapshot(): QzxRow = QzxRow.Note(text)
+            override fun snapshot(): QzxRow = QzxRow.Note(text, color)
         })
     }
 
@@ -381,10 +419,13 @@ class QzxListScope {
         expanded: Boolean = true,
         /** 折叠状态变化回调（通常写进 `PetPrefs.cardOpen`）。 */
         onToggle: ((Boolean) -> Unit)? = null,
+        /** 分区标题左侧图标。 */
+        titleIcon: Painter? = null,
         content: QzxSectionScope.() -> Unit
     ) {
         sections.add(
-            QzxSectionScope(id, title, footer, collapsible, expanded, onToggle).apply(content)
+            QzxSectionScope(id, title, footer, collapsible, expanded, onToggle, titleIcon)
+                .apply(content)
         )
     }
 }
@@ -446,16 +487,26 @@ private fun QzxSection(
 
     // 卡外标签：可折叠时标题挪进卡内当页头，这里就不画了（否则一句话出现两次）。
     if (!section.collapsible && !section.title.isNullOrEmpty()) {
-        Text(
-            text = section.title,
-            modifier = Modifier.padding(
-                start = QzxTokens.Space.xs,
-                bottom = QzxTokens.Space.sm
-            ),
-            color = c.sub,
-            fontSize = QzxTokens.Type.SECTION_SP.sp,
-            lineHeight = (QzxTokens.Type.SECTION_SP + QzxTokens.Type.LINE_GAP_SP).sp
-        )
+        Row(
+            modifier = Modifier.padding(start = QzxTokens.Space.xs, bottom = QzxTokens.Space.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            section.titleIcon?.let {
+                Icon(
+                    painter = it,
+                    contentDescription = null,
+                    modifier = Modifier.size(ROW_ICON_SIZE * 0.8f),
+                    tint = c.sub
+                )
+                Spacer(Modifier.width(QzxTokens.Space.xs))
+            }
+            Text(
+                text = section.title,
+                color = c.sub,
+                fontSize = QzxTokens.Type.SECTION_SP.sp,
+                lineHeight = (QzxTokens.Type.SECTION_SP + QzxTokens.Type.LINE_GAP_SP).sp
+            )
+        }
     }
 
     val rows = normalize(section.holders.map { it.snapshot() }, autoDivider)
@@ -475,6 +526,15 @@ private fun QzxSection(
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                section.titleIcon?.let {
+                    Icon(
+                        painter = it,
+                        contentDescription = null,
+                        modifier = Modifier.size(ROW_ICON_SIZE),
+                        tint = c.sub
+                    )
+                    Spacer(Modifier.width(QzxTokens.Space.md))
+                }
                 QzxRowTitle(section.title.orEmpty(), Modifier.weight(1f))
                 Spacer(Modifier.width(QzxTokens.Space.xs))
                 Box(
@@ -602,7 +662,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     Text(
                         text = row.value,
                         modifier = Modifier.padding(start = QzxTokens.Space.rowTitleGap),
-                        color = c.sub,
+                        color = row.valueTint ?: c.sub,
                         fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
                         lineHeight = (QzxTokens.Type.ROW_VALUE_SP + QzxTokens.Type.LINE_GAP_SP).sp,
                         maxLines = 1,
@@ -649,7 +709,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         Text(
                             text = current,
                             modifier = Modifier.padding(start = QzxTokens.Space.rowTitleGap),
-                            color = c.sub,
+                            color = row.valueTint ?: c.sub,
                             fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
                             lineHeight = (QzxTokens.Type.ROW_VALUE_SP +
                                 QzxTokens.Type.LINE_GAP_SP).sp,
@@ -735,7 +795,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         top = QzxTokens.Space.sm,
                         bottom = QzxTokens.Space.sm
                     ),
-                color = c.sub,
+                color = row.color ?: c.sub,
                 fontSize = QzxTokens.Type.FOOTER_SP.sp,
                 lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
             )

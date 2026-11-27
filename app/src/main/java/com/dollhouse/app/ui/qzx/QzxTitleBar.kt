@@ -43,13 +43,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.drawBehind
-import com.dollhouse.app.ui.compose.DhAnim
-import com.dollhouse.app.ui.compose.DhTheme
-import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.theme.GlobalBackground
 import com.dollhouse.app.ui.theme.Icons
-import com.dollhouse.app.ui.theme.UiKit
 
 /**
  * QZX 的 iOS 自适应大标题栏 —— 对应 `QZXGeometryXLargeTitleBar` 的 `IOS_STYLE` 档。
@@ -250,8 +246,7 @@ private fun QzxTitleBarImpl(
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val c = DhTokens.colors
-    val t = DhTokens.type
+    val c = QzxColors
 
     // 状态栏让位：本工程状态栏常隐（inset 恒 0），只靠 inset 会让标题贴到最上沿；
     //   取「inset 与 TOP_MIN_GAP_DP 的较大值」两种情况都正确。
@@ -261,13 +256,16 @@ private fun QzxTitleBarImpl(
     val maxH: Dp = topGap + QzxTitleBarSpec.MAX_HEIGHT_DP.dp
 
     // 必须实色：有背景图时主题里的 `bg` 会被改成 Transparent，用它当栏底 = 栏完全看不见。
-    //   `UiKit.BG` 是页面底色的唯一真源，这里只叠"按收起进度变化"的 alpha。
-    val barFill = Color(UiKit.BG)
+    //   `QzxColors.bg` 是页面底色的唯一真源（它本身就是不透明的 `UiKit.BG`，
+    //   **没有** `toGlass` 分流），这里只叠"按收起进度变化"的 alpha。
+    val barFill = QzxColors.bg
 
     // 有图判断：`GlobalBackground.hasImage` 读的是持久化状态，随主题 revision 变化。
     val ctx = LocalContext.current
-    val rev = DhTheme.revision
-    val hasPhoto = remember(rev) { GlobalBackground.hasImage(ctx) }
+    // 【为什么要一个 key】`hasImage` 读持久化，不能每次重组都读。
+    //   旧实现按旧主题对象的 revision 刷新；新包不依赖它，改用**栏底色**
+    //   （`QzxColors.bg` 随主题变化）当 key —— 换主题必刷新，语义也对得上。
+    val hasPhoto = remember(ctx, QzxColors.bg) { GlobalBackground.hasImage(ctx) }
 
     /**
      * 收起进度：0 = 完全展开，1 = 完全收起。
@@ -275,7 +273,7 @@ private fun QzxTitleBarImpl(
      */
     val progress: () -> Float = {
         val raw = scrollPx()
-        if (DhAnim.reduceMotion()) {
+        if (QzxMotion.reduceMotion()) {
             // 关动画：二值跳变（滚过量程一半即收起），不做连续插值。
             if (raw >= QzxTitleBarSpec.MAX_SCROLL_RANGE * 0.5f) 1f else 0f
         } else {
@@ -335,7 +333,7 @@ private fun QzxTitleBarImpl(
                     color = c.title,
                     fontSize = QzxTitleBarSpec.MIN_TITLE_SP.sp,
                     lineHeight = (QzxTitleBarSpec.MIN_TITLE_SP + 5f).sp,
-                    fontFamily = DhTokens.fontsBold,
+                    fontFamily = QzxFonts.bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
@@ -366,7 +364,7 @@ private fun QzxTitleBarImpl(
                         //   lineHeight，32sp 的字被按更小的行高排版会上下被裁。
                         fontSize = QzxTitleBarSpec.MAX_TITLE_SP.sp,
                         lineHeight = (QzxTitleBarSpec.MAX_TITLE_SP + 6f).sp,
-                        fontFamily = DhTokens.fontsBold,
+                        fontFamily = QzxFonts.bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.graphicsLayer {
@@ -388,7 +386,10 @@ private fun QzxTitleBarImpl(
                         Text(
                             text = subtitle,
                             color = c.sub,
-                            style = t.sub,
+                            // 用显式字号/行高代替旧 TextStyle：新系统不持有整套 Type 对象，
+                            //   而副标题只需要「比正文略小、单行」这一档。
+                            fontSize = QzxTokens.Type.SECTION_SP.sp,
+                            lineHeight = (QzxTokens.Type.SECTION_SP + QzxTokens.Type.LINE_GAP_SP).sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.graphicsLayer { alpha = 1f - progress() },
@@ -407,10 +408,10 @@ private fun QzxCompactBar(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val c = DhTokens.colors
+    val c = QzxColors
     val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val topGap: Dp = if (sbTop > QzxTitleBarSpec.TOP_MIN_GAP_DP.dp) sbTop else QzxTitleBarSpec.TOP_MIN_GAP_DP.dp
-    val barFill = Color(UiKit.BG)
+    val barFill = QzxColors.bg
 
     Row(
         modifier = Modifier
@@ -436,7 +437,7 @@ private fun QzxCompactBar(
             color = c.title,
             fontSize = QzxTitleBarSpec.MIN_TITLE_SP.sp,
             lineHeight = (QzxTitleBarSpec.MIN_TITLE_SP + 5f).sp,
-            fontFamily = DhTokens.fontsBold,
+            fontFamily = QzxFonts.bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -469,7 +470,7 @@ private fun QzxIconAction(
     //   用 0.96 缩放替代 —— 与旧系统 `pressable` 同一手感口径。
     val scale by animateFloatAsState(
         targetValue = if (pressed) QZX_ICON_PRESS_SCALE else 1f,
-        animationSpec = if (pressed) DhAnim.PRESS_DOWN else DhAnim.BOUNCY,
+        animationSpec = if (pressed) QzxMotion.PRESS_DOWN else QzxMotion.BOUNCY,
         label = "qzxIconPress",
     )
 
