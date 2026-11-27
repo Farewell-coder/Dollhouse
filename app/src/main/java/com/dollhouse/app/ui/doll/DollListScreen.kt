@@ -201,7 +201,7 @@ object DollListScreen {
             // 【Grid 模式】网格自己滚，QzxPage **不包裹**任何滚动容器（双层滚动在结构上不可能发生）。
             scroll = QzxPageScroll.Grid,
             // 【返回键】新系统不持有旧 drawable，图标必须由调用方给；不传就不画返回键。
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             // 【有背景图时栏底恒 88%】旧 `DhKit.Page(adaptiveTitle = true)` 内部也是读这个判断，
             //   这里只是把它显式交进新系统（新系统不认识"背景图"这个概念）。
             hasPhotoBackdrop = DhKit.hasPhotoBackdrop(),

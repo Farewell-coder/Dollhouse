@@ -92,7 +92,7 @@ object ChatSettingsPage {
         QzxPage(
             title = "对话显示",
 
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             subtitle = "流式与思考过程",
             onBack = { closeIfOpen(act) },
         ) {

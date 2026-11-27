@@ -75,7 +75,7 @@ object DollTalkPage {
             title = "交谈内容",
             subtitle = "台词列表",
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
-            backIcon = Icons.IC_ARROW_LEFT,
+            backIconRes = Icons.IC_ARROW_LEFT,
         ) {
             QzxList {
                 section(id = "talk") {

@@ -50,7 +50,7 @@ object WanderSettingsPage {
         QzxPage(
             title = "随机走位",
             onBack = { PageStack.popIfTop(act, TAG_PAGE) },
-            backIcon = Icons.IC_ARROW_LEFT,
+            backIconRes = Icons.IC_ARROW_LEFT,
         ) {
             QzxList(spotTitle = { spot(it)?.title }) {
                 section(

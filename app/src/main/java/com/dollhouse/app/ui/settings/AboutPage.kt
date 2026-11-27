@@ -199,7 +199,7 @@ object AboutPage {
         QzxPage(
             title = if (showLicenses) "开源许可" else "关于",
 
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             subtitle = if (showLicenses) "随 APK 分发的第三方许可文本" else "关于本软件",
             onBack = { if (showLicenses) showLicenses = false else closeIfOpen(act) },
         ) {

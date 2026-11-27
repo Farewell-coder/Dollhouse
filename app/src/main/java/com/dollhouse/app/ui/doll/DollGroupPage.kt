@@ -148,7 +148,7 @@ object DollGroupPage {
             onBack = { PageStack.popIfTop(act, KEY) },
             // 【图标由调用方给】新系统不持有旧 drawable —— 删旧资源时这里编译不过，正好是
             //   「还没迁完」的信号，而不是静默退化成没有返回键。
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             actions = {
                 // 新建分组：右上角。【r15】旧版是 folder-plus 图标 + 无障碍名「新建分组」，
                 //   新系统顶栏没有图标按钮件 → 改成同语义的文字按钮。

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.res.painterResource
 import com.dollhouse.app.ui.design.DhDesign
 
 /**
@@ -128,7 +129,7 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    backIcon: Painter? = null,
+    backIconRes: Int? = null,
     hasPhotoBackdrop: Boolean = false,
 ) {
     QzxTitleBarImpl(
@@ -137,7 +138,7 @@ fun QzxTitleBar(
         onBack = onBack,
         subtitle = subtitle,
         actions = actions,
-        backIcon = backIcon,
+        backIconRes = backIconRes,
         hasPhotoBackdrop = hasPhotoBackdrop,
     )
 }
@@ -161,7 +162,7 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    backIcon: Painter? = null,
+    backIconRes: Int? = null,
     hasPhotoBackdrop: Boolean = false,
 ) {
     QzxTitleBarImpl(
@@ -176,7 +177,7 @@ fun QzxTitleBar(
         onBack = onBack,
         subtitle = subtitle,
         actions = actions,
-        backIcon = backIcon,
+        backIconRes = backIconRes,
         hasPhotoBackdrop = hasPhotoBackdrop,
     )
 }
@@ -198,7 +199,7 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    backIcon: Painter? = null,
+    backIconRes: Int? = null,
     hasPhotoBackdrop: Boolean = false,
 ) {
     QzxTitleBarImpl(
@@ -214,7 +215,7 @@ fun QzxTitleBar(
         onBack = onBack,
         subtitle = subtitle,
         actions = actions,
-        backIcon = backIcon,
+        backIconRes = backIconRes,
         hasPhotoBackdrop = hasPhotoBackdrop,
     )
 }
@@ -231,14 +232,14 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    backIcon: Painter? = null,
+    backIconRes: Int? = null,
     hasPhotoBackdrop: Boolean = false,
 ) {
     QzxCompactBar(
         title = title,
         onBack = onBack,
         actions = actions,
-        backIcon = backIcon,
+        backIconRes = backIconRes,
     )
 }
 
@@ -258,7 +259,7 @@ private fun QzxTitleBarImpl(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    backIcon: Painter? = null,
+    backIconRes: Int? = null,
     hasPhotoBackdrop: Boolean = false,
 ) {
     val c = QzxColors
@@ -333,9 +334,9 @@ private fun QzxTitleBarImpl(
             ) {
                 // 【只在「有回调 + 有图标」时画】没给 backIcon 就**不画返回键**，
                 //   而不是偷偷回退到旧 drawable —— 否则删掉旧资源时这里会静默失效/编译不过。
-                if (onBack != null && backIcon != null) {
+                if (onBack != null && backIconRes != null) {
                     QzxIconAction(
-                        painter = backIcon,
+                        painter = painterResource(backIconRes),
                         sizeDp = DhDesign.Size.iconMd.value,
                         tint = c.title,
                         a11yName = "返回",
@@ -423,7 +424,7 @@ private fun QzxCompactBar(
     title: String,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    backIcon: Painter? = null,
+    backIconRes: Int? = null,
 ) {
     val c = QzxColors
     val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -439,9 +440,9 @@ private fun QzxCompactBar(
             .padding(horizontal = DhDesign.Space.cardPad.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (onBack != null && backIcon != null) {
+        if (onBack != null && backIconRes != null) {
             QzxIconAction(
-                painter = backIcon,
+                painter = painterResource(backIconRes),
                 sizeDp = DhDesign.Size.iconMd.value,
                 tint = c.title,
                 a11yName = "返回",

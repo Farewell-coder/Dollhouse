@@ -108,7 +108,7 @@ object VisionModelPage {
         QzxPage(
             title = "识图模型",
 
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             subtitle = "用哪个模型来看图片",
             onBack = { closeIfOpen(act) },
         ) {

@@ -62,7 +62,7 @@ object FriendModelConfigPage {
         //   保持原来的"裸行"观感，而不是给它凭空加一张卡片。
         QzxPage(
             title = "模型与生成",
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
         ) {
             QzxList(autoDivider = false, spotTitle = { null }) {

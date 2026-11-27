@@ -135,7 +135,7 @@ object MyProfilePage {
         QzxPage(
             title = "我的资料",
 
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             subtitle = "这些是「你」的资料，不是人偶的",
             // 【左上角返回 = 放弃】丢弃草稿、不落盘，直接退一层。系统返回键 / 手势走同一条路径。
             onBack = {

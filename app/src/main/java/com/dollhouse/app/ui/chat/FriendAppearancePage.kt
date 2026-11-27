@@ -25,7 +25,7 @@ object FriendAppearancePage {
             title = "聊天外观",
             subtitle = "仅影响当前好友",
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
-            backIcon = Icons.IC_ARROW_LEFT,
+            backIconRes = Icons.IC_ARROW_LEFT,
             scroll = QzxPageScroll.Scroll,
         ) {
             DollLookTab.Content(act, personaId)

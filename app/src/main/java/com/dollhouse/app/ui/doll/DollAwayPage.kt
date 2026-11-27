@@ -66,7 +66,7 @@ object DollAwayPage {
             title = "暂离",
             subtitle = "自动恢复时长",
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
-            backIcon = Icons.IC_ARROW_LEFT,
+            backIconRes = Icons.IC_ARROW_LEFT,
         ) {
             QzxList {
                 section(id = "away") {

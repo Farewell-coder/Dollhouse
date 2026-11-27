@@ -125,7 +125,7 @@ object LamdaPage {
     private fun LamdaContent(ctx: Context, st: UiState) {
         QzxPage(
             title = "lamda 设备控制",
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             subtitle = "让 AI 能操作手机（shell 级命令通道）",
             onBack = { ProviderNav.handleBack(ctx) },
         ) {

@@ -234,7 +234,7 @@ object SettingsScreen {
             scroll = QzxPageScroll.Scroll,
             // 【图标由调用方给】新系统不持有旧 drawable（删旧资源时这里会编译不过，
             //   正好是"没迁完"的信号，而不是静默退化）。
-            backIcon = androidx.compose.ui.res.painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
             // 【有没有背景图是 App 的行为，不是 UI 系统的职责】传一个 Boolean 进来。
             hasPhotoBackdrop = DhKit.hasPhotoBackdrop()
         ) {

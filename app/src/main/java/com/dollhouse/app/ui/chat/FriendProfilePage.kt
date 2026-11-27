@@ -135,7 +135,7 @@ object FriendProfilePage {
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
             // 新系统的返回键由调用方给图标（系统不持有旧 drawable）；不给就**不画**返回键，
             // 而旧 `DhKit.Page` 自带返回箭头 —— 这里显式补上，避免「进得去出不来」。
-            backIcon = painterResource(Icons.IC_ARROW_LEFT),
+            backIconRes = Icons.IC_ARROW_LEFT,
         ) {
             QzxList(spotTitle = { SettingsSpots.find(it)?.title }) {
 
