@@ -27,9 +27,11 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
-import com.dollhouse.app.ui.compose.DhTokens
+import androidx.compose.ui.res.painterResource
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.theme.Icons
 
 /** 好友生成参数页：显式覆盖与全局继承分离，不复制 Provider 凭据。 */
@@ -57,50 +59,116 @@ object FriendModelConfigPage {
         var error by remember { mutableStateOf<String?>(null) }
         val providers = remember { ProviderStore.providers(act).filter { it.enabled } }
         val models = remember(providerId) { ModelStore.models(act).filter { it.providerId == providerId && it.enabled } }
-        // 【布局统一】同 ConversationHistoryPage：手写顶栏 → DhKit.Page。
-        //   原来自己画「返回箭头 + 20sp 标题」+ padding(16.dp)，与其它二级页不是同一段代码。
-        //   scrollable 保持 true（原实现用 verticalScroll），滚动行为不变。
-        DhKit.Page(
+        // 【QZX 迁移】旧版这一页**没有卡片**：行直接铺在页面底上。所以用
+        //   `section(flat = true)`（不画卡片底）+ `autoDivider = false`（旧版也没有分隔线），
+        //   保持原来的"裸行"观感，而不是给它凭空加一张卡片。
+        QzxPage(
             title = "模型与生成",
             onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
-            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
-            adaptiveTitle = true
         ) {
-            DhForm.Note("未开启独立模型时继承全局；Provider 凭据只按引用使用。")
-            DhKit.SwitchRow(name = "独立模型", desc = "只修改当前好友，不改变其他好友", checked = overrideModel) { overrideModel = it }
-            if (overrideModel) {
-                providers.forEach { p -> DhKit.ActionRow((if (p.id == providerId) "● " else "") + p.name, iconRes = Icons.IC_SERVER, desc = "选择供应商") { providerId = p.id; modelId = "" } }
-                models.forEach { m -> DhKit.ActionRow((if (m.id == modelId) "● " else "") + m.displayName, iconRes = Icons.IC_BOT, desc = "聊天模型") { modelId = m.id } }
-            }
-            DhKit.ActionRow("识图模型：" + (visionModels.firstOrNull { it.id == visionModelId }?.displayName ?: "跟随全局"), iconRes = Icons.IC_IMAGE, desc = "仅影响当前好友当前会话") { visionModelId = "" }
-            visionModels.forEach { m -> DhKit.ActionRow((if (m.id == visionModelId) "● " else "") + m.displayName, iconRes = Icons.IC_IMAGE, desc = "设为当前会话识图模型") { visionModelId = m.id } }
-            DhForm.Input(think, { think = it }, label = "思考档位（0–5）", keyboard = androidx.compose.ui.text.input.KeyboardType.Number)
-            DhForm.Input(temp, { temp = it }, label = "温度（0–2）", keyboard = androidx.compose.ui.text.input.KeyboardType.Decimal)
-            DhForm.Input(topP, { topP = it }, label = "Top P（0–1）", keyboard = androidx.compose.ui.text.input.KeyboardType.Decimal)
-            DhForm.Input(maxTokens, { maxTokens = it }, label = "最大输出 Token", keyboard = androidx.compose.ui.text.input.KeyboardType.Number)
-            DhKit.SwitchRow(name = "流式输出", desc = "逐段显示正文", checked = stream) { stream = it }
-            // 【压图可读性·2026-11】原先是裸 `Text(it, color = c.err)`：这一行**直接压在
-            //   背景图上**（页面级、无卡片底）。实测（纯白照片、图 92%、遮罩 0）err 只有 3.37，
-            //   低于 AA 4.5。改走 `DhForm.Note` 后自动获得「玻璃底 + 压图色」两件事
-            //   （见 DhForm.Note 的注释与 `UiKit.errOnPhoto()`）：
-            //   88% 玻璃底把背景归一到浅侧，压深后的 err 在黑白两极背景上都过 AA（最坏 5.13）。
-            //   【为什么不用别的写法】单独换色会让**深色照片一侧更糟**（压深的 err 压在纯黑
-            //   照片上只有 2.44），所以必须走这个自带玻璃底的组件。
-            error?.let { DhForm.Note(it, color = c.err) }
-            DhKit.ActionRow("保存当前好友配置", iconRes = Icons.IC_CHECK) {
-                val cfg = PersonaChatConfig()
-                if (overrideModel) { cfg.providerId = providerId; cfg.modelId = modelId }
-                cfg.thinkLevel = think.toIntOrNull()?.coerceIn(0, 5)
-                cfg.temperature = temp.toDoubleOrNull()?.coerceIn(0.0, 2.0)
-                cfg.topP = topP.toDoubleOrNull()?.coerceIn(0.0, 1.0)
-                cfg.maxTokens = maxTokens.toIntOrNull()?.takeIf { it > 0 }
-                cfg.streamOutput = stream
-                cfg.visionModelId = visionModelId
-                if (cfg.thinkLevel == null || cfg.temperature == null || cfg.topP == null || cfg.maxTokens == null) error = "请填写有效的生成参数"
-                else { PersonaChatConfigStore.save(act, personaId, conversationId, cfg); PageStack.popIfTopStartsWith(act, PREFIX) }
-            }
-            DhKit.ActionRow("全部恢复全局继承", iconRes = Icons.IC_REFRESH) {
-                PersonaChatConfigStore.clear(act, personaId, conversationId); PageStack.popIfTopStartsWith(act, PREFIX)
+            QzxList(autoDivider = false, spotTitle = { null }) {
+                section(id = "main", flat = true) {
+                    note("未开启独立模型时继承全局；Provider 凭据只按引用使用。")
+
+                    switch(
+                        "独立模型",
+                        checked = overrideModel,
+                        icon = painterResource(Icons.IC_BOT)
+                    ).desc("只修改当前好友，不改变其他好友")
+                        .onChecked { overrideModel = it }
+
+                    if (overrideModel) {
+                        providers.forEach { p ->
+                            item(
+                                (if (p.id == providerId) "● " else "") + p.name,
+                                icon = painterResource(Icons.IC_SERVER)
+                            ).desc("选择供应商")
+                                .arrow()
+                                .onClick {
+                                    providerId = p.id
+                                    modelId = ""
+                                }
+                        }
+                        models.forEach { m ->
+                            item(
+                                (if (m.id == modelId) "● " else "") + m.displayName,
+                                icon = painterResource(Icons.IC_BOT)
+                            ).desc("聊天模型")
+                                .arrow()
+                                .onClick { modelId = m.id }
+                        }
+                    }
+
+                    item(
+                        "识图模型：" + (visionModels.firstOrNull { it.id == visionModelId }
+                            ?.displayName ?: "跟随全局"),
+                        icon = painterResource(Icons.IC_IMAGE)
+                    ).desc("仅影响当前好友当前会话")
+                        .arrow()
+                        .onClick { visionModelId = "" }
+
+                    visionModels.forEach { m ->
+                        item(
+                            (if (m.id == visionModelId) "● " else "") + m.displayName,
+                            icon = painterResource(Icons.IC_IMAGE)
+                        ).desc("设为当前会话识图模型")
+                            .arrow()
+                            .onClick { visionModelId = m.id }
+                    }
+
+                    input("思考档位（0–5）", think, icon = painterResource(Icons.IC_BOT))
+                        .onValueChange { think = it }
+                    input("温度（0–2）", temp, icon = painterResource(Icons.IC_BOT))
+                        .onValueChange { temp = it }
+                    input("Top P（0–1）", topP, icon = painterResource(Icons.IC_BOT))
+                        .onValueChange { topP = it }
+                    input("最大输出 Token", maxTokens, icon = painterResource(Icons.IC_BOT))
+                        .onValueChange { maxTokens = it }
+
+                    switch(
+                        "流式输出",
+                        checked = stream,
+                        icon = painterResource(Icons.IC_BOT)
+                    ).desc("逐段显示正文")
+                        .onChecked { stream = it }
+
+                    // 【压图可读性】错误提示走 `note(color = danger)` —— 与旧 `DhForm.Note(…, c.err)`
+                    //   同一个语义（语义色），且新系统的 note 自带系统内边距，压在背景图上仍可读。
+                    error?.let { note(it, color = QzxColors.danger) }
+
+                    item("保存当前好友配置", icon = painterResource(Icons.IC_CHECK))
+                        .arrow()
+                        .onClick {
+                            val cfg = PersonaChatConfig()
+                            if (overrideModel) {
+                                cfg.providerId = providerId
+                                cfg.modelId = modelId
+                            }
+                            cfg.thinkLevel = think.toIntOrNull()?.coerceIn(0, 5)
+                            cfg.temperature = temp.toDoubleOrNull()?.coerceIn(0.0, 2.0)
+                            cfg.topP = topP.toDoubleOrNull()?.coerceIn(0.0, 1.0)
+                            cfg.maxTokens = maxTokens.toIntOrNull()?.takeIf { it > 0 }
+                            cfg.streamOutput = stream
+                            cfg.visionModelId = visionModelId
+                            if (cfg.thinkLevel == null || cfg.temperature == null ||
+                                cfg.topP == null || cfg.maxTokens == null
+                            ) {
+                                error = "请填写有效的生成参数"
+                            } else {
+                                PersonaChatConfigStore.save(
+                                    act, personaId, conversationId, cfg
+                                )
+                                PageStack.popIfTopStartsWith(act, PREFIX)
+                            }
+                        }
+
+                    item("全部恢复全局继承", icon = painterResource(Icons.IC_REFRESH))
+                        .arrow()
+                        .onClick {
+                            PersonaChatConfigStore.clear(act, personaId, conversationId)
+                            PageStack.popIfTopStartsWith(act, PREFIX)
+                        }
+                }
             }
         }
     }
