@@ -10,9 +10,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「回归时间」子页：人偶消失多久之后，再出现时要回到初始位置。
@@ -62,33 +64,36 @@ object DollReturnPage {
             DollProfile.setReturnSeconds(act, id, n)
         }
 
-        DhKit.Page(
+        QzxPage(
             title = "回归时间",
-            sub = "消失多久后回到初始位置",
+            subtitle = "消失多久后回到初始位置",
             // 【r11 无保存按钮】返回时自动提交一次：输入过程中已即时落盘，这里是兜底，
             //   保证「改了没生效」不可能发生。
             onBack = {
                 commit(text)
                 PageStack.popIfTopStartsWith(act, PREFIX)
-            }
+            },
+            backIcon = Icons.IC_ARROW_LEFT,
         ) {
-            DhForm.Input(
-                value = text,
-                onValueChange = {
-                    text = it
-                    commit(it)
-                },
-                label = "时长（秒）",
-                hint = "0 表示每次都回初始位置",
-                keyboard = KeyboardType.Number
-            )
-            if (err != null) {
-                DhForm.Note(err!!)
+            QzxList {
+                section(id = "return") {
+                    input("时长（秒）", text)
+                        .hint("0 表示每次都回初始位置")
+                        .onValueChange {
+                            text = it
+                            commit(it)
+                        }
+                    // 【错误提示】语义色走 danger —— 与旧 DhForm.Note 同口径，
+                    //   压在背景图上也能读（note 自带系统内边距）。
+                    if (err != null) {
+                        note(err!!, color = QzxColors.danger)
+                    }
+                    note("关闭人偶后，超过该秒数再启动，人偶会回到「初始位置」；未超过则在原地出现。")
+                    note("填 0 表示每次都回初始位置（不论消失多久）。")
+                    note("「暂离」不算消失，不会重置这个计时。")
+                    note("需要先设置「初始位置」，否则到点也无处可回。")
+                }
             }
-            DhForm.Note("关闭人偶后，超过该秒数再启动，人偶会回到「初始位置」；未超过则在原地出现。")
-            DhForm.Note("填 0 表示每次都回初始位置（不论消失多久）。")
-            DhForm.Note("「暂离」不算消失，不会重置这个计时。")
-            DhForm.Note("需要先设置「初始位置」，否则到点也无处可回。")
         }
     }
 }

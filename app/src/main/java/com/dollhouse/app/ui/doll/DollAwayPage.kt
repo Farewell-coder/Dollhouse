@@ -11,9 +11,11 @@ import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.theme.Icons
 
 /**
  * 【职责】「暂离」子页：这只人偶挂起多久后自动恢复。
@@ -60,26 +62,27 @@ object DollAwayPage {
             DollProfile.setAwaySeconds(act, id, n)
         }
 
-        DhKit.Page(
+        QzxPage(
             title = "暂离",
-            sub = "自动恢复时长",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            subtitle = "自动恢复时长",
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            backIcon = Icons.IC_ARROW_LEFT,
         ) {
-            DhForm.Input(
-                value = text,
-                onValueChange = {
-                    text = it
-                    commit(it)
-                },
-                label = "时长（秒）",
-                hint = "建议 0～60 秒",
-                keyboard = KeyboardType.Number
-            )
-            if (err != null) {
-                DhForm.Note(err!!)
+            QzxList {
+                section(id = "away") {
+                    input("时长（秒）", text)
+                        .hint("建议 0～60 秒")
+                        .onValueChange {
+                            text = it
+                            commit(it)
+                        }
+                    if (err != null) {
+                        note(err!!, color = QzxColors.danger)
+                    }
+                    note("暂离后到点会自动恢复；填 0 表示不自动恢复。")
+                    note("当前取值区间：" + min + "～" + max + " 秒。")
+                }
             }
-            DhForm.Note("暂离后到点会自动恢复；填 0 表示不自动恢复。")
-            DhForm.Note("当前取值区间：" + min + "～" + max + " 秒。")
         }
     }
 }
