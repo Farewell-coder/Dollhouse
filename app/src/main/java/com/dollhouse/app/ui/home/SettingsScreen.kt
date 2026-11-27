@@ -14,6 +14,7 @@ import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.ui.compose.ComposeHost
 import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxList
 import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.qzx.QzxPageScroll
 import com.dollhouse.app.ui.compose.DhTokens
@@ -59,6 +60,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.MyProfile
@@ -245,8 +247,66 @@ object SettingsScreen {
             ProfileCard(act)
             PermissionRow(act)
             ChatCard(act)
-            DollCard(act)
-            LookCard(act)
+            // ── 以下 4 行已迁成**声明式**（`QzxList` 的 `item()`）——
+            //   它们是零状态、纯导航的行，用来验证新 DSL 的手感。
+            //   其余行仍在各自的 Card 里，按「有状态 → 备份卡 → 自定义布局」分步迁。
+            val dollCount = remember(DollState.rev) { DollStore.all(act).size }
+            QzxList(
+                // 标题唯一真源：索引表登记过的行用表里的标题，没登记的回退到字面量
+                //   （与旧 `SettingsSpots.spotTitle` 同一条规则）。
+                spotTitle = { com.dollhouse.app.ui.settings.SettingsSpots.find(it)?.title }
+            ) {
+                section("doll", title = "人偶") {
+                    item(
+                        title = "管理人偶",
+                        // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
+                        value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
+                        icon = painterResource(Icons.IC_LAYERS),
+                    )
+                        .desc("封面、动作、启停、删除")
+                        .arrow()
+                        .onClick { DollListScreen.open(act) }
+                }
+                section("appearance", title = "外观") {
+                    item(
+                        title = "外观设置",
+                        value = when {
+                            !HomeState.bgSet -> "无背景"
+                            PetPrefs.bgEnabled(act) -> "有背景"
+                            else -> "背景已关"
+                        },
+                        icon = painterResource(Icons.IC_PALETTE),
+                    )
+                        .desc("主题 · 背景 · 聊天气泡 · 弹窗")
+                        .arrow()
+                        .onClick { AppearancePage.open(act) }
+
+                    item(
+                        title = "当前主题",
+                        value = ThemeManager.MODE_NAMES[HomeState.themeMode],
+                        icon = painterResource(Icons.IC_SUN),
+                    )
+                        // 【索引登记】这一行在索引表里**有**条目（`appearance.mode`），
+                        //   传 spot 后标题以表为准，避免两处写死同一句话。
+                        .spot("appearance.mode")
+                        .arrow()
+                        .onClick { AppearancePage.open(act) }
+
+                    item(
+                        title = "全局背景",
+                        value = when {
+                            !HomeState.bgSet -> "未设置"
+                            PetPrefs.bgEnabled(act) -> "已开启"
+                            else -> "已关闭"
+                        },
+                        icon = painterResource(Icons.IC_IMAGE),
+                    )
+                        // 索引表里有 `appearance.bgEnable`（"使用自定义背景"）
+                        .spot("appearance.bgEnable")
+                        .arrow()
+                        .onClick { AppearancePage.open(act) }
+                }
+            }
             BackupCard(act)
             // 【r13】「实验」卡片：收纳尚未正式归入设置卡片、但已经可用的实验性功能。
             //   用户定案：**排在最后一张**，且是**展开式**（卡片内直接展开，不跳页）——
