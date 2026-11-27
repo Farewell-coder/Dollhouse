@@ -485,6 +485,7 @@ fun QzxIconButton(
     QzxIconAction(iconRes, sizeDp, tint, a11yName, onClick)
 }
 
+@Composable
 internal fun QzxIconAction(
     iconRes: Int,
     sizeDp: Float,
