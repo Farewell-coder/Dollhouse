@@ -255,7 +255,7 @@ object SettingsScreen {
             // 【r13】「实验」卡片：收纳尚未正式归入设置卡片、但已经可用的实验性功能。
             //   用户定案：**排在最后一张**，且是**展开式**（卡片内直接展开，不跳页）——
             //   与上面四张卡片的展开方式一致。
-            ExperimentCard(act)
+            ExperimentSection(act, showTitle = true)
         }
     }
 
@@ -433,7 +433,7 @@ object SettingsScreen {
             SettingsGroup.DOLL -> DollSection(act, showTitle = false)
             SettingsGroup.LOOK -> LookSection(act, showTitle = false)
             SettingsGroup.BACKUP -> BackupCard(act)
-            SettingsGroup.EXPERIMENT -> ExperimentCard(act)
+            SettingsGroup.EXPERIMENT -> ExperimentSection(act, showTitle = false)
         }
     }
 
@@ -1022,113 +1022,96 @@ object SettingsScreen {
      *   ⇒ 卡片展开后**只显示一个入口行**；真正的正文（服务状态 / 安装 / 运行 / 删除 /
      *     AI 能力）在点进去之后的独立页面里。这样设置页不会被一大段技术信息淹没。
      */
+    /**
+     * 「实验」分组（3 行，含两个子分组：对外连接 / 人偶行为）。
+     * 单栏与两栏共用这一份定义，理由见 [DollSection]。
+     *
+     * 【迁移时逐行核对过的两件事】
+     * 1. `随机走位` 原来的 `valueTint = null`（刻意不染绿）——QzxList 的 `item` 默认就是副文本色，
+     *    所以不写 `.valueTint(...)` 即等价，语义没丢。
+     * 2. `睡觉模式` 原来**刻意没有值**（睡觉模式没有独立开关，见 SleepSettingsPage 注释；
+     *    唯一能读的「安静时段」是同页另一件事，当它的值会误导）。这里同样不传 `value`。
+     */
     @Composable
-    private fun ExperimentCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "实验", titleIcon = Icons.IC_WAND_SPARKLES) {
-            // 【M4·按语义分组，不再是一条平铺长列表】
-            //   改造前 7 个互不相干的入口挤在同一个列表里（设备控制 / 记忆 / 对话显示 /
-            //   识图 / 走位 / 睡觉 / 诊断），用户要读完全部描述才知道各自属于什么。
-            //   现在按「它改的是谁」分成三组：对外连接、人偶行为、对话与模型。
-            //   分组名用 label 档小标题（不抢眼），组内行之间用发丝线 —— 仍是同一张卡片，
-            //   卡片数没变（用户定案"实验卡排在最后且展开式"保持不变），只是内部有了结构。
-            //
-            // 【为什么不按设计稿「每组 ≤5 行」把它拆成三张卡】
-            //   设计稿那条规则的意图是「别把一个分组塞爆」，而本卡内部**已经是三个分组**：
-            //   对外连接 1 行、人偶行为 2 行、对话与模型 3 行 —— 每组都远低于 5。
-            //   若再拆成三张独立卡片，首页卡片数会从 5 涨到 7，反而回到「一页一堆小块」
-            //   的形态，与本轮「减少卡片数、组内用发丝线」的方向相反。
-            //   所以保留单卡 + 组内小标题：规则的精神（每组不臃肿）满足，字面行数不满足，
-            //   这个取舍是显式的，不是漏做。
+    private fun ExperimentSection(act: MainActivity, showTitle: Boolean) {
+        QzxList(
+            spotTitle = { com.dollhouse.app.ui.settings.SettingsSpots.find(it)?.title }
+        ) {
+            section("experiment.connect", title = if (showTitle) "对外连接" else null) {
+                item(
+                    title = "lamda 设备控制",
+                    // 只报「开机自启」这一个本页读得到的状态；其余配置在 LamdaPage 内部。
+                    value = if (PetPrefs.lamdaAutoStart(act)) "自启开启" else "自启关闭",
+                    icon = painterResource(Icons.IC_GAMEPAD_2),
+                )
+                    .desc("用手机控制另一台设备")
+                    .arrow()
+                    .onClick { ProviderNav.openAt(act, ProviderNav.R_EXPERIMENT) }
+            }
+            section("experiment.doll", title = if (showTitle) "人偶行为" else null) {
+                item(
+                    title = "随机走位",
+                    value = if (PetPrefs.wanderEnabled(act)) "已开启" else "已关闭",
+                    icon = painterResource(Icons.IC_WAYPOINTS),
+                )
+                    .desc("人偶自己在屏幕上缓慢游走")
+                    .arrow()
+                    .onClick { WanderSettingsPage.open(act) }
 
-            DhForm.Note("这里收纳还没正式归入上面几类、但已经能用的功能。")
+                item(
+                    title = "睡觉模式",
+                    // 【刻意无值】睡觉模式没有独立开关（由快捷菜单触发），
+                    //   唯一可读的「安静时段」是同页另一件事，当它的值会误导。
+                    icon = painterResource(Icons.IC_MOON),
+                )
+                    .desc("人偶低功耗休眠，点击唤醒")
+                    .arrow()
+                    .onClick { SleepSettingsPage.open(act) }
+            }
+            // 【第三组·必须保留】原 `ExperimentCard` 有 **6 行 / 3 个子组**，
+            //   我第一版只复现了前 5 行就删了旧函数 —— 这三行是**补回来的**。
+            //   教训：删旧实现前必须先 grep 它内部所有 SectionLabel，不能按"以为有 3 行"来写。
+            section("experiment.model", title = if (showTitle) "对话与模型" else null) {
+                item(
+                    title = "对话显示",
+                    // 【两档开关合成一句】"流式 · 思考" 比 "已开启/已关闭" 信息量大，
+                    //   用户能一眼看出**具体是哪两项**；6 字 + 分隔符不挤标题。
+                    value = (if (PetPrefs.streamOutput(act)) "流式" else "非流式") + " · " +
+                        (if (PetPrefs.showThinking(act)) "思考" else "无思考"),
+                    icon = painterResource(Icons.IC_MESSAGE_SQUARE_HEART),
+                )
+                    .desc("流式输出、思考过程")
+                    .arrow()
+                    .onClick { ChatSettingsPage.open(act) }
 
-            // ---------- 组 1：对外连接 ----------
-            DhKit.SectionLabel("对外连接")
-            DhKit.ValueRow(
-                label = "lamda 设备控制",
-                iconRes = Icons.IC_GAMEPAD_2,
-                desc = "用手机控制另一台设备",
-                // 【P1-e·补当前值】只报「开机自启」这一个有独立开关的状态，
-                //   因为 lamda 的其它配置（设备地址等）在 `LamdaPage` 内部，本页读不到。
-                value = if (PetPrefs.lamdaAutoStart(act)) "自启开启" else "自启关闭",
-                showChevron = true
-            ) {
-                ProviderNav.openAt(act, ProviderNav.R_EXPERIMENT)
-            }
+                item(
+                    title = "识图模型",
+                    // 【未设置时给动作暗示】空串 = 跟随当前模型能力，
+                    //   报"跟随当前模型"而不是"未设置"——后者听起来像缺配置，其实是默认行为。
+                    value = PetPrefs.visionModel(act).ifBlank { "跟随当前模型" },
+                    icon = painterResource(Icons.IC_BOT),
+                )
+                    .desc("用哪个模型来看图片")
+                    .arrow()
+                    .onClick { VisionModelPage.open(act) }
 
-            // ---------- 组 2：人偶行为 ----------
-            DhKit.SectionLabel("人偶行为")
-            DhKit.ValueRow(
-                label = "随机走位",
-                iconRes = Icons.IC_WAYPOINTS,
-                desc = "人偶自己在屏幕上缓慢游走",
-                value = if (PetPrefs.wanderEnabled(act)) "已开启" else "已关闭",
-                // 【一屏一色相·2026-11】原先「已开启」染成功绿。但这是**常态**，不是「刚刚成功了一次」——
-                //   设置页每进来一次就满眼绿，等于把语义色当装饰。只在真正失败时染色。
-                valueTint = null,
-                showChevron = true
-            ) {
-                WanderSettingsPage.open(act)
-            }
-            DhKit.RowDivider(insetStart = ICON_ROW_INSET)
-            DhKit.ActionRow(
-                label = "睡觉模式",
-                iconRes = Icons.IC_MOON,
-                desc = "人偶低功耗休眠，点击唤醒",
-                // 【这一行**刻意不补值**】睡觉模式没有独立开关 —— 它由快捷菜单触发
-                //   （见 SleepSettingsPage.kt:48 原文「睡觉模式没有独立开关」）。
-                //   能显示的只有「安静时段」，那是同一页里的**另一件事**，
-                //   把它当这行的值会让用户以为"睡觉模式=安静时段"。
-                //   宁可没有值，也不给一个会误导读者的值。
-                showChevron = true
-            ) {
-                SleepSettingsPage.open(act)
-            }
-
-            // ---------- 组 3：对话与模型 ----------
-            DhKit.SectionLabel("对话与模型")
-            DhKit.ValueRow(
-                label = "对话显示",
-                iconRes = Icons.IC_MESSAGE_SQUARE_HEART,
-                desc = "流式输出、思考过程",
-                // 【值：两档开关合成一句】"流式 · 思考" 比 "已开启/已关闭" 信息量大，
-                //   且用户能一眼看出**具体是哪两项**。长度 6 字 + 分隔符，不挤标题。
-                value = (if (PetPrefs.streamOutput(act)) "流式" else "非流式") + " · " +
-                    (if (PetPrefs.showThinking(act)) "思考" else "无思考"),
-                showChevron = true
-            ) {
-                ChatSettingsPage.open(act)
-            }
-            DhKit.RowDivider(insetStart = ICON_ROW_INSET)
-            DhKit.ValueRow(
-                label = "识图模型",
-                iconRes = Icons.IC_BOT,
-                desc = "用哪个模型来看图片",
-                // 【值：未设置时给动作暗示】`visionModel()` 返回空串 = 跟随当前模型能力，
-                //   报"跟随当前模型"而不是"未设置"——后者听起来像缺配置，其实是默认行为。
-                value = PetPrefs.visionModel(act).ifBlank { "跟随当前模型" },
-                showChevron = true
-            ) {
-                VisionModelPage.open(act)
-            }
-            DhKit.RowDivider(insetStart = ICON_ROW_INSET)
-            DhKit.ValueRow(
-                label = "记忆库设置",
-                iconRes = Icons.IC_BOOK_OPEN,
-                desc = "抽取与检索策略",
-                // 【值：自动开关 + 间隔】关掉时只说"自动关闭"，
-                //   因为间隔此时无意义（不给用户一个用不上的数字）。
-                value = if (PetPrefs.mem2Auto(act)) {
-                    "自动 · " + PetPrefs.mem2IntervalMinutes(act) + " 分"
-                } else {
-                    "自动关闭"
-                },
-                showChevron = true
-            ) {
-                MemSettingsPage.open(act)
+                item(
+                    title = "记忆库设置",
+                    // 【自动开关 + 间隔】关掉时只说"自动关闭"，因为间隔此时无意义。
+                    value = if (PetPrefs.mem2Auto(act)) {
+                        "自动 · " + PetPrefs.mem2IntervalMinutes(act) + " 分"
+                    } else {
+                        "自动关闭"
+                    },
+                    icon = painterResource(Icons.IC_BOOK_OPEN),
+                )
+                    .desc("抽取与检索策略")
+                    .arrow()
+                    .onClick { MemSettingsPage.open(act) }
             }
         }
     }
+
 
     /* ============================ 权限 ============================ */
 
