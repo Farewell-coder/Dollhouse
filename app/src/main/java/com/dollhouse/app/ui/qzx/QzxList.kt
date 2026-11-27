@@ -8,6 +8,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -921,12 +924,22 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     }
                 }
                 Spacer(Modifier.height(QzxTokens.Space.xs))
+                // 【聚焦态】BasicTextField 必须显式接 interactionSource，否则聚焦时没有任何
+                //   视觉反馈（用户不知道光标在哪）。这是 I6 门禁的要求，也是可用性要求。
+                val fieldSource = remember { MutableInteractionSource() }
+                val focused by fieldSource.collectIsFocusedAsState()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = QzxTokens.Size.field)
                         .clip(RoundedCornerShape(QzxTokens.Radius.inner))
                         .background(c.field)
+                        // 聚焦时边框用强调色 —— 与旧 UiKit 输入框同口径。
+                        .border(
+                            width = QzxTokens.Size.hairline.dp,
+                            color = if (focused) c.accent else Color.Transparent,
+                            shape = RoundedCornerShape(QzxTokens.Radius.inner)
+                        )
                         .padding(horizontal = QzxTokens.Space.md),
                     contentAlignment = Alignment.CenterStart
                 ) {
@@ -936,6 +949,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                             text = it
                             row.onValueChange(it)
                         },
+                        interactionSource = fieldSource,
                         modifier = Modifier
                             .fillMaxWidth()
                             .then(
