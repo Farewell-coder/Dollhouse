@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
@@ -40,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,6 +88,20 @@ import androidx.compose.ui.unit.sp
 /** 一个可选项（`select` 行用）。 */
 data class QzxOption(val value: String, val label: String)
 
+/**
+ * 预览区块里的一个动作。
+ *
+ * 【为什么是数据类而不是 `@Composable () -> Unit`】数据类只有 `label` 与 `onClick` 两个自由度，
+ * 调用方**无法**在这里塞 `padding` / `height` / 自定义 `Row`。布局（行高、图标位、危险色）
+ * 全归系统。这是"声明式"能守住的关键。
+ */
+data class QzxPreviewAction(
+    val label: String,
+    val onClick: () -> Unit,
+    /** 危险动作（删除 / 清空）：文字用错误色，且永远排在最后。 */
+    val destructive: Boolean = false
+)
+
 // ───────────────────────────── 模型 ─────────────────────────────
 
 /** 列表里的一行（纯数据，不含排版）。 */
@@ -122,7 +139,9 @@ sealed interface QzxRow {
         val spotId: String? = null,
         val icon: Painter? = null,
         val desc: String? = null,
-        val valueTint: Color? = null
+        val valueTint: Color? = null,
+        /** 字数上限：非空时右侧显示「当前长度/上限」。 */
+        val counterMax: Int? = null
     ) : QzxRow
 
     data class Select(
@@ -147,6 +166,21 @@ sealed interface QzxRow {
         val text: String,
         /** 文字颜色（null = 副文本色）。错误态传 `QzxColors.danger` —— 语义色不是装饰。 */
         val color: Color? = null
+    ) : QzxRow
+
+    /**
+     * 预览区块（头像 / 大图 + 按钮组）。
+     *
+     * 【为什么是数据不是 lambda】见 [QzxSectionScope.preview] 的注释 ——
+     * 一旦让调用方塞 lambda，这个"行型"就退化成一个逃生口，排版又散回页面里。
+     */
+    data class Preview(
+        val image: Painter?,
+        val fallbackIcon: Painter?,
+        val title: String?,
+        val subtitle: String?,
+        val actions: List<QzxPreviewAction>,
+        val hint: String?
     ) : QzxRow
 
     /** 逃生口：调用方给一段任意内容，但**仍然**由系统负责左右内边距与分隔线。 */
@@ -261,9 +295,18 @@ class QzxInputBuilder internal constructor(
     private var spotId: String? = null
     private var descText: String? = null
     private var valueTintColor: Color? = null
+    private var counterLimit: Int? = null
 
     /** 副说明。 */
     fun desc(text: String): QzxInputBuilder = apply { descText = text }
+
+    /**
+     * 字数计数：系统自己算「当前长度/上限」并画在行右侧。
+     *
+     * 【为什么收 `max` 而不是收 lambda】收 lambda 等于把"怎么画"交回调用方 ——
+     * 十个人会写出十种计数样式。这里只给"上限"这一个数字，样式归系统。
+     */
+    fun counter(max: Int): QzxInputBuilder = apply { counterLimit = max }
 
     /** 值文字用强调色。 */
     fun valueTint(color: Color? = QzxColors.accent): QzxInputBuilder =
@@ -279,7 +322,10 @@ class QzxInputBuilder internal constructor(
     fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Input(title, valueText, placeholderText, changeAction, spotId, icon, descText, valueTintColor)
+        QzxRow.Input(
+            title, valueText, placeholderText, changeAction, spotId, icon, descText,
+            valueTintColor, counterLimit
+        )
 }
 
 /** 选择行（点开一个下拉）。 */
@@ -323,6 +369,8 @@ class QzxSectionScope internal constructor(
     internal val onToggle: ((Boolean) -> Unit)? = null,
     /** 分区标题左侧图标（旧 `Card(titleIcon=…)` 的等价物）。 */
     internal val titleIcon: Painter? = null,
+    /** 嵌入形态：不画卡片底 / 圆角 / 边缘光（用于"已经在父卡片内部"的分区）。 */
+    internal val flat: Boolean = false,
 ) {
     internal val holders = mutableListOf<QzxRowHolder>()
 
@@ -421,11 +469,20 @@ class QzxListScope {
         onToggle: ((Boolean) -> Unit)? = null,
         /** 分区标题左侧图标。 */
         titleIcon: Painter? = null,
+        /**
+         * 嵌入形态：**不画**卡片底 / 圆角 / 边缘光，直接把行铺在父容器上。
+         *
+         * 【什么时候用】这个分区已经在**另一张卡片内部**（例如「实验卡片展开后的正文」）。
+         * 再套一层卡片会出现双层圆角与双层边缘光 —— 那不是设计，是穿模。
+         * 分隔线仍然缩进，因为它属于"行与行之间"，与卡片形态无关。
+         */
+        flat: Boolean = false,
         content: QzxSectionScope.() -> Unit
     ) {
         sections.add(
-            QzxSectionScope(id, title, footer, collapsible, expanded, onToggle, titleIcon)
-                .apply(content)
+            QzxSectionScope(
+                id, title, footer, collapsible, expanded, onToggle, titleIcon, flat
+            ).apply(content)
         )
     }
 }
@@ -510,7 +567,11 @@ private fun QzxSection(
     }
 
     val rows = normalize(section.holders.map { it.snapshot() }, autoDivider)
-    QzxSurface {
+    // 【flat = 不套卡片】直接在父容器上排行；分隔线照旧缩进（它属于行间，不属于卡片）。
+    // 显式 Column 包一层：`AnimatedVisibility` 的展开动画要用 ColumnScope 的重载，
+    // 而 flat 形态没有 QzxSurface 提供的 ColumnScope。
+    val body: @Composable () -> Unit = {
+        Column {
         if (section.collapsible) {
             // ── 卡内页头：整行可点，箭头随展开态翻转 ──────────────────────
             Row(
@@ -567,6 +628,12 @@ private fun QzxSection(
                 }
             }
         }
+        }
+    }
+    if (section.flat) {
+        body()
+    } else {
+        QzxSurface { body() }
     }
 
     if (!section.footer.isNullOrEmpty()) {
@@ -616,6 +683,9 @@ private fun rowMinHeight(row: QzxRow): Int {
 
 /** 行前置图标的边长。`Space.xl`(20dp) 是全系统唯一一档 20dp —— 借用它，避免再开一个令牌。 */
 private val ROW_ICON_SIZE = QzxTokens.Space.xl
+
+/** 预览区块的头像边长（72dp：足够看清脸，又不至于把行撑成"大卡片"）。 */
+private val PREVIEW_SIZE = QzxTokens.Space.xxl * 3
 
 @Composable
 private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
@@ -744,6 +814,16 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         icon = row.icon,
                         modifier = Modifier.weight(1f)
                     )
+                    row.counterMax?.let { max ->
+                        Text(
+                            text = text.length.toString() + "/" + max,
+                            modifier = Modifier.padding(start = QzxTokens.Space.sm),
+                            color = c.sub,
+                            fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                            lineHeight = (QzxTokens.Type.FOOTER_SP +
+                                QzxTokens.Type.LINE_GAP_SP).sp
+                        )
+                    }
                 }
                 Spacer(Modifier.height(QzxTokens.Space.xs))
                 Box(
@@ -778,6 +858,83 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                                 QzxTokens.Type.LINE_GAP_SP).sp
                         )
                     }
+                }
+            }
+        }
+
+        is QzxRow.Preview -> {
+            // 系统负责：圆形裁剪、预览尺寸、按钮行高、危险色、引导小字。
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = QzxTokens.Space.listH,
+                        end = QzxTokens.Space.listH,
+                        top = QzxTokens.Space.md,
+                        bottom = QzxTokens.Space.sm
+                    )
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(PREVIEW_SIZE)
+                            .clip(CircleShape)
+                            .background(c.soft),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (row.image != null) {
+                            Image(
+                                painter = row.image,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (row.fallbackIcon != null) {
+                            Icon(
+                                painter = row.fallbackIcon,
+                                contentDescription = null,
+                                modifier = Modifier.size(PREVIEW_SIZE * 0.45f),
+                                tint = c.sub
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(QzxTokens.Space.lg))
+                    Column(modifier = Modifier.weight(1f)) {
+                        if (!row.title.isNullOrEmpty()) {
+                            QzxRowTitle(row.title)
+                        }
+                        if (!row.subtitle.isNullOrEmpty()) {
+                            Text(
+                                text = row.subtitle,
+                                color = c.sub,
+                                fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                                lineHeight = (QzxTokens.Type.FOOTER_SP +
+                                    QzxTokens.Type.LINE_GAP_SP).sp
+                            )
+                        }
+                    }
+                }
+                row.actions.forEach { action ->
+                    Text(
+                        text = action.label,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = QzxTokens.Size.minTouch.dp)
+                            .clickable(onClick = action.onClick)
+                            .padding(vertical = QzxTokens.Space.md),
+                        color = if (action.destructive) c.danger else c.accent,
+                        fontSize = QzxTokens.Type.ROW_TITLE_SP.sp,
+                        lineHeight = (QzxTokens.Type.ROW_TITLE_SP +
+                                QzxTokens.Type.LINE_GAP_SP).sp
+                    )
+                }
+                if (!row.hint.isNullOrEmpty()) {
+                    Text(
+                        text = row.hint,
+                        color = c.sub,
+                        fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                        lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
+                    )
                 }
             }
         }

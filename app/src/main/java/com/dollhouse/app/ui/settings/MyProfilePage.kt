@@ -1,43 +1,27 @@
 package com.dollhouse.app.ui.settings
 
 import android.view.View
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.painterResource
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.PickFileActivity
 import com.dollhouse.app.data.MyProfile
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
 import com.dollhouse.app.ui.compose.DhKit
-import com.dollhouse.app.ui.compose.DhTokens
-import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.QzxPreviewAction
 import com.dollhouse.app.ui.home.ProfileState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
-import com.dollhouse.app.ui.theme.UiKit
 
 /**
  * 【职责】「我的资料」二级页（r14·需求 3）：编辑头像 / 昵称 / 个性签名。
@@ -141,11 +125,10 @@ object MyProfilePage {
             pendingAvatar = null
         }
 
-        DhKit.Page(
+        QzxPage(
             title = "我的资料",
-            sub = "这些是「你」的资料，不是人偶的",
-            // 【左上角返回 = 放弃】丢弃草稿、不落盘，直接退一层。系统返回键 / 手势走同一条路径
-            //   （MainActivity.onBackPressed → PageStack.handleBack → pop）。
+            subtitle = "这些是「你」的资料，不是人偶的",
+            // 【左上角返回 = 放弃】丢弃草稿、不落盘，直接退一层。系统返回键 / 手势走同一条路径。
             onBack = {
                 discard()
                 PageStack.popIfTop(act, KEY)
@@ -162,125 +145,84 @@ object MyProfilePage {
                     PageStack.popIfTop(act, KEY)
                 }
             },
-            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
-            adaptiveTitle = true
         ) {
-            // ---------- 头像 ----------
-            Row(
-                modifier = Modifier.padding(top = DhDesign.Space.md.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(PREVIEW_DP.dp)
-                        .clip(RoundedCornerShape(DhDesign.Radius.pill.dp))
-                        .background(c.soft),
-                    contentAlignment = Alignment.Center
-                ) {
+            QzxList(spotTitle = { spot(it)?.title }) {
+                section(id = "basic") {
+
+                    // ---------- 头像 ----------
+                    // 【数据驱动的预览块】旧版是自绘 Row（圆形预览 + 两个限宽 180dp 的按钮行
+                    //   + 引导小字）。这里只给"图 + 标题 + 动作列表 + 提示"，圆形裁剪、行高、
+                    //   危险色全归系统 —— 页面里一个尺寸数字都不用写。
                     val bmp: android.graphics.Bitmap? = avatar
-                    if (bmp != null && !bmp.isRecycled) {
-                        // 【为什么先取局部 val】`avatar` 是 `by remember` 委托属性（有自定义 getter），
-                        //   Kotlin 无法对它做 smart cast。取一次局部引用后判断，之后就是普通可空类型。
-                        androidx.compose.foundation.Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        DhKit.Icon(iconRes = Icons.IC_CIRCLE_USER, sizeDp = Design.SZ_XL, color = c.sub)
+                    val shown: android.graphics.Bitmap? =
+                        if (bmp != null && !bmp.isRecycled) bmp else null
+                    val previewPainter = remember(shown) {
+                        shown?.let { BitmapPainter(it.asImageBitmap()) }
                     }
-                }
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    DhKit.ActionRow(
-                        spot = spot("profile.avatar"),
-                        iconRes = Icons.IC_IMAGE_PLUS,
-                        // 【宽度】ActionRow 是整行宽，这里放在 Column 里需要限宽，
-                        //   否则会把右侧撑出屏幕（Row 的 weight 在固定宽容器里才生效）。
-                        modifier = Modifier.width(180.dp)
-                    ) {
-                        // 【草稿】只暂存、不落盘；点右上角「保存」才真正生效。
-                        pickAvatar(act) { path ->
-                            val staged = MyProfile.stageAvatar(act, path)
-                            if (staged.isNotEmpty()) {
-                                pendingAvatar = staged
+                    preview(
+                        image = previewPainter,
+                        fallbackIcon = painterResource(Icons.IC_CIRCLE_USER),
+                        title = "头像",
+                        subtitle = "只存在这台设备上，不会上传",
+                        actions = buildList {
+                            add(
+                                QzxPreviewAction("更换头像") {
+                                    // 【草稿】只暂存、不落盘；点右上角「保存」才真正生效。
+                                    pickAvatar(act) { path ->
+                                        val staged = MyProfile.stageAvatar(act, path)
+                                        if (staged.isNotEmpty()) {
+                                            pendingAvatar = staged
+                                        }
+                                    }
+                                }
+                            )
+                            if (canRemove) {
+                                add(
+                                    QzxPreviewAction("移除头像", destructive = true) {
+                                        // 【草稿】先标记为「移除」，保存时才真正清掉。
+                                        val p = pendingAvatar
+                                        if (p != null && p.isNotEmpty()) {
+                                            MyProfile.dropPendingAvatar(act, p)
+                                        }
+                                        pendingAvatar = ""
+                                    }
+                                )
                             }
-                        }
-                    }
-                    // 【r19·引导】用户反馈「找不到头像入口」，加一行小字说明点击哪里。
-                    // 【E16】15 汉字+符号 ≈18 视觉字：360dp 单行、320dp 小屏会换行 → 补行高，
-                    //   并移除此前放错位置、理由不符的 E16-ALLOW。
-                    Text(
-                        text = "点击「更换头像」→ 从相册选一张",
-                        color = c.sub,
-                        fontSize = UiKit.FS_TINY.sp,
-                        lineHeight = DhTokens.type.sub.lineHeight,
-                        fontFamily = DhTokens.fontsBody,
-                        modifier = Modifier.padding(top = DhDesign.Space.xs.dp, start = 2.dp)
+                        },
+                        // 【r19·引导】用户反馈「找不到头像入口」，保留那行引导文字。
+                        hint = "点击「更换头像」→ 从相册选一张"
                     )
-                    if (canRemove) {
-                        DhKit.ActionRow(
-                            spot = spot("profile.avatarClear"),
-                            iconRes = Icons.IC_TRASH,
-                            modifier = Modifier.width(180.dp)
-                        ) {
-                            // 【草稿】先标记为「移除」，保存时才真正清掉；直接返回则原头像仍在。
-                            //   若之前暂存过一张新图，把它删掉，免得留下孤儿文件。
-                            val p = pendingAvatar
-                            if (p != null && p.isNotEmpty()) {
-                                MyProfile.dropPendingAvatar(act, p)
+
+                    // ---------- 昵称 ----------
+                    input("昵称", name, icon = painterResource(Icons.IC_PEN_LINE))
+                        .hint(MyProfile.DEFAULT_NAME)
+                        .spot("profile.name")
+                        .onValueChange {
+                            // 【就地限长】与 MyProfile.NAME_MAX 同口径；超长直接不收。
+                            if (it.length <= MyProfile.NAME_MAX) {
+                                name = it
                             }
-                            pendingAvatar = ""
                         }
-                    }
+                    note(
+                        "留空就用「" + MyProfile.DEFAULT_NAME + "」，最多 " +
+                            MyProfile.NAME_MAX + " 个字。"
+                    )
+
+                    // ---------- 个性签名 ----------
+                    input("个性签名", bio, icon = painterResource(Icons.IC_USER))
+                        .hint("一句话介绍自己")
+                        .counter(MyProfile.BIO_MAX)
+                        .spot("profile.signature")
+                        .onValueChange {
+                            if (it.length <= MyProfile.BIO_MAX) {
+                                bio = it
+                            }
+                        }
+                    note("「签名」和「个性」是同一个东西，改这里就够了。")
                 }
             }
-            DhForm.Note("头像只存在这台设备上，不会上传。")
-
-            // ---------- 昵称 ----------
-            DhForm.Input(
-                value = name,
-                onValueChange = {
-                    // 【就地限长】与 [MyProfile.NAME_MAX] 同口径；超长直接不收，
-                    //   比事后提示更直接（用户不会打出半截被截断的怪异感）。
-                    if (it.length <= MyProfile.NAME_MAX) {
-                        name = it
-                    }
-                },
-                label = "昵称",
-                hint = MyProfile.DEFAULT_NAME,
-                spot = spot("profile.name")
-            )
-            DhForm.Note("留空就用「" + MyProfile.DEFAULT_NAME + "」，最多 " + MyProfile.NAME_MAX + " 个字。")
-
-            // ---------- 个性签名 ----------
-            DhForm.Input(
-                value = bio,
-                onValueChange = {
-                    if (it.length <= MyProfile.BIO_MAX) {
-                        bio = it
-                    }
-                },
-                label = "个性签名",
-                hint = "一句话介绍自己",
-                spot = spot("profile.signature"),
-                trailing = {
-                    // E16-ALLOW: 字数计数（"3/40"）：数字与斜杠，单行
-                    Text(
-                        text = bio.length.toString() + "/" + MyProfile.BIO_MAX,
-                        // 【修·可读性】原来用 c.line（分隔线色）：压在输入框的 p.field 底上只有 1.30:1，
-                        //   「3/40」这种字数计数完全读不出来。改 c.sub（唯一被夹到 ≥4.5 的次要文字槽）。
-                        color = c.sub,
-                        fontSize = UiKit.FS_TINY.sp,
-                        fontFamily = DhTokens.fonts
-                    )
-                }
-            )
-            DhForm.Note("「签名」和「个性」是同一个东西，改这里就够了。")
         }
     }
-
     /**
      * 选一张头像（【r20】只从相册选）。
      *
