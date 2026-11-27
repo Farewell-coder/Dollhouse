@@ -93,6 +93,17 @@ object MemSettingsPage {
         // 每次改动都 bump 一次，让控件立刻反映到界面（prefs 是同步读的）。
         var tick by remember { mutableStateOf(0) }
 
+        // 【状态必须在组合期读】QzxList 的 DSL lambda 不是 @Composable，
+        //   在里面调 remember 会编译不过 —— 统一在这里读好，lambda 里只引用变量。
+        val mem2AutoVal = remember(tick) { PetPrefs.mem2Auto(act) }
+        val mem2SearchVal = remember(tick) { PetPrefs.mem2Search(act) }
+        val mem2IntervalIdx = remember(tick) { PetPrefs.mem2IntervalIndex(act) }
+        val mem2ModeVal = remember(tick) { PetPrefs.mem2Mode(act) }
+        val mem2WkVal = remember(tick) { PetPrefs.mem2KeywordWeight(act) }
+        val mem2WtVal = remember(tick) { PetPrefs.mem2TagWeight(act) }
+        val mem2WeVal = remember(tick) { PetPrefs.mem2EdgeWeight(act) }
+        var memRule by remember(tick) { mutableStateOf(PetPrefs.memExtractRule(act)) }
+
         QzxPage(
             title = "记忆库设置",
 
@@ -107,14 +118,14 @@ object MemSettingsPage {
                     note("开着她才会在聊天里自己记东西；关掉后只能手动加。")
                     switch(
                         "自动整理",
-                        checked = remember(tick) { PetPrefs.mem2Auto(act) },
+                        checked = mem2AutoVal,
                         iconRes = Icons.IC_SAVE
                     ).spot("mem.autosave")
                         .onChecked { on ->
                             PetPrefs.setMem2Auto(act, on)
                             tick++
                         }
-                    val idx = remember(tick) { PetPrefs.mem2IntervalIndex(act) }
+                    val idx = mem2IntervalIdx
                     stepper(
                         title = "整理间隔",
                         value = PetPrefs.MEM2_INTERVALS[idx].toString() + " 分钟",
@@ -138,14 +149,14 @@ object MemSettingsPage {
                         "写一段你的要求，会拼进抽取时的提示词。" +
                             "比如「只记项目决策和我的偏好，按项目分类」。"
                     )
-                    var rule by remember(tick) { mutableStateOf(PetPrefs.memExtractRule(act)) }
-                    input("提取规则", rule)
+                    
+                    input("提取规则", memRule)
                         .hint("留空表示不加额外规则")
                         .multiline(minHeight = 80)
-                        .onValueChange { rule = it }
+                        .onValueChange { memRule = it }
                     buttons(
                         QzxButtonSpec("保存规则", style = QzxButtonStyle.Primary) {
-                            PetPrefs.setMemExtractRule(act, rule)
+                            PetPrefs.setMemExtractRule(act, memRule)
                             tick++
                         }
                     )
@@ -156,7 +167,7 @@ object MemSettingsPage {
                     note("开着时，每次开口前按相关性挑几条记忆带上；关掉就只按时间取最近的。")
                     switch(
                         "按相关性检索",
-                        checked = remember(tick) { PetPrefs.mem2Search(act) },
+                        checked = mem2SearchVal,
                         iconRes = Icons.IC_SCAN
                     ).spot("mem.retrieve")
                         .onChecked { on ->
@@ -165,7 +176,7 @@ object MemSettingsPage {
                         }
 
                     // 模式：一键预设三档权重。
-                    val mode = remember(tick) { PetPrefs.mem2Mode(act) }
+                    val mode = mem2ModeVal
                     stepper(
                         title = "检索模式",
                         value = MODE_NAMES[mode],
@@ -183,7 +194,7 @@ object MemSettingsPage {
                     note("平衡：三者兼顾；关键词优先：只认字面命中；关联优先：顺着记忆之间的连线找。")
 
                     // 权重细调：0~10。
-                    val wk = remember(tick) { PetPrefs.mem2KeywordWeight(act) }
+                    val wk = mem2WkVal
                     stepper(
                         title = "关键词权重",
                         value = wk.toString(),
@@ -193,7 +204,7 @@ object MemSettingsPage {
                         onMinus = { PetPrefs.setMem2KeywordWeight(act, wk - 1); tick++ },
                         onPlus = { PetPrefs.setMem2KeywordWeight(act, wk + 1); tick++ }
                     )
-                    val wt = remember(tick) { PetPrefs.mem2TagWeight(act) }
+                    val wt = mem2WtVal
                     stepper(
                         title = "标签权重",
                         value = wt.toString(),
@@ -203,7 +214,7 @@ object MemSettingsPage {
                         onMinus = { PetPrefs.setMem2TagWeight(act, wt - 1); tick++ },
                         onPlus = { PetPrefs.setMem2TagWeight(act, wt + 1); tick++ }
                     )
-                    val we = remember(tick) { PetPrefs.mem2EdgeWeight(act) }
+                    val we = mem2WeVal
                     stepper(
                         title = "连线权重",
                         value = we.toString(),

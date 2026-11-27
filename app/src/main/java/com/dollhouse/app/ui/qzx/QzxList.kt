@@ -1064,7 +1064,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                                 painter = painterResource(tIcon),
                                 contentDescription = null,
                                 tint = c.sub,
-                                modifier = Modifier.size(QzxTokens.Space.xl.dp)
+                                modifier = Modifier.size(QzxTokens.Space.xl)
                             )
                         }
                     }
