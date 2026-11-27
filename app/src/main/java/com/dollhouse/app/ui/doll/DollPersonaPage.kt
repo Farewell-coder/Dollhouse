@@ -21,8 +21,9 @@ import com.dollhouse.app.data.DollStore
 import com.dollhouse.app.data.InjectPos
 import com.dollhouse.app.data.PersonaSpec
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.label
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Icons
 
@@ -120,191 +121,147 @@ object DollPersonaPage {
             tick++
         }
 
-        DhKit.Page(
-            title = "角色设定",
-            sub = if (name.isNotEmpty()) name else "这只人偶的人设",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
-            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
-            adaptiveTitle = true
-        ) {
-            /* ==================== ① 基础 ==================== */
-            DhKit.Card(collapsibleTitle = "基础", titleIcon = Icons.IC_BOOK_HEART) {
-                DhForm.Note("这几段合起来构成「她是谁」，会作为人设整段交给模型。")
-                DhForm.Input(
-                    value = brief,
-                    onValueChange = { brief = it; save { s -> s.brief = it } },
-                    label = "一句话简介",
-                    hint = "例：住在手机屏幕上的鲸鱼娘"
-                )
-                DhForm.InputMultiline(
-                    value = personaText,
-                    onValueChange = {
-                        personaText = it
-                        // 性格是长文本，用户可能写一大段后直接按返回键；
-                        // 即时落盘比「忘记点保存」丢内容安全得多。
-                        DollProfile.setPersona(act, id, it)
-                    },
-                    label = "性格描述",
-                    hint = "写这只人偶的性格、语气、说话习惯等",
-                    minHeight = 160
-                )
-                DhForm.Note("当前 " + personaText.length + " 字。")
-                DhForm.InputMultiline(
-                    value = scenario,
-                    onValueChange = { scenario = it; save { s -> s.scenario = it } },
-                    label = "世界观 / 场景",
-                    hint = "例：故事发生在一个虚构的 GalGame 世界里，与现实无关",
-                    minHeight = 90
-                )
-                DhForm.InputMultiline(
-                    value = style,
-                    onValueChange = { style = it; save { s -> s.style = it } },
-                    label = "说话风格",
-                    hint = "例：说话简短，爱用反问，句尾常带「呢」",
-                    minHeight = 90
-                )
-                Row(modifier = Modifier.fillMaxWidth().padding(top = DhKit.GAP_ROW.dp)) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        DhForm.Input(
-                            value = callsYou,
-                            onValueChange = { callsYou = it; save { s -> s.callsYou = it } },
-                            label = "她怎么叫你",
-                            hint = "主人"
-                        )
-                    }
-                    Spacer(Modifier.width(DhKit.GAP_ROW.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        DhForm.Input(
-                            value = youCall,
-                            onValueChange = { youCall = it; save { s -> s.youCall = it } },
-                            label = "你怎么叫她",
-                            hint = "小肥鱼"
-                        )
-                    }
-                }
-            }
+        // 【状态必须在组合期读】QzxList 的 DSL lambda 不是 @Composable ——
+        //   在里面调 remember 会编译不过，所以三个集合先在这里算好。
+        val injs = remember(id, tick) { DollProfile.spec(act, id).injections }
+        val lores = remember(id, tick) { DollProfile.spec(act, id).lore }
+        val rules = remember(id, tick) { DollProfile.spec(act, id).rules }
 
-            /* ==================== ② 对话 ==================== */
-            DhKit.Card(collapsibleTitle = "对话", titleIcon = Icons.IC_MESSAGE_SQUARE) {
-                DhForm.Note("影响「一开口」的样子，不改变她是谁。")
-                DhForm.InputMultiline(
-                    value = greeting,
-                    onValueChange = { greeting = it; save { s -> s.greeting = it } },
-                    label = "开场白",
-                    hint = "新建对话时她说的第一句；留空则不自动开口",
-                    minHeight = 90
-                )
-                if (greeting.trim().isNotEmpty()) {
-                    DhKit.ActionRow(
-                        label = "在聊天里重放开场白",
-                        iconRes = Icons.IC_CHAT,
-                        trailing = if (greetingReplayed) "已重放" else null
-                    ) {
-                        if (DollGreeting.insert(act, id)) {
-                            greetingReplayed = true
+        QzxPage(
+            title = "角色设定",
+            subtitle = if (name.isNotEmpty()) name else "这只人偶的人设",
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            backIconRes = Icons.IC_ARROW_LEFT,
+        ) {
+            QzxList {
+                /* ==================== ① 基础 ==================== */
+                section("basic", title = "基础", titleIconRes = Icons.IC_BOOK_HEART, collapsible = true) {
+                    note("这几段合起来构成「她是谁」，会作为人设整段交给模型。")
+                    input("一句话简介", brief)
+                        .hint("例：住在手机屏幕上的鲸鱼娘")
+                        .onValueChange { brief = it; save { s -> s.brief = it } }
+                    input("性格描述", personaText)
+                        .hint("写这只人偶的性格、语气、说话习惯等")
+                        .multiline(160)
+                        .onValueChange {
+                            personaText = it
+                            // 性格是长文本，用户可能写一大段后直接按返回键；
+                            // 即时落盘比「忘记点保存」丢内容安全得多。
+                            DollProfile.setPersona(act, id, it)
+                        }
+                    note("当前 " + personaText.length + " 字。")
+                    input("世界观 / 场景", scenario)
+                        .hint("例：故事发生在一个虚构的 GalGame 世界里，与现实无关")
+                        .multiline(90)
+                        .onValueChange { scenario = it; save { s -> s.scenario = it } }
+                    input("说话风格", style)
+                        .hint("例：说话简短，爱用反问，句尾常带「呢」")
+                        .multiline(90)
+                        .onValueChange { style = it; save { s -> s.style = it } }
+                    // 【原来是并排两列】QzxList 没有并排行型 —— 拆成两行，功能不变。
+                    input("她怎么叫你", callsYou)
+                        .hint("主人")
+                        .onValueChange { callsYou = it; save { s -> s.callsYou = it } }
+                    input("你怎么叫她", youCall)
+                        .hint("小肥鱼")
+                        .onValueChange { youCall = it; save { s -> s.youCall = it } }
+                }
+
+                /* ==================== ② 对话 ==================== */
+                section("talk", title = "对话", titleIconRes = Icons.IC_MESSAGE_SQUARE, collapsible = true) {
+                    note("影响「一开口」的样子，不改变她是谁。")
+                    input("开场白", greeting)
+                        .hint("新建对话时她说的第一句；留空则不自动开口")
+                        .multiline(90)
+                        .onValueChange { greeting = it; save { s -> s.greeting = it } }
+                    if (greeting.trim().isNotEmpty()) {
+                        item(
+                            "在聊天里重放开场白",
+                            value = if (greetingReplayed) "已重放" else null,
+                            iconRes = Icons.IC_CHAT,
+                        ).arrow().onClick {
+                            if (DollGreeting.insert(act, id)) {
+                                greetingReplayed = true
+                            }
                         }
                     }
+                    input("示例对话", examples)
+                        .hint("写两三句示范语气，模型会照着这个调子说话")
+                        .multiline(120)
+                        .onValueChange { examples = it; save { s -> s.examples = it } }
+                    input("标签", tags)
+                        .hint("用逗号分隔，例：日常，治愈，傲娇")
+                        .onValueChange { tags = it; save { s -> s.tags = it } }
                 }
-                DhForm.InputMultiline(
-                    value = examples,
-                    onValueChange = { examples = it; save { s -> s.examples = it } },
-                    label = "示例对话",
-                    hint = "写两三句示范语气，模型会照着这个调子说话",
-                    minHeight = 120
-                )
-                DhForm.Input(
-                    value = tags,
-                    onValueChange = { tags = it; save { s -> s.tags = it } },
-                    label = "标签",
-                    hint = "用逗号分隔，例：日常，治愈，傲娇"
-                )
-            }
 
-            /* ==================== ③ 高级 ==================== */
-            DhKit.Card(collapsibleTitle = "高级", titleIcon = Icons.IC_SLIDERS_HORIZONTAL) {
-                DhForm.Note("这几项控制设定「怎么进请求」，看不懂可以完全不填。")
+                /* ==================== ③ 高级 ==================== */
+                section("advanced", title = "高级", titleIconRes = Icons.IC_SLIDERS_HORIZONTAL, collapsible = true) {
+                    note("这几项控制设定「怎么进请求」，看不懂可以完全不填。")
+                    input("后置指令", postscript)
+                        .hint("例：永远不要跳出角色，也不要提及你是 AI")
+                        .multiline(80)
+                        .onValueChange { postscript = it; save { s -> s.postscript = it } }
+                    note("后置指令放在请求最末尾，权重最高 —— 适合写「铁的规矩」。")
 
-                // ---- 后置指令 ----
-                DhForm.InputMultiline(
-                    value = postscript,
-                    onValueChange = { postscript = it; save { s -> s.postscript = it } },
-                    label = "后置指令",
-                    hint = "例：永远不要跳出角色，也不要提及你是 AI",
-                    minHeight = 80
-                )
-                DhForm.Note("后置指令放在请求最末尾，权重最高 —— 适合写「铁的规矩」。")
+                    label("常驻注入", iconRes = Icons.IC_PLUG)
+                    note("不看对话内容，每轮都塞进去。适合放铁的规则。")
+                    for (inj in injs) {
+                        item(
+                            (if (inj.name.isEmpty()) "未命名注入" else inj.name)
+                                    + "（" + InjectPos.label(inj.position) + "）",
+                            iconRes = Icons.IC_PLUG,
+                        ).arrow().onClick {
+                            DollInjectDialog.show(act, id, inj.id) { tick++ }
+                        }
+                    }
+                    item("新增常驻注入", iconRes = Icons.IC_PLUS).arrow().onClick {
+                        DollInjectDialog.show(act, id, null) { tick++ }
+                    }
 
-                // ---- 常驻注入 ----
-                DhKit.CardTitle("常驻注入", iconRes = Icons.IC_PLUG)
-                DhForm.Note("不看对话内容，每轮都塞进去。适合放铁的规则。")
-                val injs = remember(id, tick) { DollProfile.spec(act, id).injections }
-                for (inj in injs) {
-                    DhKit.ActionRow(
-                        label = (if (inj.name.isEmpty()) "未命名注入" else inj.name)
-                                + "（" + InjectPos.label(inj.position) + "）",
-                        iconRes = Icons.IC_PLUG,
-                        showChevron = true
-                    ) {
-                        DollInjectDialog.show(act, id, inj.id) { tick++ }
+                    label("世界书", iconRes = Icons.IC_BOOK_OPEN)
+                    note("关键词命中才注入 —— 不聊到就不占上下文。适合放支线设定。")
+                    for (e in lores) {
+                        val label = if (e.name.isEmpty()) "未命名条目" else e.name
+                        val hit = if (e.constantActive) "常驻" else (e.keywords.size.toString() + " 个关键词")
+                        item(label, value = hit, iconRes = Icons.IC_BOOK_OPEN).arrow().onClick {
+                            DollLoreDialog.show(act, id, e.id) { tick++ }
+                        }
+                    }
+                    item("新增世界书条目", iconRes = Icons.IC_PLUS).arrow().onClick {
+                        DollLoreDialog.show(act, id, null) { tick++ }
+                    }
+
+                    label("输出替换", iconRes = Icons.IC_REFRESH)
+                    note("按正则清洗对话文本，用于去掉多余的旁白、动作描写等。")
+                    for (r in rules) {
+                        item(
+                            if (r.name.isEmpty()) "未命名规则" else r.name,
+                            value = if (r.enabled) "启用" else "已停用",
+                            iconRes = Icons.IC_REFRESH,
+                        ).arrow().onClick {
+                            DollRuleDialog.show(act, id, r.id) { tick++ }
+                        }
+                    }
+                    item("新增替换规则", iconRes = Icons.IC_PLUS).arrow().onClick {
+                        DollRuleDialog.show(act, id, null) { tick++ }
                     }
                 }
-                DhKit.ActionRow(label = "新增常驻注入", iconRes = Icons.IC_PLUS) {
-                    DollInjectDialog.show(act, id, null) { tick++ }
-                }
 
-                // ---- 世界书 ----
-                DhKit.CardTitle("世界书", iconRes = Icons.IC_BOOK_OPEN)
-                DhForm.Note("关键词命中才注入 —— 不聊到就不占上下文。适合放支线设定。")
-                val lores = remember(id, tick) { DollProfile.spec(act, id).lore }
-                for (e in lores) {
-                    val label = if (e.name.isEmpty()) "未命名条目" else e.name
-                    val hit = if (e.constantActive) "常驻" else (e.keywords.size.toString() + " 个关键词")
-                    DhKit.ActionRow(label = label, iconRes = Icons.IC_BOOK_OPEN, trailing = hit) {
-                        DollLoreDialog.show(act, id, e.id) { tick++ }
+                /* ==================== ④ 提示词与角色卡 ==================== */
+                section("prompt", title = "提示词与角色卡", titleIconRes = Icons.IC_QUOTE, collapsible = true) {
+                    item("查看实际提示词", iconRes = Icons.IC_EYE).arrow().onClick {
+                        DollPromptPreview.show(act, id)
                     }
-                }
-                DhKit.ActionRow(label = "新增世界书条目", iconRes = Icons.IC_PLUS) {
-                    DollLoreDialog.show(act, id, null) { tick++ }
-                }
-
-                // ---- 输出替换 ----
-                DhKit.CardTitle("输出替换", iconRes = Icons.IC_REFRESH)
-                DhForm.Note("按正则清洗对话文本，用于去掉多余的旁白、动作描写等。")
-                val rules = remember(id, tick) { DollProfile.spec(act, id).rules }
-                for (r in rules) {
-                    DhKit.ActionRow(
-                        label = if (r.name.isEmpty()) "未命名规则" else r.name,
-                        iconRes = Icons.IC_REFRESH,
-                        trailing = if (r.enabled) "启用" else "已停用"
-                    ) {
-                        DollRuleDialog.show(act, id, r.id) { tick++ }
+                    note("会拼出这一轮真正发给模型的人设，包含命中的世界书。")
+                    item("导入角色卡", iconRes = Icons.IC_DOWNLOAD).arrow().onClick {
+                        DollCardIO.pickImport(act, id) { tick++ }
                     }
-                }
-                DhKit.ActionRow(label = "新增替换规则", iconRes = Icons.IC_PLUS) {
-                    DollRuleDialog.show(act, id, null) { tick++ }
+                    note(
+                        "支持酒馆（Tavern）角色卡与 Dollhouse 导出的角色卡。\n" +
+                            "想把这只人偶完整带走（含聊天与图片），请用设置页的「一键全量备份」。"
+                    )
                 }
             }
-
-            /* ==================== ④ 提示词与角色卡 ==================== */
-            DhKit.Card(collapsibleTitle = "提示词与角色卡", titleIcon = Icons.IC_QUOTE) {
-                DhKit.ActionRow(label = "查看实际提示词", iconRes = Icons.IC_EYE, showChevron = true) {
-                    DollPromptPreview.show(act, id)
-                }
-                DhForm.Note("会拼出这一轮真正发给模型的人设，包含命中的世界书。")
-                DhKit.ActionRow(label = "导入角色卡", iconRes = Icons.IC_DOWNLOAD) {
-                    DollCardIO.pickImport(act, id) { tick++ }
-                }
-                // 【v0.2.8·本条卡片的「导出角色卡」已删】它只能导出**这一只**人偶的人设，
-                //   而用户以为自己在做备份 —— 换机后聊天记录、记忆、图片全都不在。
-                //   现在统一走设置页的「一键全量备份」（全量存档里逐字段含人设，
-                //   见 AllInOneArchive 的 persona 段），这里只保留**外部来源**的导入。
-                DhForm.Note(
-                    "支持酒馆（Tavern）角色卡与 Dollhouse 导出的角色卡。\n" +
-                        "想把这只人偶完整带走（含聊天与图片），请用设置页的「一键全量备份」。"
-                )
-            }
-
-            Spacer(Modifier.height(DhKit.GAP_CARD.dp))
         }
     }
 }
