@@ -19,10 +19,9 @@ import androidx.compose.ui.unit.dp
 import com.dollhouse.app.MainActivity
 import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
-import com.dollhouse.app.ui.compose.DhTokens
-import com.dollhouse.app.ui.design.DhDesign
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.theme.Icons
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -61,7 +60,6 @@ object DollTalkPage {
 
     @Composable
     private fun Content(act: MainActivity, id: String) {
-        val c = DhTokens.colors
         // 【为什么要一份本地列表】直接每次读盘会让「正在输入的空行」在重组时被吞掉
         //   （空串不会被 setTalkLines 保存）。本地列表保住用户正在敲的那一行。
         val lines = remember(id) { DollProfile.talkLines(act, id).toMutableStateList() }
@@ -73,45 +71,38 @@ object DollTalkPage {
             DollProfile.setTalkLines(act, id, lines.filter { it.isNotEmpty() })
         }
 
-        DhKit.Page(
+        QzxPage(
             title = "交谈内容",
-            sub = "台词列表",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            subtitle = "台词列表",
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            backIcon = Icons.IC_ARROW_LEFT,
         ) {
-            DhForm.Note("一条一句话，没有字数限制；改动即时保存。空行不会被保存。")
-            if (lines.isEmpty()) {
-                DhForm.Note("还没有台词，点下面的「增加一条」开始写。")
-            }
-            for (i in 0 until lines.size) {
-                // key 里带 tick：删掉中间一条后，后续输入框会重建而不是错位继承上一行的内容。
-                key("talk-" + tick + "-" + i) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DhForm.Input(
-                            value = lines[i],
-                            onValueChange = {
+            QzxList {
+                section(id = "talk") {
+                    note("一条一句话，没有字数限制；改动即时保存。空行不会被保存。")
+                    if (lines.isEmpty()) {
+                        note("还没有台词，点下面的「增加一条」开始写。")
+                    }
+                    // 【为什么不逐行 key()】QzxList 每次重组都重建模型，
+                    //   行的 title/value 每次从 lines[i] 重新取 —— 删掉中间一条也不会错位继承。
+                    for (i in lines.indices) {
+                        input("第 " + (i + 1) + " 条台词", lines[i])
+                            .hint("输入台词")
+                            .onValueChange {
                                 lines[i] = it
                                 flush()
-                            },
-                            modifier = Modifier.weight(1f),
-                            hint = "第 " + (i + 1) + " 条台词"
-                        )
-                        Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                        DhKit.IconButton(Icons.IC_TRASH, Design.SZ_MD, c.sub, label = "删除") {
-                            lines.removeAt(i)
-                            flush()
-                            tick++
-                        }
+                            }
+                            // 尾置删除：与旧 DhKit.IconButton(Icons.IC_TRASH) 同一个动作。
+                            .trailing(Icons.IC_TRASH) {
+                                lines.removeAt(i)
+                                flush()
+                                tick++
+                            }
+                    }
+                    item("增加一条", iconRes = Icons.IC_PLUS).arrow().onClick {
+                        lines.add("")
                     }
                 }
-            }
-            DhKit.ActionRow(
-                label = "增加一条",
-                iconRes = Icons.IC_PLUS
-            ) {
-                lines.add("")
             }
         }
     }
