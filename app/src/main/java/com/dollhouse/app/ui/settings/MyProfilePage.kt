@@ -71,6 +71,13 @@ object MyProfilePage {
     private fun Content(act: MainActivity) {
         // 【重读信号】与抽屉共用 [ProfileState]：本页保存后 bump，抽屉头部随之刷新。
         val tick = ProfileState.tick
+
+        // 【必须在组合期算】QzxList 的 DSL lambda 不是 @Composable，remember 不能写在里面。
+        //   这里先算好头像位图，lambda 里只引用变量。
+        val shownBmp: android.graphics.Bitmap? = avatar
+        val previewPainter = remember(shownBmp) {
+            shownBmp?.takeIf { !it.isRecycled }?.let { BitmapPainter(it.asImageBitmap()) }
+        }
         var name by remember(tick) { mutableStateOf(MyProfile.name(act).let { if (it == MyProfile.DEFAULT_NAME) "" else it }) }
         var bio by remember(tick) { mutableStateOf(MyProfile.bio(act)) }
         // 【草稿态头像】null = 未改动（沿用已生效的头像）；"" = 用户点了「移除」；
@@ -140,7 +147,7 @@ object MyProfilePage {
                 DhKit.IconButton(
                     iconRes = Icons.IC_SAVE,
                     sizeDp = Design.SZ_MD,
-                    color = c.title,
+                    color = QzxColors.title,
                     label = "保存"
                 ) {
                     commit()
@@ -154,13 +161,6 @@ object MyProfilePage {
                     // ---------- 头像 ----------
                     // 【数据驱动的预览块】旧版是自绘 Row（圆形预览 + 两个限宽 180dp 的按钮行
                     //   + 引导小字）。这里只给"图 + 标题 + 动作列表 + 提示"，圆形裁剪、行高、
-                    //   危险色全归系统 —— 页面里一个尺寸数字都不用写。
-                    val bmp: android.graphics.Bitmap? = avatar
-                    val shown: android.graphics.Bitmap? =
-                        if (bmp != null && !bmp.isRecycled) bmp else null
-                    val previewPainter = remember(shown) {
-                        shown?.let { BitmapPainter(it.asImageBitmap()) }
-                    }
                     preview(
                         image = previewPainter,
                         fallbackIconRes = Icons.IC_CIRCLE_USER,
@@ -196,7 +196,7 @@ object MyProfilePage {
                     )
 
                     // ---------- 昵称 ----------
-                    input("昵称", name, iconRes = Icons.IC_PEN_LINE)
+                    input("昵称", name, iconRes = Icons.IC_PEN_TOOL)
                         .hint(MyProfile.DEFAULT_NAME)
                         .spot("profile.name")
                         .onValueChange {
@@ -211,7 +211,7 @@ object MyProfilePage {
                     )
 
                     // ---------- 个性签名 ----------
-                    input("个性签名", bio, iconRes = Icons.IC_USER)
+                    input("个性签名", bio, iconRes = Icons.IC_USER_ROUND)
                         .hint("一句话介绍自己")
                         .counter(MyProfile.BIO_MAX)
                         .spot("profile.signature")
