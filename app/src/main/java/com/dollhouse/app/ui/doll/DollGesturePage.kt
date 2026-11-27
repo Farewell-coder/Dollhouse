@@ -12,8 +12,10 @@ import com.dollhouse.app.data.DollProfile
 import com.dollhouse.app.pet.GestureActions
 import com.dollhouse.app.pet.GestureCore
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxDialog
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.label
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.theme.Icons
 
@@ -69,19 +71,29 @@ object DollGesturePage {
         var tick by remember(id) { mutableStateOf(0) }
         var picking by remember(id) { mutableStateOf<String?>(null) }
 
-        DhKit.Page(
+        // 【状态必须在组合期读】每个手势当前绑定的动作集合先算好，lambda 里只读。
+        val actionsByGesture = remember(id, tick) {
+            GestureCore.GESTURES.associateWith { DollProfile.gestureActions(act, id, it) }
+        }
+
+        QzxPage(
             title = "操作",
-            sub = "手势响应",
-            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) }
+            subtitle = "手势响应",
+            onBack = { PageStack.popIfTopStartsWith(act, PREFIX) },
+            backIconRes = Icons.IC_ARROW_LEFT,
         ) {
-            DhForm.Note("点一条手势，勾选它要触发的动作；可多选，勾「无」表示清空。")
-            for (g in GestureCore.GESTURES) {
-                val set = remember(id, tick, g) { DollProfile.gestureActions(act, id, g) }
-                DhKit.ActionRow(
-                    label = GestureActions.gestureName(g),
-                    iconRes = gestureIcon(g),
-                    trailing = GestureActions.label(set)
-                ) { picking = g }
+            QzxList {
+                section("gesture") {
+                    note("点一条手势，勾选它要触发的动作；可多选，勾「无」表示清空。")
+                    for (g in GestureCore.GESTURES) {
+                        val set = actionsByGesture[g].orEmpty()
+                        item(
+                            GestureActions.gestureName(g),
+                            value = GestureActions.label(set),
+                            iconRes = gestureIcon(g),
+                        ).arrow().onClick { picking = g }
+                    }
+                }
             }
         }
 
@@ -141,14 +153,21 @@ object DollGesturePage {
             out
         }
 
-        DhForm.Alert(
+        QzxDialog(
+            visible = true,
             title = GestureActions.gestureName(gesture),
-            onDismiss = onClose
+            dismissText = "完成",
+            onDismiss = onClose,
         ) {
+            QzxList {
+                section("pick") {
             for (i in keys.indices) {
                 val key = keys[i]
                 val selected = if (key == null) set.isEmpty() else set.contains(key)
-                DhKit.CheckRow(text = labels[i], selected = selected) {
+                item(
+                    labels[i],
+                    iconRes = if (selected) Icons.IC_CHECK else Icons.IC_CLOSE,
+                ).onClick {
                     val now = DollProfile.gestureActions(act, id, gesture)
                     if (key == null) {
                         now.clear()
@@ -169,10 +188,9 @@ object DollGesturePage {
             //   「在现有弹窗里增加「播放动作」选项组（**不新建独立页面**）」
             //   理由也实在：手势配置的全部信息就在这一个弹窗里，
             //   跳出去再跳回来，用户会忘了自己刚在配哪个手势。
-            DhForm.Gap()
-            DhKit.SectionLabel("播放动作（可多选，只播最后一个）")
+            label("播放动作（可多选，只播最后一个）")
             if (playable.isEmpty()) {
-                DhForm.Note(
+                note(
                     "这只人偶还没有可播放的手动动作。到「动作」页新建一个（放进「手动动作」组）" +
                         "并给它加上帧，它就会出现在这里。"
                 )
@@ -180,13 +198,13 @@ object DollGesturePage {
                 for (a in playable) {
                     val value = GestureActions.actValue(a.id)
                     val on = set.contains(value)
-                    DhKit.CheckRow(
+                    item(
                         // 【为什么标注「默认」】默认动作在待机时本来就会播；
                         //   用户可能只是想把它也绑到某个手势上（比如点一下重播），
                         //   标出来能避免「怎么两个一样的」这种困惑。
-                        text = a.name + (if (a.isDefault) "（默认）" else ""),
-                        selected = on
-                    ) {
+                        a.name + (if (a.isDefault) "（默认）" else ""),
+                        iconRes = if (on) Icons.IC_CHECK else Icons.IC_CLOSE,
+                    ).onClick {
                         val now = DollProfile.gestureActions(act, id, gesture)
                         if (on) {
                             now.remove(value)
@@ -198,10 +216,12 @@ object DollGesturePage {
                         onChanged()
                     }
                 }
-                DhForm.Note(
+                note(
                     "绑了动作后，如果同一条手势还勾了「交谈」，两个都会生效：" +
                         "一边弹提示、一边播动作。"
                 )
+            }
+                }
             }
         }
     }
