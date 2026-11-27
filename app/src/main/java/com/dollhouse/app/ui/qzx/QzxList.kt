@@ -475,7 +475,7 @@ class QzxInputBuilder internal constructor(
             valueTint = valueTintColor,
             counterMax = counterLimit,
             multilineMinHeight = multilineHeight,
-            trailingIcon = trailingIconValue,
+            trailingIconRes = trailingIconResValue,
             trailingAction = trailingActionValue
         )
 }
