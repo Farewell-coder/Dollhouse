@@ -126,13 +126,21 @@ object DollGroupPage {
             }
             out
         }
-        val icBuiltin = painterResource(Icons.IC_WHALE)
-        val icUser = painterResource(Icons.IC_USER_ROUND)
-        val icCheck = painterResource(Icons.IC_CHECK)
+        // 【图标用 Int 资源 id】QzxList 的 DSL lambda 不是 @Composable，
+        //   在里面调 painterResource 会编译不过 —— 直接传 Icons.IC_*（它本身就是 R.drawable.*）。
+        val icBuiltin = Icons.IC_WHALE
+        val icUser = Icons.IC_USER_ROUND
+        val icCheck = Icons.IC_CHECK
 
-        /** 一行人偶的左侧图标：有封面用封面，没有就用「内置 / 自定义」的代表图标。 */
-        fun rowIcon(d: DollStore.Doll): Painter =
-            covers[d.id] ?: if (d.builtin) icBuiltin else icUser
+        /**
+         * 一行人偶的左侧图标。
+         * 【为什么返回两个值】封面是**运行时位图**（`BitmapPainter`），没有资源 id；
+         *   没有封面时才回退到资源图标。两者本质不同，不能强行统一成一个类型。
+         */
+        fun rowIconRes(d: DollStore.Doll): Int? =
+            if (covers[d.id] == null) (if (d.builtin) icBuiltin else icUser) else null
+
+        fun rowIconPainter(d: DollStore.Doll): Painter? = covers[d.id]
 
         QzxPage(
             title = "分组管理",
@@ -205,7 +213,7 @@ object DollGroupPage {
                             )
                         }
                         for (d in dolls) {
-                            item(d.name, icon = rowIcon(d)).arrow().onClick {
+                            item(d.name, iconRes = rowIconRes(d), iconPainter = rowIconPainter(d)).arrow().onClick {
                                 movingDoll = d.id
                             }
                         }
@@ -229,7 +237,8 @@ object DollGroupPage {
                         item(
                             d.name,
                             value = d.group.ifEmpty { DollStore.GROUP_NONE },
-                            icon = rowIcon(d),
+                            iconRes = rowIconRes(d),
+                            iconPainter = rowIconPainter(d),
                         ).arrow().onClick { movingDoll = d.id }
                     }
                 }
@@ -343,7 +352,7 @@ object DollGroupPage {
                         // 【选中态 = 对勾图标】旧 `CheckRow(selected)` 的等价物。
                         for (n in allNames) {
                             val cur = doll != null && doll.group == n
-                            item(n, icon = if (cur) icCheck else null).onClick {
+                            item(n, iconRes = if (cur) icCheck else null).onClick {
                                 DollGroups.assign(act, moving, n)
                                 movingDoll = null
                                 tick++
@@ -358,7 +367,7 @@ object DollGroupPage {
                         val noneCur = doll != null && doll.group.isEmpty()
                         item(
                             DollStore.GROUP_NONE,
-                            icon = if (noneCur) icCheck else null
+                            iconRes = if (noneCur) icCheck else null
                         ).onClick {
                             DollGroups.assign(act, moving, "")
                             movingDoll = null

@@ -26,7 +26,6 @@ import com.dollhouse.app.data.PersonaChatConfigStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
 import androidx.compose.ui.res.painterResource
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.qzx.QzxColors
@@ -43,7 +42,6 @@ object FriendModelConfigPage {
         return ComposeHost.createView(act) { Content(act, personaId, conversationId) }
     }
     @Composable private fun Content(act: MainActivity, personaId: String, conversationId: String) {
-        val c = DhTokens.colors
         // conversationId 由入口显式冻结，避免编辑期间切会话后保存到另一会话。
         val initial = remember { PersonaChatConfigStore.load(act, personaId, conversationId) }
         var overrideModel by remember { mutableStateOf(!initial.providerId.isNullOrEmpty() || !initial.modelId.isNullOrEmpty()) }

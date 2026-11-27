@@ -123,6 +123,17 @@ sealed interface QzxRow {
         /** 行前置图标（由调用方给 painter，新系统不持有任何图标资源）。*/
         /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
         val iconRes: Int? = null,
+        /**
+         * 已解析的位图图标（如人偶封面 `BitmapPainter`）。
+         *
+         * 【为什么它与 `iconRes` 并存，而不是"两条路"】
+         *   `iconRes` 是**编译期常量**（`Icons.IC_WHALE`），渲染期用 `painterResource` 解析；
+         *   `iconPainter` 是**运行时位图**（用户上传的封面），根本没有资源 id 可给。
+         *   两者对应两类本质不同的东西 —— 不是同一个能力的两种写法。
+         *
+         *   优先级：`iconRes` 非空时用资源，否则用 `iconPainter`。
+         */
+        val iconPainter: Painter? = null,
         /** 副说明：有值时行高自动升到 `rowTwoLine`。*/
         val desc: String? = null,
         /** 值文字的颜色覆盖（null = 默认副文本色）。*/
@@ -149,6 +160,17 @@ sealed interface QzxRow {
         val spotId: String? = null,
         /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
         val iconRes: Int? = null,
+        /**
+         * 已解析的位图图标（如人偶封面 `BitmapPainter`）。
+         *
+         * 【为什么它与 `iconRes` 并存，而不是"两条路"】
+         *   `iconRes` 是**编译期常量**（`Icons.IC_WHALE`），渲染期用 `painterResource` 解析；
+         *   `iconPainter` 是**运行时位图**（用户上传的封面），根本没有资源 id 可给。
+         *   两者对应两类本质不同的东西 —— 不是同一个能力的两种写法。
+         *
+         *   优先级：`iconRes` 非空时用资源，否则用 `iconPainter`。
+         */
+        val iconPainter: Painter? = null,
         val desc: String? = null,
         val valueTint: Color? = null
     ) : QzxRow
@@ -161,6 +183,17 @@ sealed interface QzxRow {
         val spotId: String? = null,
         /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
         val iconRes: Int? = null,
+        /**
+         * 已解析的位图图标（如人偶封面 `BitmapPainter`）。
+         *
+         * 【为什么它与 `iconRes` 并存，而不是"两条路"】
+         *   `iconRes` 是**编译期常量**（`Icons.IC_WHALE`），渲染期用 `painterResource` 解析；
+         *   `iconPainter` 是**运行时位图**（用户上传的封面），根本没有资源 id 可给。
+         *   两者对应两类本质不同的东西 —— 不是同一个能力的两种写法。
+         *
+         *   优先级：`iconRes` 非空时用资源，否则用 `iconPainter`。
+         */
+        val iconPainter: Painter? = null,
         val desc: String? = null,
         val valueTint: Color? = null,
         /** 字数上限：非空时右侧显示「当前长度/上限」。 */
@@ -185,6 +218,17 @@ sealed interface QzxRow {
         val spotId: String? = null,
         /** 前置图标资源 id（`R.drawable.*`）。由调用方给 —— 新系统不持有图标资源。 */
         val iconRes: Int? = null,
+        /**
+         * 已解析的位图图标（如人偶封面 `BitmapPainter`）。
+         *
+         * 【为什么它与 `iconRes` 并存，而不是"两条路"】
+         *   `iconRes` 是**编译期常量**（`Icons.IC_WHALE`），渲染期用 `painterResource` 解析；
+         *   `iconPainter` 是**运行时位图**（用户上传的封面），根本没有资源 id 可给。
+         *   两者对应两类本质不同的东西 —— 不是同一个能力的两种写法。
+         *
+         *   优先级：`iconRes` 非空时用资源，否则用 `iconPainter`。
+         */
+        val iconPainter: Painter? = null,
         val desc: String? = null,
         val valueTint: Color? = null
     ) : QzxRow
@@ -244,6 +288,7 @@ class QzxItemBuilder internal constructor(
     private var valueText: String?,
     private val iconRes: Int? = null
 ) : QzxRowHolder {
+    private var iconPainter: Painter? = null
     private var showArrow = false
     private var clickAction: (() -> Unit)? = null
     private var longClickAction: (() -> Unit)? = null
@@ -317,9 +362,19 @@ class QzxItemBuilder internal constructor(
 
     override fun snapshot(): QzxRow =
         QzxRow.Item(
-            title, valueText, showArrow, if (rowEnabled) clickAction else null,
-            spotId, icon, descText, valueTintColor, dangerRow, rowEnabled, titleTintColor,
-            onLongClick = if (rowEnabled) longClickAction else null
+            title = title,
+            value = valueText,
+            arrow = showArrow,
+            onClick = if (rowEnabled) clickAction else null,
+            spotId = spotId,
+            iconRes = iconRes,
+            iconPainter = iconPainter,
+            desc = descText,
+            valueTint = valueTintColor,
+            danger = dangerRow,
+            onLongClick = if (rowEnabled) longClickAction else null,
+            enabled = rowEnabled,
+            titleTint = titleTintColor
         )
 }
 
@@ -329,6 +384,7 @@ class QzxSwitchBuilder internal constructor(
     private var checkedValue: Boolean,
     private val iconRes: Int? = null
 ) : QzxRowHolder {
+    private var iconPainter: Painter? = null
     private var changeAction: (Boolean) -> Unit = {}
     private var spotId: String? = null
     private var descText: String? = null
@@ -351,7 +407,7 @@ class QzxSwitchBuilder internal constructor(
     fun checked(v: Boolean): QzxSwitchBuilder = apply { checkedValue = v }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Toggle(title, checkedValue, changeAction, spotId, icon, descText, valueTintColor)
+        QzxRow.Toggle(title = title, checked = checkedValue, onChecked = changeAction, spotId = spotId, iconRes = iconRes, desc = descText, valueTint = valueTintColor)
 }
 
 /** 输入行。 */
@@ -360,6 +416,7 @@ class QzxInputBuilder internal constructor(
     private var valueText: String,
     private val iconRes: Int? = null
 ) : QzxRowHolder {
+    private var iconPainter: Painter? = null
     private var placeholderText: String? = null
     private var changeAction: (String) -> Unit = {}
     private var spotId: String? = null
@@ -408,8 +465,16 @@ class QzxInputBuilder internal constructor(
 
     override fun snapshot(): QzxRow =
         QzxRow.Input(
-            title, valueText, placeholderText, changeAction, spotId, icon, descText,
-            valueTintColor, counterLimit, multilineHeight,
+            title = title,
+            value = valueText,
+            placeholder = placeholderText,
+            onValueChange = changeAction,
+            spotId = spotId,
+            iconRes = iconRes,
+            desc = descText,
+            valueTint = valueTintColor,
+            counterMax = counterLimit,
+            multilineMinHeight = multilineHeight,
             trailingIcon = trailingIconValue,
             trailingAction = trailingActionValue
         )
@@ -422,6 +487,7 @@ class QzxSelectBuilder internal constructor(
     private val options: List<QzxOption>,
     private val iconRes: Int? = null
 ) : QzxRowHolder {
+    private var iconPainter: Painter? = null
     private var selectAction: (QzxOption) -> Unit = {}
     private var spotId: String? = null
     private var descText: String? = null
@@ -441,7 +507,7 @@ class QzxSelectBuilder internal constructor(
     fun onSelect(block: (QzxOption) -> Unit): QzxSelectBuilder = apply { selectAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Select(title, valueText, options, selectAction, spotId, icon, descText, valueTintColor)
+        QzxRow.Select(title = title, value = valueText, options = options, onSelect = selectAction, spotId = spotId, iconRes = iconRes, desc = descText, valueTint = valueTintColor)
 }
 
 // ───────────────────────────── DSL 作用域 ─────────────────────────────
@@ -823,6 +889,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     title = titleOf(row.title, row.spotId),
                     desc = row.desc,
                     iconRes = row.iconRes,
+                    iconPainter = row.iconPainter,
                     titleColor = row.titleTint ?: if (row.danger) c.danger else null,
                     modifier = Modifier.weight(1f)
                 )
@@ -850,6 +917,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     title = titleOf(row.title, row.spotId),
                     desc = row.desc,
                     iconRes = row.iconRes,
+                    iconPainter = row.iconPainter,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(checked = row.checked, onCheckedChange = row.onChecked)
@@ -871,6 +939,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         title = titleOf(row.title, row.spotId),
                         desc = row.desc,
                         iconRes = row.iconRes,
+                    iconPainter = row.iconPainter,
                         modifier = Modifier.weight(1f)
                     )
                     if (!current.isNullOrEmpty()) {
@@ -910,6 +979,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         title = titleOf(row.title, row.spotId),
                         desc = row.desc,
                         iconRes = row.iconRes,
+                    iconPainter = row.iconPainter,
                         modifier = Modifier.weight(1f)
                     )
                     row.counterMax?.let { max ->
@@ -1140,12 +1210,14 @@ private fun QzxRowLeading(
     title: String,
     desc: String?,
     iconRes: Int?,
+    iconPainter: Painter? = null,
     titleColor: Color? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (iconRes != null) {
+    val resolved: Painter? = if (iconRes != null) painterResource(iconRes) else iconPainter
+    if (resolved != null) {
         Icon(
-            painter = painterResource(iconRes),
+            painter = resolved,
             contentDescription = null,
             modifier = Modifier.size(ROW_ICON_SIZE),
             tint = QzxColors.sub
