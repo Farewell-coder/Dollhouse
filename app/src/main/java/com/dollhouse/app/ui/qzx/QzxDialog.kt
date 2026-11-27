@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,8 +94,13 @@ fun QzxDialog(
             )
             if (!message.isNullOrEmpty()) {
                 Spacer(Modifier.height(QzxTokens.Space.sm))
+                // 【多行正文】`message` 是普通 String，`Text` 会自动换行 —— 但**必须限高并允许滚动**：
+                //   更新日志这类正文可能几百字，不限高会把两个按钮顶出屏幕（用户连"取消"都点不到）。
                 Text(
                     text = message,
+                    modifier = Modifier
+                        .heightIn(max = MESSAGE_MAX_HEIGHT)
+                        .verticalScroll(rememberScrollState()),
                     color = c.sub,
                     fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
                     lineHeight = (QzxTokens.Type.ROW_VALUE_SP + QzxTokens.Type.LINE_GAP_SP).sp
@@ -123,6 +131,9 @@ fun QzxDialog(
 
 /** 弹窗宽度。320dp 在 360dp 屏上留 20dp 边；大屏不会拉成一条横线。 */
 private val DIALOG_WIDTH = 320.dp
+
+/** 正文最大高度：超过就内部滚动，保证底部的两个按钮永远在屏幕里。 */
+private val MESSAGE_MAX_HEIGHT = 280.dp
 
 /** 弹窗底不透明度：压住背后内容，同时保留一点"浮起"的层次。 */
 private const val DIALOG_BG_ALPHA = 0.92f
