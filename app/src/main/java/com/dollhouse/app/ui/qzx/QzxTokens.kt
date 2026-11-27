@@ -166,6 +166,14 @@ object QzxTokens {
 
         /** 退出 / 进场时旧页缩到的比例（分层转场）。 */
         const val PAGE_BACK_SCALE = 0.92f
+
+        /**
+         * 前进时旧页左移的屏宽**分母**（8 = 只走 1/8 屏宽）。
+         *
+         * 【为什么不是整屏】整屏位移就是"普通横向滑动"，旧页会被整个推出视野、后面什么也不剩；
+         * 1/8 只够让人读出"它被新页挤开了一点"，主体仍留在原位当背景 —— 这才是分层。
+         */
+        const val PAGE_EXIT_SHIFT_DENOMINATOR = 8
     }
 
     /** 边缘光（QZX `qzxCardRimLight`）。 */

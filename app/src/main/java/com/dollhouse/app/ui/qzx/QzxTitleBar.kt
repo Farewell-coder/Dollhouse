@@ -480,13 +480,19 @@ private fun QzxIconAction(
     //   「裸 clickable 无命中区保障」的检查规则自然通过。
     Box(
         modifier = Modifier
+            // 【顺序·把 clickable 提到 graphicsLayer 之前】两者都作用于同一个节点，
+            //   但对**门禁取证**不一样：E12 只沿"以 `.` 开头的相邻行"往上找 48dp 证据，
+            //   中间夹一个多行 lambda（`graphicsLayer { }`）就把链截断了 —— 于是明明有
+            //   `.size(QZX_HIT_DP.dp)` 也会被判成"裸 clickable"。
+            //   放在 size 之后、其余修饰符之前：命中区判定不变（同一个 48dp 盒子），
+            //   而证据就在紧邻上一行，规则看得见、也不会有人靠豁免注释糊过去。
             .size(QZX_HIT_DP.dp)
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
             .semantics { contentDescription = a11yName }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            }
-            .clickable(interactionSource = source, indication = null, onClick = onClick),
+            },
         contentAlignment = Alignment.Center,
     ) {
         Image(

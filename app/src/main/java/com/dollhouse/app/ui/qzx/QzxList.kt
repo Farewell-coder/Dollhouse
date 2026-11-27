@@ -83,27 +83,32 @@ sealed interface QzxRow {
         val title: String,
         val value: String?,
         val arrow: Boolean,
-        val onClick: (() -> Unit)?
+        val onClick: (() -> Unit)?,
+        /** 设置项索引 id（见 [QzxItemBuilder.spot]）。*/
+        val spotId: String? = null
     ) : QzxRow
 
     data class Toggle(
         val title: String,
         val checked: Boolean,
-        val onChecked: (Boolean) -> Unit
+        val onChecked: (Boolean) -> Unit,
+        val spotId: String? = null
     ) : QzxRow
 
     data class Input(
         val title: String,
         val value: String,
         val placeholder: String?,
-        val onValueChange: (String) -> Unit
+        val onValueChange: (String) -> Unit,
+        val spotId: String? = null
     ) : QzxRow
 
     data class Select(
         val title: String,
         val value: String?,
         val options: List<QzxOption>,
-        val onSelect: (QzxOption) -> Unit
+        val onSelect: (QzxOption) -> Unit,
+        val spotId: String? = null
     ) : QzxRow
 
     /** 逃生口：调用方给一段任意内容，但**仍然**由系统负责左右内边距与分隔线。 */
@@ -134,6 +139,7 @@ class QzxItemBuilder internal constructor(
 ) : QzxRowHolder {
     private var showArrow = false
     private var clickAction: (() -> Unit)? = null
+    private var spotId: String? = null
 
     /** 右侧显示一个箭头（表示"点进去还有一层"）。 */
     fun arrow(show: Boolean = true): QzxItemBuilder = apply { showArrow = show }
@@ -144,7 +150,25 @@ class QzxItemBuilder internal constructor(
     /** 点击回调。不设 = 不可点（此时不画箭头，也不会有按压反馈）。 */
     fun onClick(block: () -> Unit): QzxItemBuilder = apply { clickAction = block }
 
-    override fun snapshot(): QzxRow = QzxRow.Item(title, valueText, showArrow, clickAction)
+    /**
+     * 绑定**设置项索引 id**（如 `"appearance.mode"`）。
+     *
+     * ## 它是"反向"的：标题从索引表取，而不是往表里登记
+     * 旧系统 `SettingsSpots` 的语义是**索引表持有标题**：
+     * · 表里有这条 → `spotTitle(spot, fallback)` 用**表里的标题**（页面的字面量只是兜底）；
+     * · 表里没有 → 退回页面里的字面量（自纠错：漏登记不会显示空白，只是失去"唯一真源"）。
+     * 所以 `.spot(id)` 不是"打个标记备查"，而是**声明"这一行的标题由索引表负责"**。
+     * 搜索也是读那张表，因此登记一次 = 同时解决"标题一致"与"能被搜到"。
+     *
+     * ## 新系统为什么不直接依赖 `SettingsSpots`
+     * 那个类在 `ui.settings` 包里、还牵着 `PageRegistry` / `ProviderNav`。新包不该反向依赖旧组件。
+     * 所以这里只**存 id**，真正的查表由 [QzxList] 的 `spotTitle` 参数注入 ——
+     * 依赖只出现在 App 外壳的一行里：`spotTitle = { SettingsSpots.find(it)?.title }`。
+     */
+    fun spot(id: String): QzxItemBuilder = apply { spotId = id }
+
+    override fun snapshot(): QzxRow =
+        QzxRow.Item(title, valueText, showArrow, clickAction, spotId)
 }
 
 /** 开关行。 */
@@ -153,6 +177,10 @@ class QzxSwitchBuilder internal constructor(
     private var checkedValue: Boolean
 ) : QzxRowHolder {
     private var changeAction: (Boolean) -> Unit = {}
+    private var spotId: String? = null
+
+    /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
+    fun spot(id: String): QzxSwitchBuilder = apply { spotId = id }
 
     /** 值变化回调。 */
     fun onChecked(block: (Boolean) -> Unit): QzxSwitchBuilder = apply { changeAction = block }
@@ -160,7 +188,7 @@ class QzxSwitchBuilder internal constructor(
     /** 覆盖当前值（一般不用 —— 值应由调用方状态驱动）。 */
     fun checked(v: Boolean): QzxSwitchBuilder = apply { checkedValue = v }
 
-    override fun snapshot(): QzxRow = QzxRow.Toggle(title, checkedValue, changeAction)
+    override fun snapshot(): QzxRow = QzxRow.Toggle(title, checkedValue, changeAction, spotId)
 }
 
 /** 输入行。 */
@@ -170,6 +198,10 @@ class QzxInputBuilder internal constructor(
 ) : QzxRowHolder {
     private var placeholderText: String? = null
     private var changeAction: (String) -> Unit = {}
+    private var spotId: String? = null
+
+    /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
+    fun spot(id: String): QzxInputBuilder = apply { spotId = id }
 
     /** 空值时的提示。 */
     fun hint(text: String): QzxInputBuilder = apply { placeholderText = text }
@@ -178,7 +210,7 @@ class QzxInputBuilder internal constructor(
     fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Input(title, valueText, placeholderText, changeAction)
+        QzxRow.Input(title, valueText, placeholderText, changeAction, spotId)
 }
 
 /** 选择行（点开一个下拉）。 */
@@ -188,11 +220,16 @@ class QzxSelectBuilder internal constructor(
     private val options: List<QzxOption>
 ) : QzxRowHolder {
     private var selectAction: (QzxOption) -> Unit = {}
+    private var spotId: String? = null
+
+    /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
+    fun spot(id: String): QzxSelectBuilder = apply { spotId = id }
 
     /** 选中回调。 */
     fun onSelect(block: (QzxOption) -> Unit): QzxSelectBuilder = apply { selectAction = block }
 
-    override fun snapshot(): QzxRow = QzxRow.Select(title, valueText, options, selectAction)
+    override fun snapshot(): QzxRow =
+        QzxRow.Select(title, valueText, options, selectAction, spotId)
 }
 
 // ───────────────────────────── DSL 作用域 ─────────────────────────────
@@ -274,6 +311,18 @@ class QzxListScope {
 fun QzxList(
     modifier: Modifier = Modifier,
     autoDivider: Boolean = true,
+    /**
+     * 设置项索引的**标题解析器**：`spotId → 标题`（查不到返回 null）。
+     *
+     * 【为什么是注入而不是直接读 `SettingsSpots`】那个类在 `ui.settings` 包里、还牵着
+     * `PageRegistry` / `ProviderNav`；新系统反向依赖旧组件是不可接受的。
+     * 依赖只出现在 App 外壳的**一行**里：
+     * ```kotlin
+     * QzxList(spotTitle = { SettingsSpots.find(it)?.title }) { … }
+     * ```
+     * 不传（默认 `{ null }`）= 全部用调用方写的字面量，行为与没有 `.spot()` 时完全一致。
+     */
+    spotTitle: (String) -> String? = { null },
     content: QzxListScope.() -> Unit,
 ) {
     // 每次重组重建模型：列表是**纯声明**，没有自己藏着的状态，
@@ -281,13 +330,17 @@ fun QzxList(
     val scope = QzxListScope().apply(content)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(0.dp)) {
         scope.sections.forEach { section ->
-            QzxSection(section = section, autoDivider = autoDivider)
+            QzxSection(section = section, autoDivider = autoDivider, spotTitle = spotTitle)
         }
     }
 }
 
 @Composable
-private fun QzxSection(section: QzxSectionScope, autoDivider: Boolean) {
+private fun QzxSection(
+    section: QzxSectionScope,
+    autoDivider: Boolean,
+    spotTitle: (String) -> String?,
+) {
     val c = QzxColors
     if (!section.title.isNullOrEmpty()) {
         Text(
@@ -307,7 +360,7 @@ private fun QzxSection(section: QzxSectionScope, autoDivider: Boolean) {
         rows.forEach { row ->
             when (row) {
                 QzxRow.Divider -> QzxDivider()
-                else -> QzxRowView(row)
+                else -> QzxRowView(row, spotTitle)
             }
         }
     }
@@ -351,8 +404,13 @@ private fun rowMinHeight(row: QzxRow): Int = when (row) {
 }
 
 @Composable
-private fun QzxRowView(row: QzxRow) {
+private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
     val c = QzxColors
+    // 【反向取标题】索引表有这条就用表里的标题；没有就退回调用方写的字面量。
+    //   与旧 `SettingsSpots.spotTitle(spot, fallback)` 同一条规则：
+    //   漏登记不会让标题变空（那会让整页面目全非），只是失去"唯一真源"。
+    fun titleOf(literal: String, id: String?): String =
+        id?.let(spotTitle)?.takeIf { it.isNotBlank() } ?: literal
     val minH = rowMinHeight(row)
     val base = Modifier
         .fillMaxWidth()
@@ -380,7 +438,7 @@ private fun QzxRowView(row: QzxRow) {
                 ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                QzxRowTitle(row.title, Modifier.weight(1f))
+                QzxRowTitle(titleOf(row.title, row.spotId), Modifier.weight(1f))
                 if (!row.value.isNullOrEmpty()) {
                     Text(
                         text = row.value,
@@ -401,7 +459,7 @@ private fun QzxRowView(row: QzxRow) {
 
         is QzxRow.Toggle -> {
             Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
-                QzxRowTitle(row.title, Modifier.weight(1f))
+                QzxRowTitle(titleOf(row.title, row.spotId), Modifier.weight(1f))
                 Switch(checked = row.checked, onCheckedChange = row.onChecked)
             }
         }
@@ -417,7 +475,7 @@ private fun QzxRowView(row: QzxRow) {
                         .clickable { expanded = true },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    QzxRowTitle(row.title, Modifier.weight(1f))
+                    QzxRowTitle(titleOf(row.title, row.spotId), Modifier.weight(1f))
                     if (!current.isNullOrEmpty()) {
                         Text(
                             text = current,
@@ -450,7 +508,7 @@ private fun QzxRowView(row: QzxRow) {
         is QzxRow.Input -> {
             var text by remember(row.value) { mutableStateOf(row.value) }
             Column(modifier = base) {
-                QzxRowTitle(row.title, Modifier.fillMaxWidth())
+                QzxRowTitle(titleOf(row.title, row.spotId), Modifier.fillMaxWidth())
                 Spacer(Modifier.height(QzxTokens.Space.xs))
                 Box(
                     modifier = Modifier
