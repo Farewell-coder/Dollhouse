@@ -1004,6 +1004,8 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
 
         is QzxChipsRow -> QzxChipsRowContent(row)
 
+        is QzxSliderRow -> QzxSliderRowContent(row)
+
         is QzxButtonsRow -> QzxButtonsRowContent(row)
 
         is QzxLabelRow -> QzxLabelRowContent(row)

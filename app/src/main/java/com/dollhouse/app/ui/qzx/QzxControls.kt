@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dollhouse.app.ui.theme.UiKit
+import androidx.compose.ui.viewinterop.AndroidView
 
 /**
  * 【职责】列表里的**复合控件行型**：步进器 / 多选标签组 / 按钮行 / 卡内小标题。
@@ -71,6 +73,15 @@ data class QzxButtonSpec(
 
 /** 按钮行。 */
 data class QzxButtonsRow(val buttons: List<QzxButtonSpec>) : QzxRow
+
+/** 滑条行：标题 + 当前值 + 自绘滑条 + 可选说明。 */
+data class QzxSliderRow(
+    val title: String,
+    val value: Int,
+    val range: IntRange,
+    val hint: String?,
+    val onChange: (Int, Boolean) -> Unit,
+) : QzxRow
 
 /** 卡内小标题（不折叠、不可点，只是把一张卡内部再分小节）。 */
 data class QzxLabelRow(val title: String, val icon: Painter?) : QzxRow
@@ -121,6 +132,31 @@ fun QzxSectionScope.buttons(vararg buttons: QzxButtonSpec) {
     val list = buttons.toList()
     holders.add(object : QzxRowHolder {
         override fun snapshot(): QzxRow = QzxButtonsRow(list)
+    })
+}
+
+/**
+ * 滑条行。
+ *
+ * `onChange(value, fromUser)` 与既有 `UiKit.Slider.OnChange.onChanged(v, fromUser)` **同签名** ——
+ * 迁移时调用方的 lambda 可以原样搬过来，不需要在中间做参数适配。
+ *
+ * 【为什么内部桥接 `UiKit.Slider` 而不是 Compose 自绘】
+ * 那个 View 是**胶囊轨道 + 刻度点 + 终点标记**的自绘形态，Compose 原生 `Slider` 做不出来。
+ * 自绘还原它要真机逐帧调（轨道圆角、刻度间距随宽度变化、拖动跟手、无障碍语义），
+ * 那是"第二个项目"；而这一轮的目标是**迁移**，不是重画控件。
+ * 桥接一个**已存在的自绘控件**，和 `QzxColors` 从 `UiKit` 取色属于同一类依赖：
+ * 复用底层实现，不引入旧 UI 体系。
+ */
+fun QzxSectionScope.slider(
+    title: String,
+    value: Int,
+    range: IntRange,
+    hint: String? = null,
+    onChange: (Int, Boolean) -> Unit,
+) {
+    holders.add(object : QzxRowHolder {
+        override fun snapshot(): QzxRow = QzxSliderRow(title, value, range, hint, onChange)
     })
 }
 
@@ -275,6 +311,64 @@ internal fun QzxButtonsRowContent(row: QzxButtonsRow) {
                 // 多个按钮等分：调用方不用写 weight，也就写不出布局字面量。
                 modifier = Modifier.weight(1f),
                 style = spec.style
+            )
+        }
+    }
+}
+
+/** 滑条：标题 + 值一行，滑条一行，说明一行。 */
+@Composable
+internal fun QzxSliderRowContent(row: QzxSliderRow) {
+    val c = QzxColors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = QzxTokens.Space.listH,
+                end = QzxTokens.Space.listH,
+                top = QzxTokens.Space.md,
+                bottom = QzxTokens.Space.sm
+            )
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = row.title,
+                modifier = Modifier.weight(1f),
+                color = c.title,
+                fontSize = QzxTokens.Type.ROW_TITLE_SP.sp,
+                lineHeight = (QzxTokens.Type.ROW_TITLE_SP + QzxTokens.Type.LINE_GAP_SP).sp
+            )
+            Text(
+                text = row.value.toString(),
+                color = c.sub,
+                fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
+                lineHeight = (QzxTokens.Type.ROW_VALUE_SP + QzxTokens.Type.LINE_GAP_SP).sp
+            )
+        }
+        // 【唯一的 View 桥接处】见 [slider] 的注释：复用既有的自绘滑条，
+        //   `update` 里回写 progress，保证外部状态变化（重置、预设）能反映到滑条上。
+        AndroidView(
+            modifier = Modifier.fillMaxWidth(),
+            factory = { ctx ->
+                UiKit.Slider(ctx).apply {
+                    setMax(row.range.last)
+                    setProgress(row.value)
+                    setOnChange(object : UiKit.Slider.OnChange {
+                        override fun onChanged(v: Int, fromUser: Boolean) {
+                            row.onChange(v, fromUser)
+                        }
+                    })
+                }
+            },
+            update = { it.setProgress(row.value) }
+        )
+        if (!row.hint.isNullOrEmpty()) {
+            Text(
+                text = row.hint,
+                modifier = Modifier.padding(top = QzxTokens.Space.xs),
+                color = c.sub,
+                fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
             )
         }
     }

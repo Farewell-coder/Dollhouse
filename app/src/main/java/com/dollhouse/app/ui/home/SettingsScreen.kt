@@ -1203,61 +1203,6 @@ object SettingsScreen {
         }
     }
 
-    @Composable
-    private fun ChatCard(act: MainActivity) {
-        // 【P1-e·入口行补当前值】「供应商」原来只有名词 + 静态 desc。
-        //   【为什么用 remember 而不是直接调】`ProviderStore.providers()` 每次都会
-        //   `purgeLegacy` + 解析整份 JSON —— 放进组合体每帧读，滚动设置页会明显卡。
-        //   这里按「进入设置页」缓存一次。
-        //   【为什么 key 是 Unit】本页每次进都是新组合（`PageStack` 压栈），
-        //   进页读一次即是最新；这与既有 `PermissionRow` 的口径一致（它也是进页算一次）。
-        //   若将来要「配置完返回立即更新」，把 key 换成对应信号即可。
-        //
-        //   【「查看 Token」这一行】原先 `TokenStat` 的读取全是 private，
-        //   本轮已新增 `TokenStat.todayTotal(ctx)`（只暴露今日 in+out 一个数，
-        //   与页面「当日总览」同一口径）。同样用 `remember` 缓存一次：
-        //   它要解析最多 31 条日记录，滚动时每帧读纯属浪费。
-        val providerCount = remember { ProviderStore.providers(act).size }
-        val todayTokens = remember { TokenStat.todayTotal(act) }
-        DhKit.Card(collapsibleTitle = "聊天", titleIcon = Icons.IC_MESSAGE_SQUARE_HEART) {
-            DhKit.ValueRow(
-                label = "供应商",
-                iconRes = Icons.IC_SERVER,
-                desc = "接口地址、密钥与模型列表",
-                // 【值：宁可说"未配置"也不报 0】0 个供应商对用户是"还没开始"，
-                //   不是"有 0 个东西"，措辞要给出下一步。
-                value = if (providerCount == 0) "未配置" else providerCount.toString() + " 个",
-                valueTint = if (providerCount == 0) DhTokens.colors.err else null,
-                showChevron = true
-            ) {
-                ProviderNav.open(act)
-            }
-            DhKit.ValueRow(
-                label = "查看 Token",
-                iconRes = Icons.IC_GAUGE,
-                desc = "查看模型使用统计",
-                // 【值：今日 in+out】与页面「当日总览」同一口径（`TokenStat` 的
-                //   `fmt(inTok + outTok)`），点进去看到的第一个大数字就是它。
-                //   【为什么是"今日"而不是"累计"】入口行的用途是「今天花了多少」——
-                //   累计数只会一直涨，没有"今天"那么有行动含义。
-                //   【没有数据时显示 `—`】不用 "0"：0 是「今天真的没用过」，
-                //   而 `—` 是「还没有任何记录」。本 App 新装时两者都成立，
-                //   但 `—` 不会让用户误以为统计坏了（0 容易被读成"没在计数"）。
-                value = if (todayTokens <= 0L) "—" else fmtTokenShort(todayTokens),
-                showChevron = true
-            ) {
-                TokenStat.open(act)
-            }
-            // 【r13·记忆系统重构】原「自动总结 / 触发阈值」两项已删。
-            //
-            // 【为什么删】它们管的是旧记忆系统的**归档**：条数到阈值就把最老一批消息
-            //   压成摘要、删掉原文（那套实现已随旧系统整体删除）。用户定案引入 Operit 式
-            //   记忆系统后，归档这套机制整体下线 —— 新系统是「每轮自动抽取成结构化条目」，
-            //   没有阈值这个概念，原文一条不删。
-            //   新的全局策略（自动保存开关 / 间隔 / 提取规则 / 检索权重）统一收到
-            //   「实验 → 记忆库设置」页里；对话显示相关（流式 / 思考过程）在「实验 → 对话显示」。
-        }
-    }
 
     /**
      * 把 token 数压成入口行能塞下的一小段：`1.2k` / `3.4M`。
