@@ -557,7 +557,7 @@ class QzxSectionScope internal constructor(
         value: String?,
         options: List<QzxOption>,
         iconRes: Int? = null
-    ): QzxSelectBuilder = QzxSelectBuilder(title, value, options, icon).also { holders.add(it) }
+    ): QzxSelectBuilder = QzxSelectBuilder(title, value, options, iconRes).also { holders.add(it) }
 
     /**
      * 显式分隔线。
@@ -704,9 +704,9 @@ private fun QzxSection(
             modifier = Modifier.padding(start = QzxTokens.Space.xs, bottom = QzxTokens.Space.sm),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            section.titleIcon?.let {
+            section.titleIconRes?.let {
                 Icon(
-                    painter = it,
+                    painter = painterResource(it),
                     contentDescription = null,
                     modifier = Modifier.size(ROW_ICON_SIZE * 0.8f),
                     tint = c.sub
@@ -743,9 +743,9 @@ private fun QzxSection(
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                section.titleIcon?.let {
+                section.titleIconRes?.let {
                     Icon(
-                        painter = it,
+                        painter = painterResource(it),
                         contentDescription = null,
                         modifier = Modifier.size(ROW_ICON_SIZE),
                         tint = c.sub
