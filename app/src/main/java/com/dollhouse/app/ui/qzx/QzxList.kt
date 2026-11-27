@@ -104,9 +104,17 @@ data class QzxOption(val value: String, val label: String)
  */
 data class QzxPreviewAction(
     val label: String,
-    val onClick: () -> Unit,
     /** 危险动作（删除 / 清空）：文字用错误色，且永远排在最后。 */
-    val destructive: Boolean = false
+    val destructive: Boolean = false,
+    /**
+     * 【为什么 onClick 排在最后】Kotlin 的 trailing lambda 绑定到**最后一个函数类型参数**。
+     *   若它排在 `destructive` 之前，`QzxPreviewAction("移除头像", destructive = true) { … }`
+     *   里的 lambda 会绑到 `destructive`（Boolean）上报类型错误，而调用方只看到
+     *   「No value passed for parameter 'onClick'」这种看不出原因的提示。
+     *   排在最后后，`QzxPreviewAction("更换头像") { … }` 与
+     *   `QzxPreviewAction("移除头像", destructive = true) { … }` **两种写法都成立**。
+     */
+    val onClick: () -> Unit
 )
 
 // ───────────────────────────── 模型 ─────────────────────────────

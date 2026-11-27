@@ -19,6 +19,7 @@ import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.qzx.QzxList
 import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.qzx.QzxPreviewAction
+import com.dollhouse.app.ui.qzx.preview
 import com.dollhouse.app.ui.home.ProfileState
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
@@ -68,7 +69,6 @@ object MyProfilePage {
 
     @Composable
     private fun Content(act: MainActivity) {
-        val c = DhTokens.colors
         // 【重读信号】与抽屉共用 [ProfileState]：本页保存后 bump，抽屉头部随之刷新。
         val tick = ProfileState.tick
         var name by remember(tick) { mutableStateOf(MyProfile.name(act).let { if (it == MyProfile.DEFAULT_NAME) "" else it }) }
