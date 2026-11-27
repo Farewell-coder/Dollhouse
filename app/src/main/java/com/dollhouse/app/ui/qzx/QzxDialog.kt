@@ -58,6 +58,23 @@ fun QzxDialog(
     confirmDestructive: Boolean = false,
     onConfirm: (() -> Unit)? = null,
     onDismiss: () -> Unit,
+    /**
+     * 可选的自定义正文 —— **表单弹窗走这里**。
+     *
+     * 【为什么需要它】`message: String?` 只能装纯文本。而「新建/编辑记忆」这类弹窗要装
+     *   多个输入框、快捷分类、重要度步进、动态关联列表 —— 纯文本表达不了。
+     *
+     * 【但它不等于「把布局权交出去」】调用方在这个 lambda 里**仍然应该只写 `QzxList { … }`**
+     *   —— `QzxList` 本身就是一个普通 Composable，放进 Dialog 里完全成立。
+     *   这样表单弹窗依旧是声明式的：行怎么排、间距多少、分隔线在哪，全由系统算。
+     *
+     * 【与 [message] 的关系】两者可同时给（先 message 再 content），也可只给一个。
+     *   `content != null` 时不额外加间距 —— 由 content 自己决定（通常是 `QzxList` 的 section 间距）。
+     *
+     * 【限高】content 外层会包一层 `heightIn(max = CONTENT_MAX_HEIGHT)` + 垂直滚动，
+     *   保证按钮永远在屏幕内（与 message 的限高是同一个理由）。
+     */
+    content: (@Composable () -> Unit)? = null,
 ) {
     if (!visible) {
         // 【关键】不组合任何节点。
@@ -106,6 +123,17 @@ fun QzxDialog(
                     lineHeight = (QzxTokens.Type.ROW_VALUE_SP + QzxTokens.Type.LINE_GAP_SP).sp
                 )
             }
+            if (content != null) {
+                Spacer(Modifier.height(QzxTokens.Space.sm))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = CONTENT_MAX_HEIGHT)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    content()
+                }
+            }
             Spacer(Modifier.height(QzxTokens.Space.md))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -134,6 +162,8 @@ private val DIALOG_WIDTH = 320.dp
 
 /** 正文最大高度：超过就内部滚动，保证底部的两个按钮永远在屏幕里。 */
 private val MESSAGE_MAX_HEIGHT = 280.dp
+/** 自定义正文的最大高度：超过就在弹窗内部滚动，保证按钮永远在屏幕内。 */
+private val CONTENT_MAX_HEIGHT = 420.dp
 
 /** 弹窗底不透明度：压住背后内容，同时保留一点"浮起"的层次。 */
 private const val DIALOG_BG_ALPHA = 0.92f
