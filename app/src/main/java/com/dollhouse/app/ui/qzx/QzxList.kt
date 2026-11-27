@@ -288,7 +288,7 @@ class QzxItemBuilder internal constructor(
     private var valueText: String?,
     private val iconRes: Int? = null
 ) : QzxRowHolder {
-    private var iconPainter: Painter? = null
+    internal var iconPainterValue: Painter? = null
     private var showArrow = false
     private var clickAction: (() -> Unit)? = null
     private var longClickAction: (() -> Unit)? = null
@@ -368,7 +368,7 @@ class QzxItemBuilder internal constructor(
             onClick = if (rowEnabled) clickAction else null,
             spotId = spotId,
             iconRes = iconRes,
-            iconPainter = iconPainter,
+            iconPainter = iconPainterValue,
             desc = descText,
             valueTint = valueTintColor,
             danger = dangerRow,
@@ -531,8 +531,11 @@ class QzxSectionScope internal constructor(
     fun item(
         title: String,
         value: String? = null,
-        iconRes: Int? = null
-    ): QzxItemBuilder = QzxItemBuilder(title, value, iconRes).also { holders.add(it) }
+        iconRes: Int? = null,
+        iconPainter: Painter? = null
+    ): QzxItemBuilder = QzxItemBuilder(title, value, iconRes)
+        .also { it.iconPainterValue = iconPainter }
+        .also { holders.add(it) }
 
     /** 开关行：`switch("自动更新", checked = true).onChecked { }` */
     fun switch(
