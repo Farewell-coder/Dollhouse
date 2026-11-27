@@ -33,9 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,8 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.drawBehind
 import com.dollhouse.app.ui.design.DhDesign
-import com.dollhouse.app.ui.theme.GlobalBackground
-import com.dollhouse.app.ui.theme.Icons
 
 /**
  * QZX 的 iOS 自适应大标题栏 —— 对应 `QZXGeometryXLargeTitleBar` 的 `IOS_STYLE` 档。
@@ -130,6 +127,8 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: Painter? = null,
+    hasPhotoBackdrop: Boolean = false,
 ) {
     QzxTitleBarImpl(
         title = title,
@@ -137,6 +136,8 @@ fun QzxTitleBar(
         onBack = onBack,
         subtitle = subtitle,
         actions = actions,
+        backIcon = backIcon,
+        hasPhotoBackdrop = hasPhotoBackdrop,
     )
 }
 
@@ -159,6 +160,8 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: Painter? = null,
+    hasPhotoBackdrop: Boolean = false,
 ) {
     QzxTitleBarImpl(
         title = title,
@@ -172,6 +175,8 @@ fun QzxTitleBar(
         onBack = onBack,
         subtitle = subtitle,
         actions = actions,
+        backIcon = backIcon,
+        hasPhotoBackdrop = hasPhotoBackdrop,
     )
 }
 
@@ -192,6 +197,8 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: Painter? = null,
+    hasPhotoBackdrop: Boolean = false,
 ) {
     QzxTitleBarImpl(
         title = title,
@@ -206,6 +213,8 @@ fun QzxTitleBar(
         onBack = onBack,
         subtitle = subtitle,
         actions = actions,
+        backIcon = backIcon,
+        hasPhotoBackdrop = hasPhotoBackdrop,
     )
 }
 
@@ -221,11 +230,14 @@ fun QzxTitleBar(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: Painter? = null,
+    hasPhotoBackdrop: Boolean = false,
 ) {
     QzxCompactBar(
         title = title,
         onBack = onBack,
         actions = actions,
+        backIcon = backIcon,
     )
 }
 
@@ -245,6 +257,8 @@ private fun QzxTitleBarImpl(
     onBack: (() -> Unit)? = null,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: Painter? = null,
+    hasPhotoBackdrop: Boolean = false,
 ) {
     val c = QzxColors
 
@@ -260,12 +274,11 @@ private fun QzxTitleBarImpl(
     //   **没有** `toGlass` 分流），这里只叠"按收起进度变化"的 alpha。
     val barFill = QzxColors.bg
 
-    // 有图判断：`GlobalBackground.hasImage` 读的是持久化状态，随主题 revision 变化。
-    val ctx = LocalContext.current
-    // 【为什么要一个 key】`hasImage` 读持久化，不能每次重组都读。
-    //   旧实现按旧主题对象的 revision 刷新；新包不依赖它，改用**栏底色**
-    //   （`QzxColors.bg` 随主题变化）当 key —— 换主题必刷新，语义也对得上。
-    val hasPhoto = remember(ctx, QzxColors.bg) { GlobalBackground.hasImage(ctx) }
+    // 【有图与否由调用方传入】本函数**不读**任何持久化、也不认识"背景图"这个概念 ——
+    //   那属于 App 的行为，不属于 UI 系统的职责。调用方传一个 Boolean 即可
+    //   （如 `hasPhotoBackdrop = MyApp.hasPhotoBackdrop()`）。
+    //   这样新系统对旧包的行为零依赖：删旧系统时这里不需要改一行。
+    val hasPhoto = hasPhotoBackdrop
 
     /**
      * 收起进度：0 = 完全展开，1 = 完全收起。
@@ -317,9 +330,11 @@ private fun QzxTitleBarImpl(
                     .padding(horizontal = DhDesign.Space.cardPad.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (onBack != null) {
+                // 【只在「有回调 + 有图标」时画】没给 backIcon 就**不画返回键**，
+                //   而不是偷偷回退到旧 drawable —— 否则删掉旧资源时这里会静默失效/编译不过。
+                if (onBack != null && backIcon != null) {
                     QzxIconAction(
-                        iconRes = Icons.IC_ARROW_LEFT,
+                        painter = backIcon,
                         sizeDp = DhDesign.Size.iconMd.value,
                         tint = c.title,
                         a11yName = "返回",
@@ -407,6 +422,7 @@ private fun QzxCompactBar(
     title: String,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    backIcon: Painter? = null,
 ) {
     val c = QzxColors
     val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -422,9 +438,9 @@ private fun QzxCompactBar(
             .padding(horizontal = DhDesign.Space.cardPad.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (onBack != null) {
+        if (onBack != null && backIcon != null) {
             QzxIconAction(
-                iconRes = Icons.IC_ARROW_LEFT,
+                painter = backIcon,
                 sizeDp = DhDesign.Size.iconMd.value,
                 tint = c.title,
                 a11yName = "返回",
@@ -450,7 +466,7 @@ private fun QzxCompactBar(
  * 最小图标按钮（本包自带，**不引用旧 `DhKit.IconButton`**）。
  *
  * 【为什么自己写一个】新系统要能在旧 UI 包整体删除后独立存活。依赖 `DhKit` 会让
- *   「删掉旧 UI」变成不可能的清理动作。这里只用到 `painterResource` + `ColorFilter.tint`，
+ *   「删掉旧 UI」变成不可能的清理动作。这里只用到调用方传入的 `Painter` + `ColorFilter.tint`，
  *   够用且零耦合。
  *
  * 【为什么 `indication = null`】与旧系统一致：本工程刻意不用涟漪（见设计稿 §3），
@@ -458,7 +474,7 @@ private fun QzxCompactBar(
  */
 @Composable
 private fun QzxIconAction(
-    iconRes: Int,
+    painter: Painter,
     sizeDp: Float,
     tint: Color,
     a11yName: String,
@@ -497,7 +513,7 @@ private fun QzxIconAction(
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(iconRes),
+            painter = painter,
             contentDescription = null,
             modifier = Modifier.size(sizeDp.dp),
             colorFilter = ColorFilter.tint(tint),
