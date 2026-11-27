@@ -30,6 +30,9 @@ import com.dollhouse.app.ui.compose.pressable
 import com.dollhouse.app.ui.provider.ProviderNav
 import com.dollhouse.app.ui.theme.Design
 import com.dollhouse.app.ui.theme.Icons
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxDialog
 
 /**
  * 【职责】设置页「lamda 设备控制」：安装 / 启动 / 停止服务，并说明 AI 能拿它做什么。

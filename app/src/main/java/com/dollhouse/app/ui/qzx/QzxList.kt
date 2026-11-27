@@ -1050,16 +1050,18 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     }
                     // 【尾置动作】搜索框的「关闭」之类。图标由调用方给（新系统不持有图标资源）。
                     //   命中区仍是 minTouch —— 它只有图标大小，但必须点得到。
-                    if (row.trailingIconRes != null && row.trailingAction != null) {
+                    val tIcon = row.trailingIconRes
+                    val tAct = row.trailingAction
+                    if (tIcon != null && tAct != null) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .sizeIn(minWidth = QzxTokens.Size.minTouch.dp, minHeight = QzxTokens.Size.minTouch.dp)
-                                .clickable(onClick = row.trailingAction),
+                                .clickable(onClick = tAct),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                painter = painterResource(row.trailingIconRes),
+                                painter = painterResource(tIcon),
                                 contentDescription = null,
                                 tint = c.sub,
                                 modifier = Modifier.size(QzxTokens.Space.xl.dp)
