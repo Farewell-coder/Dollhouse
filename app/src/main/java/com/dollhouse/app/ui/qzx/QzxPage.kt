@@ -203,6 +203,14 @@ fun QzxPage(
      * 为 true 时标题栏栏底恒 88%（否则展开态近乎全透，大标题会直接压在照片上）。
      */
     hasPhotoBackdrop: Boolean = false,
+    /**
+     * 底部固定栏（标签页切换器等）。
+     *
+     * 【为什么需要它】`DollEditScreen` 这类页面底部有 `DhKit.NavBar` 做分页切换，
+     *   内容区在它上方独立滚动。用 chips 代替会**改变位置**（从底栏变成内联标签），
+     *   那不算等价迁移。这里给一个固定槽位，内容区仍由外面的 Column 分配剩余高度。
+     */
+    bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     // Auto 归一到 Lazy —— 理由见 enum 与文件头「Auto 的真相」。
@@ -275,6 +283,8 @@ fun QzxPage(
                     content()
                 }
             }
+            // 底部固定栏：放在内容区之后、Column 之内 —— 内容区 weight(1f) 自动让位。
+            bottomBar?.invoke()
         }
     }
 }
