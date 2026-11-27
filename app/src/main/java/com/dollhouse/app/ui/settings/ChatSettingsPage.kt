@@ -83,6 +83,11 @@ object ChatSettingsPage {
     private fun Content(act: Activity) {
         // 每次改动都 bump 一次，让控件立刻反映到界面（prefs 是同步读的）。
         var tick by remember { mutableStateOf(0) }
+        // 【状态必须在组合期读】QzxList 的 DSL lambda 不是 @Composable，
+        //   在里面调 remember 会编译不过 —— 所以在这里先读好，lambda 里只引用变量。
+        val streamOn = remember(tick) { PetPrefs.streamOutput(act) }
+        val thinkingOn = remember(tick) { PetPrefs.showThinking(act) }
+        val learnOn = remember(tick) { PetPrefs.learnEnabled(act) }
 
         QzxPage(
             title = "对话显示",
@@ -97,7 +102,7 @@ object ChatSettingsPage {
                 note("开着时她的回复会一个字一个字冒出来，不用等整段生成完。")
                 switch(
                     "流式输出",
-                    checked = remember(tick) { PetPrefs.streamOutput(act) },
+                    checked = streamOn,
                     iconRes = Icons.IC_ACTIVITY
                 ).spot("chat.stream").onChecked { on ->
                     PetPrefs.setStreamOutput(act, on)
@@ -112,7 +117,7 @@ object ChatSettingsPage {
                 note("推理型模型思考时说的「心里话」，会单独存在回复上方，点一下展开。")
                 switch(
                     "思考过程",
-                    checked = remember(tick) { PetPrefs.showThinking(act) },
+                    checked = thinkingOn,
                     iconRes = Icons.IC_BRAIN
                 ).spot("chat.thinking").onChecked { on ->
                     PetPrefs.setShowThinking(act, on)
@@ -131,7 +136,7 @@ object ChatSettingsPage {
                         + "开着下面这个开关时，最近 3 条示范会随每次对话一起发出去，让她更贴近你喜欢的说法。")
                 switch(
                     "学习示例",
-                    checked = remember(tick) { PetPrefs.learnEnabled(act) },
+                    checked = learnOn,
                     iconRes = Icons.IC_BOOK_HEART
                 ).spot("chat.learnExamples").onChecked { on ->
                     PetPrefs.setLearnEnabled(act, on)

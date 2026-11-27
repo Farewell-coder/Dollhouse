@@ -1009,7 +1009,7 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                         .background(c.field)
                         // 聚焦时边框用强调色 —— 与旧 UiKit 输入框同口径。
                         .border(
-                            width = QzxTokens.Size.hairline.dp,
+                            width = QzxTokens.Size.hairline,
                             color = if (focused) c.accent else Color.Transparent,
                             shape = RoundedCornerShape(QzxTokens.Radius.inner)
                         )
