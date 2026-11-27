@@ -59,6 +59,8 @@ object SleepSettingsPage {
 
         QzxPage(
             title = "睡觉模式",
+
+            backIcon = painterResource(Icons.IC_ARROW_LEFT),
             onBack = { PageStack.popIfTop(act, TAG_PAGE) },
         ) {
             // 【spotTitle 注入】新系统不依赖 SettingsSpots；查表这层依赖只出现在这一行。

@@ -95,6 +95,8 @@ object MemSettingsPage {
 
         QzxPage(
             title = "记忆库设置",
+
+            backIcon = painterResource(Icons.IC_ARROW_LEFT),
             subtitle = "抽取与检索的全局策略",
             onBack = { closeIfOpen(act) },
         ) {

@@ -101,6 +101,8 @@ object PermissionPage {
 
         QzxPage(
             title = "权限与保活",
+
+            backIcon = painterResource(Icons.IC_ARROW_LEFT),
             subtitle = "系统授权、后台存活与启停通道",
             onBack = { closeIfOpen(act) },
         ) {

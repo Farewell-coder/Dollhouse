@@ -185,6 +185,37 @@ fun QzxSectionScope.label(title: String, icon: Painter? = null) {
     })
 }
 
+/**
+ * 预览区块：圆形头像/大图 + 标题 + 副标题 + 动作组 + 引导小字。
+ * （旧 `DhKit.Card` 里那种「头像 + 换头像/移除按钮」的块，`MyProfilePage` 与 `AboutPage` 在用。）
+ *
+ * 【为什么全是数据参数】`QzxPreviewAction` 只有 `label` / `onClick` / `destructive`
+ *   三个自由度，调用方**没有地方**写 `padding` / `Row` / `size`。
+ *   若收 `@Composable () -> Unit`，旧页面那套 `clip(pill)` + 限宽 180dp 会原样搬回来
+ *   —— 那就是「把违规藏进逃生口」。
+ *
+ * 【图标由调用方给】与 `QzxTitleBar.backIcon` 同一条原则：新系统不持有任何图标资源，
+ *   删旧资源时编译不过的地方就是还没迁完的地方。
+ *
+ * 【⚠️ 勘误记录】这个函数在 `QzxRow.Preview`（数据类）与它的渲染器都已经存在的情况下
+ *   漏了十几天 —— 而 `AboutPage` / `MyProfilePage` 早已在调用它。
+ *   这类「调用了不存在的函数」precheck 抓不到（它是正则门禁，不做符号解析），
+ *   只有真实编译才会报 Unresolved reference。
+ */
+fun QzxSectionScope.preview(
+    image: Painter?,
+    fallbackIcon: Painter?,
+    title: String? = null,
+    subtitle: String? = null,
+    actions: List<QzxPreviewAction> = emptyList(),
+    hint: String? = null
+) {
+    holders.add(object : QzxRowHolder {
+        override fun snapshot(): QzxRow =
+            QzxRow.Preview(image, fallbackIcon, title, subtitle, actions, hint)
+    })
+}
+
 // ───────────────────────── 渲染 ─────────────────────────
 
 /** 步进器。`−` / `+` 各自按 `canMinus` / `canPlus` 独立禁用。 */
