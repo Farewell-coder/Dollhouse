@@ -1,0 +1,581 @@
+package com.dollhouse.app.ui.qzx
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+/**
+ * 【职责】**声明式列表** —— 新系统的基底。
+ *
+ * ## 这个文件要解决的问题
+ * 旧写法是命令式手拼：
+ * ```kotlin
+ * DhGroup {
+ *     ActionRow(title = "选择排序方式", value = "按编辑日期", onClick = …)
+ *     RowDivider()
+ *     ActionRow(title = "笔记列表布局", value = "2列", onClick = …)
+ * }
+ * ```
+ * 每一行都要自己写、每条分隔线都要自己插、每处内边距都要自己对 —— 于是"排版"这件事
+ * 散落在 60 多个页面里，谁都能写出一种新的行距。
+ *
+ * 新写法只描述**有哪些行**：
+ * ```kotlin
+ * QzxList {
+ *     section("main", title = "外观") {
+ *         item("选择排序方式", "按编辑日期").arrow().onClick { showSortPicker() }
+ *         item("笔记列表布局", "2列").arrow()
+ *     }
+ * }
+ * ```
+ * **行高、内边距、描边、分隔线缩进、卡片包裹全部由系统算** —— 页面里没有任何一个
+ * `padding` / `height` / `border` 需要为"列表"出现。
+ *
+ * ## 三条设计约束（改这个文件前先读）
+ * 1. **调用方不描述排版**。`QzxSectionScope` 上只有"加一行"的方法，没有"设间距"的方法。
+ *    想调间距 = 改 [QzxTokens]，不是改调用点。
+ * 2. **分隔线是系统的责任**。默认 `autoDivider = true`：相邻两行自动加线；显式写
+ *    `divider()` 也允许（会被去重，见 [normalize]）。
+ * 3. **行高是下限不是定值**（`heightIn(min = …)`）。用户把系统字号调大时行要能长高，
+ *    否则文字被裁。旧系统有一处写死 `height(56.dp)`，就是这个病。
+ */
+
+/** 一个可选项（`select` 行用）。 */
+data class QzxOption(val value: String, val label: String)
+
+// ───────────────────────────── 模型 ─────────────────────────────
+
+/** 列表里的一行（纯数据，不含排版）。 */
+sealed interface QzxRow {
+    data class Item(
+        val title: String,
+        val value: String?,
+        val arrow: Boolean,
+        val onClick: (() -> Unit)?
+    ) : QzxRow
+
+    data class Toggle(
+        val title: String,
+        val checked: Boolean,
+        val onChecked: (Boolean) -> Unit
+    ) : QzxRow
+
+    data class Input(
+        val title: String,
+        val value: String,
+        val placeholder: String?,
+        val onValueChange: (String) -> Unit
+    ) : QzxRow
+
+    data class Select(
+        val title: String,
+        val value: String?,
+        val options: List<QzxOption>,
+        val onSelect: (QzxOption) -> Unit
+    ) : QzxRow
+
+    /** 逃生口：调用方给一段任意内容，但**仍然**由系统负责左右内边距与分隔线。 */
+    data class Custom(val content: @Composable () -> Unit) : QzxRow
+
+    data object Divider : QzxRow
+}
+
+/** 建造期持有者：让行在被 `add` 之后还能继续被链式配置（`.arrow().onClick {}`）。 */
+internal interface QzxRowHolder {
+    fun snapshot(): QzxRow
+}
+
+// ───────────────────────────── 行建造器 ─────────────────────────────
+
+/**
+ * 普通行。
+ *
+ * 用法照抄 QZX：
+ * `item("选择排序方式", "按编辑日期").arrow().onClick { … }`
+ *
+ * 【为什么方法都返回自身】链式配置。每一个 `.` 之后都还是同一行，不会意外新建一行 ——
+ * 这是"声明式"能读起来像配置的关键。
+ */
+class QzxItemBuilder internal constructor(
+    private val title: String,
+    private var valueText: String?
+) : QzxRowHolder {
+    private var showArrow = false
+    private var clickAction: (() -> Unit)? = null
+
+    /** 右侧显示一个箭头（表示"点进去还有一层"）。 */
+    fun arrow(show: Boolean = true): QzxItemBuilder = apply { showArrow = show }
+
+    /** 覆盖右侧值。 */
+    fun value(v: String?): QzxItemBuilder = apply { valueText = v }
+
+    /** 点击回调。不设 = 不可点（此时不画箭头，也不会有按压反馈）。 */
+    fun onClick(block: () -> Unit): QzxItemBuilder = apply { clickAction = block }
+
+    override fun snapshot(): QzxRow = QzxRow.Item(title, valueText, showArrow, clickAction)
+}
+
+/** 开关行。 */
+class QzxSwitchBuilder internal constructor(
+    private val title: String,
+    private var checkedValue: Boolean
+) : QzxRowHolder {
+    private var changeAction: (Boolean) -> Unit = {}
+
+    /** 值变化回调。 */
+    fun onChecked(block: (Boolean) -> Unit): QzxSwitchBuilder = apply { changeAction = block }
+
+    /** 覆盖当前值（一般不用 —— 值应由调用方状态驱动）。 */
+    fun checked(v: Boolean): QzxSwitchBuilder = apply { checkedValue = v }
+
+    override fun snapshot(): QzxRow = QzxRow.Toggle(title, checkedValue, changeAction)
+}
+
+/** 输入行。 */
+class QzxInputBuilder internal constructor(
+    private val title: String,
+    private var valueText: String
+) : QzxRowHolder {
+    private var placeholderText: String? = null
+    private var changeAction: (String) -> Unit = {}
+
+    /** 空值时的提示。 */
+    fun hint(text: String): QzxInputBuilder = apply { placeholderText = text }
+
+    /** 值变化回调。 */
+    fun onValueChange(block: (String) -> Unit): QzxInputBuilder = apply { changeAction = block }
+
+    override fun snapshot(): QzxRow =
+        QzxRow.Input(title, valueText, placeholderText, changeAction)
+}
+
+/** 选择行（点开一个下拉）。 */
+class QzxSelectBuilder internal constructor(
+    private val title: String,
+    private var valueText: String?,
+    private val options: List<QzxOption>
+) : QzxRowHolder {
+    private var selectAction: (QzxOption) -> Unit = {}
+
+    /** 选中回调。 */
+    fun onSelect(block: (QzxOption) -> Unit): QzxSelectBuilder = apply { selectAction = block }
+
+    override fun snapshot(): QzxRow = QzxRow.Select(title, valueText, options, selectAction)
+}
+
+// ───────────────────────────── DSL 作用域 ─────────────────────────────
+
+/** 一个分区（一张卡片）。 */
+class QzxSectionScope internal constructor(
+    internal val id: String,
+    internal val title: String?,
+    internal val footer: String?
+) {
+    internal val holders = mutableListOf<QzxRowHolder>()
+
+    /** 普通行：`item("标题", "右侧值").arrow().onClick { }` */
+    fun item(title: String, value: String? = null): QzxItemBuilder =
+        QzxItemBuilder(title, value).also { holders.add(it) }
+
+    /** 开关行：`switch("自动更新", checked = true).onChecked { }` */
+    fun switch(title: String, checked: Boolean): QzxSwitchBuilder =
+        QzxSwitchBuilder(title, checked).also { holders.add(it) }
+
+    /** 输入行：`input("API 地址", value = url).hint("https://…").onValueChange { }` */
+    fun input(title: String, value: String): QzxInputBuilder =
+        QzxInputBuilder(title, value).also { holders.add(it) }
+
+    /** 选择行：`select("语言", value = lang, options = langs).onSelect { }` */
+    fun select(title: String, value: String?, options: List<QzxOption>): QzxSelectBuilder =
+        QzxSelectBuilder(title, value, options).also { holders.add(it) }
+
+    /**
+     * 显式分隔线。
+     *
+     * 【通常不需要】`autoDivider = true`（默认）会在相邻两行之间自动加线。
+     * 这个方法用于关掉自动分隔后仍想在某处分段，或给 `custom { }` 之后补一条。
+     * 与自动线相邻时会被[normalize]去重，不会出现两条。
+     */
+    fun divider() {
+        holders.add(object : QzxRowHolder {
+            override fun snapshot(): QzxRow = QzxRow.Divider
+        })
+    }
+
+    /** 逃生口：任意内容，仍然享系统的左右内边距与分隔线。 */
+    fun custom(content: @Composable () -> Unit) {
+        holders.add(object : QzxRowHolder {
+            override fun snapshot(): QzxRow = QzxRow.Custom(content)
+        })
+    }
+}
+
+/** 整张列表。 */
+class QzxListScope {
+    internal val sections = mutableListOf<QzxSectionScope>()
+
+    /**
+     * 加一个分区。
+     *
+     * @param id 稳定标识（用于折叠态的持久化 / 测试定位）。
+     * @param title 卡片**外面**上方的小标题（可为空）。
+     * @param footer 卡片**外面**下方的说明文字（可为空）。
+     */
+    fun section(
+        id: String,
+        title: String? = null,
+        footer: String? = null,
+        content: QzxSectionScope.() -> Unit
+    ) {
+        sections.add(QzxSectionScope(id, title, footer).apply(content))
+    }
+}
+
+// ───────────────────────────── 渲染 ─────────────────────────────
+
+/**
+ * 声明式列表。
+ *
+ * @param autoDivider 是否在相邻两行之间自动加分隔线（默认 true）。
+ */
+@Composable
+fun QzxList(
+    modifier: Modifier = Modifier,
+    autoDivider: Boolean = true,
+    content: QzxListScope.() -> Unit,
+) {
+    // 每次重组重建模型：列表是**纯声明**，没有自己藏着的状态，
+    // 重建成本只是一次小对象分配，换来"调用方状态变了就一定跟着变"。
+    val scope = QzxListScope().apply(content)
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        scope.sections.forEach { section ->
+            QzxSection(section = section, autoDivider = autoDivider)
+        }
+    }
+}
+
+@Composable
+private fun QzxSection(section: QzxSectionScope, autoDivider: Boolean) {
+    val c = QzxColors
+    if (!section.title.isNullOrEmpty()) {
+        Text(
+            text = section.title,
+            modifier = Modifier.padding(
+                start = QzxTokens.Space.xs,
+                bottom = QzxTokens.Space.sm
+            ),
+            color = c.sub,
+            fontSize = QzxTokens.Type.SECTION_SP.sp,
+            lineHeight = (QzxTokens.Type.SECTION_SP + QzxTokens.Type.LINE_GAP_SP).sp
+        )
+    }
+
+    val rows = normalize(section.holders.map { it.snapshot() }, autoDivider)
+    QzxSurface {
+        rows.forEach { row ->
+            when (row) {
+                QzxRow.Divider -> QzxDivider()
+                else -> QzxRowView(row)
+            }
+        }
+    }
+
+    if (!section.footer.isNullOrEmpty()) {
+        Text(
+            text = section.footer,
+            modifier = Modifier.padding(
+                start = QzxTokens.Space.xs,
+                top = QzxTokens.Space.sm,
+                end = QzxTokens.Space.xs
+            ),
+            color = c.sub,
+            fontSize = QzxTokens.Type.FOOTER_SP.sp,
+            lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
+        )
+    }
+    Spacer(Modifier.height(QzxTokens.Space.cardGap))
+}
+
+@Composable
+private fun QzxDivider() {
+    // 【缩进从 listH 开始，不横贯】分隔线如果顶到卡片边缘，会像"卡片被切成两半"；
+    //   从内容缩进处起笔，视觉上它属于"行与行之间"而不是"卡片的分界线"。
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = QzxTokens.Space.listH)
+            .height(QzxTokens.Size.hairline)
+            .background(QzxColors.line.copy(alpha = 0.45f))
+    )
+}
+
+/** 行高由系统给：下限 = 单行/双行档，内容更长时自动长高。 */
+private fun rowMinHeight(row: QzxRow): Int = when (row) {
+    is QzxRow.Item -> QzxTokens.Size.rowOneLine
+    is QzxRow.Toggle -> QzxTokens.Size.rowOneLine
+    is QzxRow.Select -> QzxTokens.Size.rowOneLine
+    is QzxRow.Input -> QzxTokens.Size.rowTwoLine
+    else -> 0
+}
+
+@Composable
+private fun QzxRowView(row: QzxRow) {
+    val c = QzxColors
+    val minH = rowMinHeight(row)
+    val base = Modifier
+        .fillMaxWidth()
+        .heightIn(min = minH.dp)
+        .padding(
+            start = QzxTokens.Space.listH,
+            end = QzxTokens.Space.listH,
+            top = QzxTokens.Space.sm,
+            bottom = QzxTokens.Space.sm
+        )
+
+    when (row) {
+        is QzxRow.Item -> {
+            Row(
+                modifier = base.then(
+                    if (row.onClick != null) {
+                        Modifier
+                            // 行本身的下限已经 ≥ rowOneLine，这里再声明一次命中区下限：
+                            // 它保证"将来有人把行高调到 40"时仍然点得到。
+                            .heightIn(min = QzxTokens.Size.minTouch.dp)
+                            .clickable(onClick = row.onClick)
+                    } else {
+                        Modifier
+                    }
+                ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                QzxRowTitle(row.title, Modifier.weight(1f))
+                if (!row.value.isNullOrEmpty()) {
+                    Text(
+                        text = row.value,
+                        modifier = Modifier.padding(start = QzxTokens.Space.rowTitleGap),
+                        color = c.sub,
+                        fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
+                        lineHeight = (QzxTokens.Type.ROW_VALUE_SP + QzxTokens.Type.LINE_GAP_SP).sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (row.arrow) {
+                    Spacer(Modifier.width(QzxTokens.Space.xs))
+                    QzxChevron()
+                }
+            }
+        }
+
+        is QzxRow.Toggle -> {
+            Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
+                QzxRowTitle(row.title, Modifier.weight(1f))
+                Switch(checked = row.checked, onCheckedChange = row.onChecked)
+            }
+        }
+
+        is QzxRow.Select -> {
+            var expanded by remember { mutableStateOf(false) }
+            val current = row.options.firstOrNull { it.value == row.value }?.label ?: row.value
+            Box(modifier = base) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = QzxTokens.Size.minTouch.dp)
+                        .clickable { expanded = true },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    QzxRowTitle(row.title, Modifier.weight(1f))
+                    if (!current.isNullOrEmpty()) {
+                        Text(
+                            text = current,
+                            modifier = Modifier.padding(start = QzxTokens.Space.rowTitleGap),
+                            color = c.sub,
+                            fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
+                            lineHeight = (QzxTokens.Type.ROW_VALUE_SP +
+                                QzxTokens.Type.LINE_GAP_SP).sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(Modifier.width(QzxTokens.Space.xs))
+                    QzxChevron(down = true)
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    row.options.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text(text = opt.label) },
+                            onClick = {
+                                expanded = false
+                                row.onSelect(opt)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        is QzxRow.Input -> {
+            var text by remember(row.value) { mutableStateOf(row.value) }
+            Column(modifier = base) {
+                QzxRowTitle(row.title, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(QzxTokens.Space.xs))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = QzxTokens.Size.field)
+                        .clip(RoundedCornerShape(QzxTokens.Radius.inner))
+                        .background(c.field)
+                        .padding(horizontal = QzxTokens.Space.md),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = {
+                            text = it
+                            row.onValueChange(it)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = c.title,
+                            fontSize = QzxTokens.Type.ROW_VALUE_SP.sp
+                        ),
+                        cursorBrush = SolidColor(c.accent)
+                    )
+                    if (text.isEmpty() && !row.placeholder.isNullOrEmpty()) {
+                        Text(
+                            text = row.placeholder,
+                            color = c.sub.copy(alpha = 0.65f),
+                            fontSize = QzxTokens.Type.ROW_VALUE_SP.sp,
+                            lineHeight = (QzxTokens.Type.ROW_VALUE_SP +
+                                QzxTokens.Type.LINE_GAP_SP).sp
+                        )
+                    }
+                }
+            }
+        }
+
+        is QzxRow.Custom -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = QzxTokens.Space.listH,
+                        vertical = QzxTokens.Space.sm
+                    )
+            ) {
+                row.content()
+            }
+        }
+
+        QzxRow.Divider -> QzxDivider()
+    }
+}
+
+@Composable
+private fun QzxRowTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        modifier = modifier,
+        color = QzxColors.title,
+        fontSize = QzxTokens.Type.ROW_TITLE_SP.sp,
+        lineHeight = (QzxTokens.Type.ROW_TITLE_SP + QzxTokens.Type.LINE_GAP_SP).sp,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+/**
+ * 画一个箭头。
+ *
+ * 【为什么手画而不是用图标资源】新系统要能独立成立 —— 一个 12dp 的箭头不值得让它
+ * 依赖旧包的 drawable 目录（那是旧系统的资产）。两条线，5 行代码。
+ */
+@Composable
+private fun QzxChevron(down: Boolean = false) {
+    val color = QzxColors.sub.copy(alpha = 0.75f)
+    Canvas(modifier = Modifier.size(12.dp)) {
+        val w = size.width
+        val h = size.height
+        if (down) {
+            drawLine(color, Offset(w * 0.2f, h * 0.35f), Offset(w * 0.5f, h * 0.65f),
+                strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+            drawLine(color, Offset(w * 0.5f, h * 0.65f), Offset(w * 0.8f, h * 0.35f),
+                strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+        } else {
+            drawLine(color, Offset(w * 0.35f, h * 0.2f), Offset(w * 0.65f, h * 0.5f),
+                strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+            drawLine(color, Offset(w * 0.65f, h * 0.5f), Offset(w * 0.35f, h * 0.8f),
+                strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+        }
+    }
+}
+
+/**
+ * 分隔线规范化的**唯一实现**。
+ *
+ * 做三件事：
+ * 1. `autoDivider = true` 时，在**相邻两个都非空**的行之间插入分隔线；
+ * 2. 去掉连续的重复线（显式 `divider()` + 自动线会撞在一起）；
+ * 3. 去掉开头/结尾的线（卡片上下边缘不该有一条悬空的线）。
+ *
+ * 【为什么在这里做而不是渲染时躲】"有没有线"是**数据**问题，不是绘制问题；
+ * 放在渲染里躲会让 `rows.forEach` 到处带下标记，而且没法为将来的动画（比如折叠时
+ * 线淡出）提供稳定的 key。规范化一次，渲染就只管画。
+ */
+internal fun normalize(rows: List<QzxRow>, autoDivider: Boolean): List<QzxRow> {
+    val out = mutableListOf<QzxRow>()
+    rows.forEachIndexed { index, row ->
+        if (index > 0 && autoDivider) {
+            val prev = rows[index - 1]
+            if (prev !is QzxRow.Divider && row !is QzxRow.Divider) {
+                out.add(QzxRow.Divider)
+            }
+        }
+        // 连续两条线只留一条
+        if (row is QzxRow.Divider && out.lastOrNull() is QzxRow.Divider) {
+            return@forEachIndexed
+        }
+        out.add(row)
+    }
+    while (out.firstOrNull() is QzxRow.Divider) {
+        out.removeAt(0)
+    }
+    while (out.lastOrNull() is QzxRow.Divider) {
+        out.removeAt(out.size - 1)
+    }
+    return out
+}
