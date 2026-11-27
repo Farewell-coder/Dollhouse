@@ -247,66 +247,10 @@ object SettingsScreen {
             ProfileCard(act)
             PermissionRow(act)
             ChatCard(act)
-            // ── 以下 4 行已迁成**声明式**（`QzxList` 的 `item()`）——
-            //   它们是零状态、纯导航的行，用来验证新 DSL 的手感。
-            //   其余行仍在各自的 Card 里，按「有状态 → 备份卡 → 自定义布局」分步迁。
-            val dollCount = remember(DollState.rev) { DollStore.all(act).size }
-            QzxList(
-                // 标题唯一真源：索引表登记过的行用表里的标题，没登记的回退到字面量
-                //   （与旧 `SettingsSpots.spotTitle` 同一条规则）。
-                spotTitle = { com.dollhouse.app.ui.settings.SettingsSpots.find(it)?.title }
-            ) {
-                section("doll", title = "人偶") {
-                    item(
-                        title = "管理人偶",
-                        // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
-                        value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
-                        icon = painterResource(Icons.IC_LAYERS),
-                    )
-                        .desc("封面、动作、启停、删除")
-                        .arrow()
-                        .onClick { DollListScreen.open(act) }
-                }
-                section("appearance", title = "外观") {
-                    item(
-                        title = "外观设置",
-                        value = when {
-                            !HomeState.bgSet -> "无背景"
-                            PetPrefs.bgEnabled(act) -> "有背景"
-                            else -> "背景已关"
-                        },
-                        icon = painterResource(Icons.IC_PALETTE),
-                    )
-                        .desc("主题 · 背景 · 聊天气泡 · 弹窗")
-                        .arrow()
-                        .onClick { AppearancePage.open(act) }
-
-                    item(
-                        title = "当前主题",
-                        value = ThemeManager.MODE_NAMES[HomeState.themeMode],
-                        icon = painterResource(Icons.IC_SUN),
-                    )
-                        // 【索引登记】这一行在索引表里**有**条目（`appearance.mode`），
-                        //   传 spot 后标题以表为准，避免两处写死同一句话。
-                        .spot("appearance.mode")
-                        .arrow()
-                        .onClick { AppearancePage.open(act) }
-
-                    item(
-                        title = "全局背景",
-                        value = when {
-                            !HomeState.bgSet -> "未设置"
-                            PetPrefs.bgEnabled(act) -> "已开启"
-                            else -> "已关闭"
-                        },
-                        icon = painterResource(Icons.IC_IMAGE),
-                    )
-                        // 索引表里有 `appearance.bgEnable`（"使用自定义背景"）
-                        .spot("appearance.bgEnable")
-                        .arrow()
-                        .onClick { AppearancePage.open(act) }
-                }
-            }
+            // 一份定义、三处调用：单栏这里用 showTitle = true；
+            //   两栏右栏用 showTitle = false（左栏选中项已经是标题，卡内再画一遍是重复）。
+            DollSection(act, showTitle = true)
+            LookSection(act, showTitle = true)
             BackupCard(act)
             // 【r13】「实验」卡片：收纳尚未正式归入设置卡片、但已经可用的实验性功能。
             //   用户定案：**排在最后一张**，且是**展开式**（卡片内直接展开，不跳页）——
@@ -486,8 +430,8 @@ object SettingsScreen {
             SettingsGroup.PROFILE -> ProfileCard(act)
             SettingsGroup.PERMISSION -> PermissionRow(act)
             SettingsGroup.CHAT -> ChatCard(act)
-            SettingsGroup.DOLL -> DollCard(act)
-            SettingsGroup.LOOK -> LookCard(act)
+            SettingsGroup.DOLL -> DollSection(act, showTitle = false)
+            SettingsGroup.LOOK -> LookSection(act, showTitle = false)
             SettingsGroup.BACKUP -> BackupCard(act)
             SettingsGroup.EXPERIMENT -> ExperimentCard(act)
         }
@@ -1320,96 +1264,93 @@ object SettingsScreen {
 
     /* ============================ 人偶 ============================ */
 
+    /* ============================ 声明式分组（单栏 / 两栏共用的唯一一份定义） ============================ */
+
+    /**
+     * 「人偶」分组。**这是该分组唯一的一份定义** —— 单栏与宽屏两栏都调它。
+     *
+     * 【为什么必须抽出来】两栏是「按 `SettingsGroup` 单选一张卡渲染」的分发结构，
+     *   如果单栏写一份、两栏再写一份，就必然出现「手机上是新样子、平板上还是旧样子」的漂移
+     *   —— 那种问题单栏永远看不出来，只有用户拿平板才会发现。
+     *
+     * @param showTitle 单栏需要分组标题；两栏右栏**不需要**（左栏选中的那项就是标题），
+     *                  卡内再画一遍是重复信息。
+     */
     @Composable
-    private fun DollCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "人偶", titleIcon = Icons.IC_USERS) {
-            // 【本轮·删重复入口】原「自定义人偶」（ValueRow，值显示 "›"）与下方
-            //   「管理人偶」（ActionRow，带图标与说明）**指向同一个页面** `DollListScreen.open`，
-            //   两个入口功能完全重复，用户要求保留第二个、删掉第一个。
-            //   【为什么留 ActionRow 那个】它带图标、带副标题（封面、动作、启停、删除），
-            //   信息量更高，且与设置页其它卡片的行样式一致（ValueRow 只有「标签 + ›」）。
-            //   【为什么不连带删别的东西】`DollListScreen.open` 还有别的调用方
-            //   （首页人偶页、通知入口等），所以只删这一行 UI，不碰目标页面。
-            //
-            // 【r14·需求 4b】「管理人偶」从人偶页底部**搬到这里**。
-            //   用户定案原文：「不要了 从设置的人偶下级进」——
-            //   人偶页每一行都要用来展示角色（QQ 联系人形态），
-            //   在列表尾部再挂一条「管理人偶」会破坏那个信息结构。
-            // 【P1-e·补当前值】原来只有名词 + 静态 desc，用户不知道"我有几只"。
-            //   【为什么用 DollState.rev 作 key】人偶数是**可变**的（新建 / 删除后要变）。
-            //   `DollState.rev` 是既有的变更版本号（`DollState.kt:29`），
-            //   任何写操作后 `bump()` —— 拿它当 key，删掉一只返回设置页时数字会跟着变。
-            //   【为什么不用 Unit】那会让数字停在进页那一刻，与既有 `ProfileCard`
-            //   读 `ProfileState.tick` 的口径不一致。
-            val dollCount = remember(DollState.rev) { DollStore.all(act).size }
-            DhKit.ValueRow(
-                label = "管理人偶",
-                iconRes = Icons.IC_LAYERS,
-                desc = "封面、动作、启停、删除",
-                // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
-                value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
-                // 【一屏一色相】「还没有」是空态提示，不是错误——用红色会让用户以为出了问题。
-                valueTint = null,
-                showChevron = true
-            ) { DollListScreen.open(act) }
-            // 【r10】全局「调整比例」已移除：比例改到「每只人偶」的编辑页（活动 → 比例大小），
-            //   现场调整只作用于当前启用的那几只，放在全局设置里既不准也容易误改。
+    private fun DollSection(act: MainActivity, showTitle: Boolean) {
+        val dollCount = remember(DollState.rev) { DollStore.all(act).size }
+        QzxList(
+            // 标题唯一真源：索引表登记过的行用表里的标题，没登记的回退到字面量。
+            spotTitle = { com.dollhouse.app.ui.settings.SettingsSpots.find(it)?.title }
+        ) {
+            section("doll", title = if (showTitle) "人偶" else null) {
+                item(
+                    title = "管理人偶",
+                    // 【措辞】0 只时说"还没有"，给出"这里可以建"的暗示；不报 "0 只"。
+                    value = if (dollCount == 0) "还没有" else dollCount.toString() + " 只",
+                    icon = painterResource(Icons.IC_LAYERS),
+                )
+                    .desc("封面、动作、启停、删除")
+                    .arrow()
+                    .onClick { DollListScreen.open(act) }
+            }
         }
     }
+
+    /**
+     * 「外观」分组（3 行）。同为单栏 / 两栏唯一的一份定义，理由见 [DollSection]。
+     *
+     * @param showTitle 同 [DollSection]：两栏右栏传 false。
+     */
+    @Composable
+    private fun LookSection(act: MainActivity, showTitle: Boolean) {
+        QzxList(
+            spotTitle = { com.dollhouse.app.ui.settings.SettingsSpots.find(it)?.title }
+        ) {
+            section("appearance", title = if (showTitle) "外观" else null) {
+                item(
+                    title = "外观设置",
+                    value = when {
+                        !HomeState.bgSet -> "无背景"
+                        PetPrefs.bgEnabled(act) -> "有背景"
+                        else -> "背景已关"
+                    },
+                    icon = painterResource(Icons.IC_PALETTE),
+                )
+                    .desc("主题 · 背景 · 聊天气泡 · 弹窗")
+                    .arrow()
+                    .onClick { AppearancePage.open(act) }
+
+                item(
+                    title = "当前主题",
+                    value = ThemeManager.MODE_NAMES[HomeState.themeMode],
+                    icon = painterResource(Icons.IC_SUN),
+                )
+                    // 索引表里有 `appearance.mode` → 标题以表为准
+                    .spot("appearance.mode")
+                    .arrow()
+                    .onClick { AppearancePage.open(act) }
+
+                item(
+                    title = "全局背景",
+                    value = when {
+                        !HomeState.bgSet -> "未设置"
+                        PetPrefs.bgEnabled(act) -> "已开启"
+                        else -> "已关闭"
+                    },
+                    icon = painterResource(Icons.IC_IMAGE),
+                )
+                    // 索引表里有 `appearance.bgEnable`（"使用自定义背景"）
+                    .spot("appearance.bgEnable")
+                    .arrow()
+                    .onClick { AppearancePage.open(act) }
+            }
+        }
+    }
+
 
     /* ============================ 外观 ============================ */
 
-    /**
-     * 【r14·重构】外观卡：从「平铺一堆滑条」改为**一个入口**，正文全部搬进 [AppearancePage]。
-     *
-     * 【为什么搬】用户定案：外观要「进入一个界面，那几个总的选项作为顶栏，可以切换」。
-     *   一张折叠卡片塞不下四个分类（原来的外观卡里已经有 4 条滑条 + 7 个值行），
-     *   而且顶栏 Tab 这种形态在卡片内部做不出来。
-     *
-     * 【旧内容去哪了】四项滑条（背景图透明度 / 背景毛玻璃 / 卡片透明度 / 遮罩强度）
-     *   与「清除背景」「字体颜色」弹窗全部原样迁进 [AppearancePage] 的对应 Tab，
-     *   功能一个没删 —— 这里是**搬家**，不是删功能。
-     */
-    @Composable
-    private fun LookCard(act: MainActivity) {
-        DhKit.Card(collapsibleTitle = "外观", titleIcon = Icons.IC_PALETTE) {
-            // 【状态摘要】让用户不用点进去就知道当前是什么状态。
-            DhKit.ValueRow(
-                label = "外观设置",
-                iconRes = Icons.IC_PALETTE,
-                desc = "主题 · 背景 · 聊天气泡 · 弹窗",
-                // 【P1-e·补当前值】下一行「当前主题」已经单独显示了主题名，
-                //   这里再重复一次就是冗余。改为报**背景**状态：
-                //   "外观设置"这行是入口，用户最想知道"我现在套了什么背景"。
-                //   【为什么不报"气泡/弹窗"】那两项各有滑条，取值是百分比，
-                //   塞进 8 字以内会变成一串数字噪声；背景是唯一有明确"有/无"状态的。
-                value = when {
-                    !HomeState.bgSet -> "无背景"
-                    PetPrefs.bgEnabled(act) -> "有背景"
-                    else -> "背景已关"
-                },
-                showChevron = true
-            ) { AppearancePage.open(act) }
-            DhKit.ValueRow(
-                label = "当前主题",
-                value = ThemeManager.MODE_NAMES[HomeState.themeMode],
-                iconRes = Icons.IC_SUN
-            ) { AppearancePage.open(act) }
-            DhKit.ValueRow(
-                label = "全局背景",
-                iconRes = Icons.IC_IMAGE,
-                value = when {
-                    !HomeState.bgSet -> "未设置"
-                    PetPrefs.bgEnabled(act) -> "已开启"
-                    else -> "已关闭"
-                },
-                // 【一屏一色相】三态里只有「未设置」带一点指向性，但它同样不是错误：
-                //   用户完全可以不设背景。红/绿只留给真正的失败（如本文件 providerCount == 0）。
-                valueTint = if (!HomeState.bgSet) DhTokens.colors.sub else null
-            ) { AppearancePage.open(act) }
-            DhForm.Note("点「外观设置」进去，四个分类用顶栏切换。")
-        }
-    }
 
     /* 【r11】原「记忆」卡片（MemCard）已整体移除，见本文件顶部 KDoc。 */
 }
