@@ -132,7 +132,7 @@ object ModelEditPage {
                         options = Array(AiModel.KINDS.size) { i ->
                             QzxChip(AiModel.kindLabel(AiModel.KINDS[i]), AiModel.KINDS[i] ?: "")
                         }.toList(),
-                        selected = setOf(sel.kind),
+                        selected = setOfNotNull(sel.kind),
                     ) { id, _ ->
                         // 【单选语义】chips 是多选组，这里只用它的「点一个」：
                         //   选中集合恒为单元素，所以点任意一项就是切换 —— 等价旧 ChipRow 单选。
@@ -237,69 +237,6 @@ object ModelEditPage {
                     )
                 }
             }
-        }
-    }
-
-    /** 一排等宽可点格子（类型 / 模态）。 */
-    @Composable
-    private fun ChipRow(
-        labels: Array<String>,
-        selected: Array<Boolean>,
-        dimmed: Array<Boolean>? = null,
-        onPick: (Int) -> Unit
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(top = DhDesign.Space.sm.dp)) {
-            for (i in labels.indices) {
-                DhForm.SelectChip(
-                    text = labels[i],
-                    selected = selected[i],
-                    dimmed = dimmed != null && dimmed[i],
-                    modifier = Modifier.weight(1f),
-                    onClick = { onPick(i) }
-                )
-                if (i < labels.size - 1) {
-                    Spacer(Modifier.width(DhDesign.Space.sm.dp))
-                }
-            }
-        }
-    }
-
-    /** 一行能力开关（EMBEDDING 时整行置灰，与 View 版 `alpha = 0.45f` 同口径）。 */
-    @Composable
-    private fun CapRow(name: String, desc: String?, on: Boolean, dimmed: Boolean, onToggle: (Boolean) -> Unit) {
-        val c = DhTokens.colors
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = DhDesign.Space.sm.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                // 【E16·真问题（原 ALLOW 理由错：说"由调用方省略号处理"，实测这里既无
-                //   maxLines 也无 overflow）】`name` 是模型标识，来自供应商 `/models` 返回，
-                //   长度不受本 App 控制（常见 `deepseek-reasoner`、长名可达 40+ 字符）。
-                //   补 maxLines + Ellipsis 而非行高 —— 单行截断比多行撑开更适合列表行。
-                Text(
-                    text = name,
-                    modifier = Modifier.weight(1f),
-                    color = c.title,
-                    fontSize = UiKit.FS_BTN.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = DhTokens.fonts
-                )
-                if (desc != null && desc.isNotEmpty()) {
-                    Text(
-                        text = desc,
-                        modifier = Modifier.padding(top = 2.dp),
-                        color = c.sub,
-                        fontSize = UiKit.FS_TINY.sp,
-                        lineHeight = DhTokens.type.sub.lineHeight,
-                        fontFamily = DhTokens.fontsBody
-                    )
-                }
-            }
-            DhKit.Switch(checked = on, onCheckedChange = onToggle)
         }
     }
 

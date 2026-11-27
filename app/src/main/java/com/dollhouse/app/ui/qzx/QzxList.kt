@@ -397,6 +397,7 @@ class QzxSwitchBuilder internal constructor(
     private var iconPainter: Painter? = null
     private var changeAction: (Boolean) -> Unit = {}
     private var enabledValue: Boolean = true
+    private var iconPainterValue: Painter? = null
     private var spotId: String? = null
     private var descText: String? = null
     private var valueTintColor: Color? = null
