@@ -130,7 +130,7 @@ object ModelEditPage {
                     chips(
                         title = "",
                         options = Array(AiModel.KINDS.size) { i ->
-                            QzxChip(AiModel.kindLabel(AiModel.KINDS[i]), AiModel.KINDS[i])
+                            QzxChip(AiModel.kindLabel(AiModel.KINDS[i]), AiModel.KINDS[i] ?: "")
                         }.toList(),
                         selected = setOf(sel.kind),
                     ) { id, _ ->
@@ -144,7 +144,7 @@ object ModelEditPage {
                 section("mods") {
                     val emb = AiModel.KIND_EMBEDDING == sel.kind
                     val modOpts = Array(ModelEditKit.MODS.size) { i ->
-                        QzxChip(AiModel.modLabel(ModelEditKit.MODS[i]), ModelEditKit.MODS[i])
+                        QzxChip(AiModel.modLabel(ModelEditKit.MODS[i]), ModelEditKit.MODS[i] ?: "")
                     }.toList()
                     label("输入模态", iconRes = Icons.IC_BLOCKS)
                     chips(
@@ -152,7 +152,7 @@ object ModelEditPage {
                         options = modOpts,
                         selected = ModelEditKit.MODS.indices
                             .filter { sel.`in`[it] }
-                            .map { ModelEditKit.MODS[it] }
+                            .mapNotNull { ModelEditKit.MODS[it] }
                             .toSet(),
                     ) { id, _ ->
                         val i = ModelEditKit.MODS.indexOf(id)
@@ -168,7 +168,7 @@ object ModelEditPage {
                         options = modOpts,
                         selected = ModelEditKit.MODS.indices
                             .filter { sel.out[it] }
-                            .map { ModelEditKit.MODS[it] }
+                            .mapNotNull { ModelEditKit.MODS[it] }
                             .toSet(),
                     ) { id, _ ->
                         val i = ModelEditKit.MODS.indexOf(id)

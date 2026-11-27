@@ -179,6 +179,8 @@ sealed interface QzxRow {
          *   优先级：`iconRes` 非空时用资源，否则用 `iconPainter`。
          */
         val iconPainter: Painter? = null,
+        /** 可交互与否。false = 整行变淡（0.38）且开关不响应 —— 旧 CapRow 的 alpha = 0.45f 同语义。 */
+        val enabled: Boolean = true,
         val desc: String? = null,
         val valueTint: Color? = null
     ) : QzxRow
@@ -394,6 +396,7 @@ class QzxSwitchBuilder internal constructor(
 ) : QzxRowHolder {
     private var iconPainter: Painter? = null
     private var changeAction: (Boolean) -> Unit = {}
+    private var enabledValue: Boolean = true
     private var spotId: String? = null
     private var descText: String? = null
     private var valueTintColor: Color? = null
@@ -408,6 +411,9 @@ class QzxSwitchBuilder internal constructor(
     /** 设置项索引 id（语义见 [QzxItemBuilder.spot]）。 */
     fun spot(id: String): QzxSwitchBuilder = apply { spotId = id }
 
+    /** 可交互与否（false 时整行变淡、开关不响应）。 */
+    fun enabled(v: Boolean): QzxSwitchBuilder = apply { enabledValue = v }
+
     /** 值变化回调。 */
     fun onChecked(block: (Boolean) -> Unit): QzxSwitchBuilder = apply { changeAction = block }
 
@@ -415,7 +421,7 @@ class QzxSwitchBuilder internal constructor(
     fun checked(v: Boolean): QzxSwitchBuilder = apply { checkedValue = v }
 
     override fun snapshot(): QzxRow =
-        QzxRow.Toggle(title = title, checked = checkedValue, onChecked = changeAction, spotId = spotId, iconRes = iconRes, desc = descText, valueTint = valueTintColor)
+        QzxRow.Toggle(title = title, checked = checkedValue, onChecked = changeAction, spotId = spotId, iconRes = iconRes, iconPainter = iconPainterValue, desc = descText, valueTint = valueTintColor, enabled = enabledValue)
 }
 
 /** 输入行。 */
@@ -923,7 +929,10 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
         }
 
         is QzxRow.Toggle -> {
-            Row(modifier = base, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = base.alpha(if (row.enabled) 1f else DISABLED_ROW_ALPHA),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 QzxRowLeading(
                     title = titleOf(row.title, row.spotId),
                     desc = row.desc,
@@ -931,7 +940,11 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                     iconPainter = row.iconPainter,
                     modifier = Modifier.weight(1f)
                 )
-                Switch(checked = row.checked, onCheckedChange = row.onChecked)
+                Switch(
+                    checked = row.checked,
+                    // 禁用时传 null —— Compose 的约定是"没给回调就不响应"，比 alpha 更彻底。
+                    onCheckedChange = if (row.enabled) row.onChecked else null
+                )
             }
         }
 
