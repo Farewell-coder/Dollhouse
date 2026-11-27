@@ -246,7 +246,7 @@ object SettingsScreen {
             //   这里只提供「看得见、点得到」的入口，避免一个页面承担两种职责。
             ProfileCard(act)
             PermissionRow(act)
-            ChatCard(act)
+            ChatSection(act, showTitle = true)
             // 一份定义、三处调用：单栏这里用 showTitle = true；
             //   两栏右栏用 showTitle = false（左栏选中项已经是标题，卡内再画一遍是重复）。
             DollSection(act, showTitle = true)
@@ -429,7 +429,7 @@ object SettingsScreen {
         when (group) {
             SettingsGroup.PROFILE -> ProfileCard(act)
             SettingsGroup.PERMISSION -> PermissionRow(act)
-            SettingsGroup.CHAT -> ChatCard(act)
+            SettingsGroup.CHAT -> ChatSection(act, showTitle = false)
             SettingsGroup.DOLL -> DollSection(act, showTitle = false)
             SettingsGroup.LOOK -> LookSection(act, showTitle = false)
             SettingsGroup.BACKUP -> BackupCard(act)
@@ -1155,6 +1155,53 @@ object SettingsScreen {
     }
 
     /* ============================ 聊天 ============================ */
+
+    /**
+     * 「聊天」分组（**2 行**：供应商 / 查看 Token）。单栏与两栏共用这一份定义。
+     *
+     * 【行数核对】你消息里写的是 3 行，但实际 `ChatCard` 只有 2 行 ——
+     *   第 3 行「对话显示」不在这个卡里，它在 `ExperimentCard` 的「对话与模型」子组
+     *   （已在上一批迁进 `ExperimentSection`）。此处按**代码实际**为 2 行。
+     *
+     * 【两处 `remember` 缓存必须保留（key 仍是 Unit）】
+     *   `ProviderStore.providers()` 每次会 `purgeLegacy` + 解析整份 JSON；
+     *   `TokenStat.todayTotal()` 要解析最多 31 条日记录 —— 放进组合体每帧读，
+     *   滚动设置页会明显卡。按「进入本页」缓存一次即可（与 `PermissionRow` 同口径）。
+     *   ⚠️ 这里**不能**改成 `remember(tick)` —— 本页没有 tick，改了就每帧读。
+     */
+    @Composable
+    private fun ChatSection(act: MainActivity, showTitle: Boolean) {
+        val providerCount = remember { ProviderStore.providers(act).size }
+        val todayTokens = remember { TokenStat.todayTotal(act) }
+        QzxList(
+            spotTitle = { com.dollhouse.app.ui.settings.SettingsSpots.find(it)?.title }
+        ) {
+            section("chat", title = if (showTitle) "聊天" else null) {
+                item(
+                    title = "供应商",
+                    // 【宁可说"未配置"也不报 0】0 个供应商是"还没开始"，不是"有 0 个东西"。
+                    value = if (providerCount == 0) "未配置" else providerCount.toString() + " 个",
+                    icon = painterResource(Icons.IC_SERVER),
+                )
+                    .desc("接口地址、密钥与模型列表")
+                    // 未配置时才染错色（原 `valueTint = if (providerCount == 0) err else null`）
+                    .valueTint(if (providerCount == 0) com.dollhouse.app.ui.qzx.QzxColors.danger else null)
+                    .arrow()
+                    .onClick { ProviderNav.open(act) }
+
+                item(
+                    title = "查看 Token",
+                    // 【今日 in+out，与「当日总览」同一口径】没有数据时显示 `—` 而不是 `0`：
+                    //   `0` 读作"今天真的没用过"，`—` 读作"还没有任何记录"；后者不会让人以为统计坏了。
+                    value = if (todayTokens <= 0L) "—" else fmtTokenShort(todayTokens),
+                    icon = painterResource(Icons.IC_GAUGE),
+                )
+                    .desc("查看模型使用统计")
+                    .arrow()
+                    .onClick { TokenStat.open(act) }
+            }
+        }
+    }
 
     @Composable
     private fun ChatCard(act: MainActivity) {
