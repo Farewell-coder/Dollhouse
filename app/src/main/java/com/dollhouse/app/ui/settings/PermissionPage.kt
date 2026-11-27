@@ -5,13 +5,15 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import com.dollhouse.app.device.ShizukuBridge
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhDividedColumn
-import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
 import com.dollhouse.app.ui.home.HomeState
 import com.dollhouse.app.ui.home.HomeUi
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.theme.Icons
 
 /**
@@ -93,105 +95,149 @@ object PermissionPage {
      */
     @Composable
     private fun Content(act: Activity) {
-        DhKit.Page(
+        // Shizuku：四态（已授权 / 未授权 / 服务未运行 / 未安装）。
+        val sh = HomeState.shizuku
+        val shGranted = sh == ShizukuBridge.S_GRANTED
+
+        QzxPage(
             title = "权限与保活",
-            sub = "系统授权、后台存活与启停通道",
+            subtitle = "系统授权、后台存活与启停通道",
             onBack = { closeIfOpen(act) },
-            // 【大标题栏·批 3】首屏是长滚动内容（scrollable=true），滚动时标题收起。
-            adaptiveTitle = true
         ) {
-            // ---------- 系统授权 ----------
-            DhKit.Card(titleIcon = Icons.IC_SHIELD_CHECK, collapsibleTitle = "系统授权") {
-                // Shizuku：四态（已授权 / 未授权 / 服务未运行 / 未安装）。
-                val sh = HomeState.shizuku
-                // 【试点·自动分割线】行之间不再手写 RowDivider —— 由 DhDividedColumn
-                //   在布局阶段记账、绘制阶段画线；条件渲染成 0dp 的行不会产生双线。
-                DhDividedColumn(insetStart = ROW_INSET.dp) {
-                    DhKit.PermRow(
-                        spot = spot("permission.shizuku"),
-                        iconRes = Icons.IC_KEY_ROUND,
-                        desc = "通过 ADB 授权后可用系统级能力",
-                        state = when (sh) {
-                            com.dollhouse.app.device.ShizukuBridge.S_GRANTED -> 0
-                            com.dollhouse.app.device.ShizukuBridge.S_NOT_RUNNING -> 2
-                            com.dollhouse.app.device.ShizukuBridge.S_NOT_INSTALLED -> 2
-                            else -> 1
-                        }
-                    ) { HomeUi.shizukuClicked(act) }
-                    DhKit.PermRow(
-                        spot = spot("permission.overlay"),
-                        iconRes = Icons.IC_APP_WINDOW,
-                        desc = "人偶要浮在其他应用上就必须有它",
-                        state = if (HomeState.overlay) 0 else 1
-                    ) {
-                        HomeUi.requestOverlay(act)
-                    }
-                    DhKit.PermRow(
-                        spot = spot("permission.notification"),
-                        iconRes = Icons.IC_BELL,
-                        desc = "保活通知与消息提醒",
-                        state = if (HomeState.notif) 0 else 1
-                    ) {
-                        HomeUi.requestNotif(act)
-                    }
-                    DhKit.PermRow(
-                        spot = spot("permission.battery"),
-                        iconRes = Icons.IC_BATTERY_CHARGING,
-                        desc = "加入后不容易被系统清掉",
-                        state = if (HomeState.battery) 0 else 1
-                    ) {
-                        HomeUi.requestIgnoreBattery(act)
-                    }
-                }
-            }
+            QzxList(spotTitle = { spot(it)?.title }) {
 
-            // ---------- 后台存活 ----------
-            DhKit.Card(titleIcon = Icons.IC_ACTIVITY, collapsibleTitle = "后台存活") {
-                DhKit.SwitchRow(
-                    spot = spot("permission.keepalive"),
-                    iconRes = Icons.IC_ACTIVITY,
-                    desc = "允许应用持续执行相关后台任务",
-                    checked = HomeState.keepAlive
-                ) { on ->
-                    HomeUi.onKeepAliveChanged(on, act)
-                }
-                DhKit.RowDivider(insetStart = ROW_INSET)
-                DhKit.SwitchRow(
-                    spot = spot("permission.hideRecents"),
-                    iconRes = Icons.IC_EYE_OFF,
-                    desc = "不在最近任务里露出这一页",
-                    checked = HomeState.hideRecents
-                ) { on ->
-                    HomeUi.onHideRecentsChanged(on, act)
-                }
-            }
-
-            // ---------- 启停通道 ----------
-            // 【为什么把「磁贴」与「开关指令」放同组】它们是同一条启停通道的不同入口：
-            //   磁贴是系统快捷开关，指令是可粘贴到外部（如自动化工具）的文本。
-            DhKit.Card(titleIcon = Icons.IC_LAYOUT_GRID, collapsibleTitle = "启停通道") {
-                DhKit.SwitchRow(
-                    spot = spot("permission.tile"),
-                    iconRes = Icons.IC_LAYOUT_GRID,
-                    desc = "从下拉快捷开关直接起停人偶",
-                    checked = HomeState.tile
-                ) { on ->
-                    HomeUi.onTileSwitchChanged(on, act)
-                }
-                DhKit.RowDivider(insetStart = ROW_INSET)
-                DhKit.ValueRow(
-                    spot = spot("permission.shellCommand"),
-                    iconRes = Icons.IC_LINK_2,
-                    desc = "复制一条可粘贴到别处的指令",
-                    value = "复制",
-                    showChevron = true
+                // ---------- 系统授权 ----------
+                section(
+                    id = "system",
+                    title = "系统授权",
+                    titleIcon = painterResource(Icons.IC_SHIELD_CHECK),
+                    collapsible = true,
                 ) {
-                    HomeUi.copyToggleLink(act)
+                    item(
+                        "Shizuku",
+                        value = when (sh) {
+                            ShizukuBridge.S_GRANTED -> "已授权"
+                            ShizukuBridge.S_NOT_RUNNING -> "待处理"
+                            ShizukuBridge.S_NOT_INSTALLED -> "待处理"
+                            else -> "未授权"
+                        },
+                        icon = painterResource(
+                            when (sh) {
+                                ShizukuBridge.S_GRANTED -> Icons.IC_CHECK_CIRCLE
+                                ShizukuBridge.S_NOT_RUNNING -> Icons.IC_WARNING
+                                ShizukuBridge.S_NOT_INSTALLED -> Icons.IC_WARNING
+                                else -> Icons.IC_X_CIRCLE
+                            }
+                        )
+                    ).desc("通过 ADB 授权后可用系统级能力")
+                        .valueTint(
+                            when (sh) {
+                                ShizukuBridge.S_GRANTED -> QzxColors.ok
+                                ShizukuBridge.S_NOT_RUNNING,
+                                ShizukuBridge.S_NOT_INSTALLED -> QzxColors.danger
+                                else -> null
+                            }
+                        )
+                        .arrow(!shGranted)
+                        .spot("permission.shizuku")
+                        // 【已授权不可点】旧 `PermRow` 在 granted 时**压根不挂点击**；
+                        //   这里同样不设 onClick —— 不给"点了没反应"的假可点态。
+                        .let { b -> if (!shGranted) b.onClick { HomeUi.shizukuClicked(act) } else b }
+
+                    item(
+                        "悬浮窗",
+                        value = grantedText(HomeState.overlay),
+                        icon = painterResource(grantedIcon(HomeState.overlay))
+                    ).desc("人偶要浮在其他应用上就必须有它")
+                        .valueTint(grantedTint(HomeState.overlay))
+                        .arrow()
+                        .spot("permission.overlay")
+                        .onClick { HomeUi.requestOverlay(act) }
+
+                    item(
+                        "通知",
+                        value = grantedText(HomeState.notif),
+                        icon = painterResource(grantedIcon(HomeState.notif))
+                    ).desc("保活通知与消息提醒")
+                        .valueTint(grantedTint(HomeState.notif))
+                        .arrow()
+                        .spot("permission.notification")
+                        .onClick { HomeUi.requestNotif(act) }
+
+                    item(
+                        "电池优化白名单",
+                        value = grantedText(HomeState.battery),
+                        icon = painterResource(grantedIcon(HomeState.battery))
+                    ).desc("加入后不容易被系统清掉")
+                        .valueTint(grantedTint(HomeState.battery))
+                        .arrow()
+                        .spot("permission.battery")
+                        .onClick { HomeUi.requestIgnoreBattery(act) }
+                }
+
+                // ---------- 后台存活 ----------
+                section(
+                    id = "keepalive",
+                    title = "后台存活",
+                    titleIcon = painterResource(Icons.IC_ACTIVITY),
+                    collapsible = true,
+                ) {
+                    switch(
+                        "无感保活",
+                        checked = HomeState.keepAlive,
+                        icon = painterResource(Icons.IC_ACTIVITY)
+                    ).desc("允许应用持续执行相关后台任务")
+                        .spot("permission.keepalive")
+                        .onChecked { on -> HomeUi.onKeepAliveChanged(on, act) }
+
+                    switch(
+                        "隐藏后台卡片",
+                        checked = HomeState.hideRecents,
+                        icon = painterResource(Icons.IC_EYE_OFF)
+                    ).desc("不在最近任务里露出这一页")
+                        .spot("permission.hideRecents")
+                        .onChecked { on -> HomeUi.onHideRecentsChanged(on, act) }
+                }
+
+                // ---------- 启停通道 ----------
+                // 【为什么把「磁贴」与「开关指令」放同组】它们是同一条启停通道的不同入口：
+                //   磁贴是系统快捷开关，指令是可粘贴到外部（如自动化工具）的文本。
+                section(
+                    id = "channel",
+                    title = "启停通道",
+                    titleIcon = painterResource(Icons.IC_LAYOUT_GRID),
+                    collapsible = true,
+                ) {
+                    switch(
+                        "快捷磁贴",
+                        checked = HomeState.tile,
+                        icon = painterResource(Icons.IC_LAYOUT_GRID)
+                    ).desc("从下拉快捷开关直接起停人偶")
+                        .spot("permission.tile")
+                        .onChecked { on -> HomeUi.onTileSwitchChanged(on, act) }
+
+                    item(
+                        "开关指令",
+                        value = "复制",
+                        icon = painterResource(Icons.IC_LINK_2)
+                    ).desc("复制一条可粘贴到别处的指令")
+                        .arrow()
+                        .spot("permission.shellCommand")
+                        .valueTint()
+                        .onClick { HomeUi.copyToggleLink(act) }
                 }
             }
         }
     }
 
-    /** 行分隔线左缩进：行首图标 20dp + 图标间距 8dp。 */
-    private const val ROW_INSET = 28
+    /** 权限行的值文案（与旧 `PermRow` 的 `已授权 / 未授权` 完全一致）。 */
+    private fun grantedText(granted: Boolean) = if (granted) "已授权" else "未授权"
+
+    /** 权限行的状态图标（与旧 `PermRow` 的 CHECK_CIRCLE / X_CIRCLE 一致）。 */
+    private fun grantedIcon(granted: Boolean) =
+        if (granted) Icons.IC_CHECK_CIRCLE else Icons.IC_X_CIRCLE
+
+    /** 权限行的值色：已授权用成功色，未授权保持默认副文本色。 */
+    private fun grantedTint(granted: Boolean) = if (granted) QzxColors.ok else null
+
 }

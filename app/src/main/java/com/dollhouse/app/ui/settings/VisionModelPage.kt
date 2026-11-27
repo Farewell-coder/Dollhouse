@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.setValue
 import com.dollhouse.app.ai.AiModel
 import com.dollhouse.app.core.Logs
@@ -15,9 +16,10 @@ import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.PetPrefs
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
 import com.dollhouse.app.ui.compose.PageStack
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
 import com.dollhouse.app.ui.theme.Icons
 
 /**
@@ -103,57 +105,73 @@ object VisionModelPage {
         }
         val curRecord = if (picked.isEmpty()) null else ModelStore.findModel(act, picked)
 
-        DhKit.Page(
+        QzxPage(
             title = "识图模型",
-            sub = "用哪个模型来看图片",
+            subtitle = "用哪个模型来看图片",
             onBack = { closeIfOpen(act) },
-            // 【大标题栏·全站推广】首屏是长滚动内容，滚动时标题收起、把 120dp 还给内容。
-            adaptiveTitle = true
         ) {
-            DhKit.Card(collapsibleTitle = "当前设置") {
-                val nowText = when {
-                    curRecord != null -> curRecord.displayName
-                    picked.isNotEmpty() -> "已失效（模型被删或关闭了视觉）"
-                    else -> "跟随当前聊天模型"
-                }
-                DhKit.ValueRow(spot = spot("vision.current"), value = nowText, iconRes = Icons.IC_EYE)
-                DhForm.Note("不指定时：聊天模型自己会看图就直接看图，不会看图就用本地识别（只认文字）。")
-            }
+            QzxList(spotTitle = { spot(it)?.title }) {
 
-            DhKit.Card(collapsibleTitle = "可选模型") {
-                if (candidates.isEmpty()) {
-                    DhForm.Note("还没有勾选「视觉（VISION）」的模型。"
-                            + "去「提供商 → 某个模型 → 能力」里把「视觉」打开，它才会出现在这里。")
-                } else {
-                    DhKit.ActionRow(
-                        spot = spot("vision.followChat"),
-                        iconRes = Icons.IC_BOT,
-                        // 【P1-e】默认行为解释，属可选了解。
-                        info = "不单独指定，用到哪个模型就用哪个的看图能力"
-                    ) {
-                        PetPrefs.setVisionModel(act, "")
-                        tick++
+                section(id = "current", title = "当前设置", collapsible = true) {
+                    val nowText = when {
+                        curRecord != null -> curRecord.displayName
+                        picked.isNotEmpty() -> "已失效（模型被删或关闭了视觉）"
+                        else -> "跟随当前聊天模型"
                     }
-                    for (m in candidates) {
-                        val pv = ProviderStore.providers(act).firstOrNull { it.id == m.providerId }
-                        DhKit.ActionRow(
-                            label = m.displayName,
-                            iconRes = Icons.IC_EYE,
-                            desc = if (pv == null) "供应商已删除" else pv.name,
-                            trailing = if (m.id == picked) "✓" else null
-                        ) {
-                            PetPrefs.setVisionModel(act, m.id)
-                            tick++
+                    item(
+                        "当前识图模型",
+                        value = nowText,
+                        icon = painterResource(Icons.IC_EYE)
+                    ).valueTint(
+                        // 【语义色】失效是"要处理"的状态，用错误色；正常用默认副文本色。
+                        if (picked.isNotEmpty() && curRecord == null) QzxColors.danger else null
+                    ).spot("vision.current")
+                    note("不指定时：聊天模型自己会看图就直接看图，不会看图就用本地识别（只认文字）。")
+                }
+
+                section(id = "candidates", title = "可选模型", collapsible = true) {
+                    if (candidates.isEmpty()) {
+                        note(
+                            "还没有勾选「视觉（VISION）」的模型。" +
+                                "去「提供商 → 某个模型 → 能力」里把「视觉」打开，它才会出现在这里。"
+                        )
+                    } else {
+                        item("跟随当前聊天模型", icon = painterResource(Icons.IC_BOT))
+                            // 【P1-e】默认行为解释，属可选了解。
+                            .desc("不单独指定，用到哪个模型就用哪个的看图能力")
+                            .arrow()
+                            .spot("vision.followChat")
+                            .onClick {
+                                PetPrefs.setVisionModel(act, "")
+                                tick++
+                            }
+                        // 【动态行】候选模型由数据决定，无法静态枚举 —— 声明式列表允许在
+                        //   section 里用 for 循环逐行 add，排版仍归系统（不需要 custom{}）。
+                        for (m in candidates) {
+                            val pv = ProviderStore.providers(act).firstOrNull { it.id == m.providerId }
+                            item(
+                                m.displayName,
+                                value = if (m.id == picked) "✓" else null,
+                                icon = painterResource(Icons.IC_EYE)
+                            ).desc(if (pv == null) "供应商已删除" else pv.name)
+                                .valueTint()
+                                .arrow()
+                                .onClick {
+                                    PetPrefs.setVisionModel(act, m.id)
+                                    tick++
+                                }
                         }
                     }
                 }
-            }
 
-            DhKit.Card(collapsibleTitle = "说明") {
-                DhForm.Note("发图时的顺序：① 聊天模型自己会看图 → 直接看图（最准）；"
-                        + "② 这里指定了识图模型 → 由它把图描述成文字，再交给聊天模型；"
-                        + "③ 都没有 → 本地离线识别，只能读出图上的文字。")
-                DhForm.Note("无论走哪一档，聊天本身始终用你当前选的模型，不会被换掉。")
+                section(id = "help", title = "说明", collapsible = true) {
+                    note(
+                        "发图时的顺序：① 聊天模型自己会看图 → 直接看图（最准）；" +
+                            "② 这里指定了识图模型 → 由它把图描述成文字，再交给聊天模型；" +
+                            "③ 都没有 → 本地离线识别，只能读出图上的文字。"
+                    )
+                    note("无论走哪一档，聊天本身始终用你当前选的模型，不会被换掉。")
+                }
             }
         }
     }
