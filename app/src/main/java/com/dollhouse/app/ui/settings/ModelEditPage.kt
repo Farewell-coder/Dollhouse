@@ -25,8 +25,15 @@ import com.dollhouse.app.ai.Provider
 import com.dollhouse.app.data.ModelStore
 import com.dollhouse.app.data.ProviderStore
 import com.dollhouse.app.ui.compose.ComposeHost
-import com.dollhouse.app.ui.compose.DhForm
-import com.dollhouse.app.ui.compose.DhKit
+import com.dollhouse.app.ui.qzx.QzxButtonSpec
+import com.dollhouse.app.ui.qzx.QzxButtonStyle
+import com.dollhouse.app.ui.qzx.QzxChip
+import com.dollhouse.app.ui.qzx.QzxColors
+import com.dollhouse.app.ui.qzx.QzxList
+import com.dollhouse.app.ui.qzx.QzxPage
+import com.dollhouse.app.ui.qzx.label
+import com.dollhouse.app.ui.qzx.buttons
+import com.dollhouse.app.ui.qzx.chips
 import com.dollhouse.app.ui.compose.DhTokens
 import com.dollhouse.app.ui.design.DhDesign
 import com.dollhouse.app.ui.compose.pressable
@@ -90,157 +97,144 @@ object ModelEditPage {
         var hintText by remember { mutableStateOf<String?>(null) }
         var hintOk by remember { mutableStateOf(false) }
 
-        DhKit.Page(
+        QzxPage(
             title = if (created) "编辑模型" else "添加模型",
-            sub = if (pv == null) "供应商不存在" else pv.name,
-            onBack = { ProviderNav.back(act) }
+            subtitle = if (pv == null) "供应商不存在" else pv.name,
+            onBack = { ProviderNav.back(act) },
+            backIconRes = Icons.IC_ARROW_LEFT,
         ) {
-            // —— 从供应商拉取（跳到模型列表页，那里有搜索 / 全选） ——
-            DhKit.Card {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pressable {
-                            if (pv == null) {
-                                hintOk = false
-                                hintText = "供应商不存在，无法拉取"
+            QzxList {
+                // —— 从供应商拉取 ——
+                section("pull") {
+                    item("从供应商拉取模型", iconRes = Icons.IC_CHEVRON_RIGHT).arrow().onClick {
+                        if (pv == null) {
+                            hintOk = false
+                            hintText = "供应商不存在，无法拉取"
+                        } else {
+                            ProviderNav.openModels(act, pid)
+                        }
+                    }
+                    note("拉回来的模型按「文本聊天 + 流式」建默认记录，之后可回这里逐条调能力。")
+                }
+
+                // —— 基本信息 ——
+                section("basic") {
+                    input("模型名称", name)
+                        .hint("例如 deepseek-v4.1-flash-api")
+                        .onValueChange { name = it }
+                }
+
+                // —— 模型类型 ——
+                section("kind") {
+                    label("模型类型", iconRes = Icons.IC_LAYERS)
+                    chips(
+                        title = "",
+                        options = Array(AiModel.KINDS.size) { i ->
+                            QzxChip(AiModel.kindLabel(AiModel.KINDS[i]), AiModel.KINDS[i])
+                        }.toList(),
+                        selected = setOf(sel.kind),
+                    ) { id, _ ->
+                        // 【单选语义】chips 是多选组，这里只用它的「点一个」：
+                        //   选中集合恒为单元素，所以点任意一项就是切换 —— 等价旧 ChipRow 单选。
+                        sel = normalize(copySel(sel).also { it.kind = id })
+                    }
+                }
+
+                // —— 输入 / 输出模态 ——
+                section("mods") {
+                    val emb = AiModel.KIND_EMBEDDING == sel.kind
+                    val modOpts = Array(ModelEditKit.MODS.size) { i ->
+                        QzxChip(AiModel.modLabel(ModelEditKit.MODS[i]), ModelEditKit.MODS[i])
+                    }.toList()
+                    label("输入模态", iconRes = Icons.IC_BLOCKS)
+                    chips(
+                        title = "",
+                        options = modOpts,
+                        selected = ModelEditKit.MODS.indices
+                            .filter { sel.`in`[it] }
+                            .map { ModelEditKit.MODS[it] }
+                            .toSet(),
+                    ) { id, _ ->
+                        val i = ModelEditKit.MODS.indexOf(id)
+                        if (i >= 0) {
+                            val next = copySel(sel)
+                            next.`in`[i] = !next.`in`[i]
+                            sel = normalize(next)
+                        }
+                    }
+                    label("输出模态", iconRes = Icons.IC_BLOCKS)
+                    chips(
+                        title = "",
+                        options = modOpts,
+                        selected = ModelEditKit.MODS.indices
+                            .filter { sel.out[it] }
+                            .map { ModelEditKit.MODS[it] }
+                            .toSet(),
+                    ) { id, _ ->
+                        val i = ModelEditKit.MODS.indexOf(id)
+                        if (i >= 0) {
+                            val next = copySel(sel)
+                            next.out[i] = !next.out[i]
+                            sel = normalize(next)
+                        }
+                    }
+                    note("勾「视觉」会自动保证输入含图片；类型为「图片」时必须能输出图片。")
+                }
+
+                // —— 能力开关 ——
+                section("caps") {
+                    val emb = AiModel.KIND_EMBEDDING == sel.kind
+                    label("能力", iconRes = Icons.IC_SPARKLES)
+                    switch("视觉（VISION）", checked = sel.vision)
+                        .desc("能理解图片输入")
+                        .enabled(!emb)
+                        .onChecked { v -> sel = normalize(copySel(sel).also { s -> s.vision = v }) }
+                    switch("工具调用（TOOL_CALL）", checked = sel.tool)
+                        .desc("支持函数调用")
+                        .enabled(!emb)
+                        .onChecked { v -> sel = normalize(copySel(sel).also { s -> s.tool = v }) }
+                    switch("推理（REASONING）", checked = sel.reasoning)
+                        .desc("支持思考过程字段")
+                        .enabled(!emb)
+                        .onChecked { v -> sel = normalize(copySel(sel).also { s -> s.reasoning = v }) }
+                    switch("启用", checked = enabled)
+                        .desc("关掉后不出现在聊天页选择器里")
+                        .onChecked { v ->
+                            enabled = v
+                            // 【响应性】启用态一变，主页「打开聊天」的可用性随之改变，必须立刻重算，
+                            //   不能等用户返回主页触发 onResume（否则表现为「关掉全部模型后按钮还赖着不走」）。
+                            if (created) {
+                                ModelStore.setModelEnabled(act, src?.id ?: "", v)
+                            }
+                            HomeUi.syncChatEntryNow(act)
+                        }
+                }
+
+                // —— 可折叠：生成参数 ——
+                section("adv", title = "生成参数", collapsible = true, expanded = advOpen, onToggle = { advOpen = it }) {
+                    switch("流式输出", checked = sel.stream)
+                        .desc("边生成边渲染，长回答不必等整段")
+                        .onChecked { v -> sel = copySel(sel).also { it.stream = v } }
+                }
+
+                // —— 结果提示 + 底栏按钮 ——
+                section("actions", flat = true) {
+                    if (hintText != null) {
+                        note(hintText!!, color = if (hintOk) QzxColors.ok else QzxColors.danger)
+                    }
+                    buttons(
+                        QzxButtonSpec("取消", QzxButtonStyle.Secondary) { ProviderNav.back(act) },
+                        QzxButtonSpec("保存", QzxButtonStyle.Primary) {
+                            val r = save(act, src, pid, name, sel, enabled)
+                            if (r == null) {
+                                hintOk = true
+                                hintText = null
                             } else {
-                                ProviderNav.openModels(act, pid)
+                                hintOk = false
+                                hintText = r
                             }
                         },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // E16-ALLOW: "从供应商拉取模型"动作行文字：8 字固定文案，`weight(1f)` 单行
-                    Text(
-                        text = "从供应商拉取模型",
-                        modifier = Modifier.weight(1f),
-                        color = c.title,
-                        fontSize = UiKit.FS_BTN.sp,
-                        fontFamily = DhTokens.fonts
                     )
-                    DhKit.Icon(Icons.IC_CHEVRON_RIGHT, 18f, c.sub)
-                }
-                DhForm.Note("拉回来的模型按「文本聊天 + 流式」建默认记录，之后可回这里逐条调能力。")
-            }
-
-            // —— 基本信息 ——
-            DhKit.Card {
-                DhForm.Input(name, { name = it }, label = "模型名称", hint = "例如 deepseek-v4.1-flash-api")
-            }
-
-            // —— 模型类型 ——
-            DhKit.Card {
-                DhKit.SectionLabel("模型类型", iconRes = Icons.IC_LAYERS)
-                ChipRow(
-                    labels = Array(AiModel.KINDS.size) { i -> AiModel.kindLabel(AiModel.KINDS[i]) },
-                    selected = Array(AiModel.KINDS.size) { i -> AiModel.KINDS[i] == sel.kind }
-                ) { i ->
-                    sel = normalize(copySel(sel).also { it.kind = AiModel.KINDS[i] })
-                }
-            }
-
-            // —— 输入 / 输出模态 ——
-            DhKit.Card {
-                val emb = AiModel.KIND_EMBEDDING == sel.kind
-                DhKit.SectionLabel("输入模态", iconRes = Icons.IC_BLOCKS)
-                ChipRow(
-                    labels = Array(ModelEditKit.MODS.size) { i -> AiModel.modLabel(ModelEditKit.MODS[i]) },
-                    selected = Array(ModelEditKit.MODS.size) { i -> sel.`in`[i] },
-                    dimmed = Array(ModelEditKit.MODS.size) { i -> emb && AiModel.MOD_TEXT != ModelEditKit.MODS[i] }
-                ) { i ->
-                    val next = copySel(sel)
-                    next.`in`[i] = !next.`in`[i]
-                    sel = normalize(next)
-                }
-                Spacer(Modifier.height(DhDesign.Space.md.dp))
-                DhKit.SectionLabel("输出模态", iconRes = Icons.IC_BLOCKS)
-                ChipRow(
-                    labels = Array(ModelEditKit.MODS.size) { i -> AiModel.modLabel(ModelEditKit.MODS[i]) },
-                    selected = Array(ModelEditKit.MODS.size) { i -> sel.out[i] },
-                    dimmed = Array(ModelEditKit.MODS.size) { i -> emb && AiModel.MOD_TEXT != ModelEditKit.MODS[i] }
-                ) { i ->
-                    val next = copySel(sel)
-                    next.out[i] = !next.out[i]
-                    sel = normalize(next)
-                }
-                DhForm.Note("勾「视觉」会自动保证输入含图片；类型为「图片」时必须能输出图片。")
-            }
-
-            // —— 能力开关 ——
-            DhKit.Card {
-                val emb = AiModel.KIND_EMBEDDING == sel.kind
-                DhKit.SectionLabel("能力", iconRes = Icons.IC_SPARKLES)
-                CapRow("视觉（VISION）", "能理解图片输入", sel.vision, emb) {
-                    sel = normalize(copySel(sel).also { s -> s.vision = !s.vision })
-                }
-                CapRow("工具调用（TOOL_CALL）", "支持函数调用", sel.tool, emb) {
-                    sel = normalize(copySel(sel).also { s -> s.tool = !s.tool })
-                }
-                CapRow("推理（REASONING）", "支持思考过程字段", sel.reasoning, emb) {
-                    sel = normalize(copySel(sel).also { s -> s.reasoning = !s.reasoning })
-                }
-                CapRow("启用", "关掉后不出现在聊天页选择器里", enabled, false) { v ->
-                    enabled = v
-                    // 【响应性】启用态一变，主页「打开聊天」的可用性随之改变，必须立刻重算，
-                    //   不能等用户返回主页触发 onResume（否则表现为「关掉全部模型后按钮还赖着不走」）。
-                    if (created) {
-                        ModelStore.setModelEnabled(act, src?.id ?: "", v)
-                    }
-                    HomeUi.syncChatEntryNow(act)
-                }
-            }
-
-            // —— 可折叠：生成参数 ——
-            DhKit.Card {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pressable { advOpen = !advOpen },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // E16-ALLOW: "生成参数"分组标题：4 字固定
-                    Text(
-                        text = "生成参数",
-                        modifier = Modifier.weight(1f),
-                        color = c.sub,
-                        fontSize = UiKit.FS_SUB.sp,
-                        fontFamily = DhTokens.fonts
-                    )
-                    DhKit.Icon(
-                        if (advOpen) Icons.IC_CHEVRON_UP else Icons.IC_CHEVRON_DOWN,
-                        18f,
-                        c.sub
-                    )
-                }
-                if (advOpen) {
-                    CapRow("流式输出", "边生成边渲染，长回答不必等整段", sel.stream, false) { v ->
-                        sel = copySel(sel).also { it.stream = v }
-                    }
-                }
-            }
-
-            if (hintText != null) {
-                DhForm.Note(hintText!!, color = if (hintOk) c.ok else c.err)
-            }
-
-            // —— 底栏 ——
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = DhDesign.Space.sm.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DhForm.Button("取消", primary = false) { ProviderNav.back(act) }
-                Spacer(Modifier.weight(1f))
-                DhForm.Button("保存") {
-                    val r = save(act, src, pid, name, sel, enabled)
-                    if (r == null) {
-                        hintOk = true
-                        hintText = null
-                    } else {
-                        hintOk = false
-                        hintText = r
-                    }
                 }
             }
         }
