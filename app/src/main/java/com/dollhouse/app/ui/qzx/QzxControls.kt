@@ -499,3 +499,66 @@ internal fun QzxLabelRowContent(row: QzxLabelRow) {
         )
     }
 }
+
+// ───────────────────────── 底部标签栏 ─────────────────────────
+
+/**
+ * 底栏的一项（数据，不含排版）。
+ * @param iconRes 图标资源 id（新系统不持有图标资源）
+ */
+data class QzxNavItem(val iconRes: Int, val label: String)
+
+/**
+ * 底部标签栏 —— 与 `DhKit.NavBar` 同形态（图标在上、文字在下、选中用强调色）。
+ *
+ * 【为什么需要它】三个页面底部有分页切换：`DollEditScreen`（控制/活动/人格/外观）、
+ *   `AppearancePage`（主题/背景/聊天/弹窗）、`ProviderDetailPage`（配置/模型）。
+ *   用 `chips` 代替会**改变位置**（底栏变成内联标签）——那是可感知的交互变化，
+ *   不属于等价迁移。
+ *
+ * 【用法】放进 `QzxPage(bottomBar = { QzxTabBar(...) })`。
+ *   内容区由 `QzxPage` 的 `weight(1f)` 自动让位，底栏固定不滚动。
+ */
+@Composable
+fun QzxTabBar(
+    items: List<QzxNavItem>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val c = QzxColors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .qzxRimLight(corner = QzxTokens.Radius.card)
+            .background(c.card.copy(alpha = 0.92f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items.forEachIndexed { i, item ->
+            val on = i == selected
+            val tint = if (on) c.accent else c.sub
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    // 命中区：底栏高度本身 ≥ 56dp，这里再声明一次下限给门禁看。
+                    .heightIn(min = QzxTokens.Size.minTouch.dp)
+                    .clickable { onSelect(i) }
+                    .padding(vertical = QzxTokens.Space.sm),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    painter = painterResource(item.iconRes),
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(QzxTokens.Space.xl)
+                )
+                Spacer(Modifier.height(QzxTokens.Space.xxs))
+                Text(
+                    text = item.label,
+                    color = tint,
+                    fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                )
+            }
+        }
+    }
+}
