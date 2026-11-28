@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -102,6 +103,16 @@ data class QzxOption(val value: String, val label: String)
  * 调用方**无法**在这里塞 `padding` / `height` / 自定义 `Row`。布局（行高、图标位、危险色）
  * 全归系统。这是"声明式"能守住的关键。
  */
+/** 富行里的一个次要动作。`destructive` 是**语义**（用错误色），不是样式参数。 */
+data class QzxRowAction(
+    val label: String,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+/** 状态行的类型：决定图标色与图标来源（都不由调用方指定）。 */
+enum class QzxStateKind { Empty, Loading, Error }
+
 data class QzxPreviewAction(
     val label: String,
     /** 危险动作（删除 / 清空）：文字用错误色，且永远排在最后。 */
@@ -274,6 +285,44 @@ sealed interface QzxRow {
     /** 逃生口：调用方给一段任意内容，但**仍然**由系统负责左右内边距与分隔线。 */
     data class Custom(val content: @Composable () -> Unit) : QzxRow
 
+    /**
+     * 独立搜索框（无标题、胶囊形、带放大镜与清除）。
+     *
+     * 【为什么不是 `input`】`input` 是「标题 + 输入框」的设置行；
+     *   搜索框没有标题，形态是胶囊、常驻放大镜、有清除按钮 —— 是另一种东西。
+     */
+    data class Search(
+        val hint: String,
+        val query: String,
+        val onQueryChange: (String) -> Unit,
+        /** 放大镜与清除按钮的图标资源 id（由调用方给 —— 新系统不持有图标资源）。 */
+        val iconRes: Int,
+        val clearIconRes: Int,
+    ) : QzxRow
+
+    /**
+     * 富行：标题行 + 一排次要动作按钮（如「重命名 / 删除」）。
+     *
+     * 【为什么需要它】会话历史这类列表，每一行除了「点进去」还有 2 个独立操作。
+     *   普通 `item` 只有一个 `onClick`、长按也只有一个动作 —— 把删除挪到别处
+     *   是**行为改变**，不是等价迁移。
+     */
+    data class Rich(
+        val title: String,
+        val desc: String?,
+        val iconRes: Int?,
+        val onClick: (() -> Unit)?,
+        val actions: List<QzxRowAction>,
+    ) : QzxRow
+
+    /** 空态 / 加载态 / 错误态。 */
+    data class State(
+        val title: String,
+        val body: String?,
+        val iconRes: Int?,
+        val kind: QzxStateKind,
+    ) : QzxRow
+
     data object Divider : QzxRow
 }
 
@@ -386,6 +435,18 @@ class QzxItemBuilder internal constructor(
             enabled = rowEnabled,
             titleTint = titleTintColor
         )
+}
+
+/** 搜索框。 */
+class QzxSearchBuilder internal constructor(
+    private val hint: String,
+    private val query: String,
+    private val iconRes: Int,
+    private val clearIconRes: Int,
+) : QzxRowHolder {
+    private var changeAction: (String) -> Unit = {}
+    fun onQueryChange(block: (String) -> Unit): QzxSearchBuilder = apply { changeAction = block }
+    override fun snapshot(): QzxRow = QzxRow.Search(hint, query, changeAction, iconRes, clearIconRes)
 }
 
 /** 开关行。 */
@@ -601,6 +662,35 @@ class QzxSectionScope internal constructor(
     }
 
     /** 逃生口：任意内容，仍然享系统的左右内边距与分隔线。 */
+    /** 独立搜索框：`search("搜索设置项", query).onQueryChange { query = it }` */
+    fun search(
+        hint: String,
+        query: String,
+        iconRes: Int,
+        clearIconRes: Int,
+    ): QzxSearchBuilder =
+        QzxSearchBuilder(hint, query, iconRes, clearIconRes).also { holders.add(it) }
+
+    /** 富行：标题 + 一排次要动作。 */
+    fun rich(
+        title: String,
+        desc: String? = null,
+        iconRes: Int? = null,
+        onClick: (() -> Unit)? = null,
+        actions: List<QzxRowAction> = emptyList(),
+    ) {
+        holders.add(object : QzxRowHolder {
+            override fun snapshot(): QzxRow = QzxRow.Rich(title, desc, iconRes, onClick, actions)
+        })
+    }
+
+    /** 空态 / 加载态 / 错误态：`state("还没有配置", kind = QzxStateKind.Empty)` */
+    fun state(title: String, body: String? = null, iconRes: Int? = null, kind: QzxStateKind = QzxStateKind.Empty) {
+        holders.add(object : QzxRowHolder {
+            override fun snapshot(): QzxRow = QzxRow.State(title, body, iconRes, kind)
+        })
+    }
+
     fun custom(content: @Composable () -> Unit) {
         holders.add(object : QzxRowHolder {
             override fun snapshot(): QzxRow = QzxRow.Custom(content)
@@ -1200,6 +1290,159 @@ private fun QzxRowView(row: QzxRow, spotTitle: (String) -> String?) {
                 fontSize = QzxTokens.Type.FOOTER_SP.sp,
                 lineHeight = (QzxTokens.Type.FOOTER_SP + QzxTokens.Type.LINE_GAP_SP).sp
             )
+        }
+
+        is QzxRow.Search -> {
+            val source = remember { MutableInteractionSource() }
+            val focused by source.collectIsFocusedAsState()
+            var text by remember(row.query) { mutableStateOf(row.query) }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = QzxTokens.Space.listH, vertical = QzxTokens.Space.xs)
+                    .clip(RoundedCornerShape(QzxTokens.Radius.pill))
+                    .background(c.field)
+                    .border(
+                        width = QzxTokens.Size.hairline,
+                        color = if (focused) c.accent else Color.Transparent,
+                        shape = RoundedCornerShape(QzxTokens.Radius.pill)
+                    )
+                    .padding(horizontal = QzxTokens.Space.md)
+                    .heightIn(min = QzxTokens.Size.minTouch.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(row.iconRes),
+                    contentDescription = null,
+                    tint = c.sub,
+                    modifier = Modifier.size(ROW_ICON_SIZE)
+                )
+                Spacer(Modifier.width(QzxTokens.Space.sm))
+                Box(Modifier.weight(1f)) {
+                    if (text.isEmpty()) {
+                        Text(
+                            text = row.hint,
+                            color = c.sub.copy(alpha = 0.65f),
+                            fontSize = QzxTokens.Type.ROW_VALUE_SP.sp
+                        )
+                    }
+                    BasicTextField(
+                        value = text,
+                        onValueChange = {
+                            text = it
+                            row.onQueryChange(it)
+                        },
+                        interactionSource = source,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = c.title,
+                            fontSize = QzxTokens.Type.ROW_VALUE_SP.sp
+                        ),
+                        cursorBrush = SolidColor(c.accent)
+                    )
+                }
+                if (text.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .sizeIn(minWidth = QzxTokens.Size.minTouch.dp, minHeight = QzxTokens.Size.minTouch.dp)
+                            .clickable {
+                                text = ""
+                                row.onQueryChange("")
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(row.clearIconRes),
+                            contentDescription = "清除",
+                            tint = c.sub,
+                            modifier = Modifier.size(ROW_ICON_SIZE)
+                        )
+                    }
+                }
+            }
+        }
+
+        is QzxRow.Rich -> {
+            Column(modifier = base) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = QzxTokens.Size.minTouch.dp)
+                        .then(if (row.onClick != null) Modifier.clickable(onClick = row.onClick) else Modifier),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    QzxRowLeading(
+                        title = row.title,
+                        desc = row.desc,
+                        iconRes = row.iconRes,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (row.onClick != null) QzxChevron(down = false)
+                }
+                if (row.actions.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = QzxTokens.Space.sm),
+                        horizontalArrangement = Arrangement.spacedBy(QzxTokens.Space.sm)
+                    ) {
+                        row.actions.forEach { a ->
+                            Text(
+                                text = a.label,
+                                modifier = Modifier
+                                    .heightIn(min = QzxTokens.Size.minTouch.dp)
+                                    .clickable(onClick = a.onClick)
+                                    .padding(horizontal = QzxTokens.Space.sm, vertical = QzxTokens.Space.md),
+                                color = if (a.destructive) c.danger else c.accent,
+                                fontSize = QzxTokens.Type.ROW_VALUE_SP.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        is QzxRow.State -> {
+            val tone = when (row.kind) {
+                QzxStateKind.Empty -> c.sub
+                QzxStateKind.Loading -> c.sub
+                QzxStateKind.Error -> c.danger
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = QzxTokens.Space.listH,
+                        vertical = QzxTokens.Space.xxl
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (row.iconRes != null) {
+                    Icon(
+                        painter = painterResource(row.iconRes),
+                        contentDescription = null,
+                        tint = tone,
+                        modifier = Modifier.size(QzxTokens.Space.xxl * 2)
+                    )
+                    Spacer(Modifier.height(QzxTokens.Space.md))
+                }
+                Text(
+                    text = row.title,
+                    color = if (row.kind == QzxStateKind.Error) c.danger else c.title,
+                    fontSize = QzxTokens.Type.ROW_TITLE_SP.sp,
+                    textAlign = TextAlign.Center
+                )
+                if (!row.body.isNullOrEmpty()) {
+                    Spacer(Modifier.height(QzxTokens.Space.xs))
+                    Text(
+                        text = row.body,
+                        color = c.sub,
+                        fontSize = QzxTokens.Type.FOOTER_SP.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
 
         is QzxRow.Custom -> {
